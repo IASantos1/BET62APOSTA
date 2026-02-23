@@ -319,12 +319,13 @@ class LiveScoresWebSocket {
 
       // 20% de chance de atualizar odds
       if (Math.random() < 0.2) {
+        if (!match.odds) return;
         const oddsUpdate: LiveOddsUpdate = {
           matchId,
           odds: {
-            home: this.randomOddsChange(match.odds?.home || 2.0),
-            draw: this.randomOddsChange(match.odds?.draw || 3.5),
-            away: this.randomOddsChange(match.odds?.away || 2.5),
+            home: this.randomOddsChange(match.odds.home),
+            draw: this.randomOddsChange(match.odds.draw),
+            away: this.randomOddsChange(match.odds.away),
           },
           timestamp: Date.now(),
         };
@@ -495,6 +496,25 @@ class LiveScoresWebSocket {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
+   * ✅ Atualizar odds reais vindas do backend
+   */
+  updateMatchOdds(matchId: string, odds: { home: number; draw: number; away: number }): void {
+    const match = this.liveMatches.get(matchId);
+    if (!match) return;
+
+    (match as any).odds = odds;
+    this.liveMatches.set(matchId, match);
+
+    const oddsUpdate: LiveOddsUpdate = {
+      matchId,
+      odds,
+      timestamp: Date.now(),
+    };
+
+    this.emit('odds_update', oddsUpdate);
+  }
+
+  /**
    * Registar jogos ao vivo para receber atualizações
    */
   registerMatches(matches: Match[]): void {
@@ -502,16 +522,29 @@ class LiveScoresWebSocket {
       const matchId = String(match.id);
       this.liveMatches.set(matchId, match);
       
-      // Inicializar placar
       if (match.homeScore !== undefined && match.awayScore !== undefined) {
         this.lastScores.set(matchId, {
           home: match.homeScore,
           away: match.awayScore,
         });
       }
+
+      if ((match as any).odds) {
+        const o = (match as any).odds as { home: number; draw: number; away: number };
+        this.updateMatchOdds(matchId, o);
+      }
     });
 
     console.log(`📝 [WebSocket] ${matches.length} jogos registados para atualizações`);
+  }
+
+  /**
+   * Recebe batch de odds do backend
+   */
+  updateOddsBatch(list: { matchId: string; odds: { home: number; draw: number; away: number } }[]): void {
+    list.forEach((item) => {
+      this.updateMatchOdds(item.matchId, item.odds);
+    });
   }
 
   /**

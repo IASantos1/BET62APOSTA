@@ -159,17 +159,13 @@ export async function apiFootballRequest(endpoint: string, sport: string = 'foot
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ Proxy Error:', response.status, errorText);
-      
       if (isRateLimitError(null, response.status, errorText)) {
         handleRateLimitError();
-        
         const expiredCache = localCache.get(cacheKey);
         if (expiredCache) {
           return expiredCache.data;
         }
       }
-      
       return { response: [] };
     }
 
@@ -202,23 +198,19 @@ export async function apiFootballRequest(endpoint: string, sport: string = 'foot
     
     return data;
   } catch (error) {
-    console.error('❌ API-Football request failed:', error);
-    
     if (isRateLimitError(error)) {
       handleRateLimitError();
-      
       const expiredCache = localCache.get(cacheKey);
       if (expiredCache) {
         return expiredCache.data;
       }
     }
-    
     return { response: [] };
   }
 }
 
 /**
- * ✅ PROXY SUPABASE - THE ODDS API
+ * ✅ PROXY BACKEND LOCAL - THE ODDS API
  */
 export async function oddsApiRequest(
   endpoint: string,
@@ -288,6 +280,66 @@ export async function oddsApiRequest(
       }
     }
 
+    return [];
+  }
+}
+
+export async function saveOddsSnapshot(payload: {
+  fixtureId: string;
+  bookmaker: string;
+  market: string;
+  marketType: string;
+  line?: string | number | null;
+  value?: number;
+  odds: number;
+  source?: string;
+}): Promise<void> {
+  try {
+    await apiFetch('/sports/odds-history', {
+      method: 'POST',
+      body: JSON.stringify({
+        fixture_id: payload.fixtureId,
+        bookmaker: payload.bookmaker,
+        market: payload.market,
+        market_type: payload.marketType,
+        line: payload.line ?? null,
+        value: payload.value ?? 0,
+        odds: payload.odds,
+        source: payload.source ?? 'engine',
+      }),
+    });
+  } catch (error) {
+    console.error('Erro ao salvar snapshot de odds:', error);
+  }
+}
+
+export async function getOddsHistory(fixtureId: string, limit: number = 200): Promise<
+  Array<{
+    id: string;
+    fixture_id: string;
+    bookmaker: string;
+    market: string;
+    market_type: string;
+    line: string | null;
+    value: number;
+    odds: number;
+    created_at: string;
+    source: string;
+  }>
+> {
+  const params = new URLSearchParams({
+    fixture_id: fixtureId,
+    limit: String(limit),
+  });
+
+  try {
+    const data = await apiFetch(`/sports/odds-history?${params.toString()}`, {
+      method: 'GET',
+    });
+    const history = Array.isArray(data?.history) ? data.history : [];
+    return history;
+  } catch (error) {
+    console.error('Erro ao carregar histórico de odds:', error);
     return [];
   }
 }

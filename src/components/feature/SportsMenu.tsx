@@ -512,8 +512,8 @@ export function SportsMenu({
                           className={`w-full px-3 py-1.5 pl-14 flex items-center justify-between transition-all cursor-pointer ${
                             selectedLeague === league.league
                               ? theme === 'dark'
-                                ? 'bg-amber-500/15 text-amber-400'
-                                : 'bg-amber-100 text-amber-700'
+                                ? 'bg-red-600/15 text-red-300'
+                                : 'bg-red-50 text-red-700'
                               : theme === 'dark'
                                 ? 'hover:bg-gray-800/40 text-gray-500'
                                 : 'hover:bg-gray-200 text-gray-600'
@@ -545,8 +545,8 @@ export function SportsMenu({
                 className={`w-full px-3 py-1.5 pl-10 flex items-center justify-between transition-all cursor-pointer ${
                   selectedLeague === league.league
                     ? theme === 'dark'
-                      ? 'bg-amber-500/15 text-amber-400'
-                      : 'bg-amber-100 text-amber-700'
+                      ? 'bg-red-600/15 text-red-300'
+                      : 'bg-red-50 text-red-700'
                     : theme === 'dark'
                       ? 'hover:bg-gray-800/40 text-gray-500'
                       : 'hover:bg-gray-200 text-gray-600'
@@ -571,7 +571,7 @@ export function SportsMenu({
       {/* ✅ TOP COMPETIÇÕES (5 ligas automáticas - PRÉ-JOGOS + AO VIVO) */}
       <div className="mb-3">
         <div className={`px-3 py-2 flex items-center gap-2 ${
-          theme === 'dark' ? 'text-amber-400' : 'text-amber-600'
+          theme === 'dark' ? 'text-red-400' : 'text-red-600'
         }`}>
           <span className="text-sm">⭐</span>
           <span className="text-xs font-bold uppercase tracking-wide">Top Competições</span>
@@ -585,8 +585,8 @@ export function SportsMenu({
               className={`w-full px-3 py-2 pl-6 flex items-center justify-between transition-all cursor-pointer ${
                 selectedLeague === league.league
                   ? theme === 'dark'
-                    ? 'bg-amber-500/20 text-amber-400 border-l-2 border-amber-400'
-                    : 'bg-amber-100 text-amber-700 border-l-2 border-amber-500'
+                    ? 'bg-red-600/20 text-red-300 border-l-2 border-red-400'
+                    : 'bg-red-50 text-red-700 border-l-2 border-red-500'
                   : theme === 'dark'
                     ? 'hover:bg-gray-800/50 text-gray-300'
                     : 'hover:bg-gray-100 text-gray-700'
@@ -624,8 +624,8 @@ export function SportsMenu({
           className={`w-full px-3 py-2.5 flex items-center justify-between transition-all cursor-pointer ${
             sportsExpanded
               ? theme === 'dark'
-                ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/10 text-amber-400'
-                : 'bg-gradient-to-r from-amber-100 to-orange-50 text-amber-700'
+                ? 'bg-gradient-to-r from-red-600/20 to-red-500/10 text-red-300'
+                : 'bg-gradient-to-r from-red-50 to-red-100 text-red-700'
               : theme === 'dark'
                 ? 'hover:bg-gray-800/40 text-gray-300'
                 : 'hover:bg-gray-50 text-gray-700'
@@ -634,10 +634,10 @@ export function SportsMenu({
           <div className="flex items-center gap-2.5">
             <div className={`w-6 h-6 flex items-center justify-center rounded-lg ${
               sportsExpanded 
-                ? theme === 'dark' ? 'bg-amber-500/30' : 'bg-amber-200'
+                ? theme === 'dark' ? 'bg-red-600/30' : 'bg-red-100'
                 : theme === 'dark' ? 'bg-gray-800' : 'bg-gray-200'
             }`}>
-              <i className={`ri-apps-2-line text-sm ${sportsExpanded ? 'text-amber-400' : ''}`}></i>
+              <i className={`ri-apps-2-line text-sm ${sportsExpanded ? 'text-red-300' : ''}`}></i>
             </div>
             <span className="text-xs font-bold">Todos os Desportos</span>
           </div>

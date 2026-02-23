@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useAuth } from '../../../contexts/AuthContext';
 import { apiFetch } from '../../../services/backendClient';
 
 interface MultibancoFormProps {
@@ -8,6 +9,7 @@ interface MultibancoFormProps {
 }
 
 export default function MultibancoForm({ amount, onSubmit, loading: _loading }: MultibancoFormProps) {
+  const { user } = useAuth();
   const [generated, setGenerated] = useState(false);
   const [generatingRef, setGeneratingRef] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -19,6 +21,10 @@ export default function MultibancoForm({ amount, onSubmit, loading: _loading }: 
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
 
   const handleGenerate = async () => {
+    if (!user) {
+      setError('Sessão expirada. Faz login para gerar a referência Multibanco.');
+      return;
+    }
     setGeneratingRef(true);
     setError('');
 
@@ -53,6 +59,15 @@ export default function MultibancoForm({ amount, onSubmit, loading: _loading }: 
     // Formatar referência em grupos de 3 dígitos
     return ref.match(/.{1,3}/g)?.join(' ') || ref;
   };
+
+  if (!user) {
+    return (
+      <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-xl text-center">
+        <i className="ri-lock-line text-3xl text-yellow-600 mb-2"></i>
+        <p className="text-sm text-yellow-800 font-medium">Inicia sessão para gerar a referência Multibanco.</p>
+      </div>
+    );
+  }
 
   if (generated && !generatingRef) {
     return (
@@ -118,7 +133,9 @@ export default function MultibancoForm({ amount, onSubmit, loading: _loading }: 
               <p className="text-sm font-medium text-amber-800">
                 Referência válida até {expiresAt ? new Date(expiresAt * 1000).toLocaleDateString('pt-PT') : '24 horas'}
               </p>
-              <p className="text-xs text-amber-600 mt-1">O saldo será creditado automaticamente após o pagamento (1-5 minutos).</p>
+              <p className="text-xs text-amber-600 mt-1">
+                Após efetuares o pagamento, o saldo será creditado quando o pagamento for confirmado no sistema.
+              </p>
             </div>
           </div>
         </div>
@@ -160,7 +177,7 @@ export default function MultibancoForm({ amount, onSubmit, loading: _loading }: 
         <div>
           <p className="text-sm text-teal-800 font-medium">Como funciona o Multibanco?</p>
           <p className="text-xs text-teal-600 mt-1">
-            Será gerada uma referência de pagamento que podes usar em qualquer ATM Multibanco ou no teu homebanking. O saldo é creditado automaticamente após o pagamento.
+            Será gerada uma referência de pagamento que podes usar em qualquer ATM Multibanco ou no teu homebanking. O saldo é creditado depois de o pagamento ser confirmado no sistema.
           </p>
         </div>
       </div>

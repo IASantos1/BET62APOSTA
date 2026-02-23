@@ -358,6 +358,125 @@ export function getApiFootballCacheStats() {
   };
 }
 
+export interface FixturesParams {
+  id?: string;
+  ids?: string;
+  live?: string;
+  league?: string;
+  season?: string;
+  date?: string;
+  next?: string;
+  last?: string;
+  status?: string;
+  team?: string;
+  from?: string;
+  to?: string;
+  timezone?: string;
+  venue?: string;
+  round?: string;
+}
+
+export async function fetchFixtures<T = any>(
+  params: FixturesParams = {},
+  cacheTTL: number = 30000
+): Promise<T[]> {
+  return fetchApiFootball<T>('football', 'fixtures', params as Record<string, string>, cacheTTL);
+}
+
+export async function fetchFixtureRounds<T = any>(
+  leagueId: string,
+  season: string,
+  opts: { dates?: boolean; current?: boolean } = {},
+  cacheTTL: number = 3600000
+): Promise<T[]> {
+  const params: Record<string, string> = {
+    league: leagueId,
+    season,
+  };
+  if (opts.dates) params.dates = 'true';
+  if (opts.current) params.current = 'true';
+  return fetchApiFootball<T>('football', 'fixtures/rounds', params, cacheTTL);
+}
+
+export interface HeadToHeadParams {
+  h2h: string;
+  status?: string;
+  from?: string;
+  to?: string;
+  league?: string;
+  season?: string;
+  last?: string;
+  next?: string;
+  date?: string;
+  timezone?: string;
+}
+
+export async function fetchHeadToHead<T = any>(
+  params: HeadToHeadParams,
+  cacheTTL: number = 30000
+): Promise<T[]> {
+  const q: Record<string, string> = { h2h: params.h2h };
+  if (params.status) q.status = params.status;
+  if (params.from) q.from = params.from;
+  if (params.to) q.to = params.to;
+  if (params.league) q.league = params.league;
+  if (params.season) q.season = params.season;
+  if (params.last) q.last = params.last;
+  if (params.next) q.next = params.next;
+  if (params.date) q.date = params.date;
+  if (params.timezone) q.timezone = params.timezone;
+  return fetchApiFootball<T>('football', 'fixtures/headtohead', q, cacheTTL);
+}
+
+export interface PlayerProfilesParams {
+  player?: string;
+  search?: string;
+  page?: string;
+}
+
+export async function fetchPlayerProfiles<T = any>(
+  params: PlayerProfilesParams = {},
+  cacheTTL: number = 3600000
+): Promise<T[]> {
+  return fetchApiFootball<T>('football', 'players/profiles', params as Record<string, string>, cacheTTL);
+}
+
+export interface PlayersParams {
+  season: string;
+  id?: string;
+  team?: string;
+  league?: string;
+  search?: string;
+  page?: string;
+}
+
+export async function fetchPlayers<T = any>(
+  params: PlayersParams,
+  cacheTTL: number = 3600000
+): Promise<T[]> {
+  const q: Record<string, string> = { season: params.season };
+  if (params.id) q.id = params.id;
+  if (params.team) q.team = params.team;
+  if (params.league) q.league = params.league;
+  if (params.search) q.search = params.search;
+  if (params.page) q.page = params.page;
+  return fetchApiFootball<T>('football', 'players', q, cacheTTL);
+}
+
+export async function fetchPlayerSquads<T = any>(
+  teamId: string,
+  cacheTTL: number = 3600000
+): Promise<T[]> {
+  return fetchApiFootball<T>('football', 'players/squads', { team: teamId }, cacheTTL);
+}
+
+export async function fetchPlayersTeams<T = any>(
+  playerId: string,
+  cacheTTL: number = 3600000
+): Promise<T[]> {
+  return fetchApiFootball<T>('football', 'players/teams', { player: playerId }, cacheTTL);
+}
+
 /**
  * ✅ Busca eventos de todos os desportos ao vivo VIA PROXY
  */

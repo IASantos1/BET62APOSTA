@@ -119,8 +119,8 @@ export default function TransferForm({ amount, onSubmit, loading }: TransferForm
 
         {/* Valor */}
         <div>
-          <p className="text-xs text-emerald-600 font-medium uppercase tracking-wider mb-1">Valor a Transferir</p>
-          <div className="bg-white rounded-xl px-4 py-3 border border-emerald-200">
+          <p className="text-xs text-amber-500 font-medium uppercase tracking-wider mb-1">Valor a Transferir</p>
+          <div className="bg-white rounded-xl px-4 py-3 border border-amber-300">
             <span className="text-2xl font-bold text-gray-900">€{amount.toFixed(2)}</span>
           </div>
         </div>
@@ -139,7 +139,7 @@ export default function TransferForm({ amount, onSubmit, loading }: TransferForm
       <button
         onClick={handleConfirm}
         disabled={loading}
-        className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 text-white py-4 rounded-xl font-semibold hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer shadow-lg shadow-emerald-200"
+        className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white py-4 rounded-xl font-semibold hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer shadow-lg shadow-red-300"
       >
         {loading ? (
           <>

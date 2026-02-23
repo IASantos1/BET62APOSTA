@@ -6,6 +6,7 @@ import { Footer } from '../../components/feature/Footer';
 import { MobileBottomNav } from '../../components/feature/MobileBottomNav';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProfile } from '../../hooks/useProfile';
+import { useLimits } from '../../hooks/useLimits';
 import { useNotification } from '../../contexts/NotificationContext';
 import { apiFetch } from '../../services/backendClient';
 import MBWayForm from './components/MBWayForm';
@@ -29,8 +30,8 @@ const paymentMethods = [
   {
     id: 'card',
     name: 'Cartões',
-    icon: 'ri-bank-card-line',
-    description: 'Visa, Mastercard, Amex',
+    icon: 'ri-visa-line',
+    description: 'Visa, Mastercard',
     color: 'from-blue-500 to-blue-600',
     bgLight: 'bg-blue-50',
     borderActive: 'border-blue-400 ring-2 ring-blue-200',
@@ -63,8 +64,9 @@ const quickAmounts = [10, 20, 50, 100, 200, 500];
 export default function DepositPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { profile } = useProfile();
+  const { profile: _profile } = useProfile();
   const { addNotification: _addNotification } = useNotification();
+  const { limits, loading: limitsLoading } = useLimits();
 
   const [amount, setAmount] = useState<string>('');
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(null);
@@ -97,10 +99,6 @@ export default function DepositPage() {
       navigate('/login');
       return;
     }
-    if (profile && profile.email_verified === false) {
-      setError('Confirme o seu email antes de depositar. Use “Verificar Email”.');
-      return;
-    }
     if (depositAmount < 10) {
       setError('O valor mínimo de depósito é €10');
       return;
@@ -116,7 +114,11 @@ export default function DepositPage() {
   /** Choose payment method */
   const handleMethodSelect = (method: PaymentMethod) => {
     setSelectedMethod(method);
-    setStep('payment');
+    if (method === 'mbway') {
+      setStep('payment');
+    } else {
+      setStep('payment');
+    }
   };
 
   /** Navigate back through the steps */
@@ -131,15 +133,11 @@ export default function DepositPage() {
     }
   };
 
-  /** Core deposit logic – creates a pending transaction and handles instant‑payment simulation */
+  /** Core deposit logic – cria uma transação pendente e delega confirmação ao backend/admin */
   const processDeposit = async (paymentMethod: string, details?: Record<string, string>) => {
     if (!user) {
       setError('Sessão expirada. Faça login novamente.');
       navigate('/login');
-      return;
-    }
-    if (profile && profile.email_verified === false) {
-      setError('Confirme o seu email antes de depositar. Vá a “Verificar Email”.');
       return;
     }
 
@@ -160,29 +158,16 @@ export default function DepositPage() {
         }),
       });
 
-      // Simulate instant confirmation for MB WAY
-      if (paymentMethod === 'mbway') {
-        setTimeout(async () => {
-          await apiFetch('/wallet/deposit', {
-            method: 'POST',
-            body: JSON.stringify({
-              amount: depositAmount,
-              payment_method: 'mbway',
-              description: 'Depósito via MB WAY',
-            }),
-          });
-          setSuccessMessage(`Depósito de €${depositAmount.toFixed(2)} via MB WAY confirmado!`);
-          setLoading(false);
-          setStep('amount');
-          setAmount('');
-          setSelectedMethod(null);
-          await fetchBalance();
-        }, 3000);
-        return;
-      }
-
-      // For other methods we just stop the loading state – real integration would go here
+      const methodLabel = paymentMethod.toUpperCase();
+      setSuccessMessage(
+        `Pedido de depósito de €${depositAmount.toFixed(
+          2,
+        )} via ${methodLabel} criado. Assim que o pagamento for confirmado, o saldo será atualizado automaticamente.`,
+      );
       setLoading(false);
+      setStep('amount');
+      setAmount('');
+      setSelectedMethod(null);
     } catch (err: any) {
       console.error('Erro ao processar depósito:', err);
       setError(err.message || 'Erro ao processar depósito. Tenta novamente.');
@@ -191,17 +176,22 @@ export default function DepositPage() {
   };
 
   /** Handlers for each specific payment form */
-  const handleMBWaySubmit = (phone: string) => {
-    processDeposit('mbway', { phone });
+  const handleMBWaySubmit = (_phone: string) => {
+    // MB WAY agora é totalmente gerido pelo Stripe + webhook no MBWayForm
+    // Não criamos transação pendente manual aqui para evitar mensagens inconsistentes
+    setSuccessMessage('');
   };
 
   const handleCardSubmit = async () => {
-    // Placeholder – will be replaced with real PayPal integration
-    setError('Pagamento com cartão será disponibilizado em breve via PayPal.');
+    await fetchBalance();
+    setSuccessMessage(`Depósito de €${depositAmount.toFixed(2)} via PayPal (Cartão) confirmado!`);
+    setStep('amount');
+    setAmount('');
+    setSelectedMethod(null);
   };
 
   const handleMultibancoSubmit = () => {
-    processDeposit('multibanco');
+    setSuccessMessage('');
   };
 
   const handleTransferSubmit = () => {
@@ -217,24 +207,6 @@ export default function DepositPage() {
       <Header />
 
       <main className="flex-1 pt-24 pb-24 lg:pb-16">
-        {profile && profile.email_verified === false && (
-          <div className="max-w-2xl mx-auto px-4">
-            <div className="mb-4 p-4 rounded-xl border border-amber-300 bg-amber-50 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <i className="ri-mail-check-line text-amber-600"></i>
-                <span className="text-sm text-amber-800 font-medium">
-                  Confirme o seu email para ativar depósitos com segurança.
-                </span>
-              </div>
-              <button
-                onClick={() => navigate('/verify-email')}
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-black rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"
-              >
-                Verificar Email
-              </button>
-            </div>
-          </div>
-        )}
         <div className="max-w-2xl mx-auto px-4">
           {/* Header */}
           <div className="bg-white rounded-2xl shadow-sm p-6 mb-4">
@@ -296,6 +268,21 @@ export default function DepositPage() {
             </div>
           </div>
 
+          {!limitsLoading && (limits.maxDailyDeposit || limits.maxMonthlyDeposit) && (
+            <div className="bg-gray-100 rounded-2xl border border-gray-200 p-4 mb-4">
+              <p className="text-xs font-semibold text-gray-700 mb-1">Limites de depósito</p>
+              <p className="text-xs text-gray-600">
+                {limits.maxDailyDeposit && (
+                  <span>Diário: €{limits.maxDailyDeposit.toFixed(2)}</span>
+                )}
+                {limits.maxDailyDeposit && limits.maxMonthlyDeposit && <span> • </span>}
+                {limits.maxMonthlyDeposit && (
+                  <span>Mensal: €{limits.maxMonthlyDeposit.toFixed(2)}</span>
+                )}
+              </p>
+            </div>
+          )}
+
           {/* Mensagens de Sucesso */}
           {successMessage && (
             <div className="mb-4 bg-green-50 border border-green-200 rounded-xl p-4">
@@ -309,7 +296,6 @@ export default function DepositPage() {
                 </div>
                 <div>
                   <p className="font-semibold text-green-900 text-sm">{successMessage}</p>
-                  {!loading && <p className="text-xs text-green-700 mt-0.5">O teu saldo foi atualizado.</p>}
                 </div>
                 {!loading && (
                   <button

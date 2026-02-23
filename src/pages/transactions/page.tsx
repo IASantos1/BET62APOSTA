@@ -203,7 +203,7 @@ export default function TransactionsPage() {
         <div className="max-w-6xl mx-auto px-4">
 
           {/* Header */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => navigate(-1)}
@@ -225,6 +225,10 @@ export default function TransactionsPage() {
               <i className={`ri-refresh-line text-lg ${isDark ? 'text-gray-300' : 'text-gray-600'}`}></i>
             </button>
           </div>
+
+          <p className={`text-xs mb-6 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+            Aqui encontras o registo completo de depósitos, levantamentos, apostas e ganhos da tua conta.
+          </p>
 
           {/* Quick Stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">

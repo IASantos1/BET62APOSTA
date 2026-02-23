@@ -1,8 +1,15 @@
 import http from 'http';
 import https from 'https';
+import fs from 'fs';
+import path from 'path';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
+import Stripe from 'stripe';
 
 const PORT = Number(process.env.API_PORT || 4000);
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
+const stripeWebhookSecret =
+  process.env.STRIPE_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET || '';
+const stripe = stripeSecretKey ? new Stripe(stripeSecretKey, { apiVersion: '2024-06-20' }) : null;
 
 type User = {
   id: string;
@@ -28,6 +35,68 @@ type AuditLog = {
   email: string;
   userId?: string;
   success: boolean;
+};
+type League = {
+  id: string;
+  id_api: string;
+  name: string;
+  logo: string;
+  country: string;
+  sport: string;
+  source: string;
+};
+type Team = {
+  id: string;
+  id_api: string;
+  name: string;
+  logo: string;
+  league_id: string;
+  sport: string;
+  source: string;
+};
+type Fixture = {
+  id: string;
+  id_api: string;
+  league_id: string;
+  home_team_id: string;
+  away_team_id: string;
+  kickoff: string;
+  status: string;
+  minute: number | null;
+  home_score: number | null;
+  away_score: number | null;
+  sport: string;
+  source: string;
+  last_odds_snapshot_id?: string;
+};
+type OddsSnapshot = {
+  id: string;
+  fixture_id: string;
+  bookmaker: string;
+  market: string;
+  market_type: string;
+  line: string | null;
+  value: number;
+  odds: number;
+  created_at: string;
+  source: string;
+};
+type Event = {
+  id: string;
+  fixture_id: string;
+  type: string;
+  player: string | null;
+  minute: number | null;
+  payload: any;
+  created_at: string;
+  source: string;
+};
+type Statistics = {
+  id: string;
+  fixture_id: string;
+  payload: any;
+  created_at: string;
+  source: string;
 };
 const users = new Map<string, User>();
 const sessions = new Map<string, Session>();
@@ -58,6 +127,12 @@ const profiles = new Map<
     self_exclusion_reason?: string;
   }
 >();
+const leaguesStore: League[] = [];
+const teamsStore: Team[] = [];
+const fixturesStore: Fixture[] = [];
+const oddsHistoryStore: OddsSnapshot[] = [];
+const eventsStore: Event[] = [];
+const statisticsStore: Statistics[] = [];
 const kycDocuments: {
   id: string;
   user_id: string;
@@ -82,6 +157,538 @@ const transactionsStore: {
   created_at: string;
   updated_at: string;
 }[] = [];
+
+let liveFixturesInterval: NodeJS.Timeout | null = null;
+let liveEventsInterval: NodeJS.Timeout | null = null;
+let liveOddsInterval: NodeJS.Timeout | null = null;
+let upcomingFixturesInterval: NodeJS.Timeout | null = null;
+
+function isLeagueBlocked(name: string): boolean {
+  const n = name.toLowerCase();
+
+  const femaleKeywords = ['women', 'feminino', 'feminina', 'feminine', 'womens'];
+  if (femaleKeywords.some((k) => n.includes(k))) return true;
+
+  const youthKeywords = [
+    'u17',
+    'u18',
+    'u19',
+    'u20',
+    'u21',
+    'u23',
+    'youth',
+    'junior',
+    'júnior',
+    'juniors',
+    'sub-17',
+    'sub-18',
+    'sub-19',
+    'sub-20',
+    'sub-21',
+    'sub-23',
+  ];
+  if (youthKeywords.some((k) => n.includes(k))) return true;
+
+  const reserveKeywords = ['reserve', 'reserves', 'b team', 'b-team', 'ii', 'iii'];
+  if (reserveKeywords.some((k) => n.includes(k))) return true;
+
+  const friendlyKeywords = ['friendly', 'amistoso', 'club friendlies', 'friendlies'];
+  if (friendlyKeywords.some((k) => n.includes(k))) return true;
+
+  return false;
+}
+
+function ensureLeagueFromApiFootball(payload: any): League | null {
+  const leagueApiId = payload && payload.id != null ? String(payload.id) : '';
+  if (!leagueApiId) {
+    return null;
+  }
+
+  let league = leaguesStore.find(
+    (l) => l.id_api === leagueApiId && l.source === 'api-football',
+  );
+
+  const name = String(payload.name || '');
+
+  if (isLeagueBlocked(name)) {
+    return null;
+  }
+
+  if (!league) {
+    league = {
+      id: randomBytes(16).toString('hex'),
+      id_api: leagueApiId,
+      name,
+      logo: String(payload.logo || ''),
+      country: String(payload.country || ''),
+      sport: 'football',
+      source: 'api-football',
+    };
+    leaguesStore.push(league);
+  }
+
+  return league;
+}
+
+function ensureTeamFromApiFootball(payload: any, league: League | null): Team | null {
+  const teamApiId = payload && payload.id != null ? String(payload.id) : '';
+  if (!teamApiId) {
+    return null;
+  }
+
+  let team = teamsStore.find(
+    (t) => t.id_api === teamApiId && t.source === 'api-football',
+  );
+
+  if (!team) {
+    team = {
+      id: randomBytes(16).toString('hex'),
+      id_api: teamApiId,
+      name: String(payload.name || ''),
+      logo: String(payload.logo || ''),
+      league_id: league ? league.id : '',
+      sport: 'football',
+      source: 'api-football',
+    };
+    teamsStore.push(team);
+  }
+
+  return team;
+}
+
+function registerOddsSnapshot(
+  fixtureId: string,
+  bookmaker: string,
+  market: string,
+  marketType: string,
+  line: string | null,
+  value: number,
+  odds: number,
+  source: string,
+) {
+  if (!fixtureId || !Number.isFinite(odds) || odds <= 1) {
+    return;
+  }
+
+  for (let i = oddsHistoryStore.length - 1; i >= 0; i--) {
+    const s = oddsHistoryStore[i];
+    if (
+      s.fixture_id === fixtureId &&
+      s.bookmaker === bookmaker &&
+      s.market === market &&
+      s.market_type === marketType &&
+      s.line === line &&
+      s.value === value
+    ) {
+      if (Math.abs(s.odds - odds) < 0.0001) {
+        return;
+      }
+      break;
+    }
+  }
+
+  const now = new Date().toISOString();
+  const snapshot: OddsSnapshot = {
+    id: randomBytes(16).toString('hex'),
+    fixture_id: fixtureId,
+    bookmaker,
+    market,
+    market_type: marketType,
+    line,
+    value,
+    odds,
+    created_at: now,
+    source,
+  };
+
+  oddsHistoryStore.push(snapshot);
+
+  const fixtureIndex = fixturesStore.findIndex((f) => f.id === fixtureId);
+  if (fixtureIndex !== -1) {
+    fixturesStore[fixtureIndex].last_odds_snapshot_id = snapshot.id;
+  }
+}
+
+async function syncLiveFixturesFromApiFootball() {
+  const data = await fetchApiFootball('football', 'fixtures', { live: 'all' });
+  if (!data || !Array.isArray(data.response)) {
+    return;
+  }
+
+  for (const item of data.response) {
+    const fixturePayload = item && item.fixture ? item.fixture : {};
+    const leaguePayload = item && item.league ? item.league : {};
+    const teamsPayload = item && item.teams ? item.teams : {};
+    const goalsPayload = item && item.goals ? item.goals : {};
+
+    const league = ensureLeagueFromApiFootball(leaguePayload);
+    if (!league) {
+      continue;
+    }
+    const homeTeam = ensureTeamFromApiFootball(teamsPayload.home, league);
+    const awayTeam = ensureTeamFromApiFootball(teamsPayload.away, league);
+
+    const fixtureApiId =
+      fixturePayload && fixturePayload.id != null ? String(fixturePayload.id) : '';
+    if (!fixtureApiId || !homeTeam || !awayTeam || !league) {
+      continue;
+    }
+
+    const statusPayload = fixturePayload.status || {};
+    const statusShort = String(
+      statusPayload.short || statusPayload.long || 'NS',
+    );
+    const minute =
+      typeof statusPayload.elapsed === 'number' ? statusPayload.elapsed : null;
+
+    const homeScore =
+      goalsPayload && typeof goalsPayload.home === 'number'
+        ? goalsPayload.home
+        : null;
+    const awayScore =
+      goalsPayload && typeof goalsPayload.away === 'number'
+        ? goalsPayload.away
+        : null;
+
+    const kickoff = fixturePayload.date
+      ? String(fixturePayload.date)
+      : new Date().toISOString();
+
+    let fixture = fixturesStore.find(
+      (f) => f.id_api === fixtureApiId && f.source === 'api-football',
+    );
+
+    if (!fixture) {
+      fixture = {
+        id: randomBytes(16).toString('hex'),
+        id_api: fixtureApiId,
+        league_id: league.id,
+        home_team_id: homeTeam.id,
+        away_team_id: awayTeam.id,
+        kickoff,
+        status: statusShort,
+        minute,
+        home_score: homeScore,
+        away_score: awayScore,
+        sport: 'football',
+        source: 'api-football',
+      };
+      fixturesStore.push(fixture);
+    } else {
+      fixture.league_id = league.id;
+      fixture.home_team_id = homeTeam.id;
+      fixture.away_team_id = awayTeam.id;
+      fixture.kickoff = kickoff;
+      fixture.status = statusShort;
+      fixture.minute = minute;
+      fixture.home_score = homeScore;
+      fixture.away_score = awayScore;
+    }
+  }
+}
+
+async function syncUpcomingFixturesFromApiFootball() {
+  const data = await fetchApiFootball('football', 'fixtures', { next: 60 });
+  if (!data || !Array.isArray(data.response)) {
+    return;
+  }
+
+  for (const item of data.response) {
+    const fixturePayload = item && item.fixture ? item.fixture : {};
+    const leaguePayload = item && item.league ? item.league : {};
+    const teamsPayload = item && item.teams ? item.teams : {};
+    const goalsPayload = item && item.goals ? item.goals : {};
+
+    const league = ensureLeagueFromApiFootball(leaguePayload);
+    if (!league) {
+      continue;
+    }
+    const homeTeam = ensureTeamFromApiFootball(teamsPayload.home, league);
+    const awayTeam = ensureTeamFromApiFootball(teamsPayload.away, league);
+
+    const fixtureApiId =
+      fixturePayload && fixturePayload.id != null ? String(fixturePayload.id) : '';
+    if (!fixtureApiId || !homeTeam || !awayTeam || !league) {
+      continue;
+    }
+
+    const statusPayload = fixturePayload.status || {};
+    const statusShort = String(statusPayload.short || statusPayload.long || 'NS');
+    const minute =
+      typeof statusPayload.elapsed === 'number' ? statusPayload.elapsed : null;
+
+    const homeScore =
+      goalsPayload && typeof goalsPayload.home === 'number'
+        ? goalsPayload.home
+        : null;
+    const awayScore =
+      goalsPayload && typeof goalsPayload.away === 'number'
+        ? goalsPayload.away
+        : null;
+
+    const kickoff = fixturePayload.date
+      ? String(fixturePayload.date)
+      : new Date().toISOString();
+
+    let fixture = fixturesStore.find(
+      (f) => f.id_api === fixtureApiId && f.source === 'api-football',
+    );
+
+    if (!fixture) {
+      fixture = {
+        id: randomBytes(16).toString('hex'),
+        id_api: fixtureApiId,
+        league_id: league.id,
+        home_team_id: homeTeam.id,
+        away_team_id: awayTeam.id,
+        kickoff,
+        status: statusShort,
+        minute,
+        home_score: homeScore,
+        away_score: awayScore,
+        sport: 'football',
+        source: 'api-football',
+      };
+      fixturesStore.push(fixture);
+    } else {
+      fixture.league_id = league.id;
+      fixture.home_team_id = homeTeam.id;
+      fixture.away_team_id = awayTeam.id;
+      fixture.kickoff = kickoff;
+      fixture.status = statusShort;
+      fixture.minute = minute;
+      fixture.home_score = homeScore;
+      fixture.away_score = awayScore;
+    }
+  }
+}
+
+async function syncLiveEventsFromApiFootball() {
+  const targets = fixturesStore.filter(
+    (f) =>
+      f.sport === 'football' &&
+      f.source === 'api-football' &&
+      f.minute !== null &&
+      f.status !== 'FT',
+  );
+
+  for (const fixture of targets) {
+    const data = await fetchApiFootball('football', 'fixtures/events', {
+      fixture: fixture.id_api,
+    });
+    if (!data || !Array.isArray(data.response)) {
+      continue;
+    }
+
+    for (const item of data.response) {
+      const timePayload = item && item.time ? item.time : {};
+      const playerPayload = item && item.player ? item.player : {};
+
+      const minute =
+        typeof timePayload.elapsed === 'number' ? timePayload.elapsed : null;
+      const type = String(item.type || '');
+      const player = playerPayload.name ? String(playerPayload.name) : null;
+
+      const exists = eventsStore.some(
+        (e) =>
+          e.fixture_id === fixture.id &&
+          e.type === type &&
+          e.player === player &&
+          e.minute === minute,
+      );
+
+      if (exists) {
+        continue;
+      }
+
+      const event: Event = {
+        id: randomBytes(16).toString('hex'),
+        fixture_id: fixture.id,
+        type,
+        player,
+        minute,
+        payload: item,
+        created_at: new Date().toISOString(),
+        source: 'api-football',
+      };
+
+      eventsStore.push(event);
+    }
+  }
+}
+
+async function syncLiveOddsFromApiFootball() {
+  const candidates = fixturesStore.filter((f) => {
+    if (f.sport !== 'football') return false;
+    if (f.status && ['1H', '2H', 'ET', 'PEN', 'LIVE', 'INPLAY', 'HT'].includes(String(f.status).toUpperCase())) {
+      return true;
+    }
+    if (f.minute !== null && f.status !== 'FT') {
+      return true;
+    }
+    return false;
+  });
+
+  const ids = candidates.map((f) => f.id_api).slice(0, 40);
+  for (const id of ids) {
+    const data = await fetchApiFootball('football', 'odds/live', { fixture: id });
+    if (!data || !Array.isArray(data.response) || data.response.length === 0) {
+      continue;
+    }
+
+    const item = data.response[0];
+    const fixture = fixturesStore.find(
+      (f) => f.id_api === String(id) && f.source === 'api-football',
+    );
+    if (!fixture) {
+      continue;
+    }
+
+    const bookmakers = Array.isArray(item.bookmakers) ? item.bookmakers : [];
+    if (!bookmakers.length) {
+      continue;
+    }
+
+    const mainBookmaker = bookmakers[0];
+    const bookmakerName = String(mainBookmaker.name || mainBookmaker.bookmaker || 'api-football');
+    const bets = Array.isArray(mainBookmaker.bets) ? mainBookmaker.bets : [];
+
+    for (const bet of bets) {
+      const betName = String(bet.name || '');
+      const betId = typeof bet.id === 'number' ? bet.id : parseInt(String(bet.id || ''), 10);
+      const values = Array.isArray(bet.values) ? bet.values : [];
+      if (!values.length) continue;
+
+      const normalizedName = betName.toLowerCase();
+      const isMatchWinnerBet =
+        betId === 1 ||
+        normalizedName.includes('match winner') ||
+        normalizedName.includes('matchwinner') ||
+        normalizedName.includes('1x2') ||
+        normalizedName.includes('fulltime result') ||
+        normalizedName.includes('full time result') ||
+        normalizedName.includes('resultado final');
+
+      if (!isMatchWinnerBet) continue;
+
+      for (const v of values) {
+        const rawValue = String(v.value || '');
+        const odd = v.odd != null ? Number(v.odd) : NaN;
+        if (!Number.isFinite(odd)) continue;
+
+        let line: string | null = null;
+        const normalized = rawValue.toLowerCase();
+        if (normalized === 'home' || normalized === '1') line = 'home';
+        else if (normalized === 'draw' || normalized === 'x') line = 'draw';
+        else if (normalized === 'away' || normalized === '2') line = 'away';
+        else continue;
+
+        registerOddsSnapshot(
+          fixture.id,
+          bookmakerName,
+          '1X2',
+          'match_winner',
+          line,
+          0,
+          odd,
+          'api-football',
+        );
+      }
+    }
+  }
+}
+
+function getLatestLiveOddsSnapshotForFixture(
+  fixtureId: string,
+): { home: number; draw: number; away: number } | null {
+  const snapshots = oddsHistoryStore.filter(
+    (s) => s.fixture_id === fixtureId && s.market === '1X2' && s.market_type === 'match_winner',
+  );
+
+  if (!snapshots.length) {
+    return null;
+  }
+
+  snapshots.sort((a, b) => {
+    if (a.created_at < b.created_at) return -1;
+    if (a.created_at > b.created_at) return 1;
+    return 0;
+  });
+
+  let home: number | null = null;
+  let draw: number | null = null;
+  let away: number | null = null;
+
+  for (let i = snapshots.length - 1; i >= 0; i--) {
+    const s = snapshots[i];
+    if (s.line === 'home' && home == null) {
+      home = s.odds;
+    } else if (s.line === 'draw' && draw == null) {
+      draw = s.odds;
+    } else if (s.line === 'away' && away == null) {
+      away = s.odds;
+    }
+
+    if (home != null && draw != null && away != null) {
+      break;
+    }
+  }
+
+  if (home == null || away == null) {
+    return null;
+  }
+
+  return { home, draw: draw ?? 0, away };
+}
+
+function startLiveDataScheduler() {
+  if (!apiFootballKey) {
+    console.log('API-Football não configurada, scheduler LIVE desativado');
+    return;
+  }
+
+  console.log(
+    'Chave API-Football carregada:',
+    apiFootballKey ? 'SIM' : 'NÃO',
+    apiFootballKey ? apiFootballKey.slice(0, 4) + '...' : '',
+  );
+
+  if (liveFixturesInterval || liveEventsInterval || liveOddsInterval || upcomingFixturesInterval) {
+    return;
+  }
+
+  Promise.resolve()
+    .then(() => syncLiveFixturesFromApiFootball().catch(() => {}))
+    .then(() => syncUpcomingFixturesFromApiFootball().catch(() => {}))
+    .then(() => syncLiveEventsFromApiFootball().catch(() => {}))
+    .then(() => syncLiveOddsFromApiFootball().catch(() => {}));
+
+  liveFixturesInterval = setInterval(() => {
+    syncLiveFixturesFromApiFootball().catch((err) => {
+      console.error('Erro ao sincronizar fixtures LIVE da API-Football', err);
+    });
+  }, 20000);
+
+  upcomingFixturesInterval = setInterval(() => {
+    syncUpcomingFixturesFromApiFootball().catch((err) => {
+      console.error('Erro ao sincronizar fixtures UPCOMING da API-Football', err);
+    });
+  }, 60000);
+
+  liveEventsInterval = setInterval(() => {
+    syncLiveEventsFromApiFootball().catch((err) => {
+      console.error('Erro ao sincronizar eventos LIVE da API-Football', err);
+    });
+  }, 20000);
+
+  liveOddsInterval = setInterval(() => {
+    syncLiveOddsFromApiFootball().catch((err) => {
+      console.error('Erro ao sincronizar odds LIVE da API-Football', err);
+    });
+  }, 15000);
+
+  console.log('Scheduler LIVE da API-Football iniciado');
+}
 const betsStore: {
   id: string;
   user_id: string;
@@ -198,7 +805,15 @@ const apiFootballKey =
   process.env.API_FOOTBALL_KEY ||
   process.env.VITE_API_FOOTBALL_KEY ||
   process.env.API_FOOTBALL_KEY_ALT ||
+  process.env.X_RAPIDAPI_KEY ||
+  process.env['x-rapidapi-key'] ||
   '';
+const apiFootballProvider =
+  (process.env.API_FOOTBALL_PROVIDER ||
+    (process.env.X_RAPIDAPI_KEY || process.env['x-rapidapi-key'] ? 'rapidapi' : 'apisports')).toLowerCase() ===
+  'rapidapi'
+    ? 'rapidapi'
+    : 'apisports';
 
 const apiFootballEndpoints: Record<string, string> = {
   football: 'https://v3.football.api-sports.io',
@@ -215,6 +830,35 @@ const apiFootballEndpoints: Record<string, string> = {
 };
 
 const apiFootballRateLimit: Record<string, { count: number; resetTime: number }> = {};
+
+function getApiFootballBaseUrl(sport: string): string | null {
+  if (apiFootballProvider === 'rapidapi') {
+    if (sport !== 'football') {
+      console.error('RapidAPI atualmente suportado apenas para football');
+      return null;
+    }
+    return 'https://api-football-v1.p.rapidapi.com/v3';
+  }
+
+  const baseUrl = apiFootballEndpoints[sport];
+  if (!baseUrl) {
+    return null;
+  }
+  return baseUrl;
+}
+
+function getApiFootballHeaders(): Record<string, string> {
+  if (apiFootballProvider === 'rapidapi') {
+    return {
+      'x-rapidapi-key': apiFootballKey,
+      'x-rapidapi-host': 'api-football-v1.p.rapidapi.com',
+    };
+  }
+
+  return {
+    'x-apisports-key': apiFootballKey,
+  };
+}
 
 function checkApiFootballRateLimit(sport: string): { allowed: boolean; remaining: number; resetIn: number } {
   const now = Date.now();
@@ -253,20 +897,179 @@ function checkApiFootballRateLimit(sport: string): { allowed: boolean; remaining
   };
 }
 
-function sendJson(res: http.ServerResponse, status: number, data: any) {
+function buildApiFootballFixturesFromStore(liveOnly: boolean) {
+  const items = fixturesStore.filter((f) => {
+    if (f.sport !== 'football') return false;
+    const league = leaguesStore.find((l) => l.id === f.league_id);
+    if (!league || isLeagueBlocked(league.name)) return false;
+    if (liveOnly) {
+      if (f.status && ['1H', '2H', 'ET', 'PEN', 'LIVE', 'INPLAY', 'HT'].includes(String(f.status).toUpperCase())) {
+        return true;
+      }
+      if (f.minute !== null && f.status !== 'FT') return true;
+      return false;
+    } else {
+      const isNotStarted = !f.minute && (!f.status || ['NS', 'TBD', 'PST'].includes(String(f.status).toUpperCase()));
+      if (!isNotStarted) return false;
+      const kickoffTs = f.kickoff ? Date.parse(f.kickoff) : Date.now();
+      return kickoffTs >= Date.now();
+    }
+  });
+  const response = items.map((f) => {
+    const league = leaguesStore.find((l) => l.id === f.league_id);
+    const home = teamsStore.find((t) => t.id === f.home_team_id);
+    const away = teamsStore.find((t) => t.id === f.away_team_id);
+    const fixtureIdNum = Number.parseInt(String(f.id_api || ''), 10);
+    return {
+      fixture: {
+        id: Number.isFinite(fixtureIdNum) ? fixtureIdNum : 0,
+        date: f.kickoff || new Date().toISOString(),
+        status: {
+          short: f.status || 'NS',
+          elapsed: f.minute != null ? f.minute : null,
+        },
+        venue: {
+          name: '',
+        },
+      },
+      league: {
+        name: league ? league.name : '',
+        logo: league ? league.logo : '',
+        country: league ? league.country : '',
+        flag: '',
+      },
+      teams: {
+        home: {
+          name: home ? home.name : '',
+          logo: home ? home.logo : '',
+        },
+        away: {
+          name: away ? away.name : '',
+          logo: away ? away.logo : '',
+        },
+      },
+      goals: {
+        home: f.home_score != null ? f.home_score : null,
+        away: f.away_score != null ? f.away_score : null,
+      },
+    };
+  });
+  return { response };
+}
+
+async function fetchApiFootball(
+  sport: string,
+  endpoint: string,
+  params: Record<string, string | number | boolean> = {},
+): Promise<any | null> {
+  const baseUrl = getApiFootballBaseUrl(sport);
+  if (!baseUrl) {
+    console.error('Desporto não suportado para API-Football:', sport);
+    return null;
+  }
+
+  if (!apiFootballKey) {
+    console.error('API_FOOTBALL_KEY não configurada');
+    return null;
+  }
+
+  const rateLimit = checkApiFootballRateLimit(sport);
+  if (!rateLimit.allowed) {
+    console.warn(
+      `Rate limit excedido para API-Football (${sport}), reset em ${rateLimit.resetIn}s`,
+    );
+    return null;
+  }
+
+  const apiUrl = new URL(`${baseUrl}/${endpoint}`);
+  Object.entries(params).forEach(([key, value]) => {
+    apiUrl.searchParams.append(key, String(value));
+  });
+
+  const requestOptions: https.RequestOptions = {
+    method: 'GET',
+    headers: getApiFootballHeaders(),
+  };
+
+  const client = apiUrl.protocol === 'https:' ? https : http;
+
+  return await new Promise((resolve) => {
+    const externalReq = client.request(apiUrl.toString(), requestOptions, (externalRes) => {
+      const chunks: Buffer[] = [];
+      externalRes.on('data', (chunk) => chunks.push(chunk));
+      externalRes.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        try {
+          const data = raw ? JSON.parse(raw) : {};
+          if (data.errors && Object.keys(data.errors).length > 0) {
+            console.error(
+              'API-Football retornou erro',
+              {
+                sport,
+                endpoint,
+                statusCode: externalRes.statusCode,
+              },
+              data.errors,
+            );
+            resolve(null);
+            return;
+          }
+          console.log('API-Football resposta', {
+            sport,
+            endpoint,
+            statusCode: externalRes.statusCode,
+            hasResponse: Array.isArray((data as any).response),
+          });
+          resolve(data);
+        } catch (err) {
+          console.error('Resposta inválida da API-Football', {
+            sport,
+            endpoint,
+            statusCode: externalRes.statusCode,
+            error: err,
+            rawSample: raw.slice(0, 200),
+          });
+          resolve(null);
+        }
+      });
+    });
+
+    externalReq.on('error', (err) => {
+      console.error('Erro ao chamar API-Football', {
+        sport,
+        endpoint,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      resolve(null);
+    });
+
+    externalReq.end();
+  });
+}
+
+function getAllowedOrigin(req?: http.IncomingMessage): string {
+  const fallback = process.env.CLIENT_ORIGIN || 'http://localhost:4000';
+  const origin = (req?.headers?.origin as string) || '';
+  if (origin.startsWith('http://localhost')) {
+    return origin;
+  }
+  return fallback;
+}
+
+function sendJson(res: http.ServerResponse, status: number, data: any, req?: http.IncomingMessage) {
+  const allowedOrigin = getAllowedOrigin(req);
   res.writeHead(status, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+    'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'Access-Control-Allow-Credentials': 'true',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'SAMEORIGIN',
     'Referrer-Policy': 'no-referrer',
-    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
     'Content-Security-Policy':
       "default-src 'none'; connect-src 'self' http://localhost:5173 http://localhost:4000 ws:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; font-src 'self' data:",
-  });
+  } as any);
   res.end(JSON.stringify(data));
 }
 
@@ -434,7 +1237,7 @@ async function seedAdmin(): Promise<void> {
     name,
   };
   users.set(id, user);
-  walletBalances.set(id, { balance: 1000 });
+  walletBalances.set(id, { balance: 0 });
   const now = new Date().toISOString();
   profiles.set(id, {
     id,
@@ -443,7 +1246,7 @@ async function seedAdmin(): Promise<void> {
     full_name: name,
     name,
     phone: '',
-    balance: 1000,
+    balance: 0,
     free_bet_balance: 0,
     is_admin: true,
     status: 'active',
@@ -455,13 +1258,14 @@ async function seedAdmin(): Promise<void> {
 }
 const server = http.createServer(async (req, res) => {
   if (!req.url) {
-    sendJson(res, 404, { error: 'Not found' });
+    sendJson(res, 404, { error: 'Not found' }, req);
     return;
   }
 
   if (req.method === 'OPTIONS') {
+    const allowedOrigin = getAllowedOrigin(req);
     res.writeHead(200, {
-      'Access-Control-Allow-Origin': process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+      'Access-Control-Allow-Origin': allowedOrigin,
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
       'Access-Control-Allow-Credentials': 'true',
@@ -471,39 +1275,94 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.url === '/health' && req.method === 'GET') {
-    sendJson(res, 200, { status: 'ok' });
+    sendJson(res, 200, { status: 'ok' }, req);
     return;
   }
 
-  if (req.url.startsWith('/sports/api-football-proxy') && req.method === 'GET') {
+  if (
+    req.method === 'GET' &&
+    (req.url?.startsWith('/media-proxy') || req.url?.startsWith('/api/media-proxy'))
+  ) {
+    try {
+      const urlObj = new URL(req.url!, `http://localhost:${PORT}`);
+      const target = urlObj.searchParams.get('url') || '';
+      if (!target) {
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end('');
+        return;
+      }
+
+      let parsed: URL;
+      try {
+        parsed = new URL(target);
+      } catch {
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end('');
+        return;
+      }
+
+      const host = parsed.hostname.toLowerCase();
+      const allowed =
+        host === 'media.api-sports.io' || host.endsWith('.api-sports.io');
+      if (!allowed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end('');
+        return;
+      }
+
+      const client = parsed.protocol === 'https:' ? https : http;
+      const proxyReq = client.request(parsed.toString(), { method: 'GET' }, (proxyRes) => {
+        const status = proxyRes.statusCode || 200;
+        const type = proxyRes.headers['content-type'] || 'image/png';
+        res.writeHead(200, { 'Content-Type': Array.isArray(type) ? type[0] : type });
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', () => {
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end('');
+      });
+      proxyReq.end();
+    } catch {
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      res.end('');
+    }
+    return;
+  }
+
+  if ((req.url.startsWith('/sports/api-football-proxy') || req.url.startsWith('/api/sports/api-football-proxy')) && req.method === 'GET') {
     const url = new URL(req.url, `http://localhost:${PORT}`);
     const sport = url.searchParams.get('sport');
     const endpoint = url.searchParams.get('endpoint');
 
     if (!sport || !endpoint) {
-      sendJson(res, 400, { error: 'Parâmetros sport e endpoint são obrigatórios' });
+      // Nunca rebentar no frontend; devolver lista vazia
+      sendJson(res, 200, { response: [] });
       return;
     }
 
-    const baseUrl = apiFootballEndpoints[sport];
-    if (!baseUrl) {
-      sendJson(res, 400, { error: `Desporto não suportado: ${sport}` });
-      return;
-    }
-
-    if (!apiFootballKey) {
-      sendJson(res, 500, { error: 'API_FOOTBALL_KEY não configurada' });
+    const baseUrl = sport ? getApiFootballBaseUrl(sport) : null;
+    if (!baseUrl || !sport || !apiFootballKey) {
+      const ep = String(endpoint || '').toLowerCase();
+      const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
+      if (sport === 'football' && isFixturesLive) {
+        const data = buildApiFootballFixturesFromStore(true);
+        sendJson(res, 200, data);
+      } else {
+        sendJson(res, 200, { response: [] });
+      }
       return;
     }
 
     const rateLimit = checkApiFootballRateLimit(sport);
     if (!rateLimit.allowed) {
-      sendJson(res, 429, {
-        error: 'Rate limit excedido',
-        sport,
-        message: `Limite de 1200 requisições/minuto para ${sport} excedido`,
-        resetIn: rateLimit.resetIn,
-      });
+      const ep = String(endpoint || '').toLowerCase();
+      const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
+      if (sport === 'football' && isFixturesLive) {
+        const data = buildApiFootballFixturesFromStore(true);
+        sendJson(res, 200, data);
+      } else {
+        sendJson(res, 200, { response: [] });
+      }
       return;
     }
 
@@ -516,9 +1375,7 @@ const server = http.createServer(async (req, res) => {
 
     const requestOptions: https.RequestOptions = {
       method: 'GET',
-      headers: {
-        'x-apisports-key': apiFootballKey,
-      },
+      headers: getApiFootballHeaders(),
     };
 
     const client = apiUrl.protocol === 'https:' ? https : http;
@@ -531,21 +1388,329 @@ const server = http.createServer(async (req, res) => {
         try {
           const data = raw ? JSON.parse(raw) : {};
           if (data.errors && Object.keys(data.errors).length > 0) {
-            sendJson(res, 400, { error: 'API-Football retornou erro', details: data.errors });
+            const ep = String(endpoint || '').toLowerCase();
+            const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
+            if (sport === 'football' && isFixturesLive) {
+              const fallback = buildApiFootballFixturesFromStore(true);
+              sendJson(res, 200, fallback);
+            } else {
+              sendJson(res, 200, { response: [] });
+            }
             return;
           }
-          sendJson(res, 200, data);
+          const ep = String(endpoint || '').toLowerCase();
+          const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
+          if (sport === 'football' && isFixturesLive && (!data || !Array.isArray((data as any).response) || (data as any).response.length === 0)) {
+            const fallback = buildApiFootballFixturesFromStore(true);
+            sendJson(res, 200, fallback);
+          } else {
+            sendJson(res, 200, data);
+          }
         } catch {
-          sendJson(res, 502, { error: 'Resposta inválida da API-Football' });
+          const ep = String(endpoint || '').toLowerCase();
+          const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
+          if (sport === 'football' && isFixturesLive) {
+            const fallback = buildApiFootballFixturesFromStore(true);
+            sendJson(res, 200, fallback);
+          } else {
+            sendJson(res, 200, { response: [] });
+          }
         }
       });
     });
 
     externalReq.on('error', (err) => {
-      sendJson(res, 502, { error: 'Erro ao chamar API-Football', details: String(err) });
+      console.error('Erro ao chamar API-Football:', String(err));
+      const ep = String(endpoint || '').toLowerCase();
+      const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
+      if (sport === 'football' && isFixturesLive) {
+        const fallback = buildApiFootballFixturesFromStore(true);
+        sendJson(res, 200, fallback);
+      } else {
+        sendJson(res, 200, { response: [] });
+      }
     });
 
     externalReq.end();
+    return;
+  }
+
+  if (
+    req.method === 'GET' &&
+    (req.url === '/football/odds/live' ||
+      req.url === '/api/football/odds/live' ||
+      (req.url && req.url.startsWith('/football/odds/live?')) ||
+      (req.url && req.url.startsWith('/api/football/odds/live?')))
+  ) {
+    console.log('[ENDPOINT /odds/live] Pedido recebido - construindo resposta');
+
+    const result: { matchId: string; odds: { home: number; draw: number; away: number } }[] = [];
+
+    const relevantFixtures = fixturesStore.filter((f) => {
+      if (f.sport !== 'football') return false;
+      const league = leaguesStore.find((l) => l.id === f.league_id);
+      if (league && isLeagueBlocked(league.name)) return false;
+      const status = String(f.status || '').toUpperCase();
+      const kickoffTs = f.kickoff ? Date.parse(f.kickoff) : 0;
+      const isRecent = kickoffTs > Date.now() - 24 * 60 * 60 * 1000;
+      return (
+        isRecent &&
+        (status.includes('LIVE') ||
+          status === '1H' ||
+          status === '2H' ||
+          f.minute != null)
+      );
+    });
+
+    console.log(`[ENDPOINT] ${relevantFixtures.length} jogos relevantes encontrados`);
+
+    for (const fixture of relevantFixtures) {
+      let odds = getLatestLiveOddsSnapshotForFixture(fixture.id);
+
+      if (
+        !odds ||
+        !Number.isFinite(odds.home) ||
+        odds.home <= 1.01 ||
+        !Number.isFinite(odds.away) ||
+        odds.away <= 1.01
+      ) {
+        console.log(
+          `[ENDPOINT] Cache vazio ou inválido para ${fixture.id_api} → fetch direto`,
+        );
+        try {
+          const data = await fetchApiFootball('football', 'odds/live', {
+            fixture: fixture.id_api,
+          });
+          if (
+            !data ||
+            !Array.isArray(data.response) ||
+            !data.response[0] ||
+            !data.response[0].bookmakers ||
+            !data.response[0].bookmakers[0] ||
+            !Array.isArray(data.response[0].bookmakers[0].bets)
+          ) {
+            odds = null;
+          } else {
+            const item = data.response[0];
+            const bookmaker = item.bookmakers[0];
+            const bets = bookmaker.bets;
+            const matchWinner = bets.find((b: any) => {
+              const name = String(b.name || '').toLowerCase();
+              return (
+                b.id === 1 ||
+                name.includes('1x2') ||
+                name.includes('match winner') ||
+                name.includes('matchwinner') ||
+                name.includes('fulltime result') ||
+                name.includes('full time result') ||
+                name.includes('resultado final')
+              );
+            });
+
+            if (matchWinner && Array.isArray(matchWinner.values)) {
+              let home: number | null = null;
+              let draw: number | null = null;
+              let away: number | null = null;
+
+              for (const v of matchWinner.values) {
+                const label = String(v.value || '').toLowerCase().trim();
+                const odd = Number(v.odd);
+                if (!Number.isFinite(odd) || odd <= 1.01) continue;
+                if ((label === 'home' || label === '1') && home == null) home = odd;
+                if ((label === 'draw' || label === 'x') && draw == null) draw = odd;
+                if ((label === 'away' || label === '2') && away == null) away = odd;
+              }
+
+              if (home && away) {
+                const bookmakerName = String(
+                  bookmaker.name || bookmaker.bookmaker || 'api-football',
+                );
+
+                odds = {
+                  home,
+                  draw: draw ?? 0,
+                  away,
+                };
+
+                registerOddsSnapshot(
+                  fixture.id,
+                  bookmakerName,
+                  '1X2',
+                  'match_winner',
+                  'home',
+                  0,
+                  home,
+                  'api-football',
+                );
+                if (draw) {
+                  registerOddsSnapshot(
+                    fixture.id,
+                    bookmakerName,
+                    '1X2',
+                    'match_winner',
+                    'draw',
+                    0,
+                    draw,
+                    'api-football',
+                  );
+                }
+                registerOddsSnapshot(
+                  fixture.id,
+                  bookmakerName,
+                  '1X2',
+                  'match_winner',
+                  'away',
+                  0,
+                  away,
+                  'api-football',
+                );
+
+                console.log(
+                  `[SYNC OK] ${fixture.id_api} → ${home} / ${draw || '-'} / ${away}`,
+                );
+              } else {
+                odds = null;
+              }
+            } else {
+              odds = null;
+            }
+          }
+        } catch (err) {
+          console.error(`Fetch direto falhou para ${fixture.id_api}:`, err);
+          odds = null;
+        }
+      }
+
+      if (
+        odds &&
+        Number.isFinite(odds.home) &&
+        Number.isFinite(odds.away) &&
+        odds.home > 1.01 &&
+        odds.away > 1.01
+      ) {
+        const home = Number(odds.home.toFixed(2));
+        const away = Number(odds.away.toFixed(2));
+        const draw =
+          odds.draw && odds.draw > 1.01 ? Number(odds.draw.toFixed(2)) : 0;
+
+        result.push({
+          matchId: fixture.id_api,
+          odds: {
+            home,
+            draw,
+            away,
+          },
+        });
+
+        console.log(
+          `[ENDPOINT OK] ${fixture.id_api} → ${home} / ${
+            draw > 1.01 ? draw : '-'
+          } / ${away}`,
+        );
+      }
+    }
+
+    console.log(`[ENDPOINT] Resposta final: ${result.length} jogos com odds`);
+
+    sendJson(res, 200, result, req);
+    return;
+  }
+
+  if (
+    req.method === 'GET' &&
+    (req.url === '/football/odds/upcoming' ||
+      req.url === '/api/football/odds/upcoming' ||
+      (req.url && req.url.startsWith('/football/odds/upcoming?')) ||
+      (req.url && req.url.startsWith('/api/football/odds/upcoming?')))
+  ) {
+    const upcomingFixtures = fixturesStore.filter((f) => {
+      if (f.sport !== 'football') return false;
+      const league = leaguesStore.find((l) => l.id === f.league_id);
+      if (league && isLeagueBlocked(league.name)) return false;
+      const status = String(f.status || '').toUpperCase();
+      const isNotStarted =
+        (f.minute == null || f.minute === 0) &&
+        (!status || ['NS', 'TBD', 'PST'].includes(status));
+      if (!isNotStarted) return false;
+      const kickoffTs = f.kickoff ? Date.parse(f.kickoff) : Date.now();
+      return Number.isFinite(kickoffTs) && kickoffTs >= Date.now();
+    });
+
+    let result: { matchId: string; odds: { home: number; draw: number; away: number } }[] = [];
+    const toFetch: typeof upcomingFixtures = [];
+
+    for (const fixture of upcomingFixtures) {
+      const odds = getLatestLiveOddsSnapshotForFixture(fixture.id);
+      if (odds) {
+        result.push({ matchId: fixture.id_api, odds });
+      } else {
+        toFetch.push(fixture);
+      }
+    }
+
+    const limited = toFetch.slice(0, 40);
+    for (const fixture of limited) {
+      try {
+        const data = await fetchApiFootball('football', 'odds', {
+          fixture: fixture.id_api,
+        });
+        if (!data || !Array.isArray(data.response) || data.response.length === 0) {
+          continue;
+        }
+        const item = data.response[0];
+        const bookmakers = Array.isArray(item.bookmakers) ? item.bookmakers : [];
+        if (!bookmakers.length) continue;
+        const mainBookmaker = bookmakers[0];
+        const bets = Array.isArray(mainBookmaker.bets) ? mainBookmaker.bets : [];
+        const matchWinner = bets.find((b: any) => {
+          const betName = String(b?.name || '');
+          const betId =
+            typeof b?.id === 'number' ? b.id : parseInt(String(b?.id || ''), 10);
+          const n = betName.toLowerCase();
+          return (
+            betId === 1 ||
+            n.includes('match winner') ||
+            n.includes('matchwinner') ||
+            n.includes('1x2') ||
+            n.includes('fulltime result') ||
+            n.includes('full time result') ||
+            n.includes('resultado final')
+          );
+        });
+        if (!matchWinner || !Array.isArray(matchWinner.values)) continue;
+
+        let home: number | null = null;
+        let draw: number | null = null;
+        let away: number | null = null;
+        for (const v of matchWinner.values) {
+          const label = String(v?.value || '').toLowerCase();
+          const odd = v?.odd != null ? Number(v.odd) : NaN;
+          if (!Number.isFinite(odd) || odd <= 1.01) continue;
+          if ((label === 'home' || label === '1') && home == null) home = odd;
+          if ((label === 'draw' || label === 'x') && draw == null) draw = odd;
+          if ((label === 'away' || label === '2') && away == null) away = odd;
+        }
+        if (home != null && away != null) {
+          result.push({
+            matchId: fixture.id_api,
+            odds: { home: home, draw: draw ?? 0, away: away },
+          });
+        }
+      } catch {}
+    }
+
+    sendJson(res, 200, result, req);
+    return;
+  }
+
+  if (
+    req.method === 'GET' &&
+    (req.url === '/basketball/odds/live' ||
+      req.url === '/api/basketball/odds/live' ||
+      (req.url && req.url.startsWith('/basketball/odds/live?')) ||
+      (req.url && req.url.startsWith('/api/basketball/odds/live?')))
+  ) {
+    sendJson(res, 200, [], req);
     return;
   }
 
@@ -593,18 +1758,100 @@ const server = http.createServer(async (req, res) => {
       },
     ];
 
-    sendJson(res, 200, sports);
+    sendJson(res, 200, sports, req);
+    return;
+  }
+
+  if (req.url && (req.url === '/api/setIsSelect' || req.url.startsWith('/api/setIsSelect'))) {
+    sendJson(res, 200, { ok: true }, req);
+    return;
+  }
+
+  if (req.url && (req.url === '/api/webviewClick' || req.url.startsWith('/api/webviewClick'))) {
+    sendJson(res, 200, { ok: true }, req);
     return;
   }
 
   if (req.url === '/auth/session' && req.method === 'GET') {
     const user = getUserFromRequest(req);
     if (!user) {
-      sendJson(res, 200, { user: null });
+      sendJson(res, 200, { user: null }, req);
       return;
     }
     const { password_hash: _, password_salt: __, ...safeUser } = user;
-    sendJson(res, 200, { user: safeUser });
+    sendJson(res, 200, { user: safeUser }, req);
+    return;
+  }
+
+  if (req.url === '/sports/odds-history' && req.method === 'POST') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' });
+      return;
+    }
+    const body = await parseBody(req);
+    const fixtureId = String(body.fixture_id || '');
+    const bookmaker = String(body.bookmaker || '');
+    const market = String(body.market || '');
+    const marketType = String(body.market_type || '');
+    const line =
+      typeof body.line === 'string' || typeof body.line === 'number'
+        ? String(body.line)
+        : null;
+    const value = Number(body.value || 0);
+    const odds = Number(body.odds || 0);
+    const source = String(body.source || 'api-football');
+
+    if (!fixtureId || !bookmaker || !market || !marketType || !odds || !Number.isFinite(odds)) {
+      sendJson(res, 400, { error: 'Dados de odds inválidos' }, req);
+      return;
+    }
+
+    const fixture = fixturesStore.find((f) => f.id === fixtureId);
+    if (!fixture) {
+      sendJson(res, 404, { error: 'Fixture não encontrada' }, req);
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const snapshotId = randomBytes(16).toString('hex');
+    const snapshot: OddsSnapshot = {
+      id: snapshotId,
+      fixture_id: fixtureId,
+      bookmaker,
+      market,
+      market_type: marketType,
+      line,
+      value,
+      odds,
+      created_at: now,
+      source,
+    };
+    oddsHistoryStore.push(snapshot);
+    fixture.last_odds_snapshot_id = snapshotId;
+    sendJson(res, 200, { snapshot }, req);
+    return;
+  }
+
+  if (req.url?.startsWith('/sports/odds-history') && req.method === 'GET') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' });
+      return;
+    }
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const fixtureId = url.searchParams.get('fixture_id');
+    const limitParam = url.searchParams.get('limit');
+    const limit = limitParam ? Number(limitParam) : 200;
+    if (!fixtureId) {
+      sendJson(res, 400, { error: 'fixture_id é obrigatório' }, req);
+      return;
+    }
+    const list = oddsHistoryStore
+      .filter((o) => o.fixture_id === fixtureId)
+      .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
+      .slice(-Math.max(1, Math.min(1000, limit)));
+    sendJson(res, 200, { history: list }, req);
     return;
   }
 
@@ -615,29 +1862,29 @@ const server = http.createServer(async (req, res) => {
     const name = body.name ? String(body.name) : undefined;
 
     if (!email || !password) {
-      sendJson(res, 400, { error: 'Email e password são obrigatórios' });
+      sendJson(res, 400, { error: 'Email e password são obrigatórios' }, req);
       return;
     }
     if (!isValidEmail(email)) {
       logAudit('signup', req.socket.remoteAddress || 'unknown', email, false);
-      sendJson(res, 400, { error: 'Email inválido' });
+      sendJson(res, 400, { error: 'Email inválido' }, req);
       return;
     }
     if (!isStrongPassword(password)) {
       logAudit('signup', req.socket.remoteAddress || 'unknown', email, false);
-      sendJson(res, 400, { error: 'Password fraca. Use 8+ caracteres com letras e números.' });
+      sendJson(res, 400, { error: 'Password fraca. Use 8+ caracteres com letras e números.' }, req);
       return;
     }
     if (name && name.length > 80) {
       logAudit('signup', req.socket.remoteAddress || 'unknown', email, false);
-      sendJson(res, 400, { error: 'Nome demasiado longo' });
+      sendJson(res, 400, { error: 'Nome demasiado longo' }, req);
       return;
     }
 
     for (const user of users.values()) {
       if (user.email === email) {
         logAudit('signup', req.socket.remoteAddress || 'unknown', email, false);
-        sendJson(res, 400, { error: 'Este email já está registado. Tente fazer login.' });
+        sendJson(res, 400, { error: 'Este email já está registado. Tente fazer login.' }, req);
         return;
       }
     }
@@ -695,7 +1942,7 @@ const server = http.createServer(async (req, res) => {
     setCookie(res, 'refresh_token', `${rtId}:${rtVal}`, 7 * 24 * 60 * 60);
 
     const { password_hash: ___, password_salt: ____, ...safeUser } = user;
-    sendJson(res, 200, { token, user: safeUser });
+    sendJson(res, 200, { token, user: safeUser }, req);
     logAudit('signup', req.socket.remoteAddress || 'unknown', email, true, id);
     return;
   }
@@ -706,7 +1953,7 @@ const server = http.createServer(async (req, res) => {
     const password = String(body.password || '');
 
     if (!email || !password) {
-      sendJson(res, 400, { error: 'Email e password são obrigatórios' });
+    sendJson(res, 400, { error: 'Email e password são obrigatórios' }, req);
       return;
     }
 
@@ -714,7 +1961,7 @@ const server = http.createServer(async (req, res) => {
     const attempt = loginAttempts.get(ip) || { count: 0, firstAttemptAt: 0, lockUntil: 0 };
     const nowMs = Date.now();
     if (attempt.lockUntil && nowMs < attempt.lockUntil) {
-      sendJson(res, 429, { error: 'Muitas tentativas. Tente mais tarde.' });
+    sendJson(res, 429, { error: 'Muitas tentativas. Tente mais tarde.' }, req);
       return;
     }
 
@@ -738,7 +1985,7 @@ const server = http.createServer(async (req, res) => {
       }
       loginAttempts.set(ip, attempt);
       logAudit('login', ip, email, false);
-      sendJson(res, 400, { error: 'Email ou senha incorretos' });
+      sendJson(res, 400, { error: 'Email ou senha incorretos' }, req);
       return;
     }
 
@@ -755,7 +2002,7 @@ const server = http.createServer(async (req, res) => {
       }
       loginAttempts.set(ip, attempt);
       logAudit('login', ip, email, false, found.id);
-      sendJson(res, 400, { error: 'Email ou senha incorretos' });
+      sendJson(res, 400, { error: 'Email ou senha incorretos' }, req);
       return;
     }
 
@@ -783,7 +2030,7 @@ const server = http.createServer(async (req, res) => {
     setCookie(res, 'refresh_token', `${rtId}:${rtVal}`, 7 * 24 * 60 * 60);
 
     const { password_hash: ___, password_salt: ____, ...safeUser } = found;
-    sendJson(res, 200, { token, user: safeUser });
+    sendJson(res, 200, { token, user: safeUser }, req);
     logAudit('login', ip, email, true, found.id);
     return;
   }
@@ -808,7 +2055,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
     clearCookie(res, 'refresh_token');
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true }, req);
     return;
   }
 
@@ -819,23 +2066,23 @@ const server = http.createServer(async (req, res) => {
       const rt = refreshTokens.get(rid);
       if (!rt || rt.revoked) {
         clearCookie(res, 'refresh_token');
-        sendJson(res, 401, { error: 'Sessão inválida' });
+        sendJson(res, 401, { error: 'Sessão inválida' }, req);
         return;
       }
       if (new Date(rt.expiresAt).getTime() <= Date.now()) {
         rt.revoked = true;
         refreshTokens.set(rid, rt);
         clearCookie(res, 'refresh_token');
-        sendJson(res, 401, { error: 'Sessão expirada' });
+        sendJson(res, 401, { error: 'Sessão expirada' }, req);
         return;
       }
       if (rt.tokenHash !== hashToken(rtoken)) {
-        sendJson(res, 401, { error: 'Sessão inválida' });
+        sendJson(res, 401, { error: 'Sessão inválida' }, req);
         return;
       }
       const user = users.get(rt.userId);
       if (!user) {
-        sendJson(res, 401, { error: 'Sessão inválida' });
+        sendJson(res, 401, { error: 'Sessão inválida' }, req);
         return;
       }
       rt.revoked = true;
@@ -866,27 +2113,27 @@ const server = http.createServer(async (req, res) => {
         expiresAt: nowMs + 15 * 60 * 1000,
       });
       const { password_hash: ___, password_salt: ____, ...safeUser } = user;
-      sendJson(res, 200, { token: access, user: safeUser });
+    sendJson(res, 200, { token: access, user: safeUser }, req);
       return;
     } else {
       const token = getAuthToken(req);
       if (!token) {
-        sendJson(res, 401, { error: 'Não autenticado' });
+        sendJson(res, 401, { error: 'Não autenticado' }, req);
         return;
       }
       const session = sessions.get(token);
       if (!session) {
-        sendJson(res, 401, { error: 'Sessão inválida' });
+        sendJson(res, 401, { error: 'Sessão inválida' }, req);
         return;
       }
       if (session.expiresAt <= Date.now()) {
         sessions.delete(token);
-        sendJson(res, 401, { error: 'Sessão expirada' });
+        sendJson(res, 401, { error: 'Sessão expirada' }, req);
         return;
       }
       const user = users.get(session.userId);
       if (!user) {
-        sendJson(res, 401, { error: 'Sessão inválida' });
+        sendJson(res, 401, { error: 'Sessão inválida' }, req);
         return;
       }
       sessions.delete(token);
@@ -899,7 +2146,7 @@ const server = http.createServer(async (req, res) => {
         expiresAt: nowRefresh + 15 * 60 * 1000,
       });
       const { password_hash: ___, password_salt: ____, ...safeUser } = user;
-      sendJson(res, 200, { token: newToken, user: safeUser });
+    sendJson(res, 200, { token: newToken, user: safeUser }, req);
       return;
     }
   }
@@ -908,7 +2155,7 @@ const server = http.createServer(async (req, res) => {
     const body = await parseBody(req);
     const email = String(body.email || '').toLowerCase();
     if (!isValidEmail(email)) {
-      sendJson(res, 400, { error: 'Email inválido' });
+    sendJson(res, 400, { error: 'Email inválido' }, req);
       return;
     }
     let found: User | null = null;
@@ -919,7 +2166,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (!found) {
-      sendJson(res, 404, { error: 'Conta não encontrada' });
+    sendJson(res, 404, { error: 'Conta não encontrada' }, req);
       return;
     }
     const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -937,7 +2184,7 @@ const server = http.createServer(async (req, res) => {
     verificationRequests.set(email, reqObj);
     logAudit('verify_request', req.socket.remoteAddress || 'unknown', email, true, found.id);
     const debug = process.env.NODE_ENV !== 'production' ? { debugCode: code } : {};
-    sendJson(res, 200, { ok: true, ...debug });
+    sendJson(res, 200, { ok: true, ...debug }, req);
     return;
   }
 
@@ -1079,7 +2326,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/wallet' && req.method === 'GET') {
     const user = getUserFromRequest(req);
     if (!user) {
-      sendJson(res, 401, { error: 'Não autenticado' });
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
       return;
     }
 
@@ -1113,26 +2360,31 @@ const server = http.createServer(async (req, res) => {
 
     const profile = profiles.get(user.id);
 
-    sendJson(res, 200, {
-      balance: balanceEntry.balance,
-      bonusBalance: 0,
-      freeBetBalance: 0,
-      totalDeposited,
-      totalWithdrawn,
-      totalBets,
-      totalWins,
-      pendingDeposits,
-      pendingWithdrawals,
-      profile: profile || null,
-      recentTransactions: allUserTransactions,
-    });
+    sendJson(
+      res,
+      200,
+      {
+        balance: balanceEntry.balance,
+        bonusBalance: 0,
+        freeBetBalance: 0,
+        totalDeposited,
+        totalWithdrawn,
+        totalBets,
+        totalWins,
+        pendingDeposits,
+        pendingWithdrawals,
+        profile: profile || null,
+        recentTransactions: allUserTransactions,
+      },
+      req,
+    );
     return;
   }
 
   if (req.url === '/risk/user-limits' && req.method === 'GET') {
     const user = getUserFromRequest(req);
     if (!user) {
-      sendJson(res, 401, { error: 'Não autenticado' });
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
       return;
     }
 
@@ -1147,10 +2399,15 @@ const server = http.createServer(async (req, res) => {
       userStakeLimitsStore.push(limits);
     }
 
-    sendJson(res, 200, {
-      maxStakePerBet: limits.max_stake_per_bet,
-      maxPayout: limits.max_payout,
-    });
+    sendJson(
+      res,
+      200,
+      {
+        maxStakePerBet: limits.max_stake_per_bet,
+        maxPayout: limits.max_payout,
+      },
+      req,
+    );
     return;
   }
 
@@ -1198,6 +2455,215 @@ const server = http.createServer(async (req, res) => {
     transactionsStore.push(tx);
 
     sendJson(res, 200, { ok: true, balance: entry.balance, transaction: tx });
+    return;
+  }
+
+  if (req.url === '/payments/stripe/card' && req.method === 'POST') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
+      return;
+    }
+    if (!stripe) {
+      sendJson(res, 500, { error: 'Stripe não configurado' }, req);
+      return;
+    }
+
+    const body = await parseBody(req);
+    const rawAmount = Number(body.amount || 0);
+
+    if (!rawAmount || rawAmount <= 0) {
+      sendJson(res, 400, { error: 'Valor inválido' }, req);
+      return;
+    }
+
+    const amountCents = Math.round(rawAmount * 100);
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: 'eur',
+      payment_method_types: ['card'],
+      description: body.description || 'Depósito Cartão via Stripe',
+      statement_descriptor: 'BET62',
+      metadata: {
+        user_id: user.id,
+        user_email: user.email,
+        type: 'deposit',
+        payment_method: 'card',
+        description: body.description || 'Depósito Cartão via Stripe',
+      },
+    });
+
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        payment_intent_id: paymentIntent.id,
+        client_secret: paymentIntent.client_secret,
+      },
+      req,
+    );
+    return;
+  }
+
+  if (req.url === '/payments/stripe/mbway' && req.method === 'POST') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
+      return;
+    }
+    if (!stripe) {
+      sendJson(res, 500, { error: 'Stripe não configurado' }, req);
+      return;
+    }
+
+    const body = await parseBody(req);
+    const rawAmount = Number(body.amount || 0);
+    const phone = body.phone ? String(body.phone).trim() : '';
+
+    if (!rawAmount || rawAmount <= 0) {
+      sendJson(res, 400, { error: 'Valor inválido' }, req);
+      return;
+    }
+
+    const amountCents = Math.round(rawAmount * 100);
+
+    try {
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amountCents,
+        currency: 'eur',
+        payment_method_types: ['mb_way'],
+        description: body.description || 'Depósito MB WAY',
+        statement_descriptor: 'BET62',
+        metadata: {
+          user_id: user.id,
+          user_email: user.email,
+          type: 'deposit',
+          payment_method: 'mbway',
+          ...(phone ? { phone } : {}),
+        },
+      });
+
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          payment_intent_id: paymentIntent.id,
+          client_secret: paymentIntent.client_secret,
+        },
+        req,
+      );
+    } catch (err: any) {
+      console.error('Stripe MB WAY error:', err?.message || err);
+      sendJson(
+        res,
+        500,
+        {
+          error:
+            err?.message ||
+            'Erro ao iniciar pagamento MB WAY. Verifica configuração da conta Stripe e método MB WAY.',
+        },
+        req,
+      );
+    }
+    return;
+  }
+
+  if (req.url === '/payments/stripe/mbway/confirm' && req.method === 'POST') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
+      return;
+    }
+    if (!stripe) {
+      sendJson(res, 500, { error: 'Stripe não configurado' }, req);
+      return;
+    }
+
+    const body = await parseBody(req);
+    const paymentIntentId = typeof body.payment_intent_id === 'string' ? body.payment_intent_id : '';
+
+    if (!paymentIntentId) {
+      sendJson(res, 400, { error: 'payment_intent_id é obrigatório' }, req);
+      return;
+    }
+
+    try {
+      const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+      const metadata: any = pi.metadata || {};
+      const userId = (metadata.user_id as string) || '';
+
+      if (!userId || userId !== user.id) {
+        sendJson(res, 403, { error: 'Pagamento não pertence a este utilizador' }, req);
+        return;
+      }
+
+      const amountReceived =
+        typeof pi.amount_received === 'number' && pi.amount_received > 0
+          ? pi.amount_received
+          : typeof pi.amount === 'number'
+          ? pi.amount
+          : 0;
+
+      if (pi.status !== 'succeeded' || amountReceived <= 0) {
+        sendJson(res, 400, { error: 'Pagamento MB WAY ainda não foi confirmado' }, req);
+        return;
+      }
+
+      const existing = transactionsStore.find(
+        (t) => t.external_id === pi.id || t.stripe_session_id === pi.id,
+      );
+
+      if (existing) {
+        sendJson(res, 200, { ok: true, balance: walletBalances.get(userId)?.balance ?? 0 }, req);
+        return;
+      }
+
+      const amount = amountReceived / 100;
+      const entry = walletBalances.get(userId) || { balance: 0 };
+      entry.balance += amount;
+      walletBalances.set(userId, entry);
+
+      const now = new Date().toISOString();
+      const profile = profiles.get(userId);
+      if (profile) {
+        profile.balance = entry.balance;
+        profile.updated_at = now;
+        profiles.set(userId, profile);
+      }
+
+      const tx = {
+        id: randomBytes(16).toString('hex'),
+        user_id: userId,
+        type: 'deposit' as const,
+        amount,
+        status: 'completed' as const,
+        payment_method: (metadata.payment_method as string) || 'mbway',
+        description: (metadata.description as string) || 'Depósito MB WAY via Stripe',
+        external_id: pi.id as string,
+        stripe_session_id: pi.id as string,
+        completed_at: now,
+        created_at: now,
+        updated_at: now,
+      };
+      transactionsStore.push(tx);
+
+      sendJson(res, 200, { ok: true, balance: entry.balance, transaction: tx }, req);
+    } catch (err: any) {
+      console.error('Stripe MB WAY confirm error:', err?.message || err);
+      sendJson(
+        res,
+        500,
+        {
+          error:
+            err?.message ||
+            'Erro ao confirmar pagamento MB WAY. Verifica configuração da conta Stripe.',
+        },
+        req,
+      );
+    }
     return;
   }
 
@@ -1424,6 +2890,89 @@ const server = http.createServer(async (req, res) => {
     transactionsStore.push(tx);
 
     sendJson(res, 200, { ok: true, balance: entry.balance, transaction: tx });
+    return;
+  }
+
+  if (req.url === '/webhooks/stripe' && req.method === 'POST') {
+    let event: any;
+
+    if (stripe && stripeWebhookSecret) {
+      let rawBody = '';
+      await new Promise<void>((resolve, reject) => {
+        req.on('data', (chunk) => {
+          rawBody += chunk;
+        });
+        req.on('end', () => resolve());
+        req.on('error', reject);
+      });
+      const sig = (req.headers['stripe-signature'] as string) || '';
+      try {
+        event = stripe.webhooks.constructEvent(rawBody, sig, stripeWebhookSecret);
+      } catch {
+        sendJson(res, 400, { error: 'Webhook inválido' });
+        return;
+      }
+    } else {
+      const body = await parseBody(req);
+      event = body;
+    }
+
+    if (event && event.type === 'payment_intent.succeeded') {
+      const pi = event.data?.object as any;
+      const metadata = pi?.metadata || {};
+      const userId = (metadata.user_id as string) || '';
+      const amountReceived =
+        typeof pi?.amount_received === 'number' && pi.amount_received > 0
+          ? pi.amount_received
+          : typeof pi?.amount === 'number'
+          ? pi.amount
+          : 0;
+
+      if (userId && amountReceived > 0) {
+        const existing = transactionsStore.find(
+          (t) => t.external_id === pi.id || t.stripe_session_id === pi.id,
+        );
+
+        if (!existing) {
+          const amount = amountReceived / 100;
+          const entry = walletBalances.get(userId) || { balance: 0 };
+          entry.balance += amount;
+          walletBalances.set(userId, entry);
+
+          const now = new Date().toISOString();
+          const profile = profiles.get(userId);
+          if (profile) {
+            profile.balance = entry.balance;
+            profile.updated_at = now;
+            profiles.set(userId, profile);
+          }
+
+          const paymentMethod =
+            (metadata.payment_method as string) ||
+            (Array.isArray(pi.payment_method_types) ? pi.payment_method_types[0] : '') ||
+            'stripe';
+
+          const tx = {
+            id: randomBytes(16).toString('hex'),
+            user_id: userId,
+            type: 'deposit' as const,
+            amount,
+            status: 'completed' as const,
+            payment_method: paymentMethod,
+            description:
+              (metadata.description as string) || 'Depósito via Stripe',
+            external_id: pi.id as string,
+            stripe_session_id: pi.id as string,
+            completed_at: now,
+            created_at: now,
+            updated_at: now,
+          };
+          transactionsStore.push(tx);
+        }
+      }
+    }
+
+    sendJson(res, 200, { received: true });
     return;
   }
 
@@ -1883,9 +3432,23 @@ const server = http.createServer(async (req, res) => {
     const body = await parseBody(req);
     const now = new Date().toISOString();
     const existing = transactionsStore[idx];
+    const newStatus = (body.status as (typeof existing.status)) ?? existing.status;
+
+    if (existing.type === 'deposit' && existing.status !== 'completed' && newStatus === 'completed') {
+      const entry = walletBalances.get(existing.user_id) || { balance: 0 };
+      entry.balance += existing.amount;
+      walletBalances.set(existing.user_id, entry);
+      const profile = profiles.get(existing.user_id);
+      if (profile) {
+        profile.balance = entry.balance;
+        profile.updated_at = now;
+        profiles.set(existing.user_id, profile);
+      }
+    }
+
     const updated = {
       ...existing,
-      status: body.status ?? existing.status,
+      status: newStatus,
       updated_at: now,
     };
     transactionsStore[idx] = updated;
@@ -2249,7 +3812,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const baseUrl = apiFootballEndpoints[sport];
+      const baseUrl = getApiFootballBaseUrl(sport);
       if (!baseUrl) {
         sendJson(res, 400, { error: `Desporto não suportado: ${sport}` });
         return;
@@ -2277,9 +3840,7 @@ const server = http.createServer(async (req, res) => {
 
       const requestOptions: https.RequestOptions = {
         method: 'GET',
-        headers: {
-          'x-apisports-key': apiFootballKey,
-        },
+        headers: getApiFootballHeaders(),
       };
 
       const client = apiUrl.protocol === 'https:' ? https : http;
@@ -2336,7 +3897,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const baseUrl = apiFootballEndpoints[sport];
+    const baseUrl = getApiFootballBaseUrl(sport);
     if (!baseUrl) {
       sendJson(res, 400, { error: `Desporto não suportado: ${sport}` });
       return;
@@ -2367,9 +3928,7 @@ const server = http.createServer(async (req, res) => {
 
     const requestOptions: https.RequestOptions = {
       method: 'GET',
-      headers: {
-        'x-apisports-key': apiFootballKey,
-      },
+      headers: getApiFootballHeaders(),
     };
 
     const client = apiUrl.protocol === 'https:' ? https : http;
@@ -2382,7 +3941,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const data = raw ? JSON.parse(raw) : {};
           if (data.errors && Object.keys(data.errors).length > 0) {
-            sendJson(res, 400, { error: 'API-Football retornou erro', details: data.errors });
+            sendJson(res, 200, { error: 'API-Football retornou erro', details: data.errors });
             return;
           }
           sendJson(res, 200, data);
@@ -2421,19 +3980,100 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/payments/multibanco/generate' && req.method === 'POST') {
     const user = getUserFromRequest(req);
     if (!user) {
-      sendJson(res, 401, { error: 'Não autenticado' });
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
       return;
     }
     const body = await parseBody(req);
-    const amount = Number(body.amount || 0);
-    if (!amount || amount <= 0) {
-      sendJson(res, 400, { error: 'Valor inválido' });
+    const rawAmount = Number(body.amount || 0);
+    if (!rawAmount || rawAmount <= 0) {
+      sendJson(res, 400, { error: 'Valor inválido' }, req);
       return;
     }
-    const entity = '12345';
-    const reference = String(Math.floor(100000000 + Math.random() * 900000000));
-    const expires_at = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
-    sendJson(res, 200, { entity, reference, expires_at });
+    const amountCents = Math.round(rawAmount * 100);
+
+    if (!stripe) {
+      sendJson(
+        res,
+        500,
+        {
+          error:
+            'Multibanco não está configurado na Stripe. Verifica STRIPE_SECRET_KEY e os métodos de pagamento.',
+        },
+        req,
+      );
+      return;
+    }
+
+    try {
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amountCents,
+        currency: 'eur',
+        payment_method_types: ['multibanco'],
+        payment_method_data: {
+          type: 'multibanco',
+          billing_details: {
+            email: user.email,
+            name: user.name || user.email,
+          },
+        } as any,
+        confirmation_method: 'automatic',
+        confirm: true,
+        description: body.description || 'Depósito Multibanco',
+        statement_descriptor: 'BET62',
+        metadata: {
+          user_id: user.id,
+          user_email: user.email,
+          type: 'deposit',
+          payment_method: 'multibanco',
+        },
+      });
+
+      const nextAction: any = paymentIntent.next_action || {};
+      const details: any = nextAction.multibanco_display_details || {};
+
+      const entity = details.entity || details.entity_number || '';
+      const reference = details.reference || details.reference_number || '';
+      const expires_at = typeof details.expires_at === 'number' ? details.expires_at : null;
+      const hosted_voucher_url = details.hosted_voucher_url || null;
+
+      if (!entity || !reference) {
+        sendJson(
+          res,
+          500,
+          {
+            error:
+              'Não foi possível obter entidade/referência Multibanco da Stripe. Verifica a configuração do método Multibanco na conta Stripe.',
+          },
+          req,
+        );
+        return;
+      }
+
+      sendJson(
+        res,
+        200,
+        {
+          entity,
+          reference,
+          expires_at,
+          hosted_voucher_url,
+          payment_intent_id: paymentIntent.id,
+        },
+        req,
+      );
+    } catch (err: any) {
+      console.error('Stripe Multibanco error:', err?.message || err);
+      sendJson(
+        res,
+        500,
+        {
+          error:
+            err?.message ||
+            'Erro ao gerar referência Multibanco. Verifica a configuração da conta Stripe e do método Multibanco.',
+        },
+        req,
+      );
+    }
     return;
   }
   if (req.url === '/bets' && req.method === 'GET') {
@@ -2485,7 +4125,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/profile' && req.method === 'GET') {
     const user = getUserFromRequest(req);
     if (!user) {
-      sendJson(res, 401, { error: 'Não autenticado' });
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
       return;
     }
 
@@ -2510,14 +4150,14 @@ const server = http.createServer(async (req, res) => {
       profiles.set(user.id, profile);
     }
 
-    sendJson(res, 200, { profile });
+    sendJson(res, 200, { profile }, req);
     return;
   }
 
   if (req.url === '/profile' && req.method === 'PUT') {
     const user = getUserFromRequest(req);
     if (!user) {
-      sendJson(res, 401, { error: 'Não autenticado' });
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
       return;
     }
 
@@ -2557,14 +4197,14 @@ const server = http.createServer(async (req, res) => {
     balanceEntry.balance = profile.balance;
     walletBalances.set(user.id, balanceEntry);
 
-    sendJson(res, 200, { profile });
+    sendJson(res, 200, { profile }, req);
     return;
   }
 
   if (req.url === '/profile/balance' && req.method === 'POST') {
     const user = getUserFromRequest(req);
     if (!user) {
-      sendJson(res, 401, { error: 'Não autenticado' });
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
       return;
     }
 
@@ -2573,7 +4213,7 @@ const server = http.createServer(async (req, res) => {
     const operation = body.operation === 'subtract' ? 'subtract' : 'add';
 
     if (!amount || amount <= 0) {
-      sendJson(res, 400, { error: 'Valor inválido' });
+      sendJson(res, 400, { error: 'Valor inválido' }, req);
       return;
     }
 
@@ -2622,6 +4262,49 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'GET') {
+    try {
+      const distDir = path.resolve(__dirname, '../dist');
+      const url = new URL(req.url, `http://localhost:${PORT}`);
+      const pathname = url.pathname === '/' ? '/index.html' : url.pathname;
+      const safePath = pathname.replace(/^\/+/, '');
+      const filePath = path.join(distDir, safePath);
+
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        const ext = path.extname(filePath).toLowerCase();
+        const contentType =
+          ext === '.html'
+            ? 'text/html; charset=utf-8'
+            : ext === '.js'
+            ? 'application/javascript; charset=utf-8'
+            : ext === '.css'
+            ? 'text/css; charset=utf-8'
+            : ext === '.json'
+            ? 'application/json; charset=utf-8'
+            : ext === '.svg'
+            ? 'image/svg+xml'
+            : ext === '.png'
+            ? 'image/png'
+            : ext === '.jpg' || ext === '.jpeg'
+            ? 'image/jpeg'
+            : ext === '.gif'
+            ? 'image/gif'
+            : 'application/octet-stream';
+
+        res.writeHead(200, { 'Content-Type': contentType });
+        fs.createReadStream(filePath).pipe(res);
+        return;
+      }
+
+      const indexPath = path.join(distDir, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        fs.createReadStream(indexPath).pipe(res);
+        return;
+      }
+    } catch {}
+  }
+
   sendJson(res, 404, { error: 'Not found' });
 });
 
@@ -2629,5 +4312,12 @@ server.listen(PORT, async () => {
   try {
     await seedAdmin();
   } catch {}
+  try {
+    if (process.env.DISABLE_LIVE_SCHEDULER !== '1') {
+      startLiveDataScheduler();
+    }
+  } catch (err) {
+    console.error('Erro ao iniciar scheduler LIVE da API-Football', err);
+  }
   console.log(`API server running on port ${PORT}`);
 });

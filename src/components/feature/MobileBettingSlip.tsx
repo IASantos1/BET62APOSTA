@@ -46,7 +46,7 @@ export default function MobileBettingSlip({
   const { theme } = useTheme();
   const { user } = useAuth();
   const { wallet } = useWallet();
-  const { profile } = useProfile();
+  const { profile: _profile } = useProfile();
   const navigate = useNavigate();
   const isLight = theme === 'light';
 
@@ -114,12 +114,6 @@ export default function MobileBettingSlip({
 
     if (!user) {
       navigate('/login');
-      return;
-    }
-
-    if (profile && profile.email_verified === false) {
-      alert('Confirme o seu email antes de apostar. Vá a “Verificar Email”.');
-      navigate('/verify-email');
       return;
     }
 
@@ -557,26 +551,6 @@ export default function MobileBettingSlip({
           )}
 
           {/* Bloqueio suave por email */}
-          {user && profile && profile.email_verified === false && (
-            <div className={`flex items-center justify-between px-3 py-2 rounded-xl mb-3 ${
-              isLight ? 'bg-amber-50 border border-amber-200' : 'bg-amber-500/10 border border-amber-500/20'
-            }`}>
-              <div className="flex items-center gap-2">
-                <i className={`ri-mail-check-line ${isLight ? 'text-amber-600' : 'text-amber-400'}`}></i>
-                <span className={`text-[11px] font-medium ${isLight ? 'text-amber-800' : 'text-amber-400'}`}>
-                  Confirme o seu email para colocar apostas com segurança.
-                </span>
-              </div>
-              <button
-                onClick={() => navigate('/verify-email')}
-                className={`px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer ${
-                  isLight ? 'bg-amber-500 text-gray-900 hover:bg-amber-600' : 'bg-amber-500 text-black hover:bg-amber-600'
-                }`}
-              >
-                Verificar
-              </button>
-            </div>
-          )}
 
           {/* Retorno potencial */}
           <div className={`flex items-center justify-between px-4 py-3 rounded-xl mb-3 ${
@@ -608,7 +582,7 @@ export default function MobileBettingSlip({
               disabled={totalStake === 0 || isProcessing || hasInsufficientBalance}
               className={`flex-1 h-12 rounded-xl text-sm font-bold cursor-pointer whitespace-nowrap transition-all flex items-center justify-center gap-2 ${
                 totalStake > 0 && !hasInsufficientBalance && !isProcessing
-                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-gray-900 shadow-lg shadow-amber-500/30'
+                  ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg shadow-red-600/30'
                   : isLight
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-gray-700 text-gray-500 cursor-not-allowed'

@@ -4,13 +4,7 @@
  */
 
 import { apiCache, CACHE_TTL, generateCacheKey } from './apiCache';
-
-const API_BASE_URL = 'https://v3.football.api-sports.io';
-const API_KEY = import.meta.env.VITE_API_FOOTBALL_KEY || 'cbef02a7c902f0dfb7260b0b638fffa0';
-
-const headers = {
-  'x-apisports-key': API_KEY,
-};
+import { apiFootballRequest } from '../lib/api';
 
 // ═══════════════════════════════════════════════════════════
 // TIPOS
@@ -111,27 +105,12 @@ export interface TeamForm {
 
 async function fetchFromApi<T>(endpoint: string): Promise<T | null> {
   try {
-    console.log(`📡 API-Football: ${endpoint}`);
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'GET',
-      headers
-    });
-
-    if (!response.ok) {
-      console.error(`❌ API-Football error: ${response.status}`);
-      return null;
-    }
-
-    const data = await response.json();
-    
+    const data = await apiFootballRequest(endpoint, 'football');
     if (data.errors && Object.keys(data.errors).length > 0) {
-      console.error('❌ API-Football errors:', data.errors);
       return null;
     }
-
     return data.response as T;
-  } catch (error) {
-    console.error('❌ Erro ao buscar dados:', error);
+  } catch {
     return null;
   }
 }

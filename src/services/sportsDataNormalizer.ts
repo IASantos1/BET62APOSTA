@@ -10,8 +10,8 @@ let cachedUpcomingMatches: NormalizedMatch[] | null = null;
 let lastLiveUpdate = 0;
 let lastUpcomingUpdate = 0;
 
-const LIVE_CACHE_TTL = 8 * 1000; // 8 segundos
-const UPCOMING_CACHE_TTL = 60 * 1000; // 1 minuto
+const LIVE_CACHE_TTL = 30 * 1000;
+const UPCOMING_CACHE_TTL = 5 * 60 * 1000;
 
 // ✅ Mapeamento de sport_key para tipo interno
 const SPORT_MAP: Record<string, string> = {
@@ -304,7 +304,7 @@ function calculateGameTime(
  */
 function validateLiveMatch(
   event: OddsApiEvent,
-  liveScores?: OddsApiScore[]
+  liveScores?: OddsApiScore[],
 ): {
   isValid: boolean;
   isLive: boolean;
@@ -316,55 +316,43 @@ function validateLiveMatch(
   reason?: string;
 } {
   const now = new Date();
-  const commenceTime = new Date(event.commence_time);
-  const timeSinceStart = now.getTime() - commenceTime.getTime();
+  const start = new Date(event.commence_time);
+  const diffMs = now.getTime() - start.getTime();
 
-  // Jogo deve ter começado
-  if (timeSinceStart < 0) {
+  if (diffMs < -15 * 60 * 1000) {
     return { isValid: false, isLive: false, reason: 'Jogo ainda não começou' };
   }
 
-  // Jogo não pode ter mais de 4 horas
-  const maxDuration = 4 * 60 * 60 * 1000;
-  if (timeSinceStart > maxDuration) {
-    return { isValid: false, isLive: false, reason: 'Jogo provavelmente já terminou' };
+  if (diffMs > 5 * 60 * 60 * 1000) {
+    return { isValid: false, isLive: false, reason: 'Jogo provavelmente terminado há muito' };
   }
 
   let homeScore: number | undefined;
   let awayScore: number | undefined;
-  let hasLiveScore = false;
+  let hasScore = false;
 
-  // ✅ CORRIGIDO: Buscar score ao vivo - SEMPRE retorna quando disponível
-  if (liveScores && liveScores.length > 0) {
-    const scoreMatch = liveScores.find((s) => {
-      if (s.id === event.id) return true;
-      return teamsMatch(s.home_team, event.home_team) && teamsMatch(s.away_team, event.away_team);
-    });
+  if (liveScores?.length) {
+    const score = liveScores.find(
+      (s) =>
+        s.id === event.id ||
+        (teamsMatch(s.home_team, event.home_team) && teamsMatch(s.away_team, event.away_team)),
+    );
 
-    // ✅ CORRIGIDO: Retorna placar mesmo para jogos completos (para ligas pequenas)
-    if (scoreMatch?.scores && scoreMatch.scores.length >= 2) {
-      const homeScoreObj = scoreMatch.scores.find((s) => teamsMatch(s.name, event.home_team));
-      const awayScoreObj = scoreMatch.scores.find((s) => teamsMatch(s.name, event.away_team));
+    if (score?.scores?.length >= 2) {
+      const homeObj = score.scores.find((s) => teamsMatch(s.name, event.home_team));
+      const awayObj = score.scores.find((s) => teamsMatch(s.name, event.away_team));
 
-      if (homeScoreObj && awayScoreObj) {
-        homeScore = parseInt(homeScoreObj.score, 10) || 0;
-        awayScore = parseInt(awayScoreObj.score, 10) || 0;
-        hasLiveScore = true;
-        
-        console.log(`📊 Placar encontrado: ${event.home_team} ${homeScore}-${awayScore} ${event.away_team} (Liga: ${event.sport_title})`);
+      if (homeObj?.score && awayObj?.score) {
+        homeScore = parseInt(homeObj.score, 10) || 0;
+        awayScore = parseInt(awayObj.score, 10) || 0;
+        hasScore = true;
       }
-    }
-
-    // ✅ CORRIGIDO: Só rejeita se completed E sem placar
-    if (scoreMatch?.completed && !hasLiveScore) {
-      return { isValid: false, isLive: false, reason: 'Jogo já terminou' };
     }
   }
 
-  // ✅ NOVO: Calcular tempo de jogo sincronizado
   const gameTime = calculateGameTime(event.commence_time, event.sport_key);
 
-  const isLive = hasLiveScore || (timeSinceStart > 0 && timeSinceStart < 3 * 60 * 60 * 1000);
+  const isLive = hasScore || (diffMs > 0 && diffMs < 4 * 60 * 60 * 1000);
 
   return {
     isValid: true,
@@ -391,127 +379,75 @@ function convertOddsEventToMatch(event: OddsApiEvent, liveScores?: OddsApiScore[
     return null;
   }
 
-  // ✅ CORRIGIDO: Buscar bookmaker com mercado h2h válido
-  const preferredBookmakers = ['bet365', 'pinnacle', 'betfair', 'unibet', 'williamhill', 'draftkings', 'fanduel'];
-  
-  let bookmaker = null;
-  let h2hMarket = null;
+  let bookmaker: any = null;
+  let h2hMarket: any = null;
 
-  // Tentar bookmakers preferidos primeiro
-  for (const preferred of preferredBookmakers) {
-    const found = event.bookmakers.find((b) => b.key.toLowerCase() === preferred);
-    if (found?.markets) {
-      const market = found.markets.find((m: any) => m.key === 'h2h');
-      if (market?.outcomes && market.outcomes.length >= 2) {
-        bookmaker = found;
+  for (const b of event.bookmakers || []) {
+    if (b.markets) {
+      const market = b.markets.find((m: any) => m.key === 'h2h');
+      if (market?.outcomes?.length >= 2) {
+        bookmaker = b;
         h2hMarket = market;
         break;
       }
     }
   }
 
-  // Se não encontrou, usar primeiro bookmaker com mercado h2h válido
   if (!bookmaker || !h2hMarket) {
-    for (const b of event.bookmakers) {
-      if (b.markets) {
-        const market = b.markets.find((m: any) => m.key === 'h2h');
-        if (market?.outcomes && market.outcomes.length >= 2) {
-          bookmaker = b;
-          h2hMarket = market;
-          break;
-        }
-      }
-    }
-  }
-
-  if (!bookmaker || !h2hMarket) {
-    console.warn(`❌ ${event.home_team} vs ${event.away_team}: sem mercado h2h válido`);
+    console.warn(`❌ ${event.home_team} vs ${event.away_team}: sem mercado h2h válido em nenhum bookmaker`);
     return null;
   }
 
-  // ✅ CORRIGIDO: Buscar outcomes com validação rigorosa
-  let homeOutcome = h2hMarket.outcomes.find(
-    (o: any) => String(o.name || '').toLowerCase().trim() === String(event.home_team || '').toLowerCase().trim()
+  let homeOutcome: any = null;
+  let awayOutcome: any = null;
+  let drawOutcome: any = null;
+
+  homeOutcome = h2hMarket.outcomes.find((o: any) =>
+    String(o.name || '').toLowerCase().trim() === event.home_team.toLowerCase().trim(),
+  );
+  awayOutcome = h2hMarket.outcomes.find((o: any) =>
+    String(o.name || '').toLowerCase().trim() === event.away_team.toLowerCase().trim(),
   );
 
-  let awayOutcome = h2hMarket.outcomes.find(
-    (o: any) => String(o.name || '').toLowerCase().trim() === String(event.away_team || '').toLowerCase().trim()
-  );
-
-  // Tentar correspondência por normalização
   if (!homeOutcome) {
-    homeOutcome = h2hMarket.outcomes.find((o: any) => teamsMatch(String(o.name || ''), event.home_team));
+    homeOutcome = h2hMarket.outcomes.find((o: any) =>
+      teamsMatch(String(o.name || ''), event.home_team),
+    );
   }
-
   if (!awayOutcome) {
-    awayOutcome = h2hMarket.outcomes.find((o: any) => teamsMatch(String(o.name || ''), event.away_team));
+    awayOutcome = h2hMarket.outcomes.find((o: any) =>
+      teamsMatch(String(o.name || ''), event.away_team),
+    );
   }
 
-  // ✅ CORRIGIDO: Fallback inteligente para NCAA e outros desportos
   if (!homeOutcome && !awayOutcome && h2hMarket.outcomes.length >= 2) {
-    const outcomes = h2hMarket.outcomes.filter(
-      (o: any) =>
-        String(o.name || '').toLowerCase() !== 'draw' && 
-        String(o.name || '').toLowerCase() !== 'empate' &&
-        String(o.name || '').toLowerCase() !== 'tie'
+    const sortedOutcomes = [...h2hMarket.outcomes].sort((a: any, b: any) =>
+      String(a.name || '').localeCompare(String(b.name || '')),
     );
 
-    if (outcomes.length >= 2) {
-      // Para NCAA e desportos americanos, usar ordem dos outcomes
-      const sportKey = event.sport_key.toLowerCase();
-      const isNCAA = sportKey.includes('ncaa');
-      const isAmericanSport = sportKey.includes('basketball') || sportKey.includes('football') || sportKey.includes('baseball');
-
-      if (isNCAA || isAmericanSport) {
-        // Tentar correspondência por palavras-chave
-        const homeWords = event.home_team.toLowerCase().split(' ');
-        const awayWords = event.away_team.toLowerCase().split(' ');
-
-        homeOutcome = outcomes.find((o: any) => {
-          const outcomeName = String(o.name || '').toLowerCase();
-          return homeWords.some(word => word.length > 3 && outcomeName.includes(word));
-        });
-
-        awayOutcome = outcomes.find((o: any) => {
-          const outcomeName = String(o.name || '').toLowerCase();
-          return awayWords.some(word => word.length > 3 && outcomeName.includes(word));
-        });
-
-        // Se ainda não encontrou, usar ordem
-        if (!homeOutcome || !awayOutcome) {
-          homeOutcome = outcomes[0];
-          awayOutcome = outcomes[1];
-        }
-      } else {
-        // Para outros desportos, usar lógica existente
-        homeOutcome =
-          outcomes.find((o: any) => String(o.name || '').toLowerCase().includes(event.home_team.split(' ')[0].toLowerCase())) ||
-          outcomes[0];
-
-        awayOutcome =
-          outcomes.find((o: any) => String(o.name || '').toLowerCase().includes(event.away_team.split(' ')[0].toLowerCase())) ||
-          outcomes[1];
-      }
-
-      if (homeOutcome === awayOutcome && outcomes.length >= 2) {
-        homeOutcome = outcomes[0];
-        awayOutcome = outcomes[1];
-      }
-    }
+    homeOutcome = sortedOutcomes[0];
+    awayOutcome = sortedOutcomes[1];
+    drawOutcome =
+      sortedOutcomes.find((o: any) => {
+        const n = String(o.name || '').toLowerCase().trim();
+        return n === 'draw' || n === 'empate' || n === 'tie';
+      }) || null;
   }
 
-  // ✅ VALIDAÇÃO RIGOROSA: Verificar se odds existem e são válidas
+  if (!drawOutcome) {
+    drawOutcome = h2hMarket.outcomes.find((o: any) => {
+      const n = String(o.name || '').toLowerCase().trim();
+      return n === 'draw' || n === 'empate' || n === 'tie' || n === 'x';
+    });
+  }
+
   if (!homeOutcome?.price || !awayOutcome?.price) {
-    console.warn(`❌ ${event.home_team} vs ${event.away_team}: odds inválidas (home: ${homeOutcome?.price}, away: ${awayOutcome?.price})`);
+    console.warn(
+      `❌ Odds inválidas após tentativas: home=${homeOutcome?.price}, away=${awayOutcome?.price}`,
+    );
     return null;
   }
 
-  const drawOutcome = h2hMarket.outcomes.find((o: any) => {
-    const outcomeName = String(o.name || '').toLowerCase().trim();
-    return outcomeName === 'draw' || outcomeName === 'empate' || outcomeName === 'tie';
-  });
-
-  // ✅ VALIDAÇÃO: Converter e validar odds
   const homeOdd = parseFloat(Number(homeOutcome.price).toFixed(2));
   const awayOdd = parseFloat(Number(awayOutcome.price).toFixed(2));
   const drawOdd = drawOutcome?.price ? parseFloat(Number(drawOutcome.price).toFixed(2)) : undefined;
@@ -525,23 +461,12 @@ function convertOddsEventToMatch(event: OddsApiEvent, liveScores?: OddsApiScore[
   // ✅ CORRIGIDO: Identificar tipo de desporto ANTES de validar odds
   const sportType = SPORT_MAP[event.sport_key] || 'soccer';
   const isSoccer = sportType === 'soccer';
-  const isBasketball = sportType === 'basketball';
-  const isHockey = sportType === 'icehockey';
-  const isAmericanFootball = sportType === 'americanfootball';
-  const isBaseball = sportType === 'baseball';
-
-  console.log(`🔍 Desporto detectado: ${event.sport_key} → ${sportType} (Basketball: ${isBasketball}, Baseball: ${isBaseball})`);
 
   const minOdd = 1.001;
-  const maxOdd = isBasketball || isHockey || isAmericanFootball || isBaseball ? 1000 : 100;
+  const maxOdd = 1000;
 
   if (homeOdd < minOdd || homeOdd > maxOdd || awayOdd < minOdd || awayOdd > maxOdd) {
     console.warn(`❌ ${event.home_team} vs ${event.away_team}: odds fora dos limites (home: ${homeOdd}, away: ${awayOdd})`);
-    return null;
-  }
-
-  if (isSoccer && homeOdd === awayOdd && drawOdd && homeOdd === drawOdd) {
-    console.warn(`❌ ${event.home_team} vs ${event.away_team}: todas as odds iguais`);
     return null;
   }
 
@@ -559,9 +484,7 @@ function convertOddsEventToMatch(event: OddsApiEvent, liveScores?: OddsApiScore[
 
   const leagueName = LEAGUE_MAP[event.sport_key] || event.sport_title;
 
-  console.log(`✅ ${event.home_team} vs ${event.away_team}: ${sportType} - odds válidas (${homeOdd} / ${drawOdd || '-'} / ${awayOdd})`);
-
-  return {
+  const match: NormalizedMatch | null = {
     id: event.id,
     sport: sportType,
     league: leagueName,
@@ -587,6 +510,22 @@ function convertOddsEventToMatch(event: OddsApiEvent, liveScores?: OddsApiScore[
       bookmaker: bookmaker.title,
     },
   };
+
+  if (match) {
+    console.log(
+      `[CONVERT OK] ${match.homeTeam} ${match.homeScore ?? '?'} - ${match.awayScore ?? '?'} ${
+        match.awayTeam
+      } | odds: ${match.odds.home}/${match.odds.draw ?? '-'} / ${match.odds.away} | live: ${
+        match.isLive
+      }`,
+    );
+  } else {
+    console.log(
+      `[CONVERT FALHOU] ${event.home_team} vs ${event.away_team} | sport: ${event.sport_key}`,
+    );
+  }
+
+  return match;
 }
 
 /**

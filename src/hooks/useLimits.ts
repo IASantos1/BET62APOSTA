@@ -62,8 +62,8 @@ export const useLimits = () => {
     if (!user) return;
 
     try {
-      // ✅ NOTA: Aqui deveria buscar transações do Supabase
-      // Por enquanto, mantém o uso zerado até conectar o Supabase
+      // ✅ NOTA: Aqui deveria buscar transações do backend local
+      // Por enquanto, mantém o uso zerado até ligar ao backend
       const transactions: any[] = [];
       
       const now = new Date();

@@ -1,5 +1,7 @@
 
 import { useState, useEffect } from 'react';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { useAuth } from '../../../contexts/AuthContext';
 import { apiFetch } from '../../../services/backendClient';
 import { useNavigate } from 'react-router-dom';
@@ -20,19 +22,114 @@ interface MBWayFormProps {
   loading?: boolean;
 }
 
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+
+interface MBWayStripeConfirmProps {
+  onConfirmed: () => void;
+  disabled: boolean;
+}
+
+function MBWayStripeConfirm({ onConfirmed, disabled }: MBWayStripeConfirmProps) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [submitting, setSubmitting] = useState(false);
+  const [localError, setLocalError] = useState('');
+
+  const handleConfirm = async () => {
+    if (!stripe || !elements) {
+      return;
+    }
+    setLocalError('');
+    setSubmitting(true);
+    try {
+      const result = await stripe.confirmPayment({
+        elements,
+        redirect: 'if_required',
+      });
+
+      if (result.error) {
+        const raw = result.error.message || 'Erro ao confirmar pagamento MB WAY';
+        const friendly =
+          raw.includes('missing a payment method') ||
+          raw.toLowerCase().includes('paymentintent')
+            ? 'Para confirmar o pagamento MB WAY, preenche primeiro o número de telemóvel no bloco acima e volta a tentar.'
+            : raw;
+        setLocalError(friendly);
+        return;
+      }
+
+      const pi = result.paymentIntent;
+      if (pi?.id) {
+        try {
+          const response = await apiFetch('/payments/stripe/mbway/confirm', {
+            method: 'POST',
+            body: JSON.stringify({ payment_intent_id: pi.id }),
+          });
+          if (response?.ok) {
+            onConfirmed();
+          } else if (response?.error) {
+            setLocalError(response.error);
+          } else {
+            setLocalError('Não foi possível confirmar o pagamento MB WAY. Tenta novamente em instantes.');
+          }
+        } catch (err: any) {
+          const msg = err?.message || 'Erro ao confirmar pagamento MB WAY';
+          setLocalError(msg);
+        }
+      } else {
+        onConfirmed();
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="border border-gray-200 rounded-xl p-4 bg-white">
+        <PaymentElement />
+      </div>
+      {localError && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
+          <p className="text-xs text-red-700">{localError}</p>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={handleConfirm}
+        disabled={disabled || submitting}
+        className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+      >
+        {submitting ? (
+          <>
+            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <span>A confirmar com MB WAY...</span>
+          </>
+        ) : (
+          <>
+            <i className="ri-smartphone-line text-lg" />
+            <span>Confirmar pagamento MB WAY</span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
 export default function MBWayForm({
   amount: propAmount,
   onSubmit,
   onSuccess,
   loading: _externalLoading,
 }: MBWayFormProps) {
-  const [phone, setPhone] = useState('');
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [paymentStatus, setPaymentStatus] = useState('idle'); // 'idle' | 'pending' | 'checking'
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [initialBalance, setInitialBalance] = useState<number | null>(null);
+  const [clientSecret, setClientSecret] = useState('');
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -49,27 +146,29 @@ export default function MBWayForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** ----------------------------------------------------------------------
-   *  Helpers
-   * ---------------------------------------------------------------------- */
-  const formatPhone = (value) => {
-    const numbers = value.replace(/\D/g, '');
-    if (numbers.length <= 3) return numbers;
-    if (numbers.length <= 6) return `${numbers.slice(0, 3)} ${numbers.slice(3)}`;
-    return `${numbers.slice(0, 3)} ${numbers.slice(3, 6)} ${numbers.slice(6, 9)}`;
-  };
+  useEffect(() => {
+    if (paymentStatus !== 'pending' || initialBalance == null) {
+      return;
+    }
 
-  const handlePhoneChange = (e) => {
-    setPhone(formatPhone(e.target.value));
-  };
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      const wallet = await apiFetch('/wallet', { method: 'GET' });
+      const currentBalance = Number(wallet?.balance ?? 0);
+      if (!cancelled && currentBalance > initialBalance) {
+        setSuccess('Pagamento MB WAY confirmado! Saldo atualizado.');
+        setPaymentStatus('idle');
+        clearInterval(interval);
+      }
+    }, 5000);
 
-  /** ----------------------------------------------------------------------
-   *  Form submission
-   * ---------------------------------------------------------------------- */
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [paymentStatus, initialBalance]);
 
-    // Reset UI state
+  const startMbWayPayment = async (depositAmount: number) => {
     setError('');
     setSuccess('');
     setLoading(true);
@@ -79,13 +178,6 @@ export default function MBWayForm({
         throw new Error('Sessão expirada. Por favor, faça login novamente.');
       }
 
-      // ---- Input validation -------------------------------------------------
-      const cleanPhone = phone.replace(/\s+/g, '');
-      const depositAmount = propAmount ?? parseFloat(amount);
-
-      if (!/^[0-9]{9}$/.test(cleanPhone)) {
-        throw new Error('Número de telefone inválido. Use 9 dígitos.');
-      }
       if (isNaN(depositAmount) || depositAmount < 10) {
         throw new Error('Valor mínimo de depósito é €10');
       }
@@ -93,59 +185,31 @@ export default function MBWayForm({
         throw new Error('Valor máximo de depósito é €10.000');
       }
 
-      // Optional external submit callback
+      const wallet = await apiFetch('/wallet', { method: 'GET' });
+      const startBalance = Number(wallet?.balance ?? 0);
+      setInitialBalance(startBalance);
+
       if (typeof onSubmit === 'function') {
-        onSubmit(cleanPhone);
+        onSubmit('');
       }
 
-      // ---- Create pending transaction ----------------------------------------
-      await apiFetch('/transactions', {
+      const response = await apiFetch('/payments/stripe/mbway', {
         method: 'POST',
         body: JSON.stringify({
-          type: 'deposit',
           amount: depositAmount,
-          status: 'pending',
-          payment_method: 'mbway',
-          description: `Depósito MB WAY - +351${cleanPhone}`,
         }),
       });
 
-      setSuccess('📱 Notificação MB WAY enviada! Confirme no seu telemóvel.');
-      setPaymentStatus('pending');
+      if (!response?.ok || !response.client_secret) {
+        throw new Error('Erro ao iniciar pagamento MB WAY');
+      }
 
-      // ---- Simulated confirmation (replace with webhook in prod) ------------
-      setTimeout(async () => {
-        try {
-          await apiFetch('/wallet/deposit', {
-            method: 'POST',
-            body: JSON.stringify({
-              amount: depositAmount,
-              payment_method: 'mbway',
-              description: `Depósito MB WAY - +351${cleanPhone}`,
-            }),
-          });
+      setClientSecret(response.client_secret);
+      setSuccess('📱 Pedido MB WAY criado. Confirme o pagamento abaixo para receber a notificação na app MB WAY.');
 
-          // UI feedback
-          setSuccess(
-            `✅ Pagamento confirmado! €${depositAmount.toFixed(2)} adicionados à sua conta.`
-          );
-          setPaymentStatus('idle');
-          setPhone('');
-          setAmount('');
-
-          // Notify parent or reload
-          setTimeout(() => {
-            if (typeof onSuccess === 'function') {
-              onSuccess();
-            } else {
-              window.location.reload();
-            }
-          }, 2000);
-        } catch (innerErr) {
-          console.error('Erro ao confirmar pagamento:', innerErr);
-          setError('Erro ao confirmar pagamento. Por favor, contacte suporte.');
-        }
-      }, 5000);
+      if (typeof onSuccess === 'function') {
+        onSuccess();
+      }
     } catch (err) {
       const msg = err?.message || 'Erro ao processar pagamento';
       if (msg.includes('Sessão expirada') || msg.includes('login novamente')) {
@@ -160,6 +224,21 @@ export default function MBWayForm({
     }
   };
 
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const depositAmount = propAmount ?? parseFloat(amount);
+    await startMbWayPayment(depositAmount);
+  };
+
+  useEffect(() => {
+    if (!propAmount || !isAuthenticated || clientSecret || loading) {
+      return;
+    }
+    const depositAmount = propAmount;
+    startMbWayPayment(depositAmount);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propAmount, isAuthenticated]);
+
   /** ----------------------------------------------------------------------
    *  Render
    * ---------------------------------------------------------------------- */
@@ -172,61 +251,91 @@ export default function MBWayForm({
     );
   }
 
+  if (propAmount) {
+    return (
+      <div className="space-y-6">
+        {error && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
+
+        {success && (
+          <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+            <p className="text-sm text-green-700">{success}</p>
+            {paymentStatus === 'pending' && (
+              <div className="mt-3 flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-xs text-green-600">A aguardar confirmação...</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {loading && !clientSecret && (
+          <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-3">
+            <div className="w-5 h-5 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm text-gray-700">
+              A preparar pagamento MB WAY seguro...
+            </p>
+          </div>
+        )}
+
+        {clientSecret && (
+          <Elements stripe={stripePromise} options={{ clientSecret }}>
+            <MBWayStripeConfirm
+              disabled={loading || paymentStatus === 'pending'}
+              onConfirmed={() => {
+                setPaymentStatus('pending');
+                setSuccess('📱 Pedido MB WAY enviado. Confirme o pagamento na app MB WAY.');
+              }}
+            />
+          </Elements>
+        )}
+
+        <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+          <h4 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+            <i className="ri-information-line text-teal-500"></i>
+            Como funciona o MB WAY
+          </h4>
+          <ul className="text-xs text-gray-500 space-y-1 ml-6">
+            <li>• Receberá uma notificação na app MB WAY</li>
+            <li>• Confirme o pagamento no telemóvel</li>
+            <li>• O saldo será creditado automaticamente na carteira</li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Phone input */}
+      {/* Amount input – only when amount not forced via prop */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Número de Telemóvel
+          Valor do Depósito
         </label>
         <div className="relative">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">
-            +351
+            €
           </span>
           <input
-            type="tel"
-            value={phone}
-            onChange={handlePhoneChange}
-            placeholder="912 345 678"
-            maxLength={11}
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="10.00"
+            min="10"
+            max="10000"
+            step="0.01"
             required
             disabled={loading || paymentStatus !== 'idle'}
-            className="w-full pl-16 pr-4 py-3.5 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-teal-200 focus:border-teal-400 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+            className="w-full pl-10 pr-4 py-3.5 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-teal-200 focus:border-teal-400 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
           />
         </div>
         <p className="mt-2 text-xs text-gray-400">
-          Introduza o número associado à sua conta MB WAY
+          Valor mínimo: €10.00 | Máximo: €10.000
         </p>
       </div>
-
-      {/* Amount input – only when amount not forced via prop */}
-      {!propAmount && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Valor do Depósito
-          </label>
-          <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">
-              €
-            </span>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="10.00"
-              min="10"
-              max="10000"
-              step="0.01"
-              required
-              disabled={loading || paymentStatus !== 'idle'}
-              className="w-full pl-10 pr-4 py-3.5 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-teal-200 focus:border-teal-400 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-            />
-          </div>
-          <p className="mt-2 text-xs text-gray-400">
-            Valor mínimo: €10.00 | Máximo: €10.000
-          </p>
-        </div>
-      )}
 
       {/* Error / Success messages */}
       {error && (
@@ -250,7 +359,7 @@ export default function MBWayForm({
       {/* Submit button */}
       <button
         type="submit"
-        disabled={loading || paymentStatus !== 'idle'}
+        disabled={loading || paymentStatus !== 'idle' || !!clientSecret}
         className="w-full py-4 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap"
       >
         {loading ? (
@@ -271,19 +380,18 @@ export default function MBWayForm({
         )}
       </button>
 
-      {/* Information box */}
-      <div className="bg-gray-50 rounded-xl p-4 space-y-2">
-        <h4 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
-          <i className="ri-information-line text-teal-500"></i>
-          Como funciona o MB WAY
-        </h4>
-        <ul className="text-xs text-gray-500 space-y-1 ml-6">
-          <li>• Receberá uma notificação no seu telemóvel</li>
-          <li>• Abra a app MB WAY e confirme o pagamento</li>
-          <li>• O saldo será creditado automaticamente na carteira</li>
-          <li>• Processo seguro e instantâneo</li>
-        </ul>
-      </div>
+      {clientSecret && (
+        <Elements stripe={stripePromise} options={{ clientSecret }}>
+          <MBWayStripeConfirm
+            disabled={loading || paymentStatus === 'pending'}
+            onConfirmed={() => {
+              setPaymentStatus('pending');
+              setSuccess('📱 Pedido MB WAY enviado. Confirme o pagamento na app MB WAY.');
+              setAmount('');
+            }}
+          />
+        </Elements>
+      )}
     </form>
   );
 }

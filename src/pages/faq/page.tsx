@@ -334,10 +334,10 @@ export default function FAQPage() {
           )}
 
           {/* Contact Form Section */}
-          <div className="mt-12 bg-gradient-to-br from-amber-600/10 via-gray-900 to-red-600/10 border border-amber-500/30 rounded-xl p-6 md:p-8">
+          <div className="mt-12 bg-gradient-to-br from-red-600/10 via-gray-900 to-red-700/10 border border-red-500/40 rounded-xl p-6 md:p-8">
             <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-500/30">
-                <i className="ri-customer-service-2-line text-3xl text-amber-500"></i>
+              <div className="w-16 h-16 bg-red-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-500/40">
+                <i className="ri-customer-service-2-line text-3xl text-red-400"></i>
               </div>
               <h2 className="text-2xl md:text-3xl font-bold text-white mb-3">
                 Não encontrou a resposta?
@@ -364,7 +364,7 @@ export default function FAQPage() {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
-                    className="w-full px-4 py-3 bg-gray-900 border border-amber-500/30 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-amber-500 text-sm"
+                    className="w-full px-4 py-3 bg-gray-900 border border-red-500/40 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-red-500 text-sm"
                     placeholder="O seu nome"
                   />
                 </div>
@@ -445,7 +445,7 @@ export default function FAQPage() {
               <button
                 type="submit"
                 disabled={formStatus === 'sending'}
-                className="w-full px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-500 text-black font-bold rounded-lg hover:from-amber-500 hover:to-amber-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap cursor-pointer"
+                className="w-full px-6 py-4 bg-gradient-to-r from-red-600 to-red-700 text-white font-bold rounded-lg hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap cursor-pointer"
               >
                 {formStatus === 'sending' ? (
                   <span className="flex items-center justify-center gap-2">
@@ -464,40 +464,40 @@ export default function FAQPage() {
 
           {/* Quick Contact Options */}
           <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-gray-900 border border-amber-500/20 rounded-xl p-6 text-center">
-              <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <i className="ri-chat-3-line text-2xl text-amber-500"></i>
+            <div className="bg-gray-900 border border-red-600/30 rounded-xl p-6 text-center">
+              <div className="w-12 h-12 bg-red-600/15 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <i className="ri-chat-3-line text-2xl text-red-400"></i>
               </div>
               <h3 className="text-lg font-bold text-white mb-2">Chat ao Vivo</h3>
               <p className="text-sm text-gray-400 mb-4">Resposta imediata 24/7</p>
-              <button className="px-6 py-2 bg-amber-600 text-black font-semibold rounded-lg hover:bg-amber-500 transition-colors text-sm whitespace-nowrap cursor-pointer">
+              <button className="px-6 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors text-sm whitespace-nowrap cursor-pointer">
                 Iniciar Chat
               </button>
             </div>
 
-            <div className="bg-gray-900 border border-amber-500/20 rounded-xl p-6 text-center">
-              <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <i className="ri-mail-line text-2xl text-amber-500"></i>
+            <div className="bg-gray-900 border border-red-600/30 rounded-xl p-6 text-center">
+              <div className="w-12 h-12 bg-red-600/15 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <i className="ri-mail-line text-2xl text-red-400"></i>
               </div>
               <h3 className="text-lg font-bold text-white mb-2">Email</h3>
               <p className="text-sm text-gray-400 mb-4">Resposta em até 24 horas</p>
               <a 
                 href="mailto:suporte@bet62.pt"
-                className="inline-block px-6 py-2 bg-amber-600 text-black font-semibold rounded-lg hover:bg-amber-500 transition-colors text-sm whitespace-nowrap cursor-pointer"
+                className="inline-block px-6 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors text-sm whitespace-nowrap cursor-pointer"
               >
                 suporte@bet62.pt
               </a>
             </div>
 
-            <div className="bg-gray-900 border border-amber-500/20 rounded-xl p-6 text-center">
-              <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <i className="ri-phone-line text-2xl text-amber-500"></i>
+            <div className="bg-gray-900 border border-red-600/30 rounded-xl p-6 text-center">
+              <div className="w-12 h-12 bg-red-600/15 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <i className="ri-phone-line text-2xl text-red-400"></i>
               </div>
               <h3 className="text-lg font-bold text-white mb-2">Telefone</h3>
               <p className="text-sm text-gray-400 mb-4">Disponível 24/7</p>
               <a 
                 href="tel:+351800123456"
-                className="inline-block px-6 py-2 bg-amber-600 text-black font-semibold rounded-lg hover:bg-amber-500 transition-colors text-sm whitespace-nowrap cursor-pointer"
+                className="inline-block px-6 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors text-sm whitespace-nowrap cursor-pointer"
               >
                 +351 800 123 456
               </a>

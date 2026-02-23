@@ -138,6 +138,20 @@ export default function LiveSportsPage() {
     return matches.filter(m => m.sport === selectedSport);
   }, [matches, selectedSport]);
 
+  // Calcular ligas ativas a partir dos jogos atuais
+  const activeLeagues = useMemo(() => {
+    const leagueCounts: Record<string, { league: string; sport: string; count: number }> = {};
+    (matches || []).forEach((m: any) => {
+      const key = m.league || '';
+      if (!key) return;
+      if (!leagueCounts[key]) {
+        leagueCounts[key] = { league: key, sport: m.sport || 'football', count: 0 };
+      }
+      leagueCounts[key].count += 1;
+    });
+    return Object.values(leagueCounts);
+  }, [matches]);
+
   // Agrupar por desporto
   const groupedMatches = useMemo(() => {
     const groups: Record<string, Match[]> = {};
@@ -205,7 +219,7 @@ export default function LiveSportsPage() {
             selectedLeague={null}
             selectedSport={selectedSport}
             isDarkMode={theme === 'dark'}
-            activeLeagues={[]}
+            activeLeagues={activeLeagues as any}
           />
 
           {/* Loading */}

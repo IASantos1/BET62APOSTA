@@ -100,13 +100,13 @@ export const OddButton = ({
         relative overflow-hidden rounded-lg px-4 py-3 whitespace-nowrap
         transition-all duration-300 ease-out
         ${selected 
-          ? 'bg-teal-500 text-white shadow-lg scale-105' 
+          ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-lg scale-105' 
           : isDisabled
           ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-          : 'bg-white hover:bg-teal-50 text-gray-900 border border-gray-200 hover:border-teal-500 cursor-pointer'
+          : 'bg-white hover:bg-red-50 text-gray-900 border border-gray-200 hover:border-red-500 cursor-pointer'
         }
         ${isIncreasing === true ? 'ring-2 ring-green-400 bg-green-50/50' : ''}
-        ${isIncreasing === false ? 'ring-2 ring-red-400 bg-red-50/50' : ''}
+        ${isIncreasing === false ? 'ring-2 ring-red-400 bg-red-50/60' : ''}
         ${lockTransition === 'locking' ? 'scale-[0.97]' : ''}
         ${lockTransition === 'unlocking' ? 'scale-[1.02]' : ''}
       `}
@@ -119,8 +119,8 @@ export const OddButton = ({
           lockTransition === 'unlocking' ? 'animate-overlay-fade-blur-out' :
           'opacity-100'
         }`}>
-          <div className="absolute inset-0 bg-amber-500/25 backdrop-blur-[2px]" />
-          <i className={`ri-lock-line text-amber-600 text-lg relative z-10 ${
+          <div className="absolute inset-0 bg-red-600/25 backdrop-blur-[2px]" />
+          <i className={`ri-lock-line text-red-500 text-lg relative z-10 ${
             lockTransition === 'locking' ? 'animate-lock-icon-bounce' : ''
           }`}></i>
         </div>

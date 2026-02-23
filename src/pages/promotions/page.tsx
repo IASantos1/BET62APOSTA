@@ -43,7 +43,7 @@ export default function PromotionsPage() {
               <p className="text-lg mb-6 text-white/90">
                 Faça seu primeiro depósito e receba o dobro para apostar! Depósito mínimo de €10.
               </p>
-              <button className="px-8 py-3 bg-white text-orange-600 hover:bg-gray-100 rounded-lg font-bold text-lg transition-all transform hover:scale-105 cursor-pointer whitespace-nowrap">
+              <button className="px-8 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white hover:from-red-700 hover:to-red-800 rounded-lg font-bold text-lg transition-all transform hover:scale-105 cursor-pointer whitespace-nowrap">
                 <i className="ri-gift-line mr-2"></i>
                 Resgatar Agora
               </button>
@@ -81,7 +81,7 @@ export default function PromotionsPage() {
                     </div>
                   </div>
 
-                  <button className="w-full py-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap">
+                  <button className="w-full py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap">
                     <i className="ri-check-line mr-2"></i>
                     Ativar Promoção
                   </button>

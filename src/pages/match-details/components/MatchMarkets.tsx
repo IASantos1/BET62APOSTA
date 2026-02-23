@@ -3,12 +3,16 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { useLiveOddsEngine } from '../../../hooks/useLiveOddsEngine';
 import { useMatchIncidents } from '../../../hooks/useMatchIncidents';
 import OddsBlockedOverlay from '../../../components/feature/OddsBlockedOverlay';
-import { 
-  fetchMultiSportOdds, 
-  detectSportType,
-  extractGameId,
-  type SportType 
-} from '../../../services/multiSportStatsApi';
+import { fetchEventOdds } from '../../../services/apiFootballService';
+import { fetchLiveOdds as fetchLiveOddsList } from '../../../services/oddsService';
+type SportType =
+  | 'football'
+  | 'basketball'
+  | 'hockey'
+  | 'baseball'
+  | 'rugby'
+  | 'handball'
+  | 'afl';
 import type { LiveOddsSnapshot } from '../../../services/engine/liveOddsMarketEngine';
 
 interface MatchMarketsProps {
@@ -46,17 +50,14 @@ interface MarketBlockState {
   startTime: number;
 }
 
-const sportNames: Record<SportType, string> = {
+const sportNames: Record<string, string> = {
   football: 'Futebol',
   basketball: 'Basquetebol',
   hockey: 'Hóquei',
   baseball: 'Basebol',
   rugby: 'Rúgbi',
-  volleyball: 'Vôlei',
-  mma: 'MMA',
   handball: 'Andebol',
-  afl: 'AFL',
-  formula1: 'Fórmula 1',
+  afl: 'Futebol Australiano',
 };
 
 // ✅ Calcular intervalo de atualização baseado no tempo até o jogo
@@ -90,19 +91,19 @@ export default function MatchMarkets({
   ]);
   const [apiOdds, setApiOdds] = useState<any>(null);
   const [_loadingOdds, setLoadingOdds] = useState(false);
-  const [dataSource, setDataSource] = useState<'api' | 'local'>('local');
+  const [dataSource, setDataSource] = useState<'api' | 'local' | 'fallback'>('local');
   
-  const [previousApiOdds, setPreviousApiOdds] = useState<any>(null);
   const [oddsFlashing, setOddsFlashing] = useState<Map<string, 'up' | 'down'>>(new Map());
 
   const [marketBlocks, _setMarketBlocks] = useState<Map<string, MarketBlockState>>(new Map());
   const [globalBlock, setGlobalBlock] = useState<MarketBlockState | null>(null);
   const prevScoreRef = useRef({ home: 0, away: 0 });
   const blockTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const previousApiOddsRef = useRef<{ home: number; draw?: number; away: number } | null>(null);
 
-  const sportType = useMemo(() => detectSportType(match), [match]);
+  const sportType: SportType = 'football';
 
-  const isSoccer = useMemo(() => sportType === 'football', [sportType]);
+  const isSoccer = true;
 
   const isLiveMatch = useMemo(() => {
     const liveStatuses = ['1H', '2H', 'HT', 'ET', 'P', 'BT', 'LIVE', 'Q1', 'Q2', 'Q3', 'Q4', 'OT'];
@@ -115,6 +116,9 @@ export default function MatchMarkets({
     fixtureId: match.fixtureId || match.id,
   });
   const activeIncident = isSoccer && isLiveMatch && incidents.length > 0 ? incidents[incidents.length - 1] : null;
+  const shouldBlockByIncident =
+    !!activeIncident &&
+    ['VAR', 'goal_chance', 'penalty', 'red_card'].includes(activeIncident.type);
 
   const refreshInterval = useMemo(() => {
     return getOddsRefreshInterval(match.startTime, isLiveMatch);
@@ -154,17 +158,69 @@ export default function MatchMarkets({
   );
 
   const fetchOddsFromApi = useCallback(async () => {
-    const gameId = extractGameId(match.id || match.fixtureId);
-    if (!gameId) return;
+    console.log('🔍 Dados do match recebidos para odds:', {
+      id: match.id,
+      fixtureId: match.fixtureId,
+      tipoId: typeof match.id,
+      rawIdUsado: match.id || match.fixtureId,
+      isLiveMatch,
+    });
+
+    const rawId = match.id || match.fixtureId;
+    const gameId = Number(rawId);
+    if (!gameId || Number.isNaN(gameId)) {
+      console.warn('⚠️ ID inválido para buscar odds da API', { rawId, gameId });
+      return;
+    }
 
     setLoadingOdds(true);
     try {
       console.log(`📡 Buscando odds da API: ${sportType} (ID: ${gameId}) - Intervalo: ${refreshInterval/1000}s`);
-      const odds = await fetchMultiSportOdds(sportType, gameId);
+      let odds: null | { home: number; draw?: number; away: number } = null;
+
+      if (isLiveMatch) {
+        // Buscar lista de odds ao vivo do backend e filtrar pelo fixture
+        const list = await fetchLiveOddsList();
+        const item = list.find(i => String(i.matchId) === String(gameId));
+        if (item) {
+          odds = { home: item.odds.home, draw: item.odds.draw, away: item.odds.away };
+        }
+      }
+      
+      if (!odds) {
+        // Fallback: odds pré‑jogo da API‑Football (bet id 1: Match Winner)
+        const preData: any[] = await fetchEventOdds('football', String(gameId));
+        if (Array.isArray(preData) && preData.length > 0) {
+          const fixture = preData[0];
+          const bookmakers = Array.isArray(fixture?.bookmakers) ? fixture.bookmakers : [];
+          const mainBookmaker = bookmakers[0];
+          const bets = Array.isArray(mainBookmaker?.bets) ? mainBookmaker.bets : [];
+          const matchWinner = bets.find((b: any) => {
+            const n = String(b?.name || '').toLowerCase();
+            return n.includes('match winner') || n.includes('1x2') || b?.id === 1;
+          });
+          if (matchWinner && Array.isArray(matchWinner.values)) {
+            let home: number | null = null;
+            let draw: number | null = null;
+            let away: number | null = null;
+            for (const v of matchWinner.values) {
+              const label = String(v?.value || '').toLowerCase();
+              const odd = v?.odd != null ? Number(v.odd) : NaN;
+              if (!Number.isFinite(odd)) continue;
+              if ((label === 'home' || label === '1') && home == null) home = odd;
+              if ((label === 'draw' || label === 'x') && draw == null) draw = odd;
+              if ((label === 'away' || label === '2') && away == null) away = odd;
+            }
+            if (home != null && away != null) {
+              odds = { home, draw: draw ?? undefined, away };
+            }
+          }
+        }
+      }
       
       if (odds && (odds.home > 0 || odds.away > 0)) {
         console.log(`✅ Odds da API carregadas:`, odds);
-        
+        const previousApiOdds = previousApiOddsRef.current;
         if (previousApiOdds) {
           const newFlashing = new Map<string, 'up' | 'down'>();
           
@@ -183,11 +239,12 @@ export default function MatchMarkets({
             setTimeout(() => setOddsFlashing(new Map()), 4000);
           }
         }
-        
-        setPreviousApiOdds(apiOdds);
+
+        previousApiOddsRef.current = odds;
         setApiOdds(odds);
         setDataSource('api');
       } else {
+        console.warn('⚠️ API não retornou odds válidas → mantendo mercados locais');
         setDataSource('local');
       }
     } catch (err) {
@@ -196,7 +253,7 @@ export default function MatchMarkets({
     } finally {
       setLoadingOdds(false);
     }
-  }, [match.id, match.fixtureId, sportType, apiOdds, previousApiOdds, refreshInterval]);
+  }, [match.id, match.fixtureId, sportType, refreshInterval, isLiveMatch]);
 
   useEffect(() => {
     fetchOddsFromApi();
@@ -520,7 +577,19 @@ export default function MatchMarkets({
 
   // ✅ CRIAR MERCADOS BASEADOS NO DESPORTO - EXPANDIDO PARA TODOS OS DESPORTOS
   const markets: Market[] = useMemo(() => {
-    const odds = match.odds;
+    const baseOdds =
+      apiOdds ||
+      match.odds ||
+      (liveOdds && typeof liveOdds.home === 'number' && typeof liveOdds.away === 'number'
+        ? {
+            home: liveOdds.home,
+            draw: typeof liveOdds.draw === 'number' ? liveOdds.draw : undefined,
+            away: liveOdds.away,
+          }
+        : null);
+
+    const odds = baseOdds;
+
     if (!odds || (!odds.home && !odds.away)) {
       console.warn('⚠️ Sem odds disponíveis para este jogo');
       return [];
@@ -1646,6 +1715,8 @@ export default function MatchMarkets({
     currentScore,
     getOddTrend,
     getOddValue,
+    apiOdds,
+    liveOdds,
   ]);
 
   const toggleMarket = (marketName: string) => {
@@ -1712,6 +1783,18 @@ export default function MatchMarkets({
           {isLiveMatch && isFlashing && trend === 'down' && (
             <i className="ri-arrow-down-s-fill text-base text-red-400 animate-bounce"></i>
           )}
+          {dataSource === 'api' && apiOdds?.meta && (
+            <span
+              className="hidden md:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-300 text-[8px] font-medium"
+              title={`Bookmaker: ${apiOdds.meta.bookmaker} • Mercados: ${apiOdds.meta.markets.length}${
+                apiOdds.meta.lastUpdate ? ` • Update: ${apiOdds.meta.lastUpdate}` : ''
+              }`}
+            >
+              <i className="ri-database-2-line text-[9px]"></i>
+              {apiOdds.meta.bookmaker || 'API-Football'}
+              <span className="opacity-70">({apiOdds.meta.markets.length})</span>
+            </span>
+          )}
           
           <span className={`font-black text-sm
             ${isFlashing && trend === 'up' ? 'text-emerald-400' : ''}
@@ -1773,7 +1856,7 @@ export default function MatchMarkets({
         </div>
       )}
 
-      {activeIncident && (
+      {shouldBlockByIncident && activeIncident && (
         <OddsBlockedOverlay incident={activeIncident} compact={false} />
       )}
 

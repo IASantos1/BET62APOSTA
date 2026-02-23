@@ -54,8 +54,8 @@ const cache: {
   upcomingMatches?: CacheEntry<ApiFootballMatch[]>;
 } = {};
 
-const LIVE_CACHE_TTL = 30 * 1000; // 30 segundos
-const UPCOMING_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+const LIVE_CACHE_TTL = 10 * 1000;
+const UPCOMING_CACHE_TTL = 5 * 60 * 1000;
 
 // ============================================
 // FUNÇÕES AUXILIARES
@@ -235,71 +235,49 @@ export async function fetchLiveMatchesFromApiFootball(): Promise<ApiFootballMatc
 
 /**
  * Busca jogos FUTUROS da API-Football
+ * Usa fixtures?next=N conforme documentação oficial (sem limitar por liga)
  */
 export async function fetchUpcomingMatchesFromApiFootball(days: number = 3): Promise<ApiFootballMatch[]> {
   const now = Date.now();
-  
-  // Verificar cache
-  if (cache.upcomingMatches && (now - cache.upcomingMatches.timestamp) < UPCOMING_CACHE_TTL) {
+
+  if (cache.upcomingMatches && now - cache.upcomingMatches.timestamp < UPCOMING_CACHE_TTL) {
     console.log(`📦 [API-Football] Cache upcoming: ${cache.upcomingMatches.data.length} jogos`);
     return cache.upcomingMatches.data;
   }
-  
+
   try {
-    console.log('📅 [API-Football] Buscando próximos jogos...');
-    
-    // Buscar jogos das principais ligas
-    const topLeagues = [
-      39,   // Premier League
-      140,  // La Liga
-      135,  // Serie A
-      78,   // Bundesliga
-      61,   // Ligue 1
-      94,   // Primeira Liga (Portugal)
-      2,    // Champions League
-      3,    // Europa League
-      71,   // Brasileirão
-    ];
-    
+    console.log('📅 [API-Football] Buscando próximos jogos (fixtures?next)...');
+
+    const nextCount = Math.max(10, days * 20);
+    const response = await apiFootballRequest(`fixtures?next=${nextCount}`);
+
+    if (!response?.response || !Array.isArray(response.response)) {
+      console.warn('⚠️ [API-Football] Resposta inválida para próximos jogos');
+      return cache.upcomingMatches?.data || [];
+    }
+
     const allMatches: ApiFootballMatch[] = [];
-    
-    // Buscar jogos de cada liga
-    for (const leagueId of topLeagues.slice(0, 5)) { // Limitar a 5 ligas para não exceder rate limit
-      try {
-        const response = await apiFootballRequest(`fixtures?league=${leagueId}&next=${days * 5}`);
-        
-        if (response?.response && Array.isArray(response.response)) {
-          for (const fixture of response.response) {
-            const match = convertApiFootballFixture(fixture);
-            if (match && !match.isLive) {
-              allMatches.push(match);
-            }
-          }
-        }
-        
-        // Pequeno delay entre requisições
-        await new Promise(resolve => setTimeout(resolve, 200));
-      } catch (err) {
-        console.warn(`⚠️ Erro ao buscar liga ${leagueId}:`, err);
+
+    for (const fixture of response.response) {
+      const match = convertApiFootballFixture(fixture);
+      if (match && !match.isLive) {
+        allMatches.push(match);
       }
     }
-    
-    // Ordenar por data
+
     allMatches.sort((a, b) => {
       return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
     });
-    
-    // Limitar a 60 jogos
+
     const limitedMatches = allMatches.slice(0, 60);
-    
-    // Atualizar cache
+
     cache.upcomingMatches = {
       data: limitedMatches,
-      timestamp: now
+      timestamp: now,
     };
-    
-    console.log(`✅ [API-Football] ${limitedMatches.length} próximos jogos processados`);
-    
+
+    console.log(`✅ [API-Football] ${limitedMatches.length} próximos jogos processados (globais)`);
+
     return limitedMatches;
   } catch (error) {
     console.error('❌ [API-Football] Erro ao buscar próximos jogos:', error);

@@ -14,7 +14,7 @@ export default function WalletPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { wallet, loading, refetch } = useWallet();
-  const { profile } = useProfile();
+  const { profile: _profile } = useProfile();
   const [txFilter, setTxFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -59,22 +59,6 @@ export default function WalletPage() {
 
       <main className="flex-1 pt-24 pb-20 lg:pb-16">
         <div className="max-w-5xl mx-auto px-4">
-          {profile && profile.email_verified === false && (
-            <div className="mb-4 p-4 rounded-xl border border-amber-300 bg-amber-50 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <i className="ri-mail-check-line text-amber-600"></i>
-                <span className="text-sm text-amber-800 font-medium">
-                  Confirme o seu email para desbloquear todas as funcionalidades da carteira.
-                </span>
-              </div>
-              <Link
-                to="/verify-email"
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-black rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"
-              >
-                Verificar Email
-              </Link>
-            </div>
-          )}
           {/* Page Header */}
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
@@ -113,7 +97,7 @@ export default function WalletPage() {
               {/* Quick Actions */}
               <div className="mt-4 bg-white rounded-2xl shadow-sm p-5 border border-gray-100">
                 <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
-                  <i className="ri-flashlight-line text-amber-500"></i>
+                  <i className="ri-flashlight-line text-red-500"></i>
                   Ações Rápidas
                 </h3>
                 <div className="space-y-2">
@@ -147,10 +131,10 @@ export default function WalletPage() {
 
                   <Link
                     to="/minhas-apostas"
-                    className="flex items-center gap-3 p-3 rounded-xl hover:bg-amber-50 transition-colors cursor-pointer group"
+                    className="flex items-center gap-3 p-3 rounded-xl hover:bg-red-50 transition-colors cursor-pointer group"
                   >
-                    <div className="w-9 h-9 bg-amber-100 rounded-lg flex items-center justify-center group-hover:bg-amber-200 transition-colors">
-                      <i className="ri-file-list-3-line text-amber-600 text-lg"></i>
+                    <div className="w-9 h-9 bg-red-100 rounded-lg flex items-center justify-center group-hover:bg-red-200 transition-colors">
+                      <i className="ri-file-list-3-line text-red-600 text-lg"></i>
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-semibold text-gray-900">Minhas Apostas</p>
@@ -207,7 +191,7 @@ export default function WalletPage() {
               {/* Stats */}
               <div className="bg-white rounded-2xl shadow-sm p-5 border border-gray-100 mb-6">
                 <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
-                  <i className="ri-pie-chart-line text-amber-500"></i>
+                  <i className="ri-pie-chart-line text-red-500"></i>
                   Resumo Financeiro
                 </h3>
                 <WalletStats
@@ -222,7 +206,7 @@ export default function WalletPage() {
               <div className="bg-white rounded-2xl shadow-sm p-5 border border-gray-100">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                    <i className="ri-exchange-line text-amber-500"></i>
+                    <i className="ri-exchange-line text-red-500"></i>
                     Histórico de Transações
                   </h3>
                   <span className="text-xs text-gray-400">

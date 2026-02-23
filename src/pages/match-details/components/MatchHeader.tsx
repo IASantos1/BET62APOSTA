@@ -7,6 +7,11 @@ interface MatchHeaderProps {
   isLive: boolean;
   onAddSelection: (selection: string, odd: number, market: string) => void;
   isSelected: (selection: string) => boolean;
+  mainOdds?: {
+    home: number;
+    draw?: number;
+    away: number;
+  };
 }
 
 const sportIcons: Record<string, string> = {
@@ -54,6 +59,7 @@ export default function MatchHeader({
   isLive,
   onAddSelection,
   isSelected,
+  mainOdds,
 }: MatchHeaderProps) {
   const { theme } = useTheme();
 
@@ -177,6 +183,8 @@ export default function MatchHeader({
       </button>
     );
   };
+
+  const headerOdds = mainOdds || match.odds;
 
   return (
     <div
@@ -452,8 +460,7 @@ export default function MatchHeader({
         </div>
       </div>
 
-      {/* Main Odds */}
-      {match.odds && (
+      {headerOdds && (
         <div className={`px-4 pb-4`}>
           <div
             className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${
@@ -463,25 +470,25 @@ export default function MatchHeader({
             Resultado Final
           </div>
           <div className="flex gap-2">
-            {match.odds.home && (
+            {headerOdds.home && (
               <OddButton
                 label="1"
                 selection={match.homeTeam}
-                odd={match.odds.home}
+                odd={headerOdds.home}
               />
             )}
-            {match.odds.draw && (
+            {headerOdds.draw && (
               <OddButton
                 label="X"
                 selection="Empate"
-                odd={match.odds.draw}
+                odd={headerOdds.draw}
               />
             )}
-            {match.odds.away && (
+            {headerOdds.away && (
               <OddButton
                 label="2"
                 selection={match.awayTeam}
-                odd={match.odds.away}
+                odd={headerOdds.away}
               />
             )}
           </div>

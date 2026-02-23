@@ -1,7 +1,4 @@
-import { 
-  SportType, 
-  GenericFixture
-} from '../../../types/sports';
+import { SportType, GenericFixture } from '../../../types/sports';
 
 // Cache separado por desporto
 interface CacheEntry {
@@ -121,17 +118,10 @@ function queueRequest<T>(requestFn: () => Promise<T>): Promise<T> {
 /**
  * ✅ CORRIGIDO: Buscar dados da API-Football com rate limit
  */
-async function fetchFromApiFootball(
-  sport: SportType,
-  endpoint: string,
-  params: Record<string, any> = {}
-): Promise<any[]> {
+async function fetchFromApiFootball(sport: SportType, endpoint: string, params: Record<string, any> = {}): Promise<any[]> {
   return queueRequest(async () => {
     try {
-      const supabaseUrl = import.meta.env.VITE_PUBLIC_SUPABASE_URL;
-      const functionUrl = `${supabaseUrl}/functions/v1/api-football-proxy`;
-
-      const url = new URL(functionUrl);
+      const url = new URL('/api/sports/api-football-proxy', window.location.origin);
       url.searchParams.append('sport', sport);
       url.searchParams.append('endpoint', endpoint);
       Object.entries(params).forEach(([key, value]) => {

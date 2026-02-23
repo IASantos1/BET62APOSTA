@@ -110,24 +110,6 @@ export default function ProfilePage() {
       <Header />
 
       <main className="flex-1 pt-20 pb-24 lg:pb-8">
-        {!profile?.email_verified && (
-          <div className="max-w-4xl mx-auto px-4">
-            <div className="mb-4 p-4 rounded-xl border border-amber-300 bg-amber-50 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <i className="ri-mail-check-line text-amber-600"></i>
-                <span className="text-sm text-amber-800 font-medium">
-                  Confirme o seu email para proteger a conta e desbloquear todas as funcionalidades.
-                </span>
-              </div>
-              <Link
-                to="/verify-email"
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-black rounded-lg text-xs font-bold cursor-pointer"
-              >
-                Verificar Email
-              </Link>
-            </div>
-          </div>
-        )}
         <div className="max-w-4xl mx-auto px-4">
           {/* Cabeçalho do Perfil */}
           <div className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 rounded-2xl p-6 mb-6 relative overflow-hidden">
@@ -149,17 +131,6 @@ export default function ProfilePage() {
                 </h1>
                 <p className="text-gray-400 text-sm">{user?.email}</p>
                 <div className="flex items-center gap-2 mt-2">
-                  {profile?.email_verified ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full text-xs font-medium">
-                      <i className="ri-verified-badge-fill"></i>
-                      Email verificado
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded-full text-xs font-medium">
-                      <i className="ri-error-warning-line"></i>
-                      Email não verificado
-                    </span>
-                  )}
                   {isExcluded && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs font-medium">
                       <i className="ri-shield-user-fill"></i>
@@ -205,20 +176,6 @@ export default function ProfilePage() {
 
           {/* Ações Rápidas */}
           <div className={`rounded-2xl shadow-sm p-4 mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-            {!profile?.email_verified && (
-              <div className="mb-3 p-3 rounded-xl border border-amber-300 bg-amber-50 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <i className="ri-mail-check-line text-amber-600"></i>
-                  <span className="text-sm text-amber-800 font-medium">Verifique o seu email para aumentar a segurança</span>
-                </div>
-                <Link
-                  to="/verify-email"
-                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-black rounded-lg text-xs font-bold cursor-pointer"
-                >
-                  Verificar Email
-                </Link>
-              </div>
-            )}
             <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
               <i className="ri-flashlight-line text-amber-500"></i>
               Ações Rápidas

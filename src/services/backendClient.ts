@@ -6,10 +6,11 @@ export interface AuthUser {
 }
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
-let API_COMPAT = import.meta.env.VITE_API_COMPAT || 'node';
+let API_COMPAT: 'node' | 'phpv1' = (import.meta.env.VITE_API_COMPAT as any) || 'node';
 if (!import.meta.env.VITE_API_COMPAT) {
   const u = String(API_URL).toLowerCase();
-  if (u.includes('api.bet62.plus') || u.startsWith('http')) {
+  // Detecta compatibilidade PHP apenas para domínios conhecidos
+  if (u.includes('api.bet62.plus')) {
     API_COMPAT = 'phpv1';
   }
 }
@@ -50,22 +51,35 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     (headers as any).Authorization = `Bearer ${token}`;
   }
 
+  const baseCandidates: string[] = [API_URL];
+  if (API_URL.startsWith('http://localhost')) {
+    baseCandidates.push(API_URL.replace('http://localhost', 'http://127.0.0.1'));
+  }
+
   const doFetch = async (): Promise<{ ok: boolean; status: number; data: any }> => {
-    const res = await fetch(`${API_URL}${resolvePath(path)}`, {
-      ...options,
-      headers,
-      credentials: 'include',
-    });
-    const text = await res.text();
-    const data = text ? JSON.parse(text) : null;
-    return { ok: res.ok, status: res.status, data };
+    let lastError: any = null;
+    for (const base of baseCandidates) {
+      try {
+        const res = await fetch(`${base}${resolvePath(path)}`, {
+          ...options,
+          headers,
+          credentials: 'include',
+        });
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : null;
+        return { ok: res.ok, status: res.status, data };
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError || new Error('Erro de comunicação com o servidor');
   };
 
   let first = await doFetch();
 
   if (!first.ok && first.status === 401 && API_COMPAT !== 'phpv1') {
     try {
-      const refreshRes = await fetch(`${API_URL}/auth/refresh`, {
+      const refreshRes = await fetch(`${baseCandidates[0] || API_URL}/auth/refresh`, {
         method: 'POST',
         headers,
         credentials: 'include',

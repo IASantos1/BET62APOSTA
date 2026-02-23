@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProfile } from '../../hooks/useProfile';
 import { useWallet } from '../../hooks/useWallet';
+import { useLimits } from '../../hooks/useLimits';
 import Header from '../../components/feature/Header';
 import Footer from '../../components/feature/Footer';
 import { MobileBottomNav } from '../../components/feature/MobileBottomNav';
@@ -41,6 +42,7 @@ export default function WithdrawalPage() {
   const { user } = useAuth();
   const { profile, loading: profileLoading, refetch: refetchProfile } = useProfile();
   const { wallet, processWithdrawal: _processWithdrawal, refetch: refetchWallet } = useWallet();
+  const { limits, loading: limitsLoading } = useLimits();
 
   const [amount, setAmount] = useState('');
   const [iban, setIban] = useState('');
@@ -58,7 +60,6 @@ export default function WithdrawalPage() {
   // ✅ Usar saldo do wallet hook
   const balance = wallet?.balance ?? profile?.balance ?? 0;
   const isKycVerified = profile?.kyc_verified || false;
-  const isEmailVerified = profile?.email_verified || false;
   const hasSavedIban = profile?.saved_iban && profile?.saved_account_holder;
 
   useEffect(() => {
@@ -119,11 +120,6 @@ export default function WithdrawalPage() {
     e.preventDefault();
     setError('');
     setSuccess('');
-
-    if (!isEmailVerified) {
-      setError('Confirme o seu email antes de fazer levantamentos. Use “Verificar Email”.');
-      return;
-    }
 
     if (!isKycVerified) {
       setError('Precisas de verificar a tua identidade antes de fazer levantamentos.');
@@ -242,22 +238,6 @@ export default function WithdrawalPage() {
 
       <main className="flex-1 pt-24 pb-24 lg:pb-16">
         <div className="max-w-6xl mx-auto px-4">
-          {!isEmailVerified && (
-            <div className="mb-4 p-4 rounded-xl border border-amber-300 bg-amber-50 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <i className="ri-mail-check-line text-amber-600"></i>
-                <span className="text-sm text-amber-800 font-medium">
-                  Confirme o seu email para desbloquear levantamentos com segurança.
-                </span>
-              </div>
-              <button
-                onClick={() => navigate('/verify-email')}
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-black rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"
-              >
-                Verificar Email
-              </button>
-            </div>
-          )}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Coluna Principal */}
             <div className="lg:col-span-2">
@@ -274,7 +254,7 @@ export default function WithdrawalPage() {
               </div>
 
               {/* ✅ Saldo - Atualizado em tempo real */}
-              <div className="bg-gradient-to-r from-teal-500 to-teal-600 rounded-2xl p-6 mb-6 text-white">
+              <div className="bg-gradient-to-r from-teal-500 to-teal-600 rounded-2xl p-6 mb-4 text-white">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-teal-100 text-sm mb-1">Saldo Disponível</p>
@@ -286,19 +266,28 @@ export default function WithdrawalPage() {
                 </div>
               </div>
 
+              {!limitsLoading && limits?.maxDailyWithdrawal && (
+                <div className="bg-gray-100 border border-gray-200 rounded-xl p-4 mb-6">
+                  <p className="text-xs font-semibold text-gray-700 mb-1">Limite diário de levantamento</p>
+                  <p className="text-xs text-gray-600">
+                    Podes levantar até €{limits.maxDailyWithdrawal.toFixed(2)} por dia.
+                  </p>
+                </div>
+              )}
+
               {/* Alerta KYC */}
               {!isKycVerified && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
                   <div className="flex items-start gap-3">
-                    <i className="ri-alert-line text-amber-600 text-xl flex-shrink-0 mt-0.5"></i>
+                    <i className="ri-alert-line text-red-500 text-xl flex-shrink-0 mt-0.5"></i>
                     <div className="flex-1">
-                      <p className="text-amber-900 font-medium mb-2">Verificação Necessária</p>
-                      <p className="text-amber-800 text-sm mb-3">
+                      <p className="text-red-900 font-medium mb-2">Verificação Necessária</p>
+                      <p className="text-red-800 text-sm mb-3">
                         Para fazer levantamentos, precisas de verificar a tua identidade.
                       </p>
                       <button
                         onClick={() => navigate('/verificacao')}
-                        className="bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors cursor-pointer whitespace-nowrap"
+                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors cursor-pointer whitespace-nowrap"
                       >
                         Verificar Agora
                       </button>
@@ -322,6 +311,9 @@ export default function WithdrawalPage() {
                     <p className="text-emerald-800 font-medium">{success}</p>
                     <p className="text-emerald-700 text-sm mt-1">
                       Tempo estimado: 1-3 dias úteis
+                    </p>
+                    <p className="text-emerald-700 text-xs mt-1">
+                      Podes acompanhar o estado em Carteira &gt; Histórico de transações.
                     </p>
                   </div>
                 </div>
@@ -365,6 +357,9 @@ export default function WithdrawalPage() {
                   </div>
                   <p className="text-xs text-gray-500 mt-2">
                     Mínimo: €20 • Máximo: €{balance.toFixed(2)}
+                    {limits?.maxDailyWithdrawal && (
+                      <> • Limite diário: €{limits.maxDailyWithdrawal.toFixed(2)}</>
+                    )}
                   </p>
                 </div>
 

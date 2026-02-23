@@ -552,6 +552,52 @@ export interface MultiSportOdds {
     home: number;
     away: number;
   }[];
+  meta?: {
+    provider: 'api-football';
+    bookmaker: string;
+    markets: { id: number; name: string }[];
+    lastUpdate?: string;
+  };
+}
+
+function mapFootballOddsResponseToMultiSportOdds(
+  data: any[] | null | undefined,
+): MultiSportOdds | null {
+  if (!data?.length) return null;
+
+  const fixture = data[0];
+  const bookmakers = fixture?.bookmakers;
+  if (!Array.isArray(bookmakers) || !bookmakers.length) return null;
+
+  const bookmaker = bookmakers[0];
+
+  const matchWinner = bookmaker.bets?.find(
+    (b: any) => b.id === 1 || String(b.name).toLowerCase().includes('match winner'),
+  );
+
+  if (!matchWinner) return null;
+
+  const home = parseFloat(matchWinner.values?.find((v: any) => v.value === 'Home')?.odd);
+  const draw = parseFloat(matchWinner.values?.find((v: any) => v.value === 'Draw')?.odd);
+  const away = parseFloat(matchWinner.values?.find((v: any) => v.value === 'Away')?.odd);
+
+  if (!home || !away) return null;
+
+  return {
+    home,
+    draw,
+    away,
+    meta: {
+      provider: 'api-football',
+      bookmaker: String(bookmaker.name || ''),
+      markets:
+        bookmaker.bets?.map((b: any) => ({
+          id: Number(b.id) || 0,
+          name: String(b.name || ''),
+        })) || [],
+      lastUpdate: fixture.update,
+    },
+  };
 }
 
 export async function fetchMultiSportOdds(
@@ -569,52 +615,81 @@ export async function fetchMultiSportOdds(
   }
 
   const data = await fetchFromProxy<any[]>('football', 'odds', { fixture: String(gameId) });
-
-  if (!data || data.length === 0) return null;
-
-  const bookmaker = data[0].bookmakers?.[0];
-  if (!bookmaker) return null;
-
-  const result: MultiSportOdds = {
-    home: 0,
-    draw: 0,
-    away: 0,
-    overUnder: [],
-    handicap: [],
-  };
-
-  bookmaker.bets?.forEach((bet: any) => {
-    if (bet.name === 'Match Winner') {
-      bet.values?.forEach((v: any) => {
-        if (v.value === 'Home') result.home = parseFloat(v.odd);
-        if (v.value === 'Draw') result.draw = parseFloat(v.odd);
-        if (v.value === 'Away') result.away = parseFloat(v.odd);
-      });
-    }
-
-    if (bet.name === 'Goals Over/Under') {
-      bet.values?.forEach((v: any) => {
-        const match = v.value.match(/(Over|Under)\s+([\d.]+)/);
-        if (match) {
-          const type = match[1].toLowerCase();
-          const line = parseFloat(match[2]);
-          const odd = parseFloat(v.odd);
-
-          let existing = result.overUnder?.find((o) => o.line === line);
-          if (!existing) {
-            existing = { line, over: 0, under: 0 };
-            result.overUnder?.push(existing);
-          }
-          if (type === 'over') existing.over = odd;
-          if (type === 'under') existing.under = odd;
-        }
-      });
-    }
-  });
+  const result = mapFootballOddsResponseToMultiSportOdds(data);
+  if (!result) {
+    console.warn('⚠️ Odds vazias', sport, gameId);
+    return null;
+  }
 
   setCache(cacheKey, result);
   console.log(`✅ Odds ${sport} carregadas`);
   return result;
+}
+
+export async function fetchFootballLiveOdds(
+  fixtureId: number
+): Promise<MultiSportOdds | null> {
+  const cacheKey = `live_odds_football_${fixtureId}`;
+  const cached = getCached<MultiSportOdds>(cacheKey, CACHE_TTL.live);
+  if (cached) return cached;
+
+  const data = await fetchFromProxy<any[]>('football', 'odds/live', {
+    fixture: String(fixtureId),
+  });
+
+  const result = mapFootballOddsResponseToMultiSportOdds(data);
+  if (!result) return null;
+
+  setCache(cacheKey, result);
+  console.log(`✅ Odds ao vivo futebol carregadas (fixture ${fixtureId})`);
+  return result;
+}
+
+export async function fetchAllFootballLiveOddsMap(): Promise<Record<number, MultiSportOdds>> {
+  const map: Record<number, MultiSportOdds> = {};
+
+  try {
+    const data = await apiFetch('/football/odds/live', { method: 'GET' });
+    if (!data || !Array.isArray(data)) return map;
+
+    for (const item of data as { matchId: string | number; odds: { home: number; draw: number; away: number } }[]) {
+      const idNum = parseInt(String(item.matchId), 10);
+      if (!idNum || !Number.isFinite(item.odds.home) || !Number.isFinite(item.odds.away)) continue;
+
+      map[idNum] = {
+        home: item.odds.home,
+        draw: item.odds.draw,
+        away: item.odds.away,
+        meta: {
+          provider: 'api-football',
+          bookmaker: 'api-football',
+          markets: [{ id: 1, name: 'Match Winner 1X2' }],
+          lastUpdate: new Date().toISOString(),
+        },
+      };
+    }
+  } catch (error) {
+    console.error('❌ Erro ao carregar odds ao vivo de futebol:', error);
+  }
+
+  return map;
+}
+
+export async function fetchTodayFootballOddsBatch(
+  fixtureIds: number[],
+): Promise<Record<number, MultiSportOdds>> {
+  const map: Record<number, MultiSportOdds> = {};
+
+  await Promise.all(
+    fixtureIds.map(async (id) => {
+      const odds = await fetchMultiSportOdds('football', id);
+      if (odds) {
+        map[id] = odds;
+      }
+    }),
+  );
+
+  return map;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -681,6 +756,8 @@ export default {
   fetchMultiSportStats,
   fetchMultiSportH2H,
   fetchMultiSportOdds,
+  fetchFootballLiveOdds,
+  fetchAllFootballLiveOddsMap,
   detectSportType,
   extractGameId,
 };

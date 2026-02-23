@@ -34,7 +34,7 @@ const MatchCard = lazy(() => import("./components/MatchCard"));
    Helper data (no TypeScript types – pure JS)
    ------------------------------------------------- */
 const bannerStyles = [
-  { gradient: "from-amber-600 via-amber-700 to-red-800", accent: "text-amber-400" },
+  { gradient: "from-red-600 via-red-700 to-red-800", accent: "text-red-100" },
   { gradient: "from-emerald-600 via-emerald-700 to-teal-800", accent: "text-emerald-400" },
   { gradient: "from-rose-600 via-rose-700 to-red-800", accent: "text-rose-400" },
 ];
@@ -251,20 +251,24 @@ export default function HomePage() {
     { league: string; sport: string; count: number }[]
   >(() => {
     const allMatches = [...(liveMatches || []), ...(upcomingMatches || [])];
-    const leagueCounts = {};
+    const leagueCounts: Record<string, { league: string; sport: string; count: number }> = {};
 
-    allMatches.forEach((match) => {
-      if (!leagueCounts[match.league]) {
-        leagueCounts[match.league] = {
-          league: match.league,
-          sport: match.sport,
+    allMatches.forEach((match: any) => {
+      const league = match.league || "";
+      if (!league) return;
+      const sport = match.sport || "football";
+
+      if (!leagueCounts[league]) {
+        leagueCounts[league] = {
+          league,
+          sport,
           count: 0,
         };
       }
-      leagueCounts[match.league].count += 1;
+      leagueCounts[league].count += 1;
     });
 
-    return Object.values(leagueCounts) as { league: string; sport: string; count: number }[];
+    return Object.values(leagueCounts);
   }, [liveMatches, upcomingMatches]);
 
   const filteredLiveMatches = useMemo(() => {
@@ -457,7 +461,7 @@ export default function HomePage() {
   // Render
   // ------------------------------------------------------------
   return (
-    <div className={`min-h-screen ${theme === "dark" ? "bg-gray-950" : "bg-gray-100"}`}>
+    <div className={`min-h-screen ${theme === "dark" ? "bg-gray-900" : "bg-gray-100"}`}>
       {/* Header */}
       <Header
         activeTab={activeTab}
@@ -477,7 +481,7 @@ export default function HomePage() {
           <div
             className={`absolute left-0 top-0 bottom-0 w-64 ${
               theme === "dark"
-                ? "bg-gray-950 border-gray-800"
+                ? "bg-gray-900 border-gray-800"
                 : "bg-white border-gray-200"
             } border-r overflow-y-auto animate-slide-in-left`}
           >
@@ -491,7 +495,7 @@ export default function HomePage() {
                   theme === "dark" ? "text-white" : "text-gray-900"
                 }`}
               >
-                BET<span className="text-amber-500">62</span>
+                BET<span className="text-red-600">62</span>
               </span>
               <button
                 onClick={() => setShowMobileMenu(false)}
@@ -529,7 +533,7 @@ export default function HomePage() {
       <div
         className={`lg:hidden fixed top-11 left-0 right-0 z-30 ${
           theme === "dark"
-            ? "bg-gray-950/95 border-gray-800/50"
+            ? "bg-gray-900/95 border-gray-800/50"
             : "bg-white/95 border-gray-200"
         } backdrop-blur-md border-b px-2 py-1.5`}
       >
@@ -538,7 +542,7 @@ export default function HomePage() {
             onClick={() => setActiveTab("sports")}
             className={`px-3 py-1.5 rounded-full text-[10px] font-semibold whitespace-nowrap cursor-pointer transition-all ${
               activeTab === "sports"
-                ? "bg-amber-500 text-gray-900"
+                ? "bg-red-600 text-white"
                 : theme === "dark"
                 ? "bg-gray-800/80 text-gray-400"
                 : "bg-gray-200 text-gray-600"
@@ -561,7 +565,7 @@ export default function HomePage() {
           {isAdmin && (
             <Link
               to="/admin"
-              className="px-3 py-1.5 rounded-full text-[10px] font-semibold whitespace-nowrap cursor-pointer bg-emerald-600 text-white"
+              className="px-3 py-1.5 rounded-full text-[10px] font-semibold whitespace-nowrap cursor-pointer bg-gradient-to-r from-red-600 to-red-700 text-white"
             >
               <i className="ri-dashboard-3-line mr-1"></i>Painel
             </Link>
@@ -575,7 +579,7 @@ export default function HomePage() {
         <aside
           className={`hidden lg:block w-52 ${
             theme === "dark"
-              ? "bg-gray-950 border-gray-800/50"
+              ? "bg-gray-900 border-gray-700/50"
               : "bg-white border-gray-200"
           } border-r fixed left-0 top-16 bottom-0 overflow-y-auto`}
           style={{
@@ -611,7 +615,7 @@ export default function HomePage() {
           {/* Hero banners */}
           <div className="px-2 lg:px-3 py-2">
             <div className="flex items-center gap-1.5 mb-2">
-              <i className="ri-star-fill text-amber-500 text-xs"></i>
+              <i className="ri-star-fill text-red-500 text-xs"></i>
               <h2 className={`text-xs font-bold ${theme === "dark" ? "text-white" : "text-gray-900"}`}>Destaques</h2>
             </div>
             <Suspense
@@ -632,22 +636,22 @@ export default function HomePage() {
           </div>
 
           {/* Filter indicator */}
-          {getFilterTitle() && (
-            <div
-              className={`mx-2 lg:mx-3 mb-2 flex items-center justify-between ${
-                theme === "dark"
-                  ? "bg-amber-500/5 border-amber-500/20"
-                  : "bg-amber-50 border-amber-200"
-              } border rounded-md px-2 py-1.5`}
-            >
+            {getFilterTitle() && (
+              <div
+                className={`mx-2 lg:mx-3 mb-2 flex items-center justify-between ${
+                  theme === "dark"
+                    ? "bg-red-600/5 border-red-600/30"
+                    : "bg-red-50 border-red-200"
+                } border rounded-md px-2 py-1.5`}
+              >
               <div className="flex items-center gap-1.5">
-                <i className="ri-filter-3-line text-amber-400 text-[10px]"></i>
-                <span className={`text-[10px] font-medium ${theme === "dark" ? "text-amber-400/80" : "text-amber-600"}`}>Filtro:</span>
+                <i className="ri-filter-3-line text-red-400 text-[10px]"></i>
+                <span className={`text-[10px] font-medium ${theme === "dark" ? "text-red-400/80" : "text-red-600"}`}>Filtro:</span>
                 <span
                   className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                     theme === "dark"
-                      ? "bg-amber-500/15 text-amber-300"
-                      : "bg-amber-100 text-amber-700"
+                      ? "bg-red-600/15 text-red-300"
+                      : "bg-red-100 text-red-700"
                   }`}
                 >
                   {getFilterTitle()}
@@ -702,7 +706,7 @@ export default function HomePage() {
                         : "bg-gray-200 hover:bg-gray-300"
                     } rounded-md cursor-pointer disabled:opacity-40 transition-colors`}
                   >
-                    <i className={`ri-refresh-line text-amber-400 text-[10px] ${liveLoading ? "animate-spin" : ""}`}></i>
+                    <i className={`ri-refresh-line text-red-400 text-[10px] ${liveLoading ? "animate-spin" : ""}`}></i>
                   </button>
                 </div>
 
@@ -741,10 +745,10 @@ export default function HomePage() {
                   <div className="flex items-center gap-2">
                     <div
                       className={`w-6 h-6 flex items-center justify-center ${
-                        theme === "dark" ? "bg-amber-500/15" : "bg-amber-100"
+                        theme === "dark" ? "bg-red-500/10" : "bg-red-100"
                       } rounded-md`}
                     >
-                      <i className="ri-calendar-line text-amber-400 text-xs"></i>
+                      <i className="ri-calendar-line text-red-500 text-xs"></i>
                     </div>
                     <div>
                       <h2 className={`text-xs font-bold leading-tight ${theme === "dark" ? "text-white" : "text-gray-900"}`}>Pré-Jogos</h2>
@@ -762,7 +766,7 @@ export default function HomePage() {
                         : "bg-gray-200 hover:bg-gray-300"
                     } rounded-md cursor-pointer disabled:opacity-40 transition-colors`}
                   >
-                    <i className={`ri-refresh-line text-amber-400 text-[10px] ${upcomingLoading ? "animate-spin" : ""}`}></i>
+                    <i className={`ri-refresh-line text-red-500 text-[10px] ${upcomingLoading ? "animate-spin" : ""}`}></i>
                   </button>
                 </div>
 
@@ -790,7 +794,7 @@ export default function HomePage() {
                       <p className={`text-xs font-medium ${theme === "dark" ? "text-gray-500" : "text-gray-600"}`}>Nenhum pré-jogo disponível</p>
                       <button
                         onClick={refreshUpcoming}
-                        className="mt-2 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-gray-900 text-[10px] font-bold rounded-md cursor-pointer whitespace-nowrap transition-colors"
+                        className="mt-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded-md cursor-pointer whitespace-nowrap transition-colors"
                       >
                         <i className="ri-refresh-line mr-1"></i>Tentar novamente
                       </button>
@@ -808,14 +812,14 @@ export default function HomePage() {
         <aside
           className={`hidden lg:block w-64 ${
             theme === "dark"
-              ? "bg-gray-950 border-gray-800/50"
+              ? "bg-gray-900 border-gray-800/50"
               : "bg-white border-gray-200"
           } border-l fixed right-0 top-16 bottom-0 overflow-hidden`}
         >
           <Suspense
             fallback={
               <div className="flex items-center justify-center h-full">
-                <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
               </div>
             }
           >
@@ -866,9 +870,9 @@ export default function HomePage() {
                     : theme === "dark"
                     ? "bg-red-900/90 border-red-500/50"
                     : "bg-red-50 border-red-300"
-                  : theme === "dark"
-                  ? "bg-gray-800 border-amber-500/30"
-                  : "bg-white border-amber-300"
+                : theme === "dark"
+                  ? "bg-gray-800 border-red-500/40"
+                  : "bg-white border-red-300"
               } 
               border px-3 py-2 rounded-lg shadow-2xl animate-slide-in-right
             `}
@@ -912,7 +916,7 @@ export default function HomePage() {
               </div>
             ) : (
               <div className="flex items-center gap-1.5">
-                <i className="ri-check-circle-fill text-amber-400 text-xs"></i>
+                <i className="ri-check-circle-fill text-red-500 text-xs"></i>
                 <span className={`text-[10px] font-semibold ${theme === "dark" ? "text-white" : "text-gray-700"}`}>
                   {toast.message}
                 </span>

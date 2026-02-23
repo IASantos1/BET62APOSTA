@@ -26,13 +26,12 @@ const MatchDetailsPage = lazy(() => import('../pages/match-details/page'));
 const EngineDemoPage = lazy(() => import('../pages/engine-demo/page'));
 const PaymentConfirmationPage = lazy(() => import('../pages/payment-confirmation/page'));
 const ForgotPasswordPage = lazy(() => import('../pages/forgot-password/page'));
-const VerifyEmailPage = lazy(() => import('../pages/verify-email/page'));
 
 const routes: RouteObject[] = [
   {
     path: '/',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <HomePage />
       </Suspense>
     ),
@@ -40,7 +39,7 @@ const routes: RouteObject[] = [
   {
     path: '/jogo/:matchId',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <MatchDetailsPage />
       </Suspense>
     ),
@@ -48,7 +47,7 @@ const routes: RouteObject[] = [
   {
     path: '/match/:matchId',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <MatchDetailsPage />
       </Suspense>
     ),
@@ -56,7 +55,7 @@ const routes: RouteObject[] = [
   {
     path: '/demo-engine',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <EngineDemoPage />
       </Suspense>
     ),
@@ -64,7 +63,7 @@ const routes: RouteObject[] = [
   {
     path: '/login',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <LoginPage />
       </Suspense>
     ),
@@ -72,7 +71,7 @@ const routes: RouteObject[] = [
   {
     path: '/forgot-password',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <ForgotPasswordPage />
       </Suspense>
     ),
@@ -80,7 +79,7 @@ const routes: RouteObject[] = [
   {
     path: '/registro',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <RegisterPage />
       </Suspense>
     ),
@@ -88,7 +87,7 @@ const routes: RouteObject[] = [
   {
     path: '/registrar',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <RegisterPage />
       </Suspense>
     ),
@@ -96,7 +95,7 @@ const routes: RouteObject[] = [
   {
     path: '/desportos-ao-vivo',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <LiveSportsPage />
       </Suspense>
     ),
@@ -104,7 +103,7 @@ const routes: RouteObject[] = [
   {
     path: '/promocoes',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <PromotionsPage />
       </Suspense>
     ),
@@ -112,7 +111,7 @@ const routes: RouteObject[] = [
   {
     path: '/deposito',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <DepositPage />
       </Suspense>
     ),
@@ -120,7 +119,7 @@ const routes: RouteObject[] = [
   {
     path: '/confirmacao-pagamento',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <PaymentConfirmationPage />
       </Suspense>
     ),
@@ -128,7 +127,7 @@ const routes: RouteObject[] = [
   {
     path: '/carteira',
     element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
+      <Suspense fallback={<div className="min-h-screen bg-gray-900"></div>}>
         <WalletPage />
       </Suspense>
     ),
@@ -157,14 +156,7 @@ const routes: RouteObject[] = [
       </Suspense>
     ),
   },
-  {
-    path: '/verify-email',
-    element: (
-      <Suspense fallback={<div className="min-h-screen bg-gray-950"></div>}>
-        <VerifyEmailPage />
-      </Suspense>
-    ),
-  },
+  // Rota de verificação de email removida a pedido do cliente
   {
     path: '/minhas-apostas',
     element: (

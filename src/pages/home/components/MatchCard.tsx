@@ -5,7 +5,6 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import OddsBlockedOverlay from '../../../components/feature/OddsBlockedOverlay';
 import { useMatchIncidents } from '../../../hooks/useMatchIncidents';
 import { useMatchScore, useMatchOdds } from '../../../hooks/useLiveScoresWebSocket';
-// imports removidos não utilizados
 
 interface Match {
   id?: string | number;
@@ -336,7 +335,6 @@ export default function MatchCard({
 }: MatchCardProps) {
   const { theme } = useTheme();
   const navigate = useNavigate();
-
   const shouldShowLogos = showLogos || isLive || index < 80;
   const sportType = useMemo(() => detectSportType(match), [match]);
   const isSoccer = sportType === 'soccer';
@@ -395,11 +393,14 @@ export default function MatchCard({
   const displayAwayScore = isLive ? wsAwayScore : (match.awayScore ?? 0);
   const displayMinute = isLive ? wsMinute : (match.elapsed ?? (match.minute ? Number(match.minute) : 0));
   const displayPeriod = isLive ? wsPeriod : (match.statusShort || match.period || 'LIVE');
-  const displayOdds = useMemo(() => ({
-    home: wsOdds.home > 0 ? wsOdds.home : (match.odds?.home || 0),
-    draw: wsOdds.draw > 0 ? wsOdds.draw : (match.odds?.draw || 0),
-    away: wsOdds.away > 0 ? wsOdds.away : (match.odds?.away || 0),
-  }), [wsOdds.home, wsOdds.draw, wsOdds.away, match.odds?.home, match.odds?.draw, match.odds?.away]);
+  const displayOdds = useMemo(
+    () => ({
+      home: wsOdds.home > 0 ? wsOdds.home : (match.odds?.home || 0),
+      draw: wsOdds.draw > 0 ? wsOdds.draw : (match.odds?.draw ?? 0),
+      away: wsOdds.away > 0 ? wsOdds.away : (match.odds?.away || 0),
+    }),
+    [wsOdds, match.odds]
+  );
 
   // ✅ FUNÇÕES AUXILIARES
   const getDisplayOdd = useCallback((type: 'home' | 'draw' | 'away'): number => {
@@ -518,8 +519,9 @@ export default function MatchCard({
   const animationDelay = `${index * 80}ms`;
   const hasValidOdds = displayOdds.home > 1 || displayOdds.away > 1;
 
-  // ✅ BLOQUEIO: Verificar se odds estão bloqueadas
-  const oddsBlocked = !!activeIncident;
+  const oddsBlocked =
+    !!activeIncident &&
+    ['VAR', 'goal_chance', 'penalty', 'red_card'].includes(activeIncident.type);
 
   return (
     <div
@@ -625,12 +627,11 @@ export default function MatchCard({
                   </div>
                 )}
 
-                {hasValidOdds && (
+                {hasValidOdds ? (
                   <div
                     className="w-[200px] lg:w-[240px] relative"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {/* ✅ Overlay de bloqueio */}
                     {activeIncident && (
                       <OddsBlockedOverlay incident={activeIncident} compact />
                     )}
@@ -663,6 +664,10 @@ export default function MatchCard({
                         isBlocked={oddsBlocked}
                       />
                     </div>
+                  </div>
+                ) : (
+                  <div className="text-amber-500 text-[10px] font-semibold">
+                    Odds temporariamente indisponíveis
                   </div>
                 )}
               </div>
@@ -750,7 +755,7 @@ export default function MatchCard({
         </div>
 
         {/* Odds Mobile com bloqueio */}
-        {hasValidOdds && (
+        {hasValidOdds ? (
           <div className="w-full relative" onClick={(e) => e.stopPropagation()}>
             {activeIncident && (
               <OddsBlockedOverlay incident={activeIncident} compact />
@@ -784,6 +789,10 @@ export default function MatchCard({
                 isBlocked={oddsBlocked}
               />
             </div>
+          </div>
+        ) : (
+          <div className="text-amber-500 text-[10px] font-semibold">
+            Odds temporariamente indisponíveis
           </div>
         )}
       </div>

@@ -79,8 +79,20 @@ export const useProfile = () => {
         setProfile(null);
       }
     } catch (err: any) {
-      console.error('Erro ao carregar perfil:', err);
-      setError(err.message || 'Erro ao carregar perfil');
+      const message = (err?.message || '').toString().toLowerCase();
+      const status = typeof err?.status === 'number' ? err.status : undefined;
+      const isUnauthenticated =
+        status === 401 ||
+        message.includes('não autenticado') ||
+        message.includes('unauth');
+
+      if (isUnauthenticated) {
+        setProfile(null);
+        setError(null);
+      } else {
+        console.error('Erro ao carregar perfil:', err);
+        setError(err.message || 'Erro ao carregar perfil');
+      }
     } finally {
       setLoading(false);
     }

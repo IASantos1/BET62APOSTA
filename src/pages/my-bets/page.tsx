@@ -43,7 +43,7 @@ interface Bet {
 export default function MyBetsPage() {
   const { user } = useAuth();
   const { wallet, addWinnings } = useWallet();
-  const { profile } = useProfile();
+  const { profile: _profile } = useProfile();
   const { notifications, permissionGranted, requestPermission } = useCashOutNotifications();
   const [activeTab, setActiveTab] = useState<'open' | 'resolved'>('open');
   const [bets, setBets] = useState<Bet[]>([]);
@@ -201,31 +201,6 @@ export default function MyBetsPage() {
 
       <main className="flex-1 py-8 pb-20 lg:pb-8 pt-20">
         <div className="max-w-7xl mx-auto px-4 md:px-6">
-          {profile && profile.email_verified === false && (
-            <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center">
-                    <i className="ri-mail-check-line text-amber-600 text-lg"></i>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-amber-900">
-                      Confirme o seu email para proteger a conta e facilitar Cash Out e pagamentos.
-                    </p>
-                    <p className="text-xs text-amber-800/80">
-                      A verificação é rápida e aumenta a segurança das suas apostas.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => window.location.assign('/verify-email')}
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-gray-900 font-bold rounded-lg text-xs cursor-pointer whitespace-nowrap"
-                >
-                  Verificar Email
-                </button>
-              </div>
-            </div>
-          )}
           {/* Page Header */}
           <div className="mb-8 flex flex-col md:flex-row md:items-start justify-between gap-4">
             <div>

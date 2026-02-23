@@ -147,7 +147,7 @@ export default function WalletTransactionList({
             onClick={() => onFilterChange(f.id)}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
               filter === f.id
-                ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                ? 'bg-red-600 text-white shadow-lg shadow-red-600/20'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >

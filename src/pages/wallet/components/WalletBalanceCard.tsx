@@ -137,7 +137,7 @@ export default function WalletBalanceCard({
         <div className="grid grid-cols-2 gap-3">
           <Link
             to="/deposito"
-            className="flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-700 hover:to-amber-600 text-black font-bold text-sm rounded-xl transition-all cursor-pointer whitespace-nowrap shadow-lg shadow-amber-600/20"
+            className="flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold text-sm rounded-xl transition-all cursor-pointer whitespace-nowrap shadow-lg shadow-red-600/20"
           >
             <i className="ri-add-circle-line text-lg"></i>
             Depositar

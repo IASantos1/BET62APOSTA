@@ -84,41 +84,41 @@ export default function MyBetsPanel({ isOpen, onClose }: MyBetsPanelProps) {
     <>
       {/* Overlay */}
       <div 
-        className="fixed inset-0 bg-black/60 z-40"
+        className="fixed inset-0 bg-gray-900/70 z-40"
         onClick={onClose}
       ></div>
 
       {/* Panel */}
-      <div className="fixed right-0 top-0 h-full w-full max-w-sm md:w-96 bg-black border-l border-amber-500/30 z-50 flex flex-col shadow-2xl">
+      <div className="fixed right-0 top-0 h-full w-full max-w-sm md:w-96 bg-gray-900 border-l border-red-600/40 z-50 flex flex-col shadow-2xl">
         {/* Header */}
-        <div className="bg-gradient-to-r from-amber-600 to-amber-500 px-4 py-3 md:py-4 flex items-center justify-between">
-          <h2 className="text-black font-bold text-sm md:text-base flex items-center">
+        <div className="bg-gradient-to-r from-red-600 to-red-700 px-4 py-3 md:py-4 flex items-center justify-between">
+          <h2 className="text-white font-bold text-sm md:text-base flex items-center">
             <i className="ri-file-list-3-line mr-2 text-base md:text-lg"></i>
             Minhas Apostas
           </h2>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-black/20 hover:bg-black/30 transition-colors cursor-pointer"
-          >
-            <i className="ri-close-line text-black text-lg"></i>
-          </button>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-900/40 hover:bg-gray-900/60 transition-colors cursor-pointer"
+            >
+              <i className="ri-close-line text-white text-lg"></i>
+            </button>
         </div>
 
         {/* Tabs */}
-        <div className="p-2 md:p-3 bg-gray-900/50 border-b border-amber-500/20">
+        <div className="p-2 md:p-3 bg-gray-900/70 border-b border-red-600/40">
           <div className="flex gap-2">
             <button
               onClick={() => setActiveTab('open')}
               className={`flex-1 py-2 md:py-2.5 px-2 md:px-3 rounded-lg font-semibold text-xs md:text-sm transition-all whitespace-nowrap cursor-pointer flex items-center justify-center ${
                 activeTab === 'open'
-                  ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black shadow-lg'
-                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-amber-500/20'
+                  ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-lg'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-red-600/30'
               }`}
             >
               <i className="ri-time-line mr-1 md:mr-2"></i>
               Em Aberto
               <span className={`ml-1 md:ml-2 px-1.5 md:px-2 py-0.5 rounded-full text-[10px] md:text-xs ${
-                activeTab === 'open' ? 'bg-black/20 text-black' : 'bg-amber-500/20 text-amber-400'
+                activeTab === 'open' ? 'bg-gray-900/40 text-white' : 'bg-red-600/15 text-red-300'
               }`}>
                 {openBets.length}
               </span>
@@ -127,14 +127,14 @@ export default function MyBetsPanel({ isOpen, onClose }: MyBetsPanelProps) {
               onClick={() => setActiveTab('settled')}
               className={`flex-1 py-2 md:py-2.5 px-2 md:px-3 rounded-lg font-semibold text-xs md:text-sm transition-all whitespace-nowrap cursor-pointer flex items-center justify-center ${
                 activeTab === 'settled'
-                  ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black shadow-lg'
-                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-amber-500/20'
+                  ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-lg'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-red-600/30'
               }`}
             >
               <i className="ri-check-double-line mr-1 md:mr-2"></i>
               Resolvidas
               <span className={`ml-1 md:ml-2 px-1.5 md:px-2 py-0.5 rounded-full text-[10px] md:text-xs ${
-                activeTab === 'settled' ? 'bg-black/20 text-black' : 'bg-amber-500/20 text-amber-400'
+                activeTab === 'settled' ? 'bg-gray-900/40 text-white' : 'bg-red-600/15 text-red-300'
               }`}>
                 {settledBets.length}
               </span>
@@ -179,7 +179,7 @@ export default function MyBetsPanel({ isOpen, onClose }: MyBetsPanelProps) {
                 : 'Resolvida';
 
               const statusClasses = isOpen
-                ? 'bg-amber-500/20 text-amber-400'
+                ? 'bg-red-600/15 text-red-300'
                 : isWon
                 ? 'bg-green-500/20 text-green-400'
                 : isCashedOut
@@ -197,20 +197,20 @@ export default function MyBetsPanel({ isOpen, onClose }: MyBetsPanelProps) {
                 : isCashedOut
                 ? 'text-blue-400'
                 : isOpen
-                ? 'text-amber-400'
+                ? 'text-red-300'
                 : 'text-red-400';
 
               return (
                 <div
                   key={bet.id}
-                  className="bg-gray-900/80 rounded-xl border border-amber-500/20 overflow-hidden"
+                  className="bg-gray-900/80 rounded-xl border border-red-600/30 overflow-hidden"
                 >
-                  <div className="px-2 md:px-3 py-1.5 md:py-2 bg-gray-800/50 flex items-center justify-between border-b border-amber-500/10">
+                  <div className="px-2 md:px-3 py-1.5 md:py-2 bg-gray-800/50 flex items-center justify-between border-b border-red-600/20">
                     <div className="flex items-center gap-1.5 md:gap-2">
                       <span
                         className={`px-1.5 md:px-2 py-0.5 rounded text-[9px] md:text-[10px] font-bold ${
                           bet.bet_type === 'multiple'
-                            ? 'bg-amber-500/20 text-amber-400'
+                            ? 'bg-red-600/15 text-red-300'
                             : 'bg-gray-700 text-gray-300'
                         }`}
                       >
@@ -245,19 +245,19 @@ export default function MyBetsPanel({ isOpen, onClose }: MyBetsPanelProps) {
                                 {sel.market}
                               </span>
                             )}
-                            <span className="text-[9px] md:text-[10px] text-amber-400 truncate">
+                            <span className="text-[9px] md:text-[10px] text-red-300 truncate">
                               {sel.selection}
                             </span>
                           </div>
                         </div>
-                        <span className="text-xs md:text-sm font-bold text-amber-500 ml-2">
+                        <span className="text-xs md:text-sm font-bold text-red-400 ml-2">
                           {Number(sel.odds).toFixed(2)}
                         </span>
                       </div>
                     ))}
                   </div>
 
-                  <div className="px-2 md:px-3 py-1.5 md:py-2 bg-gray-800/30 flex items-center justify-between border-t border-amber-500/10">
+                  <div className="px-2 md:px-3 py-1.5 md:py-2 bg-gray-800/30 flex items-center justify-between border-t border-red-600/20">
                     <div>
                       <div className="text-[9px] md:text-[10px] text-gray-500">Aposta</div>
                       <div className="text-xs md:text-sm font-bold text-white">
@@ -279,9 +279,9 @@ export default function MyBetsPanel({ isOpen, onClose }: MyBetsPanelProps) {
         </div>
 
         {/* Summary Footer */}
-        <div className="p-2 md:p-3 bg-gray-900/50 border-t border-amber-500/20">
+        <div className="p-2 md:p-3 bg-gray-900/70 border-t border-red-600/40">
           <div className="grid grid-cols-2 gap-2 md:gap-3">
-            <div className="bg-gray-800/50 rounded-lg p-2 md:p-3 border border-amber-500/20">
+            <div className="bg-gray-800/50 rounded-lg p-2 md:p-3 border border-red-600/30">
               <div className="text-[9px] md:text-[10px] text-gray-400">Total Apostado</div>
               <div className="text-base md:text-lg font-bold text-white">
                 €{currentBets
@@ -289,11 +289,11 @@ export default function MyBetsPanel({ isOpen, onClose }: MyBetsPanelProps) {
                   .toFixed(2)}
               </div>
             </div>
-            <div className="bg-gradient-to-r from-amber-600/20 to-red-600/20 rounded-lg p-2 md:p-3 border border-amber-500/30">
+            <div className="bg-gradient-to-r from-red-600/20 to-red-500/30 rounded-lg p-2 md:p-3 border border-red-600/40">
               <div className="text-[9px] md:text-[10px] text-gray-400">
                 {activeTab === 'open' ? 'Retorno Potencial' : 'Total Ganho'}
               </div>
-              <div className="text-base md:text-lg font-bold text-amber-400">
+              <div className="text-base md:text-lg font-bold text-red-300">
                 €{activeTab === 'open'
                   ? currentBets
                       .reduce((acc, bet) => acc + Number(bet.potential_return || 0), 0)

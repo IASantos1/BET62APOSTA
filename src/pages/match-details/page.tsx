@@ -13,6 +13,8 @@ import { useLiveOddsAutoRefresh } from '../../hooks/useLiveOddsAutoRefresh';
 import { useStandingsAutoRefresh } from '../../hooks/useStandingsAutoRefresh';
 import { AutoRefreshIndicator } from '../../components/feature/AutoRefreshIndicator';
 import { useSmoothTransition } from '../../hooks/useSmoothTransition';
+import { fetchEventOdds } from '../../services/apiFootballService';
+import { fetchLiveOdds as fetchLiveOddsList } from '../../services/oddsService';
 
 // ✅ LAZY LOADING: Componentes pesados carregam sob demanda
 const MatchHeader = lazy(() => import('./components/MatchHeader'));
@@ -46,6 +48,7 @@ export default function MatchDetailsPage() {
   const [selections, setSelections] = useState([]);
   const [isBetSlipExpanded, setIsBetSlipExpanded] = useState(false);
   const [toasts, setToasts] = useState([]);
+  const [apiMainOdds, setApiMainOdds] = useState<{ home: number; draw?: number; away: number } | null>(null);
 
   // Conectar à API de eventos ao vivo
   const { lastEvent } = useLiveEventsConnector(true);
@@ -59,6 +62,8 @@ export default function MatchDetailsPage() {
     autoRefresh: true,
     interval: 30000,
   });
+
+  const [fallbackMatch, setFallbackMatch] = useState<any | null>(null);
 
   const match = useMemo(() => {
     const allMatches = [...(liveMatches || []), ...(upcomingMatches || [])];
@@ -80,14 +85,34 @@ export default function MatchDetailsPage() {
     return found;
   }, [liveMatches, upcomingMatches, matchId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchFallback() {
+      if (match || !matchId) return;
+      try {
+        const mod = await import('../../services/sportsDataHub');
+        const details = await mod.getMatchDetails(String(matchId));
+        if (!cancelled) setFallbackMatch(details);
+      } catch {
+        if (!cancelled) setFallbackMatch(null);
+      }
+    }
+    fetchFallback();
+    return () => {
+      cancelled = true;
+    };
+  }, [match, matchId]);
+
+  const resolvedMatch = match || fallbackMatch;
+
   const isLive = useMemo(() => {
     return !!liveMatches?.some((m) => String(m.id) === matchId);
   }, [liveMatches, matchId]);
 
   const isSoccer = useMemo(() => {
-    if (!match) return false;
-    const sport = (match.sport || '').toLowerCase();
-    const league = (match.league || '').toLowerCase();
+    if (!resolvedMatch) return false;
+    const sport = (resolvedMatch.sport || '').toLowerCase();
+    const league = (resolvedMatch.league || '').toLowerCase();
     return (
       sport.includes('soccer') ||
       sport.includes('football') ||
@@ -102,9 +127,14 @@ export default function MatchDetailsPage() {
       league.includes('europa') ||
       league.includes('copa')
     );
-  }, [match]);
+  }, [resolvedMatch]);
 
-  const isLiveMatch = match?.fixture?.status?.short === '1H' || match?.fixture?.status?.short === '2H';
+  const isLiveMatch = useMemo(() => {
+    if (!resolvedMatch) return false;
+    const short = resolvedMatch.status?.short || resolvedMatch.statusShort || '';
+    const liveStatuses = ['1H', '2H', 'HT', 'ET', 'P', 'BT', 'LIVE', 'Q1', 'Q2', 'Q3', 'Q4', 'OT'];
+    return liveStatuses.includes(short) || !!resolvedMatch.isLive;
+  }, [resolvedMatch]);
 
   // ✅ TODOS OS HOOKS DEVEM SER CHAMADOS INCONDICIONALMENTE NO TOPO
   // ✅ Atualização automática de odds ao vivo
@@ -112,8 +142,14 @@ export default function MatchDetailsPage() {
     Number(matchId) || 0,
     async () => {
       if (!matchId) return [];
-      const response = await fetch(`/api/odds/${matchId}`);
-      return response.json();
+      const list = await fetchLiveOddsList();
+      const item = list.find(i => String(i.matchId) === String(matchId));
+      if (!item) return [];
+      return [
+        { key: 'home', value: item.odds.home },
+        { key: 'draw', value: item.odds.draw },
+        { key: 'away', value: item.odds.away },
+      ];
     },
     isLiveMatch
   );
@@ -153,6 +189,84 @@ export default function MatchDetailsPage() {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 2000);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMainOdds() {
+      if (!resolvedMatch) {
+        if (!cancelled) setApiMainOdds(null);
+        return;
+      }
+
+      const sportType = 'football';
+      const gameId = Number(resolvedMatch.id || resolvedMatch.fixture?.id || '');
+
+      if (!gameId || sportType !== 'football') {
+        if (!cancelled) setApiMainOdds(null);
+        return;
+      }
+
+      try {
+        let odds: { home: number; draw?: number; away: number } | null = null;
+
+        if (isLiveMatch) {
+          const list = await fetchLiveOddsList();
+          const item = list.find(i => String(i.matchId) === String(gameId));
+          if (item) {
+            odds = { home: item.odds.home, draw: item.odds.draw, away: item.odds.away };
+          }
+        } else {
+          const preData: any[] = await fetchEventOdds('football', String(gameId));
+          if (Array.isArray(preData) && preData.length > 0) {
+            const fixture = preData[0];
+            const bookmakers = Array.isArray(fixture?.bookmakers) ? fixture.bookmakers : [];
+            const mainBookmaker = bookmakers[0];
+            const bets = Array.isArray(mainBookmaker?.bets) ? mainBookmaker.bets : [];
+            const matchWinner = bets.find((b: any) => {
+              const n = String(b?.name || '').toLowerCase();
+              return n.includes('match winner') || n.includes('1x2') || b?.id === 1;
+            });
+            if (matchWinner && Array.isArray(matchWinner.values)) {
+              let home: number | null = null;
+              let draw: number | null = null;
+              let away: number | null = null;
+              for (const v of matchWinner.values) {
+                const label = String(v?.value || '').toLowerCase();
+                const odd = v?.odd != null ? Number(v.odd) : NaN;
+                if (!Number.isFinite(odd)) continue;
+                if ((label === 'home' || label === '1') && home == null) home = odd;
+                if ((label === 'draw' || label === 'x') && draw == null) draw = odd;
+                if ((label === 'away' || label === '2') && away == null) away = odd;
+              }
+              if (home != null && away != null) {
+                odds = { home, draw: draw ?? undefined, away };
+              }
+            }
+          }
+        }
+
+        if (!cancelled && odds && (odds.home > 0 || odds.away > 0)) {
+          setApiMainOdds({
+            home: odds.home,
+            draw: odds.draw,
+            away: odds.away,
+          });
+        } else if (!cancelled) {
+          setApiMainOdds(null);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar odds principais da API-Football', error);
+        if (!cancelled) setApiMainOdds(null);
+      }
+    }
+
+    loadMainOdds();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedMatch, isLiveMatch]);
 
   useEffect(() => {
     if (lastEvent && lastEvent.matchId === matchId) {
@@ -298,9 +412,9 @@ export default function MatchDetailsPage() {
           awayTeam={match.awayTeam}
           league={match.league}
           odds={{
-            home: match.odds?.home || 0,
-            draw: match.odds?.draw || 0,
-            away: match.odds?.away || 0,
+              home: apiMainOdds?.home || match.odds?.home || 0,
+              draw: apiMainOdds?.draw ?? match.odds?.draw ?? 0,
+              away: apiMainOdds?.away || match.odds?.away || 0,
           }}
         />
       </Suspense>
@@ -323,7 +437,21 @@ export default function MatchDetailsPage() {
 
         {/* ✅ LAZY LOADING: Match Header */}
         <Suspense fallback={<SkeletonLoader type="card" count={1} />}>
-          <MatchHeader match={match} isLive={isLive} onAddSelection={handleAddSelection} isSelected={isSelected} />
+          <MatchHeader
+            match={match}
+            isLive={isLive}
+            onAddSelection={handleAddSelection}
+            isSelected={isSelected}
+            mainOdds={
+              apiMainOdds || (match.odds
+                ? {
+                    home: match.odds.home,
+                    draw: match.odds.draw,
+                    away: match.odds.away,
+                  }
+                : undefined)
+            }
+          />
         </Suspense>
 
         {/* Tabs */}
@@ -369,23 +497,23 @@ export default function MatchDetailsPage() {
             <div className="relative">
               <VarOverlay matchId={matchId || ''} />
               <Suspense fallback={<SkeletonLoader type="market" count={3} />}>
-                <MatchMarkets match={match} onAddSelection={handleAddSelection} isSelected={isSelected} />
+                <MatchMarkets match={resolvedMatch} onAddSelection={handleAddSelection} isSelected={isSelected} />
               </Suspense>
             </div>
           )}
           {activeTab === 'stats' && (
             <Suspense fallback={<SkeletonLoader type="stats" count={1} />}>
-              <MatchStatistics match={match} isLive={isLive} />
+              <MatchStatistics match={resolvedMatch} isLive={isLive} />
             </Suspense>
           )}
           {activeTab === 'h2h' && (
             <Suspense fallback={<SkeletonLoader type="list" count={1} />}>
-              <MatchH2H match={match} />
+              <MatchH2H match={resolvedMatch} />
             </Suspense>
           )}
           {activeTab === 'standings' && (
             <Suspense fallback={<SkeletonLoader type="list" count={1} />}>
-              <MatchStandings match={match} />
+              <MatchStandings match={resolvedMatch} />
             </Suspense>
           )}
         </div>

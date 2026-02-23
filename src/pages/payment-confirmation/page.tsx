@@ -191,13 +191,13 @@ export default function PaymentConfirmationPage() {
               <div className="flex gap-3">
                 <button
                   onClick={() => navigate('/carteira')}
-                  className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200 transition-all"
+                  className="flex-1 bg-black text-white py-3 rounded-xl font-semibold hover:bg-neutral-900 transition-all"
                 >
                   Ver Carteira
                 </button>
                 <button
                   onClick={() => navigate('/deposito')}
-                  className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-3 rounded-xl font-semibold hover:from-emerald-600 hover:to-teal-700 transition-all"
+                  className="flex-1 bg-gradient-to-r from-red-600 to-red-700 text-white py-3 rounded-xl font-semibold hover:from-red-700 hover:to-red-800 transition-all"
                 >
                   Novo Depósito
                 </button>
@@ -220,7 +220,7 @@ export default function PaymentConfirmationPage() {
         <div className="mt-6 text-center">
           <p className="text-sm text-gray-500">
             Precisa de ajuda?{' '}
-            <a href="/faq" className="text-emerald-600 hover:text-emerald-700 font-medium">
+            <a href="/faq" className="text-amber-500 hover:text-amber-600 font-medium">
               Contacte o suporte
             </a>
           </p>

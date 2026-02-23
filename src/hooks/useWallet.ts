@@ -31,7 +31,7 @@ export interface WalletData {
 }
 
 export const useWallet = () => {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
 
   const [wallet, setWallet] = useState<WalletData>({
     balance: 0,
@@ -85,22 +85,25 @@ export const useWallet = () => {
       });
 
     } catch (err: any) {
-      console.error('❌ Erro ao carregar carteira:', err);
-      
-      // Provide user-friendly error messages
-      let errorMessage = 'Erro ao carregar dados da carteira';
-      
-      if (err.message?.includes('Failed to fetch') || err.message?.includes('Load failed')) {
-        errorMessage = 'Sem conexão com o servidor. Verifique sua internet.';
-      } else if (err.message?.includes('JWT') || err.message?.includes('auth')) {
-        errorMessage = 'Sessão expirada. Faça login novamente.';
-      } else if (err.message) {
-        errorMessage = err.message;
+      const msg = String(err?.message || '');
+      const isAuthError =
+        msg.toLowerCase().includes('não autenticado') ||
+        msg.toLowerCase().includes('sessão') ||
+        msg.toLowerCase().includes('auth');
+
+      if (isAuthError) {
+        try {
+          await signOut();
+        } catch {
+          // ignore
+        }
+        setError('Sessão expirada. Faça login novamente.');
+      } else if (msg.includes('Failed to fetch') || msg.includes('Load failed')) {
+        setError('Sem conexão com o servidor. Verifique sua internet.');
+      } else {
+        setError(msg || 'Erro ao carregar dados da carteira');
       }
-      
-      setError(errorMessage);
-      
-      // ✅ Mesmo com erro, manter valores padrão em vez de travar
+
       setWallet({
         balance: 0,
         bonusBalance: 0,
@@ -116,7 +119,7 @@ export const useWallet = () => {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, signOut]);
 
   // ✅ NOVA FUNÇÃO: Deduzir valor da aposta do saldo
   const placeBet = useCallback(async (amount: number, betId?: string): Promise<boolean> => {

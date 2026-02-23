@@ -1,6 +1,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getUpcomingMatches } from '../services/sportsDataHub';
+import { fetchUpcomingOddsBySport, fetchFixture1X2OddsFromApiFootball } from '../services/oddsService';
 
 /**
  * @typedef {Object} Match
@@ -20,11 +21,11 @@ import { getUpcomingMatches } from '../services/sportsDataHub';
 const LOCAL_STORAGE_KEY = 'upcoming_matches_cache_v1';
 
 const upcomingCache = {
-  data: null,
+  data: null as any[] | null,
   timestamp: 0,
-  ttl: 300000, // ✅ 5 MINUTOS (era 25s)
+  ttl: 300000,
   isLoading: false,
-  promise: null,
+  promise: null as Promise<any[] | null> | null,
   hoursAhead: 4,
 };
 
@@ -64,22 +65,36 @@ const persistCacheToStorage = () => {
   }
 };
 
-const fetchWithDedup = async (hoursAhead) => {
-  if (upcomingCache.isLoading && upcomingCache.promise && upcomingCache.hoursAhead === hoursAhead) {
+const fetchWithDedup = async (hoursAhead: number) => {
+  if (
+    upcomingCache.isLoading &&
+    upcomingCache.promise &&
+    upcomingCache.hoursAhead === hoursAhead
+  ) {
     return upcomingCache.promise;
   }
 
   upcomingCache.isLoading = true;
   upcomingCache.hoursAhead = hoursAhead;
 
-  upcomingCache.promise = getUpcomingMatches(hoursAhead)
+  upcomingCache.promise = getUpcomingMatches()
     .then((data) => {
-      upcomingCache.data = data;
+      if (
+        Array.isArray(data) &&
+        data.length === 0 &&
+        Array.isArray(upcomingCache.data) &&
+        upcomingCache.data.length > 0
+      ) {
+        upcomingCache.isLoading = false;
+        upcomingCache.promise = null;
+        return upcomingCache.data;
+      }
+      upcomingCache.data = data || [];
       upcomingCache.timestamp = Date.now();
       upcomingCache.isLoading = false;
       upcomingCache.promise = null;
       persistCacheToStorage();
-      return data;
+      return upcomingCache.data;
     })
     .catch((err) => {
       upcomingCache.isLoading = false;
@@ -117,7 +132,12 @@ export function useUpcomingMatches(options: UseUpcomingMatchesOptions = {}) {
     async (forceRefresh = false) => {
       const now = Date.now();
 
-      if (!forceRefresh && upcomingCache.data && now - upcomingCache.timestamp < upcomingCache.ttl) {
+      if (
+        !forceRefresh &&
+        upcomingCache.data &&
+        now - upcomingCache.timestamp < upcomingCache.ttl &&
+        upcomingCache.hoursAhead === hoursAhead
+      ) {
         if (isMountedRef.current) {
           setMatches(upcomingCache.data);
           setLoading(false);
@@ -130,9 +150,113 @@ export function useUpcomingMatches(options: UseUpcomingMatchesOptions = {}) {
         setError(null);
         const upcomingMatches = await fetchWithDedup(hoursAhead);
 
+        let enrichedMatches = upcomingMatches;
+        try {
+          const oddsList = await fetchUpcomingOddsBySport('football');
+          if (Array.isArray(oddsList) && oddsList.length > 0) {
+            const oddsMap = new Map<
+              string,
+              {
+                home: number;
+                draw: number;
+                away: number;
+              }
+            >();
+            oddsList.forEach((item) => {
+              oddsMap.set(String(item.matchId), item.odds);
+            });
+
+            enrichedMatches = upcomingMatches.map((match: any) => {
+              const keyId = String(match.id);
+              const keyFixture =
+                match.fixtureId != null ? String(match.fixtureId) : null;
+              const odds =
+                oddsMap.get(keyId) || (keyFixture ? oddsMap.get(keyFixture) : undefined);
+
+              if (!odds) return match;
+
+              return {
+                ...match,
+                odds: {
+                  home: odds.home,
+                  draw: odds.draw,
+                  away: odds.away,
+                },
+              };
+            });
+          }
+        } catch {
+          enrichedMatches = upcomingMatches;
+        }
+
+        const missing = enrichedMatches.filter((match: any) => {
+          const sportName = String(match.sport || '').toLowerCase();
+          const odds = match.odds;
+          const hasValidOdds =
+            odds &&
+            typeof odds.home === 'number' &&
+            typeof odds.away === 'number' &&
+            odds.home > 1.01 &&
+            odds.away > 1.01;
+
+          if (!sportName) return false;
+          const isFootball =
+            sportName.includes('futebol') ||
+            sportName.includes('football') ||
+            sportName.includes('soccer');
+
+          return isFootball && !hasValidOdds;
+        });
+
+        const limitedMissing = missing.slice(0, 10);
+        const fallbackResults = await Promise.all(
+          limitedMissing.map(async (match: any) => {
+            const rawId = match.fixtureId != null ? match.fixtureId : match.id;
+            const odds = await fetchFixture1X2OddsFromApiFootball(rawId);
+            return {
+              key: String(match.id),
+              odds,
+            };
+          }),
+        );
+
+        const fallbackMap = new Map<string, { home: number; draw?: number; away: number }>();
+        fallbackResults.forEach((item) => {
+          if (item.odds) {
+            fallbackMap.set(item.key, item.odds);
+          }
+        });
+
+        const finalMatches = enrichedMatches.map((match: any) => {
+          const odds = match.odds;
+          const hasValidOdds =
+            odds &&
+            typeof odds.home === 'number' &&
+            typeof odds.away === 'number' &&
+            odds.home > 1.01 &&
+            odds.away > 1.01;
+          if (hasValidOdds) return match;
+
+          const fb = fallbackMap.get(String(match.id));
+          if (!fb) return match;
+
+          return {
+            ...match,
+            odds: {
+              home: fb.home,
+              draw: fb.draw ?? 0,
+              away: fb.away,
+            },
+          };
+        });
+
+        upcomingCache.data = finalMatches;
+        upcomingCache.timestamp = Date.now();
+        persistCacheToStorage();
+
         if (!isMountedRef.current) return;
 
-        setMatches(upcomingMatches);
+        setMatches(finalMatches);
         setLoading(false);
         setLastUpdate(Date.now());
       } catch (err) {
@@ -145,7 +269,6 @@ export function useUpcomingMatches(options: UseUpcomingMatchesOptions = {}) {
         if (upcomingCache.data) {
           setMatches(upcomingCache.data);
         }
-
         setError(err?.message || 'Erro ao carregar pré-jogos');
         setLoading(false);
       }

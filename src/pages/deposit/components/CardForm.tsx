@@ -5,10 +5,15 @@ import { PayPalScriptProvider, PayPalButtons } from '@paypal/react-paypal-js';
 import { useAuth } from '../../../contexts/AuthContext';
 import { apiFetch } from '../../../services/backendClient';
 
-const PAYPAL_CLIENT_ID =
-  'AZDxjDScFpQtjWTOUtWKbyN_bDt4OgqaF4eYXlewfBP4-8aqX3PiV8e1GWU6liB2CUXlkA59kJXE7M6R';
+const RAW_PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID || '';
+let PAYPAL_CLIENT_ID = RAW_PAYPAL_CLIENT_ID.trim();
+if (!PAYPAL_CLIENT_ID || PAYPAL_CLIENT_ID.startsWith('O_CLIENT_ID_')) {
+  PAYPAL_CLIENT_ID =
+    'AV_UvkzEZSqu33GeYgLH_pEswMmgtNYEMorvhFZ4WAlDTMg7aoiWTULj-zM0tVagu8TFBzPudafc_jYm';
+}
+const PAYPAL_CONFIGURED = !!PAYPAL_CLIENT_ID;
 
-export default function CardForm({
+function CardFormPayPal({
   amount,
   onSubmit,
   loading: externalLoading,
@@ -18,45 +23,40 @@ export default function CardForm({
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  /** --------------------------------------------------------------
-   *  Cria a ordem no backend (Supabase Function)
-   * -------------------------------------------------------------- */
-  const createOrder = async () => {
+  const createOrder = (data, actions) => {
     if (!user) {
       setError('Sessão expirada. Faça login novamente.');
-      throw new Error('User not authenticated');
+      return '';
     }
 
-    setLoading(true);
     setError('');
 
-    try {
-      const data = await apiFetch('/payments/paypal/create-order', {
-        method: 'POST',
-        body: JSON.stringify({ amount }),
+    return actions.order
+      .create({
+        purchase_units: [
+          {
+            amount: {
+              currency_code: 'EUR',
+              value: amount.toFixed(2),
+            },
+            description: `Depósito na plataforma - €${amount.toFixed(2)}`,
+          },
+        ],
+      })
+      .catch((err) => {
+        const message = err?.message ?? 'Erro ao iniciar pagamento';
+        setError(message);
+        setLoading(false);
+        throw err;
       });
-
-      // PayPal expects the order ID to be returned
-      return data.order_id;
-    } catch (err) {
-      const message = err?.message ?? 'Erro ao iniciar pagamento';
-      setError(message);
-      setLoading(false);
-      throw err;
-    }
   };
 
-  /** --------------------------------------------------------------
-   *  Captura o pagamento após aprovação do cliente
-   * -------------------------------------------------------------- */
-  const onApprove = async (data) => {
+  const onApprove = async (data, actions) => {
     if (!user) return;
 
     try {
-      await apiFetch('/payments/paypal/capture-order', {
-        method: 'POST',
-        body: JSON.stringify({ order_id: data.orderID }),
-      });
+      setLoading(true);
+      await actions.order.capture();
 
       await apiFetch('/wallet/deposit', {
         method: 'POST',
@@ -115,9 +115,6 @@ export default function CardForm({
     );
   }
 
-  /* --------------------------------------------------------------
-   *  UI principal
-   * -------------------------------------------------------------- */
   return (
     <div className="space-y-5">
       {/* Info PayPal */}
@@ -169,7 +166,7 @@ export default function CardForm({
       </div>
 
       {/* PayPal Buttons */}
-      <div className="relative">
+      <div className="relative min-h-[60px]">
         {(loading || externalLoading) && (
           <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10 rounded-xl">
             <div className="flex items-center gap-3">
@@ -180,11 +177,13 @@ export default function CardForm({
         )}
 
         <PayPalScriptProvider
-          options={{
-            clientId: PAYPAL_CLIENT_ID,
-            currency: 'EUR',
-            intent: 'capture',
-          }}
+          options={
+            {
+              'client-id': PAYPAL_CLIENT_ID,
+              currency: 'EUR',
+              intent: 'capture',
+            } as any
+          }
         >
           <PayPalButtons
             style={{
@@ -231,10 +230,33 @@ export default function CardForm({
   );
 }
 
-/* --------------------------------------------------------------
- * PropTypes (para garantir que o componente receba os dados corretos
- * quando usado em projetos JavaScript puros)
- * -------------------------------------------------------------- */
+function CardForm(props) {
+  if (!PAYPAL_CONFIGURED) {
+    const { amount } = props;
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
+        <p className="font-semibold mb-1">Cartões indisponíveis</p>
+        <p className="mb-2">
+          A configuração PayPal ainda não está definida. Para testar pagamentos com cartão,
+          adiciona VITE_PAYPAL_CLIENT_ID ao ficheiro .env.
+        </p>
+        {typeof amount === 'number' && (
+          <p className="text-xs text-red-700">
+            Podes continuar a depositar €{amount.toFixed(2)} com MB WAY ou Multibanco.
+          </p>
+        )}
+      </div>
+    );
+  }
+  return <CardFormPayPal {...props} />;
+}
+
+CardFormPayPal.propTypes = {
+  amount: PropTypes.number.isRequired,
+  onSubmit: PropTypes.func.isRequired,
+  loading: PropTypes.bool,
+};
+
 CardForm.propTypes = {
   amount: PropTypes.number.isRequired,
   onSubmit: PropTypes.func.isRequired,
@@ -244,3 +266,5 @@ CardForm.propTypes = {
 CardForm.defaultProps = {
   loading: false,
 };
+
+export default CardForm;

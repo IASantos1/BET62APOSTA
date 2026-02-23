@@ -30,7 +30,7 @@ export function Header({
   const { user, signOut, isAdmin: userIsAdmin } = useAuth();
   const { wallet } = useWallet();
   const { theme, toggleTheme } = useTheme();
-  const { profile } = useProfile();
+  const { profile: _profile } = useProfile();
 
   // Safely derive values from wallet (fallback to 0)
   const balance = wallet?.balance ?? 0;
@@ -48,7 +48,7 @@ export function Header({
   };
 
   return (
-    <header className={`${theme === 'dark' ? 'bg-gradient-to-r from-black via-gray-900 to-black' : 'bg-gradient-to-r from-white via-gray-50 to-white'} text-white fixed top-0 left-0 right-0 z-50 shadow-xl ${theme === 'dark' ? 'border-b border-amber-500/30' : 'border-b border-gray-200'}`}>
+    <header className={`${theme === 'dark' ? 'bg-gradient-to-r from-gray-900 via-gray-900 to-gray-800' : 'bg-gradient-to-r from-white via-gray-50 to-white'} text-white fixed top-0 left-0 right-0 z-50 shadow-xl ${theme === 'dark' ? 'border-b border-red-600/40' : 'border-b border-gray-200'}`}>
       <div className="w-full px-2 md:px-4">
         <div className="flex items-center justify-between h-11 md:h-14 lg:h-16">
           {/* Logo + Nav - Left */}
@@ -56,15 +56,15 @@ export function Header({
             {onOpenMobileMenu && (
               <button
                 onClick={onOpenMobileMenu}
-                className={`lg:hidden w-7 h-7 ${theme === 'dark' ? 'bg-gray-800 hover:bg-gray-700 border-amber-500/20' : 'bg-gray-100 hover:bg-gray-200 border-gray-300'} rounded-md flex items-center justify-center cursor-pointer transition-colors border`}
+                className={`lg:hidden w-7 h-7 ${theme === 'dark' ? 'bg-gray-800 hover:bg-gray-700 border-red-600/40' : 'bg-gray-100 hover:bg-gray-200 border-gray-300'} rounded-md flex items-center justify-center cursor-pointer transition-colors border`}
               >
-                <i className={`ri-menu-line ${theme === 'dark' ? 'text-amber-400' : 'text-gray-700'} text-sm`}></i>
+                <i className={`ri-menu-line ${theme === 'dark' ? 'text-red-400' : 'text-gray-700'} text-sm`}></i>
               </button>
             )}
 
             <Link to="/" className="flex items-center gap-1 hover:opacity-90 transition-opacity">
               <span className={`text-sm md:text-xl lg:text-2xl font-black tracking-tight ${theme === 'dark' ? 'text-white' : 'text-gray-900'} leading-none`}>
-                BET<span className="text-amber-500">62</span>
+                BET<span className="text-red-600">62</span>
               </span>
             </Link>
 
@@ -74,7 +74,7 @@ export function Header({
                 onClick={onSportsClick}
                 className={`px-3 lg:px-5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap cursor-pointer transition-all ${
                   activeTab === 'sports'
-                    ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black shadow-lg'
+                    ? 'bg-gradient-to-r from-red-600 to-red-500 text-white shadow-lg'
                     : theme === 'dark' ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
@@ -97,13 +97,13 @@ export function Header({
                 to="/promocoes"
                 className={`px-3 lg:px-5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap cursor-pointer transition-all ${theme === 'dark' ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
               >
-                <i className="ri-gift-line mr-1.5 text-amber-400"></i>Promoções
+                <i className="ri-gift-line mr-1.5 text-red-400"></i>Promoções
               </Link>
 
               {userIsAdmin && (
                 <Link
                   to="/admin"
-                  className="px-3 lg:px-5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap cursor-pointer transition-all bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
+                  className="px-3 lg:px-5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap cursor-pointer transition-all bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg"
                 >
                   <i className="ri-dashboard-3-line mr-1.5"></i>Painel
                 </Link>
@@ -118,13 +118,13 @@ export function Header({
               onClick={toggleTheme}
               className={`w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all ${
                 theme === 'dark' 
-                  ? 'bg-gray-800 hover:bg-gray-700 border border-amber-500/30' 
+                  ? 'bg-gray-800 hover:bg-gray-700 border border-red-500/40' 
                   : 'bg-gray-100 hover:bg-gray-200 border border-gray-300'
               }`}
               title={theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}
             >
               {theme === 'dark' ? (
-                <i className="ri-sun-line text-amber-400 text-sm md:text-base"></i>
+                <i className="ri-sun-line text-red-400 text-sm md:text-base"></i>
               ) : (
                 <i className="ri-moon-line text-gray-700 text-sm md:text-base"></i>
               )}
@@ -137,15 +137,15 @@ export function Header({
                   to="/carteira"
                   className={`px-1.5 py-1 md:px-2.5 md:py-1.5 rounded-md border transition-all cursor-pointer group ${
                     theme === 'dark' 
-                      ? 'bg-black/50 border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/10' 
-                      : 'bg-amber-50 border-amber-300 hover:border-amber-400 hover:bg-amber-100'
+                      ? 'bg-black/50 border-red-500/40 hover:border-red-400 hover:bg-red-500/10' 
+                      : 'bg-white border-gray-300 hover:border-red-400 hover:bg-red-50'
                   }`}
                 >
                   <div className="flex items-center gap-1">
-                    <i className={`ri-wallet-3-line text-amber-500 text-[10px] md:text-xs group-hover:scale-110 transition-transform`}></i>
+                    <i className={`ri-wallet-3-line text-red-500 text-[10px] md:text-xs group-hover:scale-110 transition-transform`}></i>
                     <div>
-                      <div className={`text-[6px] md:text-[8px] leading-none ${theme === 'dark' ? 'text-amber-400/70' : 'text-amber-600/70'}`}>Saldo</div>
-                      <div className={`font-bold text-[9px] md:text-xs leading-tight ${theme === 'dark' ? 'text-amber-400' : 'text-amber-600'}`}>
+                      <div className={`text-[6px] md:text-[8px] leading-none ${theme === 'dark' ? 'text-gray-300/80' : 'text-gray-600/80'}`}>Saldo</div>
+                      <div className={`font-bold text-[9px] md:text-xs leading-tight ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
                         €{balance.toFixed(2)}
                       </div>
                     </div>
@@ -181,7 +181,7 @@ export function Header({
 
                 <Link
                   to="/deposito"
-                  className="px-1.5 py-1 md:px-3 md:py-1.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-700 hover:to-amber-600 rounded-md transition-all font-semibold text-[9px] md:text-xs whitespace-nowrap cursor-pointer shadow-lg shadow-amber-600/20 text-black flex items-center"
+                  className="px-1.5 py-1 md:px-3 md:py-1.5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 rounded-md transition-all font-semibold text-[9px] md:text-xs whitespace-nowrap cursor-pointer shadow-lg shadow-red-600/20 text-white flex items-center"
                 >
                   <i className="ri-add-circle-line text-[10px] md:text-sm"></i>
                   <span className="hidden xs:inline ml-0.5">Depósito</span>
@@ -191,72 +191,58 @@ export function Header({
                 <div className="relative">
                   <button
                     onClick={() => setShowProfileMenu(!showProfileMenu)}
-                    className="w-6 h-6 md:w-8 md:h-8 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center hover:opacity-90 transition-opacity cursor-pointer shadow-lg"
+                    className="w-6 h-6 md:w-8 md:h-8 bg-gradient-to-br from-red-600 to-red-700 rounded-full flex items-center justify-center hover:opacity-90 transition-opacity cursor-pointer shadow-lg"
                   >
-                    <i className="ri-user-line text-[10px] md:text-sm text-black"></i>
+                    <i className="ri-user-line text-[10px] md:text-sm text-white"></i>
                   </button>
 
                   {showProfileMenu && (
                     <div className={`absolute right-0 mt-2 w-44 rounded-lg shadow-xl border py-1.5 z-50 ${
-                      theme === 'dark' ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-gray-200'
+                      theme === 'dark' ? 'bg-gray-900 border-red-500/40' : 'bg-white border-gray-200'
                     }`}>
-                      <div className={`px-3 py-1.5 border-b ${theme === 'dark' ? 'border-amber-500/20' : 'border-gray-200'}`}>
+                      <div className={`px-3 py-1.5 border-b ${theme === 'dark' ? 'border-red-500/30' : 'border-gray-200'}`}>
                         <p className={`text-[10px] ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Conectado como</p>
                         <p className={`text-xs font-medium truncate ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
                           {user?.name || user?.email}
                         </p>
-                        {profile && profile.email_verified === false && (
-                          <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/40">
-                            <i className="ri-error-warning-line text-amber-400 text-[10px]"></i>
-                            <button
-                              onClick={() => {
-                                setShowProfileMenu(false);
-                                navigate('/verify-email');
-                              }}
-                              className="text-[10px] font-medium text-amber-300 cursor-pointer"
-                            >
-                              Email não verificado
-                            </button>
-                          </div>
-                        )}
                       </div>
                       <Link
                         to="/carteira"
                         className={`block px-3 py-1.5 transition-colors cursor-pointer text-xs ${
-                          theme === 'dark' ? 'hover:bg-amber-500/10 text-white' : 'hover:bg-gray-100 text-gray-700'
+                          theme === 'dark' ? 'hover:bg-red-500/10 text-white' : 'hover:bg-gray-100 text-gray-700'
                         }`}
                         onClick={() => setShowProfileMenu(false)}
                       >
-                        <i className="ri-wallet-3-line mr-1.5 text-amber-400"></i>Minha Carteira
+                        <i className="ri-wallet-3-line mr-1.5 text-red-400"></i>Minha Carteira
                       </Link>
                       <Link
                         to="/perfil"
                         className={`block px-3 py-1.5 transition-colors cursor-pointer text-xs ${
-                          theme === 'dark' ? 'hover:bg-amber-500/10 text-white' : 'hover:bg-gray-100 text-gray-700'
+                          theme === 'dark' ? 'hover:bg-red-500/10 text-white' : 'hover:bg-gray-100 text-gray-700'
                         }`}
                         onClick={() => setShowProfileMenu(false)}
                       >
-                        <i className="ri-user-line mr-1.5 text-amber-400"></i>Meu Perfil
+                        <i className="ri-user-line mr-1.5 text-red-400"></i>Meu Perfil
                       </Link>
                       <Link
                         to="/verificacao"
                         className={`block px-3 py-1.5 transition-colors cursor-pointer text-xs ${
-                          theme === 'dark' ? 'hover:bg-amber-500/10 text-white' : 'hover:bg-gray-100 text-gray-700'
+                          theme === 'dark' ? 'hover:bg-red-500/10 text-white' : 'hover:bg-gray-100 text-gray-700'
                         }`}
                         onClick={() => setShowProfileMenu(false)}
                       >
-                        <i className="ri-shield-check-line mr-1.5 text-amber-400"></i>Verificação KYC
+                        <i className="ri-shield-check-line mr-1.5 text-red-400"></i>Verificação KYC
                       </Link>
                       <Link
                         to="/levantamento"
                         className={`block px-3 py-1.5 transition-colors cursor-pointer text-xs ${
-                          theme === 'dark' ? 'hover:bg-amber-500/10 text-white' : 'hover:bg-gray-100 text-gray-700'
+                          theme === 'dark' ? 'hover:bg-red-500/10 text-white' : 'hover:bg-gray-100 text-gray-700'
                         }`}
                         onClick={() => setShowProfileMenu(false)}
                       >
-                        <i className="ri-bank-card-line mr-1.5 text-amber-400"></i>Levantamento
+                        <i className="ri-bank-card-line mr-1.5 text-red-400"></i>Levantamento
                       </Link>
-                      <hr className={`my-1 ${theme === 'dark' ? 'border-amber-500/20' : 'border-gray-200'}`} />
+                      <hr className={`my-1 ${theme === 'dark' ? 'border-red-500/30' : 'border-gray-200'}`} />
                       <button
                         onClick={handleLogout}
                         className="w-full text-left px-3 py-1.5 hover:bg-red-500/10 transition-colors text-red-400 cursor-pointer text-xs"
@@ -273,7 +259,7 @@ export function Header({
                   to="/login"
                   className={`px-2 md:px-4 py-1 md:py-1.5 rounded-md transition-colors font-semibold text-[9px] md:text-xs whitespace-nowrap cursor-pointer border ${
                     theme === 'dark' 
-                      ? 'bg-gray-800 hover:bg-gray-700 text-white border-amber-500/30' 
+                      ? 'bg-gray-800 hover:bg-gray-700 text-white border-red-500/40' 
                       : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300'
                   }`}
                 >
@@ -281,7 +267,7 @@ export function Header({
                 </Link>
                 <Link
                   to="/registro"
-                  className="px-2 md:px-4 py-1 md:py-1.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-700 hover:to-amber-600 rounded-md transition-all font-semibold text-[9px] md:text-xs whitespace-nowrap cursor-pointer text-black"
+                  className="px-2 md:px-4 py-1 md:py-1.5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 rounded-md transition-all font-semibold text-[9px] md:text-xs whitespace-nowrap cursor-pointer text-white"
                 >
                   Registar
                 </Link>

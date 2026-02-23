@@ -352,7 +352,7 @@ function BettingSlipPanel({
               {sel.market}
             </span>
           )}
-          <span className="text-[10px] font-semibold text-amber-500">
+          <span className="text-[10px] font-semibold text-red-500">
             {sel.selection}
           </span>
         </div>
@@ -379,8 +379,8 @@ function BettingSlipPanel({
             }
             className={`w-full px-2 py-1 border rounded text-[10px] focus:outline-none ${
               isLight
-                ? 'bg-gray-50 border-gray-200 text-gray-800 placeholder-gray-400 focus:border-amber-400'
-                : 'bg-gray-800 border-gray-700/50 text-white placeholder-gray-600 focus:border-amber-500/50'
+                ? 'bg-gray-50 border-gray-200 text-gray-800 placeholder-gray-400 focus:border-red-500'
+                : 'bg-gray-800 border-gray-700/50 text-white placeholder-gray-600 focus:border-red-500/50'
             }`}
             min="0"
             step="0.5"
@@ -405,18 +405,18 @@ function BettingSlipPanel({
   const renderMobileFixedActions = () => (
     <div
       className={`border-t ${
-        isLight ? 'border-gray-200 bg-gray-50' : 'border-gray-800 bg-gray-950'
+        isLight ? 'border-gray-200 bg-gray-50' : 'border-gray-800 bg-gray-900'
       } px-3 py-2.5 space-y-2`}
     >
       {/* ✅ Saldo disponível */}
       {user && (
         <div className={`flex items-center justify-between px-2 py-1.5 rounded-lg ${
-          isLight ? 'bg-amber-50 border border-amber-200' : 'bg-amber-500/10 border border-amber-500/20'
+          isLight ? 'bg-gray-100 border border-gray-200' : 'bg-gray-900/60 border border-gray-700/60'
         }`}>
-          <span className={`text-[10px] font-medium ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>
+          <span className={`text-[10px] font-medium ${isLight ? 'text-red-600' : 'text-red-400'}`}>
             <i className="ri-wallet-3-line mr-1"></i>Saldo
           </span>
-          <span className={`text-xs font-bold ${isLight ? 'text-amber-800' : 'text-amber-400'}`}>
+          <span className={`text-xs font-bold ${isLight ? 'text-gray-900' : 'text-white'}`}>
             €{balance.toFixed(2)}
           </span>
         </div>
@@ -429,7 +429,7 @@ function BettingSlipPanel({
             {effectiveBetType === 'single' ? `${selections.length}x Simples` : 'Múltipla'}
           </span>
           {effectiveBetType === 'multiple' && (
-            <span className="text-[11px] font-bold text-amber-500">
+            <span className="text-[11px] font-bold text-red-500">
               Odd {totalOddsMultiple.toFixed(2)}
             </span>
           )}
@@ -451,8 +451,8 @@ function BettingSlipPanel({
             onChange={(e) => setMultipleStake(e.target.value)}
             className={`w-full pl-7 pr-3 py-2.5 border rounded-lg text-sm font-semibold focus:outline-none ${
               isLight
-                ? 'bg-white border-gray-200 text-gray-800 placeholder-gray-400 focus:border-amber-400'
-                : 'bg-gray-800 border-gray-700/50 text-white placeholder-gray-600 focus:border-amber-500/50'
+                ? 'bg-white border-gray-200 text-gray-800 placeholder-gray-400 focus:border-red-500'
+                : 'bg-gray-800 border-gray-700/50 text-white placeholder-gray-600 focus:border-red-500/50'
             }`}
             min="0"
             step="0.5"
@@ -486,7 +486,7 @@ function BettingSlipPanel({
               disabled={isDisabled}
               className={`py-2 rounded-lg text-[11px] font-bold cursor-pointer transition-all whitespace-nowrap ${
                 isActive
-                  ? 'bg-amber-500 text-gray-900 shadow-lg shadow-amber-500/20'
+                  ? 'bg-red-600 text-white shadow-lg shadow-red-500/20'
                   : isDisabled
                   ? isLight ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-gray-800/50 text-gray-600 cursor-not-allowed'
                   : isLight
@@ -518,7 +518,7 @@ function BettingSlipPanel({
           disabled={totalStake === 0 || isProcessing || hasInsufficientBalance}
           className={`flex-1 h-11 rounded-lg text-sm font-bold cursor-pointer whitespace-nowrap transition-all flex items-center justify-center gap-1.5 ${
             totalStake > 0 && !hasInsufficientBalance && !isProcessing
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-gray-900 shadow-lg shadow-amber-500/20'
+              ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg shadow-red-600/20'
               : isLight
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
               : 'bg-gray-700 text-gray-500 cursor-not-allowed'
@@ -545,12 +545,12 @@ function BettingSlipPanel({
       {/* ✅ Saldo disponível - Desktop */}
       {user && (
         <div className={`rounded-md p-2 flex items-center justify-between ${
-          isLight ? 'bg-amber-50 border border-amber-200' : 'bg-amber-500/10 border border-amber-500/20'
+          isLight ? 'bg-gray-100 border border-gray-200' : 'bg-gray-900/60 border border-gray-700/60'
         }`}>
-          <span className={`text-[10px] font-medium ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>
+          <span className={`text-[10px] font-medium ${isLight ? 'text-red-600' : 'text-red-400'}`}>
             <i className="ri-wallet-3-line mr-1"></i>Saldo Disponível
           </span>
-          <span className={`text-xs font-bold ${isLight ? 'text-amber-800' : 'text-amber-400'}`}>
+          <span className={`text-xs font-bold ${isLight ? 'text-gray-900' : 'text-white'}`}>
             €{balance.toFixed(2)}
           </span>
         </div>
@@ -576,8 +576,8 @@ function BettingSlipPanel({
             onChange={(e) => setMultipleStake(e.target.value)}
             className={`w-full px-2 py-1.5 border rounded text-xs focus:outline-none ${
               isLight
-                ? 'bg-gray-50 border-gray-200 text-gray-800 placeholder-gray-400 focus:border-amber-400'
-                : 'bg-gray-800 border-gray-700/50 text-white placeholder-gray-600 focus:border-amber-500/50'
+                ? 'bg-gray-50 border-gray-200 text-gray-800 placeholder-gray-400 focus:border-red-500'
+                : 'bg-gray-800 border-gray-700/50 text-white placeholder-gray-600 focus:border-red-500/50'
             }`}
             min="0"
             step="0.5"
@@ -650,7 +650,7 @@ function BettingSlipPanel({
             <span className={isLight ? 'text-gray-500' : 'text-gray-500'}>
               Odd Total
             </span>
-            <span className="text-amber-500 font-bold">
+            <span className="text-red-500 font-bold">
               {totalOddsMultiple.toFixed(2)}
             </span>
           </div>
@@ -689,7 +689,7 @@ function BettingSlipPanel({
           disabled={totalStake === 0 || isProcessing || hasInsufficientBalance}
           className={`flex-1 py-2 rounded-md text-[10px] font-bold cursor-pointer whitespace-nowrap transition-all shadow-lg ${
             totalStake > 0 && !hasInsufficientBalance && !isProcessing
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-gray-900 shadow-amber-500/10'
+              ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-red-600/20'
               : isLight
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
               : 'bg-gray-700 text-gray-500 cursor-not-allowed'
@@ -712,7 +712,7 @@ function BettingSlipPanel({
   return (
     <div
       className={`flex flex-col h-full ${
-        isLight ? 'bg-gray-50 text-gray-900' : 'bg-gray-950 text-white'
+        isLight ? 'bg-gray-50 text-gray-900' : 'bg-gray-900 text-white'
       }`}
       style={{
         transform: isSwiping && swipeY > 0 ? `translateY(${swipeY}px)` : undefined,
@@ -824,12 +824,12 @@ function BettingSlipPanel({
 
               {/* ✅ Novo saldo */}
               <div className={`flex items-center justify-between py-2 px-3 rounded-lg ${
-                isLight ? 'bg-amber-50' : 'bg-amber-500/10'
+                isLight ? 'bg-gray-100' : 'bg-gray-800/60'
               }`}>
-                <span className={`text-sm font-medium ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>
+                <span className={`text-sm font-medium ${isLight ? 'text-red-600' : 'text-red-400'}`}>
                   <i className="ri-wallet-3-line mr-1"></i>Novo Saldo
                 </span>
-                <span className={`text-sm font-bold ${isLight ? 'text-amber-800' : 'text-amber-400'}`}>
+                <span className={`text-sm font-bold ${isLight ? 'text-gray-900' : 'text-white'}`}>
                   €{(balance - successData.totalStake).toFixed(2)}
                 </span>
               </div>
@@ -871,7 +871,7 @@ function BettingSlipPanel({
         <div className="flex items-center gap-1.5">
           <div
             className={`w-5 h-5 flex items-center justify-center rounded ${
-              isLight ? 'bg-amber-400' : 'bg-amber-500'
+              isLight ? 'bg-red-500' : 'bg-red-600'
             }`}
           >
             <i className="ri-file-list-3-line text-gray-900 text-[10px]"></i>
@@ -884,7 +884,7 @@ function BettingSlipPanel({
             Boletim
           </h3>
           {selections.length > 0 && (
-            <span className="bg-amber-500 text-gray-900 text-[8px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+            <span className="bg-red-600 text-white text-[8px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
               {selections.length}
             </span>
           )}
@@ -918,7 +918,7 @@ function BettingSlipPanel({
               disabled={hasConflict}
               className={`flex-1 py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer whitespace-nowrap ${
                 effectiveBetType === 'single'
-                  ? 'bg-amber-500 text-gray-900 shadow-lg'
+                  ? 'bg-red-600 text-white shadow-lg'
                   : isLight
                   ? 'text-gray-500 hover:text-gray-700'
                   : 'text-gray-400 hover:text-gray-300'
@@ -931,7 +931,7 @@ function BettingSlipPanel({
               disabled={hasConflict || selections.length < 2}
               className={`flex-1 py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer whitespace-nowrap relative ${
                 effectiveBetType === 'multiple'
-                  ? 'bg-amber-500 text-gray-900 shadow-lg'
+                  ? 'bg-red-600 text-white shadow-lg'
                   : isLight
                   ? 'text-gray-500 hover:text-gray-700'
                   : 'text-gray-400 hover:text-gray-300'

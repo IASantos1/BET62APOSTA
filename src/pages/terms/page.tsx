@@ -297,7 +297,7 @@ NIF: 123 456 789`
             </div>
 
             {/* Contact CTA */}
-            <div className="bg-gray-900/50 rounded-xl border border-amber-500/20 p-6 text-center">
+            <div className="bg-gray-900/50 rounded-xl border border-red-500/30 p-6 text-center">
               <h3 className="font-bold text-white mb-2">Tem dúvidas?</h3>
               <p className="text-gray-400 text-sm mb-4">
                 A nossa equipa de suporte está disponível 24/7 para esclarecer qualquer questão.
@@ -305,7 +305,7 @@ NIF: 123 456 789`
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                 <a 
                   href="mailto:suporte@bet62.pt"
-                  className="px-6 py-2.5 bg-gradient-to-r from-amber-600 to-amber-500 text-black font-semibold rounded-lg hover:from-amber-700 hover:to-amber-600 transition-all cursor-pointer text-sm whitespace-nowrap"
+                  className="px-6 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white font-semibold rounded-lg hover:from-red-700 hover:to-red-800 transition-all cursor-pointer text-sm whitespace-nowrap"
                 >
                   <i className="ri-mail-line mr-2"></i>
                   Enviar Email

@@ -38,9 +38,16 @@ const openDB = (): Promise<IDBDatabase> => {
   });
 };
 
-// Converter URL de imagem para base64
 const urlToBase64 = async (url: string): Promise<string> => {
-  const response = await fetch(url);
+  let target = url;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    if (host === 'media.api-sports.io' || host.endsWith('.api-sports.io')) {
+      target = `/api/media-proxy?url=${encodeURIComponent(url)}`;
+    }
+  } catch { target = url; }
+  const response = await fetch(target);
   const blob = await response.blob();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

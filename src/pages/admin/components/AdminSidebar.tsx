@@ -22,17 +22,17 @@ const menuItems: { id: AdminTab; label: string; icon: string }[] = [
 export default function AdminSidebar({ activeTab, setActiveTab, isOpen, onClose }: AdminSidebarProps) {
   return (
     <aside
-      className={`fixed top-0 left-0 h-full w-64 bg-black border-r border-amber-500/30 z-50 transform transition-transform duration-300 ${
+      className={`fixed top-0 left-0 h-full w-64 bg-gray-900 border-r border-red-600/40 z-50 transform transition-transform duration-300 ${
         isOpen ? 'translate-x-0' : '-translate-x-full'
       } lg:translate-x-0`}
     >
       {/* Logo */}
-      <div className="p-4 border-b border-amber-500/30">
+      <div className="p-4 border-b border-red-600/40">
         <Link to="/" className="flex items-center gap-2 cursor-pointer">
           <span className="text-xl font-black text-white">
-            BET<span className="text-amber-500">62</span>
+            BET<span className="text-red-500">62</span>
           </span>
-          <span className="text-xs font-medium px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded">
+          <span className="text-xs font-medium px-2 py-0.5 bg-red-600/15 text-red-300 rounded">
             Admin
           </span>
         </Link>
@@ -49,7 +49,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, isOpen, onClose 
             }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all cursor-pointer ${
               activeTab === item.id
-                ? 'bg-amber-500 text-black'
+                ? 'bg-red-600 text-white'
                 : 'text-gray-400 hover:bg-gray-800 hover:text-white'
             }`}
           >
@@ -60,7 +60,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, isOpen, onClose 
       </nav>
 
       {/* Footer */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-amber-500/30">
+      <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-red-600/40">
         <Link
           to="/"
           className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-400 hover:bg-gray-800 hover:text-white transition-all cursor-pointer"

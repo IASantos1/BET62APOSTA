@@ -187,41 +187,38 @@ export default function MatchStatistics({ match: _match, isLive }: MatchStatisti
     setError(null);
 
     try {
-      // Detectar tipo de desporto
       const sport = detectSportType(_match);
       setSportType(sport);
-      console.log(`📊 [STATS] Desporto detectado: ${sport}`);
+      console.log(`[STATS] Desporto detectado:`, sport, '| Match keys:', Object.keys(_match || {}));
 
-      // Extrair ID do jogo
-      const gameId = extractGameId(_match.id || _match.fixtureId);
-      
+      const rawId = _match.id || _match.fixtureId;
+      const gameId = extractGameId(rawId);
+      console.log('[STATS] gameId extraído:', gameId, '(tipo:', typeof gameId, ')');
+
       if (!gameId) {
-        console.log('⚠️ [STATS] ID do jogo não disponível, usando dados mock');
+        console.warn('[STATS] ID do jogo não encontrado → usando mock');
         setStats(getMockStats(sport, _match));
         setDataSource('mock');
-        setLoading(false);
         return;
       }
 
-      console.log(`📡 [STATS] Buscando estatísticas reais: ${sport} (ID: ${gameId})`);
+      console.log(`[STATS] Buscando estatísticas reais: ${sport} (ID: ${gameId})`);
 
-      // Buscar estatísticas da API
       const apiStats = await fetchMultiSportStats(sport, gameId);
+      console.log('[STATS] Resposta completa da API:', apiStats);
 
-      if (apiStats && apiStats.length > 0) {
-        console.log(`✅ [STATS] Estatísticas REAIS carregadas da API: ${apiStats.length} métricas`);
-        console.log(`📊 [STATS] Dados:`, apiStats);
+      if (Array.isArray(apiStats) && apiStats.length > 0) {
+        console.log('[STATS] Sucesso - métricas carregadas:', apiStats.length);
         setStats(apiStats);
         setDataSource('api');
       } else {
-        console.log('⚠️ [STATS] API não retornou dados, usando mock');
+        console.warn('[STATS] API retornou vazio ou inválido → fallback mock');
         setStats(getMockStats(sport, _match));
         setDataSource('mock');
       }
-    } catch (err) {
-      console.error('❌ [STATS] Erro ao buscar estatísticas:', err);
-      setError('Erro ao carregar estatísticas');
-      // Fallback para mock
+    } catch (err: any) {
+      console.error('[STATS] Falha total:', err?.message || err);
+      setError(`Erro: ${err?.message || 'Falha na API de estatísticas'}`);
       const sport = detectSportType(_match);
       setStats(getMockStats(sport, _match));
       setDataSource('mock');
@@ -233,30 +230,43 @@ export default function MatchStatistics({ match: _match, isLive }: MatchStatisti
   // ✅ NOVO: Buscar classificação da liga
   const fetchStandings = useCallback(async () => {
     if (sportType !== 'football') {
-      console.log(`⚠️ [STANDINGS] Classificação não disponível para ${sportType}`);
+      console.log(`[STANDINGS] Classificação não disponível para`, sportType);
       return;
     }
     
-    const leagueId = _match.leagueId;
+    const leagueId = _match.leagueId || _match.league?.id;
     if (!leagueId) {
-      console.log('⚠️ [STANDINGS] ID da liga não disponível para classificação');
+      console.warn('[STANDINGS] leagueId não encontrado no match');
       return;
     }
 
     setLoadingStandings(true);
     try {
-      console.log(`📊 [STANDINGS] Buscando classificação da liga: ${leagueId}`);
-      const season = new Date().getFullYear();
-      const data = await apiFetch(`/stats/standings?sport=football&league=${leagueId}&season=${season}`, { method: 'GET' });
-      const list = data.standings || [];
+      const currentYear = new Date().getFullYear();
+      console.log(`[STANDINGS] Buscando classificação: league=${leagueId}, seasons=${currentYear} / ${currentYear - 1}`);
+
+      let response = await apiFetch(
+        `/stats/standings?sport=football&league=${leagueId}&season=${currentYear}`,
+        { method: 'GET' }
+      );
+
+      if (!response?.standings?.length) {
+        response = await apiFetch(
+          `/stats/standings?sport=football&league=${leagueId}&season=${currentYear - 1}`,
+          { method: 'GET' }
+        );
+      }
+
+      const list = response?.standings || [];
+      console.log(`[STANDINGS] Carregadas ${Array.isArray(list) ? list.length : 0} equipas para league ${leagueId}`);
+
       if (Array.isArray(list) && list.length > 0) {
         setStandings(list as StandingTeam[]);
       } else {
         setStandings([]);
-        console.log('⚠️ [STANDINGS] Sem dados de classificação');
       }
     } catch (err) {
-      console.error('❌ [STANDINGS] Erro ao buscar classificação:', err);
+      console.error('[STANDINGS] Erro ao buscar classificação:', err);
     } finally {
       setLoadingStandings(false);
     }
@@ -358,13 +368,17 @@ export default function MatchStatistics({ match: _match, isLive }: MatchStatisti
 
     if (standings.length === 0) return null;
 
-    // Encontrar posição das equipas do jogo atual
+    const homeTeamId = _match.homeTeamId || _match.homeTeam?.id;
+    const awayTeamId = _match.awayTeamId || _match.awayTeam?.id;
+
     const homeTeamRank = standings.find(t => 
+      (homeTeamId && t.teamId === homeTeamId) ||
       t.teamName.toLowerCase().includes(_match.homeTeam?.toLowerCase()?.split(' ')[0]) ||
       _match.homeTeam?.toLowerCase().includes(t.teamName.toLowerCase().split(' ')[0])
     )?.rank;
     
     const awayTeamRank = standings.find(t => 
+      (awayTeamId && t.teamId === awayTeamId) ||
       t.teamName.toLowerCase().includes(_match.awayTeam?.toLowerCase()?.split(' ')[0]) ||
       _match.awayTeam?.toLowerCase().includes(t.teamName.toLowerCase().split(' ')[0])
     )?.rank;
@@ -413,7 +427,7 @@ export default function MatchStatistics({ match: _match, isLive }: MatchStatisti
 
         {showStandings && (
           <div className="overflow-x-auto">
-            <table className="w-full text-[10px]">
+            <table className="w-full min-w-[600px] text-[10px]">
               <thead>
                 <tr className={theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-50'}>
                   <th className={`px-2 py-2 text-left font-semibold ${

@@ -30,7 +30,7 @@ export const useVerification = () => {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
-  // Load documents from Supabase
+  // Load documents from backend
   const loadDocuments = useCallback(async () => {
     if (!user) {
       setLoading(false);
@@ -42,12 +42,12 @@ export const useVerification = () => {
 
       const data = await apiFetch('/kyc/documents', { method: 'GET' });
 
-      const supabaseDocs = data.documents || [];
+      const backendDocs = data.documents || [];
 
-      if (supabaseDocs && supabaseDocs.length > 0) {
-        console.log('✅ Documentos encontrados:', supabaseDocs.length);
+      if (backendDocs && backendDocs.length > 0) {
+        console.log('✅ Documentos encontrados:', backendDocs.length);
 
-        const docs: KYCDocument[] = supabaseDocs.map((doc: any) => ({
+        const docs: KYCDocument[] = backendDocs.map((doc: any) => ({
           id: doc.id,
           documentType: doc.document_type,
           fileName: doc.file_name,

@@ -6,6 +6,7 @@ const { useState, useEffect, useCallback, useRef } = React;
 import type { Match } from '../types/sports';
 import { getLiveMatches } from '../services/sportsDataHub';
 import { liveScoresWS, LiveScoreUpdate, LiveOddsUpdate } from '../services/websocket/liveScoresWebSocket';
+import { fetchLiveOddsBySport, fetchFixture1X2OddsFromApiFootball } from '../services/oddsService';
 
 interface UseLiveMatchesOptions {
   autoRefresh?: boolean;
@@ -31,7 +32,7 @@ const LOCAL_STORAGE_KEY = 'live_matches_cache_v1';
 const matchesCache = {
   data: null as Match[] | null,
   timestamp: 0,
-  ttl: 300000, // ✅ 5 MINUTOS (era 30s)
+  ttl: 120000,
   isLoading: false,
   promise: null as Promise<Match[]> | null,
 };
@@ -75,20 +76,47 @@ const fetchWithDedup = async (): Promise<Match[]> => {
   }
 
   matchesCache.isLoading = true;
-  matchesCache.promise = getLiveMatches()
-    .then((data) => {
-      matchesCache.data = data;
-      matchesCache.timestamp = Date.now();
-      matchesCache.isLoading = false;
-      matchesCache.promise = null;
-      persistCacheToStorage();
-      return data;
-    })
-    .catch((err) => {
-      matchesCache.isLoading = false;
-      matchesCache.promise = null;
-      throw err;
-    });
+  matchesCache.promise = (async () => {
+    const previous = matchesCache.data;
+    const data = await getLiveMatches();
+    let merged = data;
+    if (previous && previous.length && data && data.length) {
+      const previousMap = new Map<string, Match>();
+      previous.forEach((m) => {
+        previousMap.set(String(m.id), m);
+      });
+      merged = data.map((m) => {
+        const key = String(m.id);
+        const prev = previousMap.get(key);
+        if (!prev || !prev.odds || m.odds) {
+          return m;
+        }
+        const prevOdds = prev.odds;
+        const hasPrevOdds =
+          typeof prevOdds.home === 'number' &&
+          typeof prevOdds.away === 'number' &&
+          prevOdds.home > 1.01 &&
+          prevOdds.away > 1.01;
+        if (!hasPrevOdds) {
+          return m;
+        }
+        return {
+          ...m,
+          odds: {
+            home: prevOdds.home,
+            draw: prevOdds.draw ?? 0,
+            away: prevOdds.away,
+          },
+        };
+      });
+    }
+    matchesCache.data = merged;
+    matchesCache.timestamp = Date.now();
+    matchesCache.isLoading = false;
+    matchesCache.promise = null;
+    persistCacheToStorage();
+    return merged;
+  })();
 
   return matchesCache.promise;
 };
@@ -112,6 +140,7 @@ export function useLiveMatches(
   const isMountedRef = useRef(true);
   const matchesMapRef = useRef<Map<string, Match>>(new Map());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null); // ✅ Ref para intervalo
+  const oddsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ✅ WEBSOCKET: Atualizações em tempo real SEM polling
@@ -120,7 +149,6 @@ export function useLiveMatches(
   useEffect(() => {
     if (!useWebSocket) return;
 
-    // Handler para atualizações de placar via WebSocket
     const handleScoreUpdate = (update: LiveScoreUpdate) => {
       setMatches(prev => {
         const updated = prev.map(match => {
@@ -146,7 +174,6 @@ export function useLiveMatches(
       setLastUpdate(Date.now());
     };
 
-    // Handler para atualizações de odds via WebSocket
     const handleOddsUpdate = (update: LiveOddsUpdate) => {
       setMatches(prev => {
         const updated = prev.map(match => {
@@ -168,23 +195,19 @@ export function useLiveMatches(
       });
     };
 
-    // Handler para estado da conexão
     const handleConnectionChange = (state: { connected: boolean }) => {
       setIsWebSocketConnected(state.connected);
-      
       if (state.connected) {
-        console.log('🔌 [useLiveMatches] WebSocket conectado - atualizações em tempo real ativas');
+        console.log('🔌 [useLiveMatches] WebSocket conectado');
       } else {
-        console.log('🔌 [useLiveMatches] WebSocket desconectado - usando fallback');
+        console.log('🔌 [useLiveMatches] WebSocket desconectado');
       }
     };
 
-    // Subscrever eventos
     const unsubScore = liveScoresWS.on('score_update', handleScoreUpdate);
     const unsubOdds = liveScoresWS.on('odds_update', handleOddsUpdate);
     const unsubConnection = liveScoresWS.on('connection_change', handleConnectionChange);
 
-    // Estado inicial
     setIsWebSocketConnected(liveScoresWS.getConnectionState().connected);
 
     return () => {
@@ -242,9 +265,10 @@ export function useLiveMatches(
 
       if (matchesCache.data) {
         setMatches(matchesCache.data);
+        setError('Erro ao atualizar. Usando dados em cache.');
+      } else {
+        setError('Não foi possível carregar jogos ao vivo.');
       }
-
-      setError(err.message || 'Erro ao carregar jogos ao vivo');
       setLoading(false);
     }
   }, [useWebSocket]);
@@ -259,24 +283,193 @@ export function useLiveMatches(
     };
   }, [fetchMatches]);
 
+  useEffect(() => {
+    if (!useWebSocket) return;
+    if (!isWebSocketConnected) return;
+    if (!matchesCache.data) return;
+
+    console.log('WS conectado → invalidando cache e forçando refetch');
+    matchesCache.timestamp = 0;
+    fetchMatches(true);
+  }, [useWebSocket, isWebSocketConnected, fetchMatches]);
+
+  const syncOdds = useCallback(async () => {
+    try {
+      // Descobrir quais desportos estão presentes na lista atual
+      const sports = new Set<string>();
+      matches.forEach((m) => {
+        const s = String(m.sport || '').toLowerCase();
+        if (s) sports.add(s);
+      });
+
+      // Sempre incluir futebol (mantém compatibilidade)
+      if (sports.size === 0) sports.add('football');
+
+      // Buscar odds por desporto (futebol 1X2; basquete moneyline)
+      const oddsLists: { matchId: string | number; odds: { home: number; draw?: number; away: number } }[] = [];
+      for (const sport of Array.from(sports)) {
+        const list = await fetchLiveOddsBySport(sport);
+        if (Array.isArray(list) && list.length > 0) {
+          oddsLists.push(
+            ...list.map((i) => ({
+              matchId: i.matchId,
+              odds: { home: i.odds.home, draw: i.odds.draw, away: i.odds.away },
+            })),
+          );
+        }
+      }
+
+      const baseMatches = matchesCache.data && matchesCache.data.length > 0 ? matchesCache.data : matches;
+      if (!baseMatches || baseMatches.length === 0) return;
+
+      console.log(`[SYNC ODDS] Atualizando ${oddsLists.length} jogos com odds novas`);
+
+      const merged = baseMatches.map((match) => {
+        const item = oddsLists.find(
+          (it) =>
+            String(it.matchId) === String(match.id) ||
+            (match.fixtureId != null && String(it.matchId) === String(match.fixtureId)),
+        );
+
+        if (!item) return match;
+
+        return {
+          ...match,
+          odds: {
+            home: item.odds.home,
+            draw: item.odds.draw,
+            away: item.odds.away,
+          },
+        };
+      });
+
+      const footballNeedingFallback = merged.filter((match) => {
+        const sportName = String(match.sport || '').toLowerCase();
+        const odds = match.odds;
+        const hasValidOdds =
+          odds &&
+          typeof odds.home === 'number' &&
+          typeof odds.away === 'number' &&
+          odds.home > 1.01 &&
+          odds.away > 1.01;
+
+        if (!sportName) return false;
+        const isFootball =
+          sportName.includes('futebol') ||
+          sportName.includes('football') ||
+          sportName.includes('soccer');
+
+        return isFootball && !hasValidOdds;
+      });
+
+      const limitedFootball = footballNeedingFallback.slice(0, 10);
+      const fallbackResults = await Promise.all(
+        limitedFootball.map(async (match) => {
+          const rawId = match.fixtureId != null ? match.fixtureId : match.id;
+          const odds = await fetchFixture1X2OddsFromApiFootball(rawId);
+          return {
+            key: String(match.id),
+            odds,
+          };
+        }),
+      );
+
+      const fallbackMap = new Map<string, { home: number; draw?: number; away: number }>();
+      fallbackResults.forEach((item) => {
+        if (item.odds) {
+          fallbackMap.set(item.key, item.odds);
+        }
+      });
+
+      const finalMatches = merged.map((match) => {
+        const odds = match.odds;
+        const hasValidOdds =
+          odds &&
+          typeof odds.home === 'number' &&
+          typeof odds.away === 'number' &&
+          odds.home > 1.01 &&
+          odds.away > 1.01;
+        if (hasValidOdds) return match;
+
+        const fb = fallbackMap.get(String(match.id));
+        if (!fb) return match;
+
+        return {
+          ...match,
+          odds: {
+            home: fb.home,
+            draw: fb.draw ?? 0,
+            away: fb.away,
+          },
+        };
+      });
+
+      matchesCache.data = finalMatches;
+      matchesCache.timestamp = Date.now();
+      persistCacheToStorage();
+
+      setMatches(finalMatches);
+
+      // Alimentar WS (apenas com pares id/odds)
+      liveScoresWS.updateOddsBatch(
+        oddsLists.map((item) => ({
+          matchId: String(item.matchId),
+          odds: {
+            home: item.odds.home,
+            draw: item.odds.draw ?? 0,
+            away: item.odds.away,
+          },
+        })),
+      );
+    } catch {
+      return;
+    }
+  }, [matches]);
+
+  useEffect(() => {
+    if (oddsIntervalRef.current) {
+      clearInterval(oddsIntervalRef.current);
+      oddsIntervalRef.current = null;
+    }
+
+    if (useWebSocket && isWebSocketConnected) {
+      console.log('WS ativo → polling de odds desativado');
+      syncOdds();
+      return;
+    }
+
+    console.log('WS inativo → ativando polling de odds a cada 15s');
+
+    syncOdds();
+
+    oddsIntervalRef.current = setInterval(() => {
+      if (!isMountedRef.current) return;
+      syncOdds();
+    }, 15000);
+
+    return () => {
+      if (oddsIntervalRef.current) {
+        clearInterval(oddsIntervalRef.current);
+        oddsIntervalRef.current = null;
+      }
+    };
+  }, [syncOdds, useWebSocket, isWebSocketConnected]);
+
   // ═══════════════════════════════════════════════════════════════════════════
   // ✅ FALLBACK: Polling apenas se WebSocket não estiver conectado
   // ═══════════════════════════════════════════════════════════════════════════
 
   useEffect(() => {
-    // ✅ Limpar intervalo anterior sempre
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
 
-    // Se WebSocket está conectado, não precisa de polling
     if (useWebSocket && isWebSocketConnected) {
       console.log('✅ [useLiveMatches] WebSocket ativo - polling desativado');
       return;
     }
 
-    // Fallback: polling apenas se autoRefresh ativo E WebSocket desconectado
     if (!autoRefresh) return;
 
     console.log(`🔄 [useLiveMatches] Usando polling como fallback - intervalo: ${interval}ms`);
@@ -287,15 +480,30 @@ export function useLiveMatches(
       }
     }, interval);
 
-    // ✅ Cleanup garantido
     return () => {
       if (intervalRef.current) {
-        console.log('🧹 [useLiveMatches] Limpando intervalo de polling');
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
     };
   }, [autoRefresh, interval, fetchMatches, useWebSocket, isWebSocketConnected]);
+
+  useEffect(() => {
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    if (useWebSocket && !isWebSocketConnected) {
+      reconnectTimer = setTimeout(() => {
+        console.log('Forçando reconexão manual após 30s sem WS');
+        liveScoresWS.connect();
+      }, 30000);
+    }
+
+    return () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+    };
+  }, [isWebSocketConnected, useWebSocket]);
 
   // ✅ Cleanup na desmontagem
   useEffect(() => {

@@ -136,11 +136,6 @@ export default function BettingSlip({
       return;
     }
 
-    if (profile && profile.email_verified === false) {
-      setError('Confirme o seu email antes de apostar. Use “Verificar Email”.');
-      return;
-    }
-
     // Verificar auto-exclusão
     if (isExcluded) {
       setError('A sua conta está em auto-exclusão. Não pode fazer apostas.');
@@ -278,26 +273,6 @@ export default function BettingSlip({
                 ? 'Não pode fazer apostas durante o período de auto-exclusão.'
                 : 'Não pode fazer apostas durante o período de reflexão.'}
             </p>
-          </div>
-        )}
-
-        {/* Email Verification Soft Block */}
-        {user && !isBettingBlocked && profile && profile.email_verified === false && (
-          <div className="px-4 py-3 bg-amber-900/40 border-b border-amber-700">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <i className="ri-mail-check-line text-amber-300"></i>
-                <span className="text-xs text-amber-200 font-medium">
-                  Confirme o seu email para colocar apostas com segurança.
-                </span>
-              </div>
-              <button
-                onClick={() => navigate('/verify-email')}
-                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-gray-900 rounded-md text-[11px] font-bold cursor-pointer whitespace-nowrap"
-              >
-                Verificar Email
-              </button>
-            </div>
           </div>
         )}
 

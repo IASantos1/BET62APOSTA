@@ -37,11 +37,14 @@ class AssetPreloader {
    * Pré-carregar dados populares em background
    */
   async preloadPopularData(): Promise<void> {
-    const popularEndpoints = [
-      '/api/live-matches',
-      '/api/popular-leagues',
-      '/api/trending-bets',
-    ];
+    const apiUrl = import.meta.env.VITE_API_URL;
+    if (!apiUrl || !apiUrl.startsWith('http')) {
+      return;
+    }
+
+    const popularEndpoints = ['/odds/sports', '/transactions', '/auth/session'].map(
+      (path) => `${apiUrl}${path}`,
+    );
 
     const promises = popularEndpoints.map(async (endpoint) => {
       try {
@@ -202,7 +205,6 @@ export const assetPreloader = new AssetPreloader();
 export function initializePreloader(): void {
   // Preconnect para domínios externos
   assetPreloader.preconnect([
-    'https://vdpfhovtiaeaynzattjm.supabase.co',
     'https://fonts.googleapis.com',
     'https://fonts.gstatic.com',
   ]);

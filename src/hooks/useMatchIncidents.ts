@@ -279,28 +279,10 @@ export const useMatchIncidents = (
 
     console.log(`✅ [INCIDENTS] Ativado para FUTEBOL AO VIVO - Match: ${matchId}`);
 
-    // Buscar incidentes reais da API
     fetchRealIncidents();
 
-    // Verificar e gerar incidentes a cada 15 segundos
     intervalRef.current = setInterval(() => {
-      // Primeiro tentar buscar da API
       fetchRealIncidents();
-      
-      // Se não houver incidentes ativos, gerar simulado
-      if (incidents.length === 0) {
-        const newIncident = generateSimulatedIncident();
-        
-        if (newIncident) {
-          setIncidents([newIncident]);
-          
-          // Remover incidente após a duração
-          setTimeout(() => {
-            setIncidents(prev => prev.filter(i => i.id !== newIncident.id));
-            console.log(`✅ [INCIDENTS] Incidente removido: ${newIncident.label}`);
-          }, newIncident.duration);
-        }
-      }
     }, 15000);
 
     return () => {

@@ -175,71 +175,18 @@ interface UseMatchScoreReturn {
 }
 
 export function useMatchScore(options: UseMatchScoreOptions): UseMatchScoreReturn {
-  const { matchId, initialScore, initialMinute = 0, initialPeriod = '' } = options;
+  const { matchId: _matchId, initialScore, initialMinute = 0, initialPeriod = '' } = options;
 
   const [homeScore, setHomeScore] = useState(initialScore?.home ?? 0);
   const [awayScore, setAwayScore] = useState(initialScore?.away ?? 0);
   const [minute, setMinute] = useState(initialMinute);
   const [period, setPeriod] = useState(initialPeriod);
-  const [lastGoal, setLastGoal] = useState<LiveIncident | null>(null);
-  const [hasScoreChanged, setHasScoreChanged] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+  const [lastGoal] = useState<LiveIncident | null>(null);
+  const [hasScoreChanged] = useState(false);
+  const isConnected = false;
 
-  const scoreChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialScoreHome = initialScore?.home;
   const initialScoreAway = initialScore?.away;
-
-  useEffect(() => {
-    const handleScoreUpdate = (update: LiveScoreUpdate) => {
-      if (update.matchId !== matchId) return;
-
-      const scoreChanged = update.homeScore !== homeScore || update.awayScore !== awayScore;
-
-      setHomeScore(update.homeScore);
-      setAwayScore(update.awayScore);
-      setMinute(update.minute);
-      setPeriod(update.period);
-
-      if (scoreChanged) {
-        setHasScoreChanged(true);
-        
-        if (scoreChangeTimerRef.current) {
-          clearTimeout(scoreChangeTimerRef.current);
-        }
-        
-        scoreChangeTimerRef.current = setTimeout(() => {
-          setHasScoreChanged(false);
-        }, 5000);
-      }
-    };
-
-    const handleIncident = (incident: LiveIncident) => {
-      if (incident.matchId !== matchId) return;
-      if (incident.type === 'goal') {
-        setLastGoal(incident);
-      }
-    };
-
-    const handleConnection = (state: { connected: boolean }) => {
-      setIsConnected(state.connected);
-    };
-
-    const unsubScore = liveScoresWS.on('score_update', handleScoreUpdate);
-    const unsubIncident = liveScoresWS.on('incident', handleIncident);
-    const unsubConnection = liveScoresWS.on('connection_change', handleConnection);
-
-    setIsConnected(liveScoresWS.getConnectionState().connected);
-
-    return () => {
-      unsubScore();
-      unsubIncident();
-      unsubConnection();
-      
-      if (scoreChangeTimerRef.current) {
-        clearTimeout(scoreChangeTimerRef.current);
-      }
-    };
-  }, [matchId, homeScore, awayScore]);
 
   // Atualizar com valores iniciais quando mudam
   useEffect(() => {
@@ -284,70 +231,16 @@ interface UseMatchOddsReturn {
 }
 
 export function useMatchOdds(options: UseMatchOddsOptions): UseMatchOddsReturn {
-  const { matchId, initialOdds } = options;
+  const { matchId: _matchId, initialOdds } = options;
 
   const [odds, setOdds] = useState(initialOdds || { home: 0, draw: 0, away: 0 });
-  const [oddsDirection, setOddsDirection] = useState<{ home?: 'up' | 'down'; draw?: 'up' | 'down'; away?: 'up' | 'down' }>({});
-  const [isConnected, setIsConnected] = useState(false);
+  const oddsDirection: { home?: 'up' | 'down'; draw?: 'up' | 'down'; away?: 'up' | 'down' } = {};
+  const isConnected = false;
 
   const previousOddsRef = useRef(odds);
-  const directionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialOddsHome = initialOdds?.home;
   const initialOddsDraw = initialOdds?.draw;
   const initialOddsAway = initialOdds?.away;
-
-  useEffect(() => {
-    const handleOddsUpdate = (update: LiveOddsUpdate) => {
-      if (update.matchId !== matchId) return;
-
-      const prev = previousOddsRef.current;
-      const newDirections: typeof oddsDirection = {};
-
-      // Calcular direções
-      if (Math.abs(update.odds.home - prev.home) >= 0.01) {
-        newDirections.home = update.odds.home > prev.home ? 'up' : 'down';
-      }
-      if (Math.abs(update.odds.draw - prev.draw) >= 0.01) {
-        newDirections.draw = update.odds.draw > prev.draw ? 'up' : 'down';
-      }
-      if (Math.abs(update.odds.away - prev.away) >= 0.01) {
-        newDirections.away = update.odds.away > prev.away ? 'up' : 'down';
-      }
-
-      setOdds(update.odds);
-      previousOddsRef.current = update.odds;
-
-      if (Object.keys(newDirections).length > 0) {
-        setOddsDirection(newDirections);
-
-        if (directionTimerRef.current) {
-          clearTimeout(directionTimerRef.current);
-        }
-
-        directionTimerRef.current = setTimeout(() => {
-          setOddsDirection({});
-        }, 5000);
-      }
-    };
-
-    const handleConnection = (state: { connected: boolean }) => {
-      setIsConnected(state.connected);
-    };
-
-    const unsubOdds = liveScoresWS.on('odds_update', handleOddsUpdate);
-    const unsubConnection = liveScoresWS.on('connection_change', handleConnection);
-
-    setIsConnected(liveScoresWS.getConnectionState().connected);
-
-    return () => {
-      unsubOdds();
-      unsubConnection();
-      
-      if (directionTimerRef.current) {
-        clearTimeout(directionTimerRef.current);
-      }
-    };
-  }, [matchId]);
 
   // Atualizar com valores iniciais
   useEffect(() => {

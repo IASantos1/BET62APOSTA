@@ -964,17 +964,18 @@ export class LiveOddsMarketEngine {
    * ✅ OTIMIZADO: Usa cache, busca centralizada e fallback automático
    */
   private async executeCycle(match: any, priority: 'HIGH' | 'MEDIUM' | 'LOW' = 'MEDIUM') {
-    const state = this.states.get(match.fixtureId);
+    const fixtureKey = String(match.fixtureId);
+    const state = this.states.get(fixtureKey);
     if (!state || !state.isRunning) return;
 
     state.cycleCount++;
 
     try {
-      const cleanId = match.fixtureId.replace('football-', '');
+      const cleanId = fixtureKey.replace('football-', '');
       
       // ✅ OTIMIZAÇÃO: Verificar throttle global
       if (shouldThrottleApiCall() && priority !== 'HIGH') {
-        console.log(`⏸️ Ciclo pausado (throttle): ${match.fixtureId}`);
+        console.log(`⏸️ Ciclo pausado (throttle): ${fixtureKey}`);
         
         // ✅ FALLBACK: Usar dados anteriores
         if (state.currentOdds) {
@@ -984,7 +985,7 @@ export class LiveOddsMarketEngine {
         return;
       }
 
-      console.log(`🔄 Ciclo #${state.cycleCount} [${priority}]: ${match.fixtureId}`);
+      console.log(`🔄 Ciclo #${state.cycleCount} [${priority}]: ${fixtureKey}`);
 
       // ✅ OTIMIZAÇÃO: Usar busca centralizada para jogos ao vivo
       let fixtureData = null;
@@ -1105,7 +1106,7 @@ export class LiveOddsMarketEngine {
       }
 
     } catch (error: any) {
-      console.error(`❌ Erro no ciclo para ${match.fixtureId}:`, error);
+      console.error(`❌ Erro no ciclo para ${fixtureKey}:`, error);
       
       // ✅ DETECTAR RATE LIMIT NO ERRO
       if (error?.message?.includes('rate limit') || 
