@@ -4262,6 +4262,84 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ✅ NOVO: Rota para Odds-API.io (Lista de Eventos)
+  if (req.url?.startsWith('/odds/events') && req.method === 'GET') {
+      const url = new URL(req.url, `http://localhost:${PORT}`);
+      const sport = url.searchParams.get('sport') || 'football';
+      
+      try {
+          console.log(`[PROXY] Fetching Odds-API.io events for ${sport}`);
+          const events = await fetchOddsFromOddsApiIo(sport);
+          
+          if (events) {
+              sendJson(res, 200, events);
+          } else {
+              sendJson(res, 200, []);
+          }
+      } catch (err: any) {
+          console.error('[PROXY] Error fetching Odds-API.io events:', err.message);
+          sendJson(res, 500, { error: 'Failed to fetch odds events' });
+      }
+      return;
+  }
+
+  // ✅ NOVO: Rota para API-Football Odds Live (Lista Completa)
+  const liveOddsMatch = req.url?.match(/^\/([a-zA-Z0-9]+)\/odds\/live$/);
+  if (liveOddsMatch && req.method === 'GET') {
+      const sport = liveOddsMatch[1];
+      
+      if (sport !== 'football') {
+          sendJson(res, 200, []);
+          return;
+      }
+
+      try {
+          const cacheKey = `live:odds:${sport}`;
+          const cached = await redis.get(cacheKey);
+          
+          if (cached) {
+              sendJson(res, 200, JSON.parse(cached));
+              return;
+          }
+
+          console.log(`[PROXY] Fetching LIVE ODDS list for ${sport}`);
+          const baseUrl = getApiFootballBaseUrl(sport);
+          if (!baseUrl) throw new Error(`No base URL for sport ${sport}`);
+          
+          const headers = getApiFootballHeaders(sport);
+          
+          const response = await fetch(`${baseUrl}/odds/live`, { 
+              method: 'GET',
+              headers: headers as any
+          });
+          
+          if (!response.ok) {
+              throw new Error(`API returned ${response.status}`);
+          }
+
+          const data = await response.json();
+          
+          if (data && Array.isArray(data.response)) {
+              await redis.set(cacheKey, JSON.stringify(data.response), 'EX', 10);
+              sendJson(res, 200, data.response);
+          } else {
+              sendJson(res, 200, []);
+          }
+      } catch (err: any) {
+          console.error(`[PROXY] Error fetching live odds for ${sport}:`, err.message);
+          sendJson(res, 200, []);
+      }
+      return;
+  }
+
+  // ✅ WEBHOOK: Gatilho manual para sincronização diária
+  if (req.url === '/webhooks/sync-daily' && req.method === 'POST') {
+      console.log('🔄 [WEBHOOK] Recebido pedido de sincronização diária');
+      syncDailyEvents().catch(err => console.error('❌ [WEBHOOK] Erro na sync:', err));
+      sendJson(res, 200, { message: 'Sync started' });
+      return;
+  }
+
   if (req.method === 'GET') {
     try {
       const distDir = path.resolve(__dirname, '../dist');
@@ -4307,6 +4385,68 @@ const server = http.createServer(async (req, res) => {
 
   sendJson(res, 404, { error: 'Not found' });
 });
+
+// ==========================================
+// 🔄 DAILY SYNC CRON JOB
+// ==========================================
+
+async function syncDailyEvents() {
+  console.log('🔄 [SYNC DAILY] Iniciando sincronização diária de eventos...');
+  const days = 7;
+  const sports = ['football', 'basketball', 'baseball', 'hockey', 'volleyball', 'handball'];
+  const today = new Date();
+  
+  for (let i = 0; i < days; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() + i);
+    const dateStr = date.toISOString().split('T')[0];
+    
+    console.log(`[SYNC DAILY] Fetching fixtures for ${dateStr}`);
+    
+    for (const sport of sports) {
+      try {
+        const baseUrl = getApiFootballBaseUrl(sport);
+        if (!baseUrl) continue;
+        
+        const apiUrl = `${baseUrl}/fixtures?date=${dateStr}&timezone=Europe/Lisbon`;
+        const headers = getApiFootballHeaders(sport);
+        
+        const response = await fetch(apiUrl, { 
+            method: 'GET',
+            headers: headers as any
+        });
+        
+        if (!response.ok) {
+            console.warn(`[SYNC DAILY] Erro API ${sport} para ${dateStr}: ${response.status}`);
+            continue;
+        }
+
+        const data = await response.json();
+        
+        if (data && Array.isArray(data.response) && data.response.length > 0) {
+            const cacheKey = `${sport}:fixtures:date=${dateStr}&timezone=Europe/Lisbon`;
+            await redis.set(cacheKey, JSON.stringify(data.response), 'EX', 86400);
+            console.log(`✅ [SYNC DAILY] ${data.response.length} fixtures cacheados para ${sport} em ${dateStr}`);
+        }
+        
+        await new Promise(r => setTimeout(r, 200));
+        
+      } catch (err: any) {
+        console.error(`❌ [SYNC DAILY] Falha em ${sport} / ${dateStr}:`, err.message);
+      }
+    }
+  }
+  console.log('🏁 [SYNC DAILY] Sincronização concluída.');
+}
+
+// Agendar para rodar a cada 24 horas
+setTimeout(() => {
+    syncDailyEvents();
+    setInterval(syncDailyEvents, 24 * 60 * 60 * 1000);
+}, 60000);
+
+// Load persisted data on startup
+loadData();
 
 server.listen(PORT, async () => {
   try {
