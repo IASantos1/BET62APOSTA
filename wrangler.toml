@@ -1,0 +1,100 @@
+name = "bet62-api-local-dev-v3"
+main = "src/worker/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "ca04a31d62caccd4774fd850d109bb91"
+
+[triggers]
+crons = ["0 0 * * *", "*/10 * * * *", "*/5 * * * *", "* * * * *"]
+
+[vars]
+ENVIRONMENT = "dev"
+JWT_SECRET = "7f8a9b1c-2d3e-4f5g-6h7i-8j9k0l1m2n3o-secret-key-2025"
+ODDS_CRON_SPORTS = "soccer"
+ADMIN_TOKEN = "dev-admin-token"
+NUVEI_MERCHANT_ID = ""
+NUVEI_MERCHANT_SITE_ID = ""
+APP_MODE = "REAL"
+BETTING_ENABLED = "1"
+LICENSED = ""
+BLOCKED_COUNTRIES = ""
+REAL_FEED_ENABLED = "1"
+DEV_FAKE_MATCH_DETAIL = "false"
+BANXA_API_KEY = ""
+PAYPAL_CLIENT_ID = "AVH5-CoY-PDfHQV46wcKn4ZlcItmmjfjINXKs3Gonfn6pDvr5_DqsB6TkMHiFSe-uEMkfAgoJ2BNAd3V"
+PAYPAL_CLIENT_SECRET = "ELJOA5SlAqJvfRSCzayL99dUuT17aDgYDb7DyLixDP9e_NAq-QoH8W9Uh_bmhHXbWVKb74AIAbOnZvuY"
+GUARDARIAN_API_KEY = "api_token_here"
+NODE_ENV = "production"
+x-rapidapi-key="cbef02a7c902f0dfb7260b0b638fffa0" 
+API_SPORTS_SEASON = "2026"
+ODDS_API_KEY = "7fcabfb7c8a40f62fc0c54afcf6e1e38"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bet62-db"
+database_id = "ebaef170-b999-47d6-887d-24c5e16a674b"
+preview_database_id = "ebaef170-b999-47d6-887d-24c5e16a674b"
+migrations_dir = "migrations"
+
+[env.dev]
+name = "bet62-api-dev"
+account_id = "ca04a31d62caccd4774fd850d109bb91"
+triggers = { crons = ["0 0 * * *", "*/10 * * * *", "*/5 * * * *", "* * * * *"] }
+
+[env.dev.vars]
+ENVIRONMENT = "dev"
+APP_MODE = "REAL"
+BETTING_ENABLED = "1"
+REAL_FEED_ENABLED = "1"
+ODDS_CRON_SPORTS = "soccer"
+ADMIN_TOKEN = "dev-admin-token"
+NUVEI_MERCHANT_ID = ""
+NUVEI_MERCHANT_SITE_ID = ""
+LICENSED = ""
+BLOCKED_COUNTRIES = ""
+DEV_FAKE_MATCH_DETAIL = "false"
+BANXA_API_KEY = ""
+PAYPAL_CLIENT_ID = "AVH5-CoY-PDfHQV46wcKn4ZlcItmmjfjINXKs3Gonfn6pDvr5_DqsB6TkMHiFSe-uEMkfAgoJ2BNAd3V"
+PAYPAL_CLIENT_SECRET = "ELJOA5SlAqJvfRSCzayL99dUuT17aDgYDb7DyLixDP9e_NAq-QoH8W9Uh_bmhHXbWVKb74AIAbOnZvuY"
+GUARDARIAN_API_KEY = "api_token_here"
+NODE_ENV = "production"
+API_SPORTS_KEY = "cbef02a7c902f0dfb7260b0b638fffa0"
+API_SPORTS_SEASON = "2025"
+ODDS_API_KEY = "7fcabfb7c8a40f62fc0c54afcf6e1e38"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "bet62-db"
+database_id = "ebaef170-b999-47d6-887d-24c5e16a674b"
+
+[env.production]
+name = "bet62-api-v2-temp"
+account_id = "ca04a31d62caccd4774fd850d109bb91"
+triggers = { crons = ["0 0 * * *", "*/10 * * * *", "*/5 * * * *", "* * * * *"] }
+
+[env.production.vars]
+ENVIRONMENT = "production"
+APP_MODE = "REAL"
+BETTING_ENABLED = "1"
+REAL_FEED_ENABLED = "1"
+ODDS_CRON_SPORTS = "soccer"
+JWT_SECRET = "7f8a9b1c-2d3e-4f5g-6h7i-8j9k0l1m2n3o-secret-key-2025"
+ADMIN_TOKEN = "dev-admin-token"
+NUVEI_MERCHANT_ID = ""
+NUVEI_MERCHANT_SITE_ID = ""
+LICENSED = "1"
+BLOCKED_COUNTRIES = ""
+DEV_FAKE_MATCH_DETAIL = "false"
+BANXA_API_KEY = ""
+PAYPAL_CLIENT_ID = "AVH5-CoY-PDfHQV46wcKn4ZlcItmmjfjINXKs3Gonfn6pDvr5_DqsB6TkMHiFSe-uEMkfAgoJ2BNAd3V"
+PAYPAL_CLIENT_SECRET = "ELJOA5SlAqJvfRSCzayL99dUuT17aDgYDb7DyLixDP9e_NAq-QoH8W9Uh_bmhHXbWVKb74AIAbOnZvuY"
+GUARDARIAN_API_KEY = "api_token_here"
+NODE_ENV = "production"
+API_SPORTS_KEY = "cbef02a7c902f0dfb7260b0b638fffa0"
+API_SPORTS_SEASON = "2025"
+ODDS_API_KEY = "7fcabfb7c8a40f62fc0c54afcf6e1e38"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "bet62-db"
+database_id = "ebaef170-b999-47d6-887d-24c5e16a674b"

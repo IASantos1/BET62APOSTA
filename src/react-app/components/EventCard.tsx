@@ -1,0 +1,379 @@
+import { OddButton } from '@/react-app/components/OddButton';
+import { useMemo, useState, memo } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
+import { useApp } from '@/react-app/contexts/AppContext';
+import { formatLeagueHeader, abbreviateTeamName, getSportFromLeague, getSportIcon, labelOutcome } from '@/shared/helpers';
+import type { LiveScore, SuspendedMarket } from '@/shared/types'; 
+// import { useRealtimeOdds } from '@/react-app/hooks/useRealtimeOdds'; // Removed
+// import { normalizeOdds } from '@/react-app/services/oddsNormalizer'; // Removed
+import { useTrend } from '@/react-app/hooks/useTrend';
+
+const normalizeSport = (s: string) => {
+  const v = String(s || '').toLowerCase();
+  if (v.includes('football') && !v.includes('american')) return 'soccer';
+  if (v.includes('american') && v.includes('football')) return 'american-football';
+  if (v.includes('ice') && v.includes('hockey')) return 'ice-hockey';
+  return v.replace(/\s+/g, '-');
+};
+
+interface EventCardProps { 
+  event: any; // Allow both Event (shared) and LegacyEvent
+  onOpenEvent: (event: any) => void;
+  liveScore?: LiveScore;
+  suspension?: SuspendedMarket;
+}
+
+export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) { 
+  const { darkMode, addNotification, addToBetSlip } = useApp(); 
+  const [isHovered, setIsHovered] = useState(false); 
+
+  // Robustly extract event ID (support both structures)
+  const eventId = event.id || event.fixture?.id;
+  
+  // Robustly extract team names
+  const homeTeamName = event.home_team || event.teams?.home?.name || (event.match ? event.match.split(' vs ')[0] : '') || (event.match ? event.match.split(' - ')[0] : '') || 'Home Team';
+  const awayTeamName = event.away_team || event.teams?.away?.name || (event.match ? event.match.split(' vs ')[1] : '') || (event.match ? event.match.split(' - ')[1] : '') || 'Away Team';
+  
+  // Use a public placeholder that allows CORB/CORS or a data URI
+  const DEFAULT_LOGO = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjY2NjIiBzdHJva2Utd2lkdGg9IjIiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PHBhdGggZD0iTTEyIDh2OG0tNCAwaDgiLz48L3N2Zz4=';
+  
+  const homeTeamLogo = event.home_team_logo || event.teams?.home?.logo || event.logo_home || DEFAULT_LOGO;
+  const awayTeamLogo = event.away_team_logo || event.teams?.away?.logo || event.logo_away || DEFAULT_LOGO;
+  
+  const eventLeague = event.league?.name || event.league || 'Unknown League'; // Handle object or string
+  const eventSport = event.sport;
+  const sport = eventSport ? normalizeSport(eventSport) : getSportFromLeague(typeof eventLeague === 'string' ? eventLeague : (eventLeague?.name || ''));
+
+  // Removed useRealtimeOdds hook
+  
+  // Helpers
+  const handleLabelOutcome = (market: string, name: string) => {
+    return labelOutcome(market, name, homeTeamName, awayTeamName);
+  };
+
+  // Simplified data access (since we poll fresh events)
+  const currentMarkets = useMemo(() => {
+      if (Array.isArray(event.markets)) return event.markets;
+      return [];
+  }, [event.markets]);
+
+  const eventTime = useMemo(() => {
+    if (!event.event_date) return '';
+    const d = new Date(event.event_date);
+    const h = d.getHours();
+    const m = d.getMinutes();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return m === 0 ? `${h}h` : `${h}h${pad(m)}`;
+  }, [event.event_date]);
+
+  const eventDayMonth = useMemo(() => {
+    if (!event.event_date) return '';
+    const d = new Date(event.event_date);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
+  }, [event.event_date]);
+
+  // Game Timer Logic (simplified)
+  const gameTime = useMemo(() => {
+      // Direct access from event props
+      const elapsed = event.elapsed ?? event.fixture?.status?.elapsed ?? (event.fixture as any)?.elapsed;
+      if (elapsed !== undefined && elapsed !== null) return elapsed;
+
+      // Fallback to status if no elapsed time
+      const status = event.status ?? event.fixture?.status?.short;
+      if (status === 'HT') return 'INT';
+      if (status === 'FT') return 'FIM';
+      if (status === '1H') return '1T';
+      if (status === '2H') return '2T';
+      if (status === 'ET') return 'PRO';
+      if (status === 'P') return 'PEN';
+      
+      return undefined;
+  }, [event]);
+
+  const cleanTeam = (s: string) => {
+    const raw = String(s || '');
+    const head = raw.split(',')[0] || raw;
+    return abbreviateTeamName(head.trim());
+  };
+
+  // useTrend hook imported from @/react-app/hooks/useTrend
+
+  // Get odds strictly from markets[] (Golden Rule)
+  const h2hMarket = currentMarkets?.find((m: any) => m.key === 'h2h');
+  
+  // Robustly handle 'outcomes' (DB format) vs 'selections' (Frontend format)
+  const selections = h2hMarket?.selections || h2hMarket?.outcomes;
+  
+  // const cleanStr = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  // const hRef = cleanStr(homeTeamName);
+  // const aRef = cleanStr(awayTeamName);
+
+  const hhSelection = selections?.find((s: any) => {
+    const lbl = handleLabelOutcome('h2h', s.name || s.outcome || '');
+    return lbl === 'Casa';
+  });
+
+  const ddSelection = selections?.find((s: any) => {
+    const lbl = handleLabelOutcome('h2h', s.name || s.outcome || '');
+    return lbl === 'Empate';
+  });
+
+  const aaSelection = selections?.find((s: any) => {
+    const lbl = handleLabelOutcome('h2h', s.name || s.outcome || '');
+    return lbl === 'Fora';
+  });
+
+  const hh = Number(hhSelection?.odd || hhSelection?.price || hhSelection?.value || 0);
+  const dd = Number(ddSelection?.odd || ddSelection?.price || ddSelection?.value || 0);
+  const aa = Number(aaSelection?.odd || aaSelection?.price || aaSelection?.value || 0);
+
+  const homeTrend = useTrend(hh);
+  const drawTrend = useTrend(dd);
+  const awayTrend = useTrend(aa);
+
+  // Market suspended check
+  const isH2hSuspended = h2hMarket?.suspended ?? false;
+  const h2hReason = h2hMarket?.suspended_reason;
+  const marketSuspended = isH2hSuspended ? { reason: h2hReason || 'SUSPENSO' } : undefined;
+
+  // Add bet handler
+  const addPrimary = (label: string, price: number, selectionSuspended?: boolean) => {
+    if (!(price > 0)) { addNotification({ type: 'warning', message: 'Odd indisponível' }); return; }
+    
+    // Map label to standard selection names if needed
+    let selection = label;
+    if (label === 'Casa') selection = 'Home';
+    if (label === 'Empate') selection = 'Draw';
+    if (label === 'Fora') selection = 'Away';
+
+    const idStr = `ev-${eventId}-${selection.toLowerCase()}`;
+    addToBetSlip({ 
+      id: idStr, 
+      event_id: eventId, 
+      match: String(event.match || `${homeTeamName} vs ${awayTeamName}`), 
+      selection: selection, 
+      market: 'Resultado Final', // Explicit market name
+      odd: price, 
+      stake: 0,
+      league: typeof eventLeague === 'string' ? eventLeague : (eventLeague?.name || ''),
+      sport: (eventSport ? normalizeSport(eventSport) : getSportFromLeague(typeof eventLeague === 'string' ? eventLeague : (eventLeague?.name || ''))),
+      suspended: selectionSuspended,
+      market_suspended: isH2hSuspended
+    });
+  };
+
+  // Check if we have valid odds locally, even if realtime thinks it's suspended
+  const hasLocalOdds = currentMarkets && currentMarkets.length > 0;
+  
+  // Relaxed suspension logic: only suspend if explicitly frozen or suspended AND we don't have local odds to show
+  // If we have local odds, we assume they are valid until a realtime update explicitly clears them
+  const isSuspended = ((!!suspension || (event as any).oddsFrozen || event.suspended) && !hasLocalOdds);
+  
+  const suspendReason = suspension?.reason || ((event as any).oddsFrozen ? 'EVENT_FROZEN' : 'SUSPENDED');
+
+  return (
+    <div 
+      className={`border rounded-lg p-3 transition-all duration-300 ${ 
+        darkMode ? 'bg-gray-800 border-gray-700 hover:bg-gray-750' : 'bg-white border-gray-200 hover:border-red-400 hover:shadow-lg' 
+      } ${isHovered ? 'scale-[1.02]' : ''}`} 
+      onMouseEnter={() => setIsHovered(true)} 
+      onMouseLeave={() => setIsHovered(false)} 
+      onClick={() => onOpenEvent(event)}
+    > 
+      <div className="flex flex-col sm:flex-row justify-between items-start"> 
+         <div className="flex-1 w-full sm:w-auto mb-3 sm:mb-0"> 
+        <div className="flex items-center gap-2 mb-1">
+         {(() => {
+          const { flag, country, league: formattedLeague, flagUrl } = formatLeagueHeader(event);
+          const sportIcon = getSportIcon(sport);
+          
+          const leagueLabel = sport === 'cricket' ? 'Críquete' : formattedLeague;
+
+          return (
+            <span className={`flex items-center gap-2 text-xs font-din ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+               <div className="relative w-6 h-6 flex-shrink-0">
+                    <img src={sportIcon} alt={sport} className="w-full h-full object-contain p-0.5 opacity-90" />
+                    {(flagUrl || flag) && (
+                        <span className={`absolute -bottom-1 -right-1 flex items-center justify-center w-4 h-4 rounded-full shadow-sm border ${darkMode ? 'border-gray-800 bg-gray-700' : 'border-white bg-white'} overflow-hidden`}>
+                            {flagUrl ? <img src={flagUrl} alt={country} className="w-full h-full object-cover" /> : <span className="text-[10px]">{flag}</span>}
+                        </span>
+                    )}
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-bold uppercase tracking-tight">{leagueLabel}</span>
+                    {country && <span className="opacity-70 font-normal hidden sm:inline">· {country}</span>}
+                    
+                    <div className="flex items-center gap-1 ml-1 pl-1 border-l border-gray-300 dark:border-gray-600">
+                         {(gameTime !== undefined && gameTime !== null) && (
+                            <span className="text-red-600 font-bold animate-pulse text-[10px] uppercase border border-red-600/30 px-1 rounded bg-red-600/5 mr-1">
+                                {gameTime}{typeof gameTime === 'number' || !isNaN(Number(gameTime)) ? "'" : ''}
+                            </span>
+                        )}
+                        {eventDayMonth && <span className="opacity-80 text-[10px]">{eventDayMonth}</span>}
+                        {eventTime && <span className="opacity-80 text-[10px] ml-1">{eventTime}</span>}
+                    </div>
+                </div>
+            </span>
+          );
+        })()}
+       </div>
+           
+      
+      <div className="flex items-center gap-3 w-full">
+        <button 
+          onClick={(e: ReactMouseEvent<HTMLButtonElement>) => { e.stopPropagation(); onOpenEvent(event); }} 
+          className={`text-left w-full ${darkMode ? 'text-white hover:text-red-300' : 'text-gray-900 hover:text-red-700'} underline-offset-2 hover:underline overflow-hidden`} 
+        > 
+          <span className="flex items-center gap-2 w-full">
+            <div className="flex items-center gap-2 flex-1 min-w-0 justify-end text-right">
+                 <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(homeTeamName)}</span>
+                 <img src={homeTeamLogo} alt={homeTeamName} className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5" onError={(e) => e.currentTarget.style.display = 'none'} />
+            </div>
+
+           {(() => {
+             // Use robust eventId
+             const rawHome = liveData.liveScores?.find(s => String(s.id) === String(eventId))?.golsCasa ?? (event as any).goals?.home ?? (event as any).golsCasa ?? (event as any).score_home;
+             const rawAway = liveData.liveScores?.find(s => String(s.id) === String(eventId))?.golsFora ?? (event as any).goals?.away ?? (event as any).golsFora ?? (event as any).score_away;
+             
+             const formatScore = (val: any) => {
+                 if (val === null || val === undefined) return undefined;
+                 if (typeof val === 'object') {
+                     return val.total ?? val.score ?? val.current ?? 0;
+                 }
+                 return val;
+             };
+
+             let homeScore = formatScore(rawHome);
+             let awayScore = formatScore(rawAway);
+
+             // Force 0-0 for live events if scores are missing
+             if (event.is_live === 1) {
+                if (homeScore === undefined) homeScore = 0;
+                if (awayScore === undefined) awayScore = 0;
+             }
+             
+             if (homeScore !== undefined && awayScore !== undefined) {
+                 return (
+                    <span className="text-sm font-bold text-red-600 animate-pulse shrink-0 px-2">
+                        {homeScore}-{awayScore}
+                    </span>
+                 );
+             }
+             
+             if (event.is_live === 1 && event.score) {
+                 let displayScore = event.score;
+                 
+                 // Try to parse JSON string score (e.g. {"home":1,"away":0})
+                 if (typeof displayScore === 'string' && (displayScore.includes('{') || displayScore.includes(':'))) {
+                     try {
+                         const parsed = JSON.parse(displayScore);
+                         if (parsed.home !== undefined && parsed.away !== undefined) {
+                             displayScore = `${parsed.home}-${parsed.away}`;
+                         }
+                     } catch (e) {
+                         // Keep original string if parse fails
+                     }
+                 } else if (typeof displayScore === 'object' && displayScore.home !== undefined) {
+                     displayScore = `${displayScore.home}-${displayScore.away}`;
+                 } else {
+                      displayScore = typeof event.score === 'object' ? formatScore(event.score) : event.score;
+                 }
+
+                 return (
+                    <span className="text-sm font-bold text-red-600 animate-pulse shrink-0 px-2">
+                        {displayScore}
+                    </span>
+                 );
+             }
+             
+             return <span className="text-xs font-normal shrink-0 px-2">{eventTime || 'vs'}</span>;
+           })()}
+           
+            <div className="flex items-center gap-2 flex-1 min-w-0 justify-start text-left">
+                 <img src={awayTeamLogo} alt={awayTeamName} className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5" onError={(e) => e.currentTarget.style.display = 'none'} />
+                 <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(awayTeamName)}</span>
+            </div>
+           </span>
+        </button>
+        
+      </div>
+          
+         </div> 
+        <div className="text-left sm:text-right mt-2 sm:mt-0 w-full sm:w-auto">
+          {(() => {
+          const hasPrimary = (hh > 0) || (dd > 0) || (aa > 0);
+          const isTwoWaySport = ['basketball', 'tennis', 'american-football', 'baseball', 'mma', 'volleyball', 'handball', 'ice-hockey', 'hockey', 'cricket'].includes(sport);
+          const showDraw = !isTwoWaySport && dd > 0;
+          const gridCols = showDraw ? 'grid-cols-3' : 'grid-cols-2';
+          
+          if (!hasPrimary) {
+              return (
+                  <div className={`grid ${gridCols} gap-2 w-full sm:w-[320px] lg:w-[400px] opacity-50 cursor-not-allowed`}>
+                      <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-700 rounded p-2 h-[50px]">
+                           <span className="text-xs text-gray-500 font-bold">-</span>
+                      </div>
+                      {showDraw && (
+                         <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-700 rounded p-2 h-[50px]">
+                             <span className="text-xs text-gray-500 font-bold">-</span>
+                        </div>
+                      )}
+                       <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-700 rounded p-2 h-[50px]">
+                           <span className="text-xs text-gray-500 font-bold">-</span>
+                      </div>
+                  </div>
+              );
+          }
+            
+            return (
+              <div className={`grid ${gridCols} gap-2 relative transition-opacity duration-300 w-full sm:w-[320px] lg:w-[400px] ${isSuspended ? 'opacity-50 pointer-events-none select-none' : ''}`}>
+                {isSuspended && (
+                   <div className="absolute inset-0 flex items-center justify-center z-10">
+                      <span className="bg-red-600/90 text-white text-[10px] sm:text-xs px-2 py-1 rounded shadow-sm font-bold uppercase tracking-wider backdrop-blur-sm border border-red-500">
+                        {suspendReason === 'EVENT_FROZEN' ? 'GOL/VAR' : (suspendReason === 'LOW_LIQUIDITY' ? 'LIQUIDEZ' : (suspendReason === 'RISK_MARGIN' ? 'RISCO' : 'SUSPENSO'))}
+                      </span>
+                   </div>
+                )}
+                {(hh > 0) ? (
+                  <OddButton 
+                    label="1"
+                    price={hh}
+                    trend={homeTrend}
+                    onClick={(e) => { e.stopPropagation(); addPrimary('Casa', hh, hhSelection?.suspended); }}
+                    className="w-full h-full min-h-[30px] px-2 py-0.5 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    suspended={marketSuspended || (hhSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                  />
+                ) : <div />}
+                
+                {showDraw && (
+                  <OddButton 
+                    label="X"
+                    price={dd}
+                    trend={drawTrend}
+                    onClick={(e) => { e.stopPropagation(); addPrimary('Empate', dd, ddSelection?.suspended); }}
+                    className="w-full h-full min-h-[30px] px-2 py-0.5 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    suspended={marketSuspended || (ddSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                  />
+                )}
+                
+                {(aa > 0) ? (
+                  <OddButton 
+                    label="2"
+                    price={aa}
+                    trend={awayTrend}
+                    onClick={(e) => { e.stopPropagation(); addPrimary('Fora', aa, aaSelection?.suspended); }}
+                    className="w-full h-full min-h-[30px] px-2 py-0.5 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    suspended={marketSuspended || (aaSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                  />
+                ) : <div />}
+              </div>
+            );
+          })()}
+        </div>
+      </div> 
+    </div> 
+  ); 
+}
+
+export const MemoEventCard = memo(EventCard);
+export default MemoEventCard;
