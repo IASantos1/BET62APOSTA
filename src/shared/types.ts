@@ -18,6 +18,7 @@ export interface Env {
   ADMIN_PASS?: string;
   PAYPAL_CLIENT_ID?: string;
   PAYPAL_CLIENT_SECRET?: string;
+  PAYPAL_ENVIRONMENT?: string;
   API_SPORTS_KEY?: string;
   ODDS_API_KEY?: string;
   ENVIRONMENT?: string;

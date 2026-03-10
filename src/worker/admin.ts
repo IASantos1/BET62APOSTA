@@ -360,8 +360,53 @@ admin.post('/withdrawals/:id/reject', async (c) => {
 });
 
 admin.post('/leagues/refresh', async (c) => {
-    // Disabled
     return c.json({ success: true, count: 0 });
+});
+
+// GET /api/admin/odds — Painel de Odds: lista todos os eventos com odds
+admin.get('/odds', async (c) => {
+    try {
+        const res = await c.env.DB.prepare(`
+            SELECT external_event_id as id, home_team, away_team, league, sport,
+                   home_odd, draw_odd, away_odd, is_live, status, event_date, updated_at
+            FROM events
+            ORDER BY is_live DESC, event_date ASC
+            LIMIT 500
+        `).all();
+        return c.json(res.results || []);
+    } catch (err) {
+        console.error('[Admin] /odds error:', err);
+        return c.json({ events: [] });
+    }
+});
+
+// POST /api/admin/odds/:id — Override manual de odds
+admin.post('/odds/:id', async (c) => {
+    try {
+        const id = c.req.param('id');
+        const body = await c.req.json() as any;
+        const home = parseFloat(body.home_odd) || 0;
+        const draw = parseFloat(body.draw_odd) || 0;
+        const away = parseFloat(body.away_odd) || 0;
+
+        const h2h = JSON.stringify([
+            { value: 'Home', odd: String(home) },
+            { value: 'Draw', odd: String(draw) },
+            { value: 'Away', odd: String(away) },
+        ]);
+
+        await c.env.DB.prepare(`
+            UPDATE events
+            SET home_odd = ?, draw_odd = ?, away_odd = ?,
+                markets = json_patch(COALESCE(markets, '{}'), json_object('h2h', json(?)))
+            WHERE external_event_id = ? OR CAST(id AS TEXT) = ?
+        `).bind(home, draw, away, h2h, id, id).run();
+
+        return c.json({ success: true });
+    } catch (err) {
+        console.error('[Admin] /odds/:id error:', err);
+        return c.json({ error: 'Update failed' }, 500);
+    }
 });
 
 export default admin;

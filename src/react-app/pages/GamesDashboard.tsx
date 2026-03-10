@@ -25,10 +25,14 @@ const formatTime = (iso?: string) => {
   return m === 0 ? `${h}h` : `${h}h${pad(m)}`;
 };
 
-const labelOf = (o: any) => String((o?.label ?? o?.name ?? o?.outcome ?? '')).toLowerCase();
+const FINISHED_STATUSES_FRONT = new Set(['FT','AET','PEN','AWD','WO','ABD','Finished','Match Finished','Final','Ended','AOT','AP']);
+const labelOf = (o: any) => {
+  const v = o?.label ?? o?.name ?? o?.outcome ?? (typeof o?.value === 'string' ? o.value : '');
+  return String(v).toLowerCase();
+};
 const priceOf = (o: any) => {
-  const p = Number((o?.price ?? o?.odd ?? o?.value ?? 0));
-  return Number.isFinite(p) ? p : 0;
+  const p = Number(o?.price ?? o?.odd ?? (typeof o?.value === 'number' ? o.value : undefined) ?? 0);
+  return Number.isFinite(p) && p > 1 ? p : 0;
 };
 
 // Helper Component for Odds Button in Table
@@ -179,6 +183,14 @@ export default function GamesDashboard() {
       if (!(drawOdd > 0) && h2h.length === 3) drawOdd = priceOf(h2h[1]);
       if (!(awayOdd > 0) && h2h.length === 3) awayOdd = priceOf(h2h[2]);
 
+      const statusShort = String(ev.status?.short || (typeof ev.status === 'string' ? ev.status : '') || ev.fixture?.status?.short || 'NS');
+      const isFinished = FINISHED_STATUSES_FRONT.has(statusShort);
+      const eventTime = ev.event_date || ev.date || ev.fixture?.date;
+      const eventMs = eventTime ? new Date(eventTime).getTime() : 0;
+      const now = Date.now();
+      // Stale: has is_live=1 but started more than 5h ago and no active status
+      const isStale = eventMs > 0 && eventMs < now - 5 * 60 * 60 * 1000;
+
       const sportRaw = (ev as any)?.sport;
       const sport = sportRaw ? normalizeSport(sportRaw) : getSportFromLeague(String(ev.league || ev.league?.name || ''));
       
@@ -188,13 +200,13 @@ export default function GamesDashboard() {
         competition: String(ev.league?.name || ev.league || 'Unknown League'),
         home: abbreviateTeamName(String(ev.home_team || ev.home || ev.teams?.home?.name || (ev.match ? ev.match.split(' vs ')[0] : '') || 'Home')),
         away: abbreviateTeamName(String(ev.away_team || ev.away || ev.teams?.away?.name || (ev.match ? ev.match.split(' vs ')[1] : '') || 'Away')),
-        time: formatTime(ev.event_date || ev.date || ev.fixture?.date),
+        time: formatTime(eventTime),
         homeOdd,
         drawOdd,
         awayOdd,
-        status: ev.status?.short || ev.fixture?.status?.short || ev.status || 'NS',
+        status: statusShort,
         elapsed: ev.elapsed ?? ev.fixture?.status?.elapsed ?? 0,
-        isLive: ev.is_live || ['1H','2H','HT','ET','P','LIVE'].includes(ev.status?.short || ev.status)
+        isLive: !isFinished && !isStale && (ev.is_live === 1 || ev.is_live === true || ['1H','2H','HT','ET','P','LIVE','Q1','Q2','Q3','Q4','OT','BT','IN'].includes(statusShort))
       };
   };
 
@@ -202,7 +214,7 @@ export default function GamesDashboard() {
 
   // Separate Live and Pregame
   const liveRows = rows.filter(r => r.isLive);
-  const pregameRows = rows.filter(r => !r.isLive && r.homeOdd > 0); // Filter pregame without odds
+  const pregameRows = rows.filter(r => !r.isLive);
 
   const groupedPregame = useMemo(() => {
     return pregameRows.reduce((acc: Record<string, Record<string, any[]>>, r: any) => {

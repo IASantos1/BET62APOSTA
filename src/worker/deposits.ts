@@ -12,8 +12,8 @@ async function getPayPalContext(env: Env): Promise<{ token: string, baseUrl: str
     const credentials = `${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET}`;
     const auth = btoa(credentials);
     
-    // Default URL based on environment
-    let baseUrl = env.ENVIRONMENT === 'production' 
+    // Default URL based on PAYPAL_ENVIRONMENT variable
+    let baseUrl = (env.PAYPAL_ENVIRONMENT === 'live' || env.PAYPAL_ENVIRONMENT === 'production')
         ? 'https://api-m.paypal.com' 
         : 'https://api-m.sandbox.paypal.com';
 

@@ -60,6 +60,43 @@ const MemoizedSubOddButton = memo(({ item, onSelect, suspended }: { item: Market
     );
 });
 
+// Component separado para grupo de botões com paginação (useState não pode ser em função regular)
+const MarketButtonGroup = memo(({ items, marketKey, gridClass, onSelect, suspendedReason }: {
+  items: MarketItem[]
+  marketKey?: string
+  gridClass?: string
+  onSelect: (label: string, odd: number) => void
+  suspendedReason?: string
+}) => {
+  const [showAll, setShowAll] = useState(false)
+  const LIMIT = 12
+  const isLongList = items.length > LIMIT + 3
+  const displayItems = isLongList && !showAll ? items.slice(0, LIMIT) : items
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className={gridClass || 'grid grid-cols-1 gap-1 md:grid-cols-3 md:gap-2'}>
+        {displayItems.map((it, idx) => (
+          <MemoizedSubOddButton
+            key={`${it.label}-${idx}`}
+            item={it}
+            onSelect={onSelect}
+            suspended={suspendedReason ? { reason: suspendedReason } : undefined}
+          />
+        ))}
+      </div>
+      {isLongList && (
+        <button
+          onClick={() => setShowAll(!showAll)}
+          className="self-center text-xs font-bold uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 py-2 px-4 bg-gray-100 dark:bg-gray-800 rounded-full transition-colors"
+        >
+          {showAll ? 'Mostrar Menos' : `Mostrar Mais (${items.length - LIMIT})`}
+        </button>
+      )}
+    </div>
+  )
+})
+
 export function SubOddsModel({
   event,
   darkMode,
@@ -96,38 +133,16 @@ export function SubOddsModel({
   // --- Helpers ---
   const renderButtons = (items: MarketItem[], marketKey?: string, gridClass?: string) => {
     if (!items || items.length === 0) return null
-    const marketReason = marketKey ? suspendedMap.get(marketKey) : undefined;
-    const finalReason = isGlobalSuspended ? 'EVENT_FROZEN' : marketReason;
-    
-    // Pagination for large markets (e.g. Correct Score)
-    const [showAll, setShowAll] = useState(false);
-    const LIMIT = 12;
-    const isLongList = items.length > LIMIT + 3; // Tolerance of 3
-    const displayItems = (isLongList && !showAll) ? items.slice(0, LIMIT) : items;
-    
+    const marketReason = marketKey ? suspendedMap.get(marketKey) : undefined
+    const finalReason = isGlobalSuspended ? 'EVENT_FROZEN' : marketReason
     return (
-      <div className="flex flex-col gap-2">
-        <div className={gridClass || "grid grid-cols-1 gap-1 md:grid-cols-3 md:gap-2"}>
-          {displayItems.map((it, idx) => {
-            return (
-              <MemoizedSubOddButton 
-                  key={`${it.label}-${idx}`}
-                  item={it}
-                  onSelect={onSelect}
-                  suspended={finalReason ? { reason: finalReason } : undefined}
-              />
-            );
-          })}
-        </div>
-        {isLongList && (
-            <button 
-                onClick={() => setShowAll(!showAll)}
-                className="self-center text-xs font-bold uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 py-2 px-4 bg-gray-100 dark:bg-gray-800 rounded-full transition-colors"
-            >
-                {showAll ? 'Mostrar Menos' : `Mostrar Mais (${items.length - LIMIT})`}
-            </button>
-        )}
-      </div>
+      <MarketButtonGroup
+        items={items}
+        marketKey={marketKey}
+        gridClass={gridClass}
+        onSelect={onSelect}
+        suspendedReason={finalReason}
+      />
     )
   }
 

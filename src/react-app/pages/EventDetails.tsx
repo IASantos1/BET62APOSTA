@@ -25,6 +25,7 @@ export default function EventDetails() {
   const [roster, setRoster] = useState<EventRoster | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [liveStats, setLiveStats] = useState<{ stats: any[]; events: any[] }>({ stats: [], events: [] })
   
   // Data for Sidebar
   const { live, pregame } = useSportsEvents(selectedCategory || null);
@@ -84,7 +85,7 @@ export default function EventDetails() {
       setLoading(true);
       setError(null);
       try {
-        const data = await apiFetch<any>(`/api/sports/events/${id}`, { signal: ac.signal });
+        const data = await apiFetch<any>(`/api/events/${id}`, { signal: ac.signal });
         setEvent(data);
         if (data.roster) setRoster(data.roster);
       } catch (err: any) {
@@ -96,25 +97,48 @@ export default function EventDetails() {
     return () => ac.abort();
   }, [id]);
 
+  // --- Fetch Live Stats (polling every 60s when live) ---
+  useEffect(() => {
+    if (!id) return;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const fetchStats = async () => {
+      try {
+        const data = await apiFetch<any>(`/api/events/${id}/stats`);
+        if (data && (data.stats?.length > 0 || data.events?.length > 0)) {
+          setLiveStats(data);
+        }
+      } catch { /* silent */ }
+    };
+
+    fetchStats();
+    const isLive = displayEvent?.is_live === 1 || (typeof displayEvent?.status === 'object' ? ['1H','2H','HT','ET','P'].includes(displayEvent?.status?.short) : false);
+    if (isLive) {
+      timer = setInterval(fetchStats, 60000);
+    }
+    return () => clearInterval(timer);
+  }, [id, displayEvent?.is_live]);
+
   const onSelect = useCallback((label: string, odd: number) => {
-    if (!displayEventWithOdds) return;
+    if (!displayEvent) return;
     addToBetSlip({
       id: String(Date.now() + Math.random()),
-      event_id: Number(displayEventWithOdds.id),
-      match: `${displayEventWithOdds.home_team} vs ${displayEventWithOdds.away_team}`,
+      event_id: Number(displayEvent.id),
+      match: `${displayEvent.home_team} vs ${displayEvent.away_team}`,
       selection: label,
       odd: odd,
       stake: 0,
-      league: displayEventWithOdds.league_name || displayEventWithOdds.sport_title || 'Desporto'
+      league: displayEvent.league_name || displayEvent.league || displayEvent.sport_title || 'Desporto'
     });
-  }, [displayEventWithOdds, addToBetSlip]);
+  }, [displayEvent, addToBetSlip]);
 
   const [showMatchCenter, setShowMatchCenter] = useState(false);
 
   if (loading) return <div className="p-8 text-center"><div className="animate-spin h-8 w-8 border-4 border-red-600 border-t-transparent rounded-full mx-auto"></div></div>;
   if (error || !displayEvent) return <div className="p-8 text-center text-red-600">{error || 'Evento não encontrado'}</div>;
 
-  const isLive = displayEvent.status === 'LIVE' || displayEvent.is_live === 1;
+  const statusShort = typeof displayEvent.status === 'object' ? displayEvent.status?.short : displayEvent.status;
+  const isLive = statusShort === 'LIVE' || displayEvent.is_live === 1;
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'}`}>
@@ -167,9 +191,9 @@ export default function EventDetails() {
                    </div> 
                    {isLive && ( 
                      <div className="text-sm md:text-lg text-white/90 mt-1 flex items-center justify-center gap-2"> 
-                       <span className="font-din font-bold bg-black/30 px-2 py-0.5 rounded">{displayEvent.status || displayEvent.fixture?.status?.short}</span>
+                       <span className="font-din font-bold bg-black/30 px-2 py-0.5 rounded">{statusShort || displayEvent.fixture?.status?.short}</span>
                        <span className="font-din font-bold bg-red-600 px-2 py-0.5 rounded">{displayEvent.elapsed || displayEvent.fixture?.status?.elapsed ? `${displayEvent.elapsed || displayEvent.fixture.status.elapsed}'` : ''}</span> 
-                       {wsConnected && <span className="ml-1 flex h-2 w-2 relative" title="Conectado ao vivo">
+                       {isLive && <span className="ml-1 flex h-2 w-2 relative" title="A receber actualizações">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                        </span>} 
@@ -197,7 +221,7 @@ export default function EventDetails() {
               {showMatchCenter && (
                 <div id="match-center" className="p-4 border-t border-gray-200 dark:border-gray-700">
                   <MatchTracker 
-                    live={displayEvent} 
+                    live={{ ...displayEvent, fixture: { ...(displayEvent.fixture || {}), stats: liveStats.stats, events: liveStats.events } }} 
                     homeName={displayEvent.home_team}
                     awayName={displayEvent.away_team}
                     leagueName={displayEvent.league_name}

@@ -25,13 +25,18 @@ export function useMergedEvents(
       const httpEvt = map.get(String(e.id));
       
       const mergedEvt: Event = {
-        ...(httpEvt || {}), // Keep HTTP metadata if missing in WS
-        ...e,       // Overwrite with WS data (status, score, odds)
-        
-        // 🔐 REGRA CRÍTICA: WS só sobrescreve odds se tiver dados
-        odds: (e.odds && Object.keys(e.odds).length > 0) 
-            ? e.odds 
-            : (httpEvt?.odds ?? {})
+        ...(httpEvt || {}),
+        ...e,
+        // Preserve odds fields from HTTP if WS doesn't have them
+        odds: (e.odds && Object.keys(e.odds).length > 0)
+            ? e.odds
+            : (httpEvt?.odds ?? {}),
+        home_odd: (e as any).home_odd > 0 ? (e as any).home_odd : ((httpEvt as any)?.home_odd ?? 0),
+        draw_odd: (e as any).draw_odd > 0 ? (e as any).draw_odd : ((httpEvt as any)?.draw_odd ?? 0),
+        away_odd: (e as any).away_odd > 0 ? (e as any).away_odd : ((httpEvt as any)?.away_odd ?? 0),
+        markets: (e as any).markets && Object.keys((e as any).markets).length > 0
+            ? (e as any).markets
+            : ((httpEvt as any)?.markets ?? {}),
       } as Event;
 
       map.set(String(e.id), mergedEvt);

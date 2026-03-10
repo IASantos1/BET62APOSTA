@@ -21,13 +21,15 @@ metrics.get('/users', async (c) => {
 metrics.get('/odds', async (c) => {
   try {
     const eventCount = await c.env.DB.prepare('SELECT count(*) as count FROM events').first('count');
-    const importedCount = await c.env.DB.prepare('SELECT count(*) as count FROM imported_odds').first('count');
+    const oddsCount = await c.env.DB.prepare('SELECT count(*) as count FROM events WHERE home_odd > 0').first('count');
+    const liveCount = await c.env.DB.prepare('SELECT count(*) as count FROM events WHERE is_live = 1').first('count');
     return c.json({
       events: eventCount || 0,
-      imported_odds: importedCount || 0
+      imported_odds: oddsCount || 0,
+      live: liveCount || 0,
     });
   } catch (e) {
-    return c.json({ events: 0, imported_odds: 0 });
+    return c.json({ events: 0, imported_odds: 0, live: 0 });
   }
 });
 

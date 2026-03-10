@@ -5,12 +5,11 @@ compatibility_flags = ["nodejs_compat"]
 account_id = "ca04a31d62caccd4774fd850d109bb91"
 
 [triggers]
-crons = ["0 0 * * *", "*/10 * * * *", "*/5 * * * *", "* * * * *"]
+crons = ["*/5 * * * *"]
 
 [vars]
 ENVIRONMENT = "dev"
 JWT_SECRET = "7f8a9b1c-2d3e-4f5g-6h7i-8j9k0l1m2n3o-secret-key-2025"
-ODDS_CRON_SPORTS = "soccer"
 ADMIN_TOKEN = "dev-admin-token"
 APP_MODE = "REAL"
 BETTING_ENABLED = "1"
@@ -19,8 +18,12 @@ BLOCKED_COUNTRIES = ""
 REAL_FEED_ENABLED = "1"
 DEV_FAKE_MATCH_DETAIL = "false"
 NODE_ENV = "production"
-API_SPORTS_SEASON = "2026"
+API_SPORTS_SEASON = "2025"
+PAYPAL_CLIENT_ID = ""
+PAYPAL_CLIENT_SECRET = ""
+PAYPAL_ENVIRONMENT = "sandbox"
 
+[[d1_databases]]
 binding = "DB"
 database_name = "bet62-db"
 database_id = "ebaef170-b999-47d6-887d-24c5e16a674b"
@@ -30,15 +33,15 @@ migrations_dir = "migrations"
 [env.dev]
 name = "bet62-api-dev"
 account_id = "ca04a31d62caccd4774fd850d109bb91"
-triggers = { crons = ["0 0 * * *", "*/10 * * * *", "*/5 * * * *", "* * * * *"] }
+triggers = { crons = ["*/5 * * * *"] }
 
 [env.dev.vars]
 ENVIRONMENT = "dev"
 APP_MODE = "REAL"
 BETTING_ENABLED = "1"
 REAL_FEED_ENABLED = "1"
-ODDS_CRON_SPORTS = "soccer"
 ADMIN_TOKEN = "dev-admin-token"
+JWT_SECRET = "7f8a9b1c-2d3e-4f5g-6h7i-8j9k0l1m2n3o-secret-key-2025"
 LICENSED = ""
 BLOCKED_COUNTRIES = ""
 DEV_FAKE_MATCH_DETAIL = "false"
@@ -53,14 +56,13 @@ database_id = "ebaef170-b999-47d6-887d-24c5e16a674b"
 [env.production]
 name = "bet62-api-v2-temp"
 account_id = "ca04a31d62caccd4774fd850d109bb91"
-triggers = { crons = ["0 0 * * *", "*/10 * * * *", "*/5 * * * *", "* * * * *"] }
+triggers = { crons = ["*/5 * * * *"] }
 
 [env.production.vars]
 ENVIRONMENT = "production"
 APP_MODE = "REAL"
 BETTING_ENABLED = "1"
 REAL_FEED_ENABLED = "1"
-ODDS_CRON_SPORTS = "soccer"
 JWT_SECRET = "7f8a9b1c-2d3e-4f5g-6h7i-8j9k0l1m2n3o-secret-key-2025"
 ADMIN_TOKEN = "dev-admin-token"
 LICENSED = "1"

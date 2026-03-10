@@ -20,8 +20,7 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8788',
         changeOrigin: true,
-        secure: false, // Don't verify SSL for local
-        // rewrite: (path) => path.replace(/^\/api/, '/api'), // Optional, but clear
+        secure: false,
       },
     },
   },
