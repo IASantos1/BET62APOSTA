@@ -5,13 +5,6 @@ import { useState, useEffect, useRef } from 'react';
 interface MatchHeaderProps {
   match: any;
   isLive: boolean;
-  onAddSelection: (selection: string, odd: number, market: string) => void;
-  isSelected: (selection: string) => boolean;
-  mainOdds?: {
-    home: number;
-    draw?: number;
-    away: number;
-  };
 }
 
 const sportIcons: Record<string, string> = {
@@ -57,9 +50,6 @@ const getTeamColor = (teamName: string) => {
 export default function MatchHeader({
   match,
   isLive,
-  onAddSelection,
-  isSelected,
-  mainOdds,
 }: MatchHeaderProps) {
   const { theme } = useTheme();
 
@@ -144,47 +134,6 @@ export default function MatchHeader({
     match.elapsed,
     match.statusShort,
   ]);
-
-  const OddButton = ({
-    label,
-    selection,
-    odd,
-  }: {
-    label: string;
-    selection: string;
-    odd: number;
-  }) => {
-    if (!odd || odd <= 0) return null;
-    const active = isSelected(selection);
-
-    return (
-      <button
-        onClick={() => onAddSelection(selection, odd, '1X2')}
-        className={`flex-1 flex flex-col items-center justify-center min-h-[52px] px-3 py-2 rounded-xl transition-all duration-200 cursor-pointer ${
-          active
-            ? 'bg-red-600 text-white shadow-lg shadow-red-600/40 scale-[1.02]'
-            : theme === 'dark'
-            ? 'bg-gray-800/80 hover:bg-gray-700/80 text-white border border-gray-700/50 hover:border-red-500/50'
-            : 'bg-white hover:bg-gray-50 text-gray-900 border border-gray-200 hover:border-red-300'
-        }`}
-      >
-        <span
-          className={`text-[10px] font-semibold uppercase tracking-wide ${
-            active
-              ? 'text-white/80'
-              : theme === 'dark'
-              ? 'text-gray-400'
-              : 'text-gray-500'
-          }`}
-        >
-          {label}
-        </span>
-        <span className="font-black text-lg mt-0.5">{odd.toFixed(2)}</span>
-      </button>
-    );
-  };
-
-  const headerOdds = mainOdds || match.odds;
 
   return (
     <div
@@ -459,41 +408,6 @@ export default function MatchHeader({
           </div>
         </div>
       </div>
-
-      {headerOdds && (
-        <div className={`px-4 pb-4`}>
-          <div
-            className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${
-              theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
-            }`}
-          >
-            Resultado Final
-          </div>
-          <div className="flex gap-2">
-            {headerOdds.home && (
-              <OddButton
-                label="1"
-                selection={match.homeTeam}
-                odd={headerOdds.home}
-              />
-            )}
-            {headerOdds.draw && (
-              <OddButton
-                label="X"
-                selection="Empate"
-                odd={headerOdds.draw}
-              />
-            )}
-            {headerOdds.away && (
-              <OddButton
-                label="2"
-                selection={match.awayTeam}
-                odd={headerOdds.away}
-              />
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

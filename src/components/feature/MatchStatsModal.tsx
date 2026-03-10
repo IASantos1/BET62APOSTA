@@ -871,9 +871,9 @@ export default function MatchStatsModal({ isOpen, onClose, match }: MatchStatsMo
                 : 'text-gray-400 hover:text-white hover:bg-gray-800/50'}
             `}
           >
-            <i className="ri-live-line"></i>
-            <span className="hidden sm:inline">EM DIRETO</span>
-            <span className="sm:hidden">DIRETO</span>
+            <i className="ri-bar-chart-box-line"></i>
+            <span className="hidden sm:inline">ESTATÍSTICAS</span>
+            <span className="sm:hidden">STATS</span>
           </button>
           <button
             onClick={() => setActiveTab('results')}
@@ -885,7 +885,7 @@ export default function MatchStatsModal({ isOpen, onClose, match }: MatchStatsMo
             `}
           >
             <i className="ri-history-line"></i>
-            <span>RESULTADOS</span>
+            <span>RESULTADO</span>
           </button>
           <button
             onClick={() => setActiveTab('standings')}
@@ -897,7 +897,7 @@ export default function MatchStatsModal({ isOpen, onClose, match }: MatchStatsMo
             `}
           >
             <i className="ri-trophy-line"></i>
-            <span className="hidden sm:inline">CLASSIFICAÇÃO</span>
+            <span className="hidden sm:inline">CLASSIFICAÇÕES</span>
             <span className="sm:hidden">TABELA</span>
           </button>
         </div>

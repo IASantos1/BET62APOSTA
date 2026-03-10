@@ -19,6 +19,7 @@ interface MatchMarketsProps {
   match: any;
   onAddSelection: (selection: string, odd: number, market: string) => void;
   isSelected: (selection: string) => boolean;
+  activeCategory?: 'resultado' | 'total_gols' | 'escanteios' | 'handicap' | 'ambas_marcam' | null;
 }
 
 interface MarketOption {
@@ -82,6 +83,7 @@ export default function MatchMarkets({
   match,
   onAddSelection,
   isSelected,
+  activeCategory = null,
 }: MatchMarketsProps) {
   const { theme } = useTheme();
   const [expandedMarkets, setExpandedMarkets] = useState<string[]>([
@@ -1719,6 +1721,29 @@ export default function MatchMarkets({
     liveOdds,
   ]);
 
+  const filteredMarkets = useMemo(() => {
+    if (!activeCategory) return markets;
+    const id = (m: Market) => String(m.id || '').toLowerCase();
+    const name = (m: Market) => String(m.name || '').toLowerCase();
+
+    if (activeCategory === 'resultado') {
+      return markets.filter((m) => id(m).includes('match-winner') || id(m).includes('double-chance') || name(m).includes('resultado'));
+    }
+    if (activeCategory === 'total_gols') {
+      return markets.filter((m) => id(m).includes('over-under') || id(m).includes('total') || name(m).includes('golos') || name(m).includes('gols'));
+    }
+    if (activeCategory === 'escanteios') {
+      return markets.filter((m) => id(m).includes('corner') || name(m).includes('canto') || name(m).includes('escante'));
+    }
+    if (activeCategory === 'handicap') {
+      return markets.filter((m) => id(m).includes('handicap') || name(m).includes('handicap'));
+    }
+    if (activeCategory === 'ambas_marcam') {
+      return markets.filter((m) => id(m).includes('btts') || name(m).includes('ambas'));
+    }
+    return markets;
+  }, [activeCategory, markets]);
+
   const toggleMarket = (marketName: string) => {
     setExpandedMarkets((prev) =>
       prev.includes(marketName)
@@ -1864,7 +1889,7 @@ export default function MatchMarkets({
         <div className="flex items-center gap-2">
           <span className={`text-xs font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
             <i className="ri-list-check-2 mr-1.5"></i>
-            {markets.length} mercados - {sportNames[sportType]}
+            {filteredMarkets.length} mercados - {sportNames[sportType]}
           </span>
           {dataSource === 'api' && (
             <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 text-[8px] font-bold">
@@ -1884,14 +1909,14 @@ export default function MatchMarkets({
           </span>
         </div>
         <button
-          onClick={() => setExpandedMarkets(markets.map((m) => m.name))}
+          onClick={() => setExpandedMarkets(filteredMarkets.map((m) => m.name))}
           className={`text-[10px] font-medium px-2 py-1 rounded cursor-pointer
             ${theme === 'dark' ? 'text-red-400 hover:bg-red-500/10' : 'text-red-600 hover:bg-red-50'}`}>
           Expandir todos
         </button>
       </div>
 
-      {markets.map((market) => (
+      {filteredMarkets.map((market) => (
         <div
           key={market.id}
           className={`rounded-lg border overflow-hidden transition-all duration-300
