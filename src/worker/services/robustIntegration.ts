@@ -829,8 +829,7 @@ async function fetchApiSportsSchedule(apiKey: string, sport: string, options: { 
                      fetch(url, {
                         method: 'GET',
                         headers: { 
-                            "x-apisports-key": apiKey,
-                            "x-rapidapi-host": "v3.football.api-sports.io"
+                            "x-apisports-key": apiKey
                         }
                      }).then(async (res) => {
                          if (!res.ok) {

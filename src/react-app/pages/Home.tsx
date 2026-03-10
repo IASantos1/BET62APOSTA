@@ -91,7 +91,7 @@ function Home({ mode = 'home' }: HomeProps) {
     navigate(`/event/${event.id}`);
   };
 
-  const showDebug = true; // Always show debug for now
+  const showDebug = false; // Debug disabled by user request
 
   // WARNING: Conditional Hook Call Fixed
   // Previous: useEffect inside conditional block if (processedLive.length > 0 ...)
@@ -150,26 +150,8 @@ function Home({ mode = 'home' }: HomeProps) {
   // Prevent unused warning in a clean way (by logging if false, which is harmless)
   if (showDebug && Math.random() > 100) console.log(_debugInfo);
 
-  // Caso não apareça nada (primeira carga, sem eventos)
-  if (!loading && !hasEverHadEvents && groupedLive.length === 0 && limitedUpcoming.length === 0) {
-    return (
-      <div className={`min-h-screen p-8 flex items-center justify-center ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
-        <div className="max-w-lg w-full bg-red-900/30 border border-red-600 rounded-xl p-8 text-center">
-          <h2 className="text-2xl font-bold text-red-400 mb-4">Nenhum evento visível</h2>
-          <p className="mb-6">Neste momento não existem eventos disponíveis para apresentar.</p>
-          <div className="text-left text-sm bg-black/40 p-4 rounded font-mono">
-            {showDebug ? _debugDetails : null}
-          </div>
-          <button
-            onClick={() => setQuery('')}
-            className="mt-6 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-medium"
-          >
-            Limpar busca
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Caso não apareça nada (primeira carga, sem eventos) - REMOVIDO POR SOLICITAÇÃO
+  // if (!loading && !hasEverHadEvents && groupedLive.length === 0 && limitedUpcoming.length === 0) { ... }
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-[#121212] text-white' : 'bg-gray-50 text-gray-900'}`}>

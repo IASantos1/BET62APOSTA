@@ -19,42 +19,36 @@ const scoreEvent = (e: Event) =>
   (Number(e.away_odd || 0) > 0 ? 1 : 0) +
   (Number(e.is_live || 0) === 1 ? 1 : 0);
 
-const isTodayAdjusted = (evt: Event): boolean => {
-  const raw = (evt.event_date || (evt as any).fixture?.date) as string | undefined;
-  if (!raw) return true;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return true;
-  // SIMULATION MODE: Fix 'now' to 2026-03-07
-  const now = new Date('2026-03-07T12:00:00Z').getTime();
-  // const now = Date.now();
-  let t = d.getTime();
-  const diff = now - t;
-  if (Math.abs(diff) > 300 * 24 * 60 * 60 * 1000) {
-    const dAdj = new Date(d);
-    dAdj.setFullYear(new Date(now).getFullYear());
-    t = dAdj.getTime();
-  }
-  const fourteenDaysAhead = now + 14 * 24 * 60 * 60 * 1000;
-  return t > now - 12 * 60 * 60 * 1000 && t <= fourteenDaysAhead;
-};
+  const isTodayAdjusted = (evt: Event): boolean => {
+    // return true; // DEBUG: Show all events for now
+    
+    const raw = (evt.event_date || (evt as any).fixture?.date) as string | undefined;
+    if (!raw) return true;
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return true;
+    
+    // SIMULATION MODE: Fix 'now' to 2026-03-09
+    const now = new Date('2026-03-09T12:00:00Z').getTime();
+    
+    let t = d.getTime();
+    const diff = now - t;
+    
+    // If year mismatch (2025 vs 2026), adjust
+    if (Math.abs(diff) > 300 * 24 * 60 * 60 * 1000) {
+      const dAdj = new Date(d);
+      dAdj.setFullYear(new Date(now).getFullYear());
+      t = dAdj.getTime();
+    }
+    
+    const fourteenDaysAhead = now + 14 * 24 * 60 * 60 * 1000;
+    // Show events from 12h ago until 14 days ahead
+    return t > now - 12 * 60 * 60 * 1000 && t <= fourteenDaysAhead;
+  };
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const shouldHideEvent = (_evt: Event) => {
-  // DEBUG: Relax filters for now
-  return false;
-
-  /*
-  const status = evt.fixture?.status?.short || (evt as any).status || '';
-  const isLive = Number(evt.is_live) === 1 || ['1H', '2H', 'HT', 'ET', 'P', 'LIVE', 'IN_PLAY'].includes(status);
-
-  // Status Check (Always hide cancelled/finished)
-  const cancelledStatuses = ['CANC', 'PST', 'WO', 'ABD', 'AWD', 'Cancelled', 'Postponed', 'FT', 'AET', 'PEN', 'Ended', 'Finished'];
-  if (cancelledStatuses.includes(status)) {
-    return true;
-  }
-  // ... (rest of the logic commented out)
-  */
-};
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const shouldHideEvent = (_evt: Event) => {
+    return false; // DEBUG: Relax filters completely
+  };
 
 
 const dedupEvents = (list: Event[]): Event[] => {
@@ -243,27 +237,20 @@ export function useSportsEvents(category: string | null) {
           const rawLive = (data.live || []) as Event[];
           const rawPregame = (data.pregame || []) as Event[];
           
-          // console.log('[useSportsEvents] RAW:', { live: rawLive.length, pregame: rawPregame.length });
-
           let liveEvents = dedupEvents(rawLive).filter(e => !shouldHideEvent(e));
           let pregameEvents = dedupEvents(rawPregame).filter(e => !shouldHideEvent(e));  
-          
-          // console.log('[useSportsEvents] AFTER shouldHideEvent:', { live: liveEvents.length, pregame: pregameEvents.length });
 
-          // Fallback dev: se a API trouxe eventos mas os filtros limparam tudo,
-          // mostra pelo menos a lista deduplicada original (para evitar tela vazia).
+          // Fallback dev
           if (
             import.meta.env.DEV &&
             liveEvents.length === 0 &&
             pregameEvents.length === 0 &&
             (rawLive.length > 0 || rawPregame.length > 0)
           ) {
-            console.warn('[useSportsEvents] DEV fallback: mostrando eventos sem shouldHideEvent (todos filtrados).');
             liveEvents = dedupEvents(rawLive);
             pregameEvents = dedupEvents(rawPregame);
           }
 
-          // Filter out finished/cancelled games
           const isGameActive = (e: Event) => {
              const status = e.status;
              const s = (typeof status === 'object' && status !== null) ? (status as any).short : status;
@@ -274,34 +261,46 @@ export function useSportsEvents(category: string | null) {
           liveEvents = liveEvents.filter(isGameActive);
           pregameEvents = pregameEvents.filter(isGameActive);
           
-          // Restore Date Filter (Adjusted for 2026/Debug environment)
-          // We keep isTodayAdjusted but ensure it allows current mock date
           const filteredLive = liveEvents; 
           const filteredPregame = pregameEvents.filter(isTodayAdjusted).slice(0, 60);
           
-          // Restore Odds Filter (Crucial for quality)
           const hasOdds = (evt: Event) => {
-             // Live games always shown (for score)
              if (Number(evt.is_live) === 1) return true;
-             
-             // Check markets
              if (Array.isArray(evt.markets) && evt.markets.length > 0) return true;
-             
-             // Check legacy odds
              return (Number(evt.home_odd) > 1 && Number(evt.away_odd) > 1);
           };
 
           const finalLive = filteredLive;
           const finalPregame = filteredPregame.filter(hasOdds);
 
-          console.log('[useSportsEvents] Processed (Filtered):', { 
-            liveEvents: finalLive.length, 
-            pregameEvents: finalPregame.length 
-          });
-
           updateState(finalLive, finalPregame);
           return; 
-        } 
+        } else if (Array.isArray(data) && data.length > 0) {
+            // FLAT ARRAY FALLBACK (API returning simple list)
+            const list = data as Event[];
+            const liveEvents = list.filter(e => Number(e.is_live) === 1);
+            const pregameEvents = list.filter(e => Number(e.is_live) !== 1);
+            
+            // Apply same filters
+            const dedupedLive = dedupEvents(liveEvents).filter(e => !shouldHideEvent(e));
+            const dedupedPregame = dedupEvents(pregameEvents).filter(e => !shouldHideEvent(e));
+            
+            const isGameActive = (e: Event) => {
+                const status = e.status;
+                const s = (typeof status === 'object' && status !== null) ? (status as any).short : status;
+                if (!s) return true;
+                return !['FT', 'AET', 'PEN', 'PST', 'CANC', 'ABD', 'WO', 'AWARDED'].includes(s);
+            };
+
+            const activeLive = dedupedLive.filter(isGameActive);
+            const activePregame = dedupedPregame.filter(isGameActive);
+
+            const finalLive = activeLive;
+            const finalPregame = activePregame.filter(isTodayAdjusted).slice(0, 60);
+
+            updateState(finalLive, finalPregame);
+            return;
+        }
  
         updateState([], []);
         return;

@@ -35,7 +35,7 @@ import { processSettlements } from './services/settlement';
 import { EventSyncService } from './services/eventSync';
 import { AdaptivePollingService } from './services/adaptivePolling';
 import { runRobustIntegration, debugSoccerMatching, API_SPORTS_CONFIG, SPORT_PARAM_TO_CONFIG } from './services/robustIntegration';
-import { Scraper22Bet } from './services/scraper22bet';
+// import { Scraper22Bet } from './services/scraper22bet'; // REMOVED
 import { updateEventStatuses } from './services/eventStatus';
 import { initRiskTables } from './services/risk';
 // import { TradingLogger } from './services/tradingLogger';

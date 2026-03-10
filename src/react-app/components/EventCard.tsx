@@ -169,8 +169,8 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
   // Relaxed suspension logic: only suspend if explicitly frozen or suspended AND we don't have local odds to show
   // If we have local odds, we assume they are valid until a realtime update explicitly clears them
   const isSuspended = ((!!suspension || (event as any).oddsFrozen || event.suspended) && !hasLocalOdds);
-  
-  const suspendReason = suspension?.reason || ((event as any).oddsFrozen ? 'EVENT_FROZEN' : 'SUSPENDED');
+
+  const suspendReason = suspension?.reason || (event as any).suspendReason || ((event as any).oddsFrozen ? 'EVENT_FROZEN' : 'SUSPENSO');
 
   return (
     <div 
@@ -233,8 +233,8 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
 
            {(() => {
              // Use robust eventId
-             const rawHome = liveData.liveScores?.find(s => String(s.id) === String(eventId))?.golsCasa ?? (event as any).goals?.home ?? (event as any).golsCasa ?? (event as any).score_home;
-             const rawAway = liveData.liveScores?.find(s => String(s.id) === String(eventId))?.golsFora ?? (event as any).goals?.away ?? (event as any).golsFora ?? (event as any).score_away;
+             const rawHome = (event as any).goals?.home ?? (event as any).golsCasa ?? (event as any).score_home;
+             const rawAway = (event as any).goals?.away ?? (event as any).golsFora ?? (event as any).score_away;
              
              const formatScore = (val: any) => {
                  if (val === null || val === undefined) return undefined;
