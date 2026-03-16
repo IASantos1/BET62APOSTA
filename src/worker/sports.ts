@@ -478,9 +478,24 @@ sports.get('/by-sport', async (c) => {
           const best = matchOddsEvent(
             { league: String(ev.league || ''), home: String(ev.home_team || ''), away: String(ev.away_team || ''), kickoff: String(ev.event_date || '') },
             oddsEvents,
-            70,
+            90,
           );
-          if (best && best.home_odd > 1) {
+          const goalsObj = (ev as any).goals || (ev as any).score || null;
+          const gHome = goalsObj && typeof goalsObj === 'object' ? Number((goalsObj as any).home ?? (goalsObj as any).Home ?? NaN) : NaN;
+          const gAway = goalsObj && typeof goalsObj === 'object' ? Number((goalsObj as any).away ?? (goalsObj as any).Away ?? NaN) : NaN;
+          const hasGoals = Number.isFinite(gHome) && Number.isFinite(gAway);
+          const leader = hasGoals ? (gHome > gAway ? 'home' : gAway > gHome ? 'away' : 'draw') : 'unknown';
+          const bHome = Number(best?.home_odd || 0);
+          const bDraw = Number(best?.draw_odd || 0);
+          const bAway = Number(best?.away_odd || 0);
+          const minOdd = Math.min(bHome || Infinity, bDraw || Infinity, bAway || Infinity);
+          const leaderOdd = leader === 'home' ? bHome : leader === 'away' ? bAway : bDraw;
+          const looksWrongForScore =
+            hasGoals &&
+            leader !== 'draw' &&
+            (bDraw > 0 && bDraw <= minOdd * 1.05 || (leaderOdd > 0 && leaderOdd > minOdd * 1.15));
+
+          if (best && best.home_odd > 1 && !looksWrongForScore) {
             ev.home_odd = best.home_odd;
             ev.draw_odd = best.draw_odd;
             ev.away_odd = best.away_odd;
@@ -503,12 +518,23 @@ sports.get('/media', async (c) => {
   const url = String(c.req.query('url') || '').trim();
   if (!url.startsWith('https://media.api-sports.io/')) return c.text('bad url', 400);
   try {
+    const cache = (typeof caches !== 'undefined' && (caches as any).default) ? (caches as any).default : null;
+    const cacheKey = cache ? new Request(url, { method: 'GET' }) : null;
+    if (cache && cacheKey) {
+      const cached = await cache.match(cacheKey);
+      if (cached) return cached;
+    }
+
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return c.text('not found', 404);
     const headers = new Headers(res.headers);
     headers.set('Access-Control-Allow-Origin', '*');
     headers.set('Cache-Control', 'public, max-age=86400');
-    return new Response(res.body, { status: 200, headers });
+    const out = new Response(res.body, { status: 200, headers });
+    if (cache && cacheKey) {
+      c.executionCtx.waitUntil(cache.put(cacheKey, out.clone()));
+    }
+    return out;
   } catch {
     return c.text('error', 502);
   }

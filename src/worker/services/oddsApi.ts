@@ -4,7 +4,7 @@
  * Docs: https://docs.odds-api.io/
  */
 
-import { findBestCandidate } from './matching/matchEngine';
+import { findBestCandidate, scoreMatch } from './matching/matchEngine';
 import type { Market, Selection } from '../../shared/types';
 
 const ODDS_API_BASE = 'https://api.odds-api.io/v3';
@@ -502,6 +502,13 @@ export function matchOddsEvent(
 ): OddsEvent | null {
   if (!oddsEvents.length) return null;
 
+  const baseSide = {
+    league: fixture.league,
+    home: fixture.home,
+    away: fixture.away,
+    kickoff: fixture.kickoff,
+  };
+
   const candidates = oddsEvents.map((e) => ({
     item: e,
     league: e.league_name || e.league_slug || '',
@@ -510,18 +517,49 @@ export function matchOddsEvent(
     kickoff: e.date,
   }));
 
-  const best = findBestCandidate(
-    {
-      league: fixture.league,
-      home: fixture.home,
-      away: fixture.away,
-      kickoff: fixture.kickoff,
-    },
-    candidates,
-    minScore,
-  );
+  const best = findBestCandidate(baseSide, candidates, minScore);
+  if (!best) return null;
 
-  return best ? best.item : null;
+  const bestMeta = candidates.find((c) => c.item === best.item);
+  if (!bestMeta) return best.item;
+
+  const direct = scoreMatch(baseSide, { league: bestMeta.league, home: bestMeta.home, away: bestMeta.away, kickoff: bestMeta.kickoff });
+  const swapped = scoreMatch(baseSide, { league: bestMeta.league, home: bestMeta.away, away: bestMeta.home, kickoff: bestMeta.kickoff });
+  if (swapped <= direct) return best.item;
+
+  const swapLabel = (s: string) => {
+    const v = String(s || '').toLowerCase().trim();
+    if (v === 'casa') return 'Fora';
+    if (v === 'fora') return 'Casa';
+    return s;
+  };
+
+  const markets = Array.isArray(best.item.markets)
+    ? best.item.markets.map((m) => {
+        if (!Array.isArray((m as any).selections)) return m;
+        const selections = (m as any).selections.map((sel: any) => {
+          const lbl = String(sel?.label || '');
+          const next = swapLabel(lbl);
+          if (next === lbl) return sel;
+          const id = String(sel?.id || '');
+          const nextId =
+            id === 'sel_home' ? 'sel_away' :
+            id === 'sel_away' ? 'sel_home' :
+            id;
+          return { ...sel, id: nextId, label: next };
+        });
+        return { ...m, selections };
+      })
+    : best.item.markets;
+
+  return {
+    ...best.item,
+    home: best.item.away,
+    away: best.item.home,
+    home_odd: best.item.away_odd,
+    away_odd: best.item.home_odd,
+    markets,
+  };
 }
 
 export async function fetchOddsApiMarketsForFixture(
@@ -564,22 +602,40 @@ export async function fetchOddsApiMarketsForFixture(
     })
     .filter(Boolean) as Array<{ id: string; home: string; away: string; date: string; leagueName: string }>;
 
-  const best = findBestCandidate(
-    { league: fixture.league, home: fixture.home, away: fixture.away, kickoff: fixture.kickoff },
-    candidates.map((c) => ({ item: c, league: c.leagueName, home: c.home, away: c.away, kickoff: c.date })),
-    70,
-  );
+  const baseSide = { league: fixture.league, home: fixture.home, away: fixture.away, kickoff: fixture.kickoff };
+  const wrapped = candidates.map((c) => ({ item: c, league: c.leagueName, home: c.home, away: c.away, kickoff: c.date }));
+  const best = findBestCandidate(baseSide, wrapped, 70);
   if (!best) return null;
+
+  const bestMeta = wrapped.find((c) => c.item === best.item);
+  const isSwapped = !!bestMeta && (
+    scoreMatch(baseSide, { league: bestMeta.league, home: bestMeta.away, away: bestMeta.home, kickoff: bestMeta.kickoff }) >
+    scoreMatch(baseSide, { league: bestMeta.league, home: bestMeta.home, away: bestMeta.away, kickoff: bestMeta.kickoff })
+  );
 
   const books = resolvedBooks ? `&bookmakers=${encodeURIComponent(resolvedBooks)}` : '';
   const payload = await fetchJson(`${ODDS_API_BASE}/odds?apiKey=${apiKey}&eventId=${encodeURIComponent(best.item.id)}${books}`);
   if (!payload) return null;
 
   const { markets, primary } = payloadToLegacyMarkets(payload, resolvedBooks);
+  if (isSwapped) {
+    if (Array.isArray(markets.h2h)) {
+      const home = markets.h2h.find((x: any) => String(x?.label || x?.name || '').toLowerCase() === 'casa');
+      const away = markets.h2h.find((x: any) => String(x?.label || x?.name || '').toLowerCase() === 'fora');
+      if (home && away) {
+        const homePrice = home.price;
+        const homeOdd = home.odd;
+        home.price = away.price;
+        home.odd = away.odd;
+        away.price = homePrice;
+        away.odd = homeOdd;
+      }
+    }
+  }
   const data: OddsMarketsResult = {
-    home_odd: primary.home,
+    home_odd: isSwapped ? primary.away : primary.home,
     draw_odd: primary.draw,
-    away_odd: primary.away,
+    away_odd: isSwapped ? primary.home : primary.away,
     markets,
     updated_at: new Date().toISOString(),
     provider: 'odds-api.io',

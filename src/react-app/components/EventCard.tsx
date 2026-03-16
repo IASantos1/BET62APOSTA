@@ -106,10 +106,14 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
       if (!isLiveEvent) return undefined;
       // Direct access from event props
       const elapsed = event.elapsed ?? event.fixture?.status?.elapsed ?? (event.fixture as any)?.elapsed;
+      const status = String(event.status ?? event.fixture?.status?.short ?? '').toUpperCase().trim();
+      const isClocklessSport = ['basketball', 'ice-hockey', 'baseball', 'volleyball', 'handball', 'american-football', 'rugby', 'tennis'].includes(sport);
+      if (isClocklessSport && Number(elapsed) === 0) {
+        if (status) return status;
+      }
       if (elapsed !== undefined && elapsed !== null) return elapsed;
 
       // Fallback to status if no elapsed time
-      const status = event.status ?? event.fixture?.status?.short;
       if (status === 'HT') return 'INT';
       if (status === 'FT') return 'FIM';
       if (status === '1H') return '1T';
