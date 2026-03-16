@@ -21,6 +21,7 @@ export interface Env {
   PAYPAL_ENVIRONMENT?: string;
   API_SPORTS_KEY?: string;
   ODDS_API_KEY?: string;
+  ODDS_API_BOOKMAKERS?: string;
   ENVIRONMENT?: string;
   APP_MODE?: string;
   DEV_MODE?: string;
@@ -28,6 +29,7 @@ export interface Env {
   JWT_SECRET?: string;
   API_SPORTS_SEASON?: string;
   FOOTBALL_DATA_API_KEY?: string;
+  MEDIA_PROXY_BASE?: string;
 }
 
 // --- Canonical Schema (Market & Game) ---

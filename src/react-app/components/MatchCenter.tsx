@@ -55,13 +55,15 @@ export function MatchCenter({ event, initialMatch, darkMode }: { event: any; ini
     const ac = new AbortController()
     const fetchOdds = async () => {
       try {
-        const j = await apiFetch<any>(`/api/events/${Number(event.id)}/odds`, { signal: ac.signal, cache: 'no-store' })
+        const j = await apiFetch<any>(`/api/events/${Number(event.id)}/odds?realtime=1`, { signal: ac.signal, cache: 'no-store' })
         const m = j && j.markets ? j.markets : {}
         if (m && typeof m === 'object') setMarkets(m)
       } catch { setMarkets({}) }
     }
     fetchOdds()
-    return () => { ac.abort() }
+    const isLive = Number(event?.is_live || 0) === 1 || ['1H','2H','HT','ET','P','LIVE'].includes(String(event?.status || event?.fixture?.status?.short || ''))
+    const t = isLive ? setInterval(fetchOdds, 5000) : null
+    return () => { if (t) clearInterval(t); ac.abort() }
   }, [event])
 
   // Removed realtime odds polling for live events

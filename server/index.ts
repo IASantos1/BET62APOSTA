@@ -1636,7 +1636,7 @@ const server = http.createServer(async (req, res) => {
       return Number.isFinite(kickoffTs) && kickoffTs >= Date.now();
     });
 
-    let result: { matchId: string; odds: { home: number; draw: number; away: number } }[] = [];
+    const result: { matchId: string; odds: { home: number; draw: number; away: number } }[] = [];
     const toFetch: typeof upcomingFixtures = [];
 
     for (const fixture of upcomingFixtures) {
@@ -1696,7 +1696,7 @@ const server = http.createServer(async (req, res) => {
             odds: { home: home, draw: draw ?? 0, away: away },
           });
         }
-      } catch {}
+      } catch { continue; }
     }
 
     sendJson(res, 200, result, req);
@@ -4380,7 +4380,7 @@ const server = http.createServer(async (req, res) => {
         fs.createReadStream(indexPath).pipe(res);
         return;
       }
-    } catch {}
+    } catch { return; }
   }
 
   sendJson(res, 404, { error: 'Not found' });
@@ -4451,7 +4451,9 @@ loadData();
 server.listen(PORT, async () => {
   try {
     await seedAdmin();
-  } catch {}
+  } catch (err) {
+    console.error('seedAdmin error', err);
+  }
   try {
     if (process.env.DISABLE_LIVE_SCHEDULER !== '1') {
       startLiveDataScheduler();

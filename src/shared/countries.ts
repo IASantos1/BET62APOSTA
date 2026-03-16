@@ -20,7 +20,7 @@ export const ALL_COUNTRIES: Country[] = [
   {"code":"GB-ENG","name":"Inglaterra","flag":"🇬🇧","flagUrl":"https://flagcdn.com/gb-eng.svg","leagues":["Premier League","Championship","FA Cup","EFL Cup", "League One", "League Two"]},
   {"code":"GB-SCT","name":"Escócia","flag":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","flagUrl":"https://flagcdn.com/gb-sct.svg","leagues":["Premiership","Scottish Cup", "Championship"]},
   {"code":"GB-WLS","name":"País de Gales","flag":"🏴󠁧󠁢󠁷󠁬󠁳󠁿","flagUrl":"https://flagcdn.com/gb-wls.svg","leagues":["Cymru Premier"]},
-  {"code":"GB-NIR","name":"Irlanda do Norte","flag":"🇯🇪","flagUrl":"https://flagcdn.com/gb-nir.svg","leagues":["NIFL Premiership"]},
+  {"code":"GB-NIR","name":"Irlanda do Norte","flag":"🏴","flagUrl":"https://flagcdn.com/gb-nir.svg","leagues":["NIFL Premiership"]},
   {"code":"IE","name":"Irlanda","flag":"🇮🇪","flagUrl":"https://flagcdn.com/ie.svg","leagues":["Premier Division"]},
   {"code":"TR","name":"Turquia","flag":"🇹🇷","flagUrl":"https://flagcdn.com/tr.svg","leagues":["Süper Lig","Turkish Cup", "1. Lig"]},
   {"code":"CH","name":"Suíça","flag":"🇨🇭","flagUrl":"https://flagcdn.com/ch.svg","leagues":["Super League", "Swiss Cup", "Challenge League"]},

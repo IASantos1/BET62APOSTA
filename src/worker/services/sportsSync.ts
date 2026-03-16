@@ -14,14 +14,14 @@ import {
   fetchDateFixtures,
   fetchLiveOdds,
   fetchDayOdds,
+  fetchDayOddsForSport,
+  fetchOddsForEvents,
   applyOdds,
   NormalizedEvent,
+  SPORT_CONFIG,
 } from './sportsApi';
-import { fetchOddsApiEvents, buildOddsLookup, lookupOdds } from './oddsApi';
-
-// Desportos activos — adicionar conforme necessário
-const LIVE_SPORTS    = ['soccer', 'basketball', 'ice-hockey', 'handball', 'volleyball', 'rugby', 'nba', 'nfl'];
-const FULL_SYNC_SPORTS = ['soccer', 'basketball', 'ice-hockey', 'handball', 'volleyball', 'rugby', 'nba', 'nfl'];
+import { fetchOddsApiEvents, matchOddsEvent } from './oddsApi';
+import { upsertOddsApiRaw, upsertUnifiedMatches, upsertUnifiedOddsLatest } from './unified/unifiedStore';
 
 const FINISHED_STATUSES = [
   'FT', 'AET', 'PEN', 'AWD', 'WO', 'ABD', 'FT_PEN', 'AOT', 'AP',
@@ -31,14 +31,17 @@ const FINISHED_STATUSES = [
 // Controlo de ciclos para full sync (a cada 6 ciclos = 30 min)
 let syncCycle = 0;
 
-export async function runSportsSync(env: Env): Promise<{ synced: number; sports: string[] }> {
+export async function runSportsSync(
+  env: Env,
+  opts?: { forceFull?: boolean },
+): Promise<{ synced: number; sports: string[] }> {
   if (!env.API_SPORTS_KEY) {
     console.log('[SportsSync] Skipped: no API_SPORTS_KEY');
     return { synced: 0, sports: [] };
   }
 
   syncCycle++;
-  const isFullSync = (syncCycle % 6 === 1); // ciclo 1, 7, 13... = full sync
+  const isFullSync = opts?.forceFull ? true : (syncCycle % 6 === 1); // ciclo 1, 7, 13... = full sync
   console.log(`[SportsSync] Cycle ${syncCycle} (${isFullSync ? 'FULL' : 'live-only'})`);
 
   let totalSynced = 0;
@@ -54,26 +57,13 @@ export async function runSportsSync(env: Env): Promise<{ synced: number; sports:
 
   // ── Outros desportos: só no full sync ─────────────────────────────
   if (isFullSync) {
-    for (const sport of FULL_SYNC_SPORTS.filter(s => s !== 'soccer')) {
+    for (const sport of Object.keys(SPORT_CONFIG)) {
+      if (sport === 'soccer') continue;
       try {
-        const count = await syncSport(env, sport);
+        const count = await syncOtherSport(env, sport);
         if (count > 0) { totalSynced += count; syncedSports.push(sport); }
       } catch (err) {
         console.error(`[SportsSync] ${sport} error:`, err);
-      }
-    }
-  } else {
-    // Live-only para outros desportos
-    for (const sport of LIVE_SPORTS.filter(s => s !== 'soccer')) {
-      try {
-        const liveEvents = await fetchLiveFixtures(env.API_SPORTS_KEY, sport);
-        if (liveEvents.length > 0) {
-          await upsertEvents(env, liveEvents);
-          totalSynced += liveEvents.length;
-          syncedSports.push(sport);
-        }
-      } catch (err) {
-        console.error(`[SportsSync] ${sport} live error:`, err);
       }
     }
   }
@@ -139,15 +129,30 @@ async function syncSoccer(env: Env, isFullSync: boolean): Promise<number> {
   // 4. Fallback odds via odds-api.io para eventos sem odds da API-Football
   if (env.ODDS_API_KEY) {
     try {
-      const oddsApiEvents = await fetchOddsApiEvents(env.ODDS_API_KEY, 'soccer', 3);
+      const missingOddsCount = merged.reduce((acc, e) => acc + (Number(e.home_odd || 0) > 1 ? 0 : 1), 0);
+      const maxEvents = Math.min(30, Math.max(0, missingOddsCount));
+      const oddsApiEvents = maxEvents > 0
+        ? await fetchOddsApiEvents(
+            env.ODDS_API_KEY,
+            'soccer',
+            3,
+            env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
+            'pending,live',
+            maxEvents,
+            3,
+          )
+        : [];
       if (oddsApiEvents.length > 0) {
-        const oddsMap = buildOddsLookup(oddsApiEvents);
+        await upsertOddsApiRaw(env, 'soccer', oddsApiEvents);
         let filled = 0;
         for (let i = 0; i < merged.length; i++) {
           if (merged[i].home_odd > 0) continue;
-          const fallback = lookupOdds(merged[i].home_team, merged[i].away_team, merged[i].event_date, oddsMap);
-          if (fallback && fallback.home_odd > 1) {
-            merged[i] = { ...merged[i], ...fallback };
+          const best = matchOddsEvent(
+            { league: merged[i].league, home: merged[i].home_team, away: merged[i].away_team, kickoff: merged[i].event_date },
+            oddsApiEvents,
+          );
+          if (best && best.home_odd > 1) {
+            merged[i] = { ...merged[i], home_odd: best.home_odd, draw_odd: best.draw_odd, away_odd: best.away_odd };
             filled++;
           }
         }
@@ -160,42 +165,94 @@ async function syncSoccer(env: Env, isFullSync: boolean): Promise<number> {
 
   console.log(`[SportsSync] soccer: ${liveWithOdds.length} live + ${scheduledWithOdds.length} scheduled → ${merged.length} unique`);
   await upsertEvents(env, merged);
+  await upsertUnifiedMatches(env, merged);
+  await upsertUnifiedOddsLatest(env, merged);
   return merged.length;
 }
 
-// ── Outros desportos (sem odds por agora) ─────────────────────────────
-async function syncSport(env: Env, sport: string): Promise<number> {
+async function syncOtherSport(env: Env, sport: string): Promise<number> {
   const apiKey = env.API_SPORTS_KEY!;
-  const today  = new Date();
+  const today = new Date();
+  const results: NormalizedEvent[] = [];
 
-  const [liveFixtures, ...scheduledDays] = await Promise.all([
-    fetchLiveFixtures(apiKey, sport),
-    ...Array.from({ length: 3 }, (_, d) => {
-      const dt = new Date(today);
-      dt.setDate(today.getDate() + d);
-      return fetchDateFixtures(apiKey, sport, dt.toISOString().slice(0, 10));
-    }),
-  ]);
+  for (let d = 0; d <= 1; d++) {
+    const dt = new Date(today);
+    dt.setDate(today.getDate() + d);
+    const dateStr = dt.toISOString().slice(0, 10);
+    const [fixtures, oddsMap] = await Promise.all([
+      fetchDateFixtures(apiKey, sport, dateStr),
+      fetchDayOddsForSport(apiKey, sport, dateStr, 2),
+    ]);
+    results.push(...fixtures.map((e) => applyOdds(e, oddsMap)));
+  }
+
+  if (!results.length) return 0;
 
   const seen = new Set<string>();
   const merged: NormalizedEvent[] = [];
+  for (const e of results) {
+    if (seen.has(e.external_event_id)) continue;
+    seen.add(e.external_event_id);
+    merged.push(e);
+  }
 
-  for (const e of [...liveFixtures, ...scheduledDays.flat()]) {
-    if (!seen.has(e.external_event_id)) {
-      seen.add(e.external_event_id);
-      merged.push(e);
+  if (merged.length > 0) {
+    const missing = merged.filter((e) => Number(e.home_odd || 0) <= 0);
+    if (missing.length > 0) {
+      try {
+        const oddsMap = await fetchOddsForEvents(apiKey, sport, missing, 35, 3);
+        for (let i = 0; i < merged.length; i++) {
+          if (Number(merged[i].home_odd || 0) > 0) continue;
+          merged[i] = applyOdds(merged[i], oddsMap);
+        }
+      } catch (err) {
+        console.error(`[SportsSync] ${sport} per-game odds error:`, err);
+      }
     }
   }
 
-  if (!merged.length) return 0;
+  if (env.ODDS_API_KEY && ['basketball', 'baseball', 'ice-hockey'].includes(sport)) {
+    try {
+      const missingOddsCount = merged.reduce((acc, e) => acc + (Number(e.home_odd || 0) > 1 ? 0 : 1), 0);
+      const maxEvents = Math.min(25, Math.max(0, missingOddsCount));
+      const oddsApiEvents = maxEvents > 0
+        ? await fetchOddsApiEvents(
+            env.ODDS_API_KEY,
+            sport,
+            2,
+            env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
+            'pending',
+            maxEvents,
+            3,
+          )
+        : [];
+      if (oddsApiEvents.length > 0) {
+        let filled = 0;
+        for (let i = 0; i < merged.length; i++) {
+          if (merged[i].home_odd > 0) continue;
+          const best = matchOddsEvent(
+            { league: merged[i].league, home: merged[i].home_team, away: merged[i].away_team, kickoff: merged[i].event_date },
+            oddsApiEvents,
+            70,
+          );
+          if (best && best.home_odd > 1) {
+            merged[i] = { ...merged[i], home_odd: best.home_odd, draw_odd: best.draw_odd, away_odd: best.away_odd };
+            filled++;
+          }
+        }
+        console.log(`[SportsSync] ${sport}: odds-api.io filled ${filled} events`);
+      }
+    } catch (err) {
+      console.error(`[SportsSync] ${sport} odds-api.io fallback error:`, err);
+    }
+  }
 
-  console.log(`[SportsSync] ${sport}: ${liveFixtures.length} live + ${merged.length - liveFixtures.length} scheduled`);
   await upsertEvents(env, merged);
   return merged.length;
 }
 
 // ── Upsert para D1 ────────────────────────────────────────────────────
-// D1 limit: 100 bind vars. 18 cols × 5 rows = 90 < 100
+// D1 limit: 100 bind vars. 19 cols × 5 rows = 95 < 100
 const BATCH = 5;
 
 async function upsertEvents(env: Env, events: NormalizedEvent[]): Promise<void> {
@@ -214,7 +271,7 @@ async function upsertEvents(env: Env, events: NormalizedEvent[]): Promise<void> 
 
 async function upsertBatch(env: Env, events: NormalizedEvent[]): Promise<void> {
   const now  = new Date().toISOString();
-  const ph   = events.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+  const ph   = events.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
   const vals: any[] = [];
 
   for (const e of events) {
@@ -223,7 +280,9 @@ async function upsertBatch(env: Env, events: NormalizedEvent[]): Promise<void> {
       e.team_match, e.event_date, e.status, e.is_live,
       e.home_odd, e.draw_odd, e.away_odd,
       e.elapsed, e.score, e.markets,
-      e.home_team_logo || '', e.away_team_logo || '', now,
+      e.home_team_logo || '', e.away_team_logo || '',
+      e.country || '',
+      now,
     );
   }
 
@@ -231,7 +290,7 @@ async function upsertBatch(env: Env, events: NormalizedEvent[]): Promise<void> {
     INSERT INTO events (
       external_event_id, sport, league, home_team, away_team, team_match,
       event_date, status, is_live, home_odd, draw_odd, away_odd,
-      elapsed, score, markets, home_team_logo, away_team_logo, updated_at
+      elapsed, score, markets, home_team_logo, away_team_logo, country, updated_at
     ) VALUES ${ph}
     ON CONFLICT(external_event_id) DO UPDATE SET
       sport           = excluded.sport,
@@ -250,6 +309,7 @@ async function upsertBatch(env: Env, events: NormalizedEvent[]): Promise<void> {
       markets         = CASE WHEN excluded.markets  != '{}' THEN excluded.markets  ELSE events.markets  END,
       home_team_logo  = CASE WHEN excluded.home_team_logo != '' THEN excluded.home_team_logo ELSE events.home_team_logo END,
       away_team_logo  = CASE WHEN excluded.away_team_logo != '' THEN excluded.away_team_logo ELSE events.away_team_logo END,
+      country         = CASE WHEN excluded.country != '' THEN excluded.country ELSE events.country END,
       updated_at      = excluded.updated_at
   `;
 

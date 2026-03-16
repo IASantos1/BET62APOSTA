@@ -22,6 +22,7 @@ export interface NormalizedEvent {
   draw_odd:        number;
   away_odd:        number;
   elapsed:         number;
+  timer?:          string;
   score:           string;
   markets:         string;
   country:         string;
@@ -58,17 +59,16 @@ export interface SportConfig {
 
 export const SPORT_CONFIG: Record<string, SportConfig> = {
   // Football: tem live=all + odds endpoints completos
-  soccer:       { base: API_FOOTBALL_BASE,   endpoint: '/fixtures',  liveParam: 'live=all',  dateParam: 'date={DATE}&season=2025', oddsEndpoint: '/odds',  fixtureKey: 'fixture'  },
-  // Basketball: não suporta live=all (usa date+status)
-  basketball:   { base: API_BASKETBALL_BASE, endpoint: '/games',     liveParam: '',          dateParam: 'date={DATE}',             fixtureKey: 'game'     },
-  baseball:     { base: API_BASEBALL_BASE,   endpoint: '/games',     liveParam: '',          dateParam: 'date={DATE}',             fixtureKey: 'game'     },
-  'ice-hockey': { base: API_HOCKEY_BASE,     endpoint: '/games',     liveParam: '',          dateParam: 'date={DATE}',             fixtureKey: 'game'     },
-  handball:     { base: API_HANDBALL_BASE,   endpoint: '/games',     liveParam: '',          dateParam: 'date={DATE}',             fixtureKey: 'game'     },
-  volleyball:   { base: API_VOLLEYBALL_BASE, endpoint: '/games',     liveParam: '',          dateParam: 'date={DATE}',             fixtureKey: 'game'     },
-  rugby:        { base: API_RUGBY_BASE,      endpoint: '/games',     liveParam: '',          dateParam: 'date={DATE}',             fixtureKey: 'game'     },
-  nfl:          { base: API_NFL_BASE,        endpoint: '/games',     liveParam: '',          dateParam: 'date={DATE}&season=2025', fixtureKey: 'game'     },
+  soccer:       { base: API_FOOTBALL_BASE,   endpoint: '/fixtures',  liveParam: 'live=all',  dateParam: 'date={DATE}', oddsEndpoint: '/odds',  fixtureKey: 'fixture'  },
+  basketball:   { base: API_BASKETBALL_BASE, endpoint: '/games',     liveParam: 'live=all',  dateParam: 'date={DATE}', oddsEndpoint: '/odds', fixtureKey: 'game'     },
+  baseball:     { base: API_BASEBALL_BASE,   endpoint: '/games',     liveParam: 'live=all',  dateParam: 'date={DATE}', oddsEndpoint: '/odds', fixtureKey: 'game'     },
+  'ice-hockey': { base: API_HOCKEY_BASE,     endpoint: '/games',     liveParam: 'live=all',  dateParam: 'date={DATE}', oddsEndpoint: '/odds', fixtureKey: 'game'     },
+  handball:     { base: API_HANDBALL_BASE,   endpoint: '/games',     liveParam: 'live=all',  dateParam: 'date={DATE}', oddsEndpoint: '/odds', fixtureKey: 'game'     },
+  volleyball:   { base: API_VOLLEYBALL_BASE, endpoint: '/games',     liveParam: 'live=all',  dateParam: 'date={DATE}', oddsEndpoint: '/odds', fixtureKey: 'game'     },
+  rugby:        { base: API_RUGBY_BASE,      endpoint: '/games',     liveParam: 'live=all',  dateParam: 'date={DATE}', oddsEndpoint: '/odds', fixtureKey: 'game'     },
+  'american-football': { base: API_NFL_BASE, endpoint: '/games',     liveParam: 'live=all',  dateParam: 'date={DATE}', oddsEndpoint: '/odds', fixtureKey: 'game'     },
   // NBA v2: season opcional no endpoint de games
-  nba:          { base: API_NBA_BASE,        endpoint: '/games',     liveParam: '',          dateParam: 'date={DATE}',             fixtureKey: 'game'     },
+  nba:          { base: API_NBA_BASE,        endpoint: '/games',     liveParam: 'live=all',  dateParam: 'date={DATE}', oddsEndpoint: '/odds', fixtureKey: 'game'     },
 };
 
 // ── League Blocklist ──────────────────────────────────────────────────
@@ -146,7 +146,6 @@ export const LIVE_STATUSES = new Set([
 function apiHeaders(apiKey: string): HeadersInit {
   return {
     'x-apisports-key': apiKey,
-    'x-rapidapi-key':  apiKey,
     'Accept': 'application/json',
   };
 }
@@ -164,6 +163,13 @@ function extractElapsed(fx: any): number {
   return typeof s.elapsed === 'number' ? s.elapsed : 0;
 }
 
+function extractTimer(fx: any): string {
+  const s = fx?.status;
+  if (!s || typeof s === 'string') return '';
+  const t = s.timer ?? s.time ?? '';
+  return t ? String(t) : '';
+}
+
 function extractDate(fx: any): string | null {
   if (fx?.date) return fx.date;
   if (fx?.timestamp) return new Date(fx.timestamp * 1000).toISOString();
@@ -177,6 +183,7 @@ export function extractOddsFromBets(bets: any[]): OddsResult {
   for (const bet of bets) {
     const name: string = String(bet.name || '');
     const values: any[] = bet.values || bet.odds || [];
+    const n = name.toLowerCase();
     const isMatchWinner =
       name === 'Match Winner' ||
       name === 'Home/Away' ||
@@ -185,7 +192,8 @@ export function extractOddsFromBets(bets: any[]): OddsResult {
       name === 'Match Result' ||
       name === 'Result' ||
       name === 'Fulltime Result' ||
-      name === 'Full Time Result';
+      name === 'Full Time Result' ||
+      (n.includes('winner') && !n.includes('set') && !n.includes('period') && !n.includes('quarter') && !n.includes('half'));
 
     const key = isMatchWinner ? 'h2h' : name;
     result.markets[key] = values;
@@ -194,10 +202,13 @@ export function extractOddsFromBets(bets: any[]): OddsResult {
       for (const v of values) {
         const val = String(v.value || v.outcome || '').toLowerCase();
         const odd = parseFloat(v.odd ?? v.price ?? 0);
-        // Only canonical 1X2 values — avoid "1"/"2" which clash with Total Goals market
-        if      (val === 'home' || val === 'home win') result.home = odd;
-        else if (val === 'draw' || val === 'x' || val === 'tie') result.draw = odd;
-        else if (val === 'away' || val === 'away win') result.away = odd;
+        if (odd <= 1) continue;
+
+        if      (val === 'home' || val === 'home win' || val === 'local') result.home = result.home || odd;
+        else if (val === 'draw' || val === 'x' || val === 'tie') result.draw = result.draw || odd;
+        else if (val === 'away' || val === 'away win' || val === 'visitor' || val === 'visitors') result.away = result.away || odd;
+        else if (val === '1') result.home = result.home || odd;
+        else if (val === '2') result.away = result.away || odd;
       }
     }
   }
@@ -223,6 +234,141 @@ async function apiGet(url: string, apiKey: string): Promise<any> {
     console.error(`[sportsApi] fetch failed (${url.split('?')[0]}):`, e?.message || e);
     return null;
   }
+}
+
+function extractFixtureIdFromOddsItem(item: any, fixtureKey: string): string {
+  const direct = item?.[fixtureKey]?.id ?? item?.fixture?.id ?? item?.game?.id ?? item?.id ?? null;
+  return direct ? String(direct) : '';
+}
+
+export async function fetchDayOddsForSport(
+  apiKey: string,
+  sport: string,
+  date: string,
+  maxPages = 3,
+): Promise<Map<string, OddsResult>> {
+  const cfg = SPORT_CONFIG[sport];
+  if (!cfg) return new Map();
+  if (sport === 'soccer') return fetchDayOdds(apiKey, date, 0, Math.max(1, maxPages));
+  if (!cfg.oddsEndpoint) return new Map();
+
+  const map = new Map<string, OddsResult>();
+
+  for (let page = 1; page <= Math.max(1, maxPages); page++) {
+    const url = `${cfg.base}${cfg.oddsEndpoint}?date=${date}&page=${page}`;
+    const data = await apiGet(url, apiKey);
+    if (!data?.response?.length) break;
+
+    for (const item of data.response as any[]) {
+      const id = extractFixtureIdFromOddsItem(item, cfg.fixtureKey);
+      if (!id || map.has(id)) continue;
+
+      const bookmakers: any[] = item.bookmakers || [];
+      for (const bm of bookmakers) {
+        const odds = extractOddsFromBets(bm.bets || bm.odds || []);
+        if (odds.home > 0) {
+          map.set(id, odds);
+          break;
+        }
+      }
+    }
+
+    if ((data.response as any[]).length < 10) break;
+  }
+
+  console.log(`[sportsApi] ${sport} pre-game odds ${date}: ${map.size} fixtures`);
+  return map;
+}
+
+export async function fetchGameOdds(
+  apiKey: string,
+  sport: string,
+  id: string,
+): Promise<OddsResult | null> {
+  const cfg = SPORT_CONFIG[sport];
+  if (!cfg || !cfg.oddsEndpoint) return null;
+  const key = cfg.fixtureKey || 'game';
+  const tryUrls = [
+    `${cfg.base}${cfg.oddsEndpoint}?${key}=${encodeURIComponent(id)}`,
+    `${cfg.base}${cfg.oddsEndpoint}?id=${encodeURIComponent(id)}`,
+  ];
+
+  for (const url of tryUrls) {
+    const data = await apiGet(url, apiKey);
+    if (!data?.response?.length) continue;
+    const item = (data.response as any[])[0];
+    const bookmakers: any[] = item?.bookmakers || [];
+    for (const bm of bookmakers) {
+      const odds = extractOddsFromBets(bm.bets || bm.odds || []);
+      if (odds.home > 0) return odds;
+    }
+  }
+
+  return null;
+}
+
+export async function fetchOddsForEvents(
+  apiKey: string,
+  sport: string,
+  events: NormalizedEvent[],
+  maxEvents: number = 40,
+  concurrency: number = 3,
+): Promise<Map<string, OddsResult>> {
+  const cfg = SPORT_CONFIG[sport];
+  if (!cfg || !cfg.oddsEndpoint) return new Map();
+
+  const ids: string[] = [];
+  for (const e of events) {
+    if (ids.length >= maxEvents) break;
+    const rawId = String(e.external_event_id || '').split('_').slice(1).join('_');
+    if (!rawId) continue;
+    ids.push(rawId);
+  }
+
+  const map = new Map<string, OddsResult>();
+  let idx = 0;
+  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
+    while (idx < ids.length) {
+      const current = ids[idx++];
+      const odds = await fetchGameOdds(apiKey, sport, current);
+      if (odds) map.set(current, odds);
+    }
+  });
+  await Promise.all(workers);
+
+  console.log(`[sportsApi] ${sport} per-game odds: ${map.size}/${ids.length} resolved`);
+  return map;
+}
+
+function numOrNull(v: any): number | null {
+  const n = typeof v === 'string' ? parseFloat(v) : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function extractScoreTotals(raw: any, fx: any, sport: string): { home: number | null; away: number | null } {
+  if (sport === 'soccer') {
+    const g = raw.goals || fx.goals || {};
+    return { home: numOrNull(g.home), away: numOrNull(g.away) };
+  }
+
+  const candidates = [
+    raw.scores,
+    fx.scores,
+    raw.score,
+    fx.score,
+    raw.points,
+    fx.points,
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    const h = c?.home?.total ?? c?.home?.points ?? c?.home ?? null;
+    const a = c?.away?.total ?? c?.away?.points ?? c?.away ?? null;
+    const hn = numOrNull(h);
+    const an = numOrNull(a);
+    if (hn != null || an != null) return { home: hn, away: an };
+  }
+
+  return { home: null, away: null };
 }
 
 function normalizeFixture(raw: any, sport: string): NormalizedEvent | null {
@@ -256,7 +402,8 @@ function normalizeFixture(raw: any, sport: string): NormalizedEvent | null {
   if (!isLiveStatus && eventTime < now - 3 * 60 * 60 * 1000) return null;
 
   const elapsed = extractElapsed(fx);
-  const goals   = raw.goals || {};
+  const timer   = extractTimer(fx);
+  const goals   = extractScoreTotals(raw, fx, sport);
 
   return {
     external_event_id: `${sport}_${id}`,
@@ -272,6 +419,7 @@ function normalizeFixture(raw: any, sport: string): NormalizedEvent | null {
     draw_odd:   0,
     away_odd:   0,
     elapsed,
+    timer,
     score:      JSON.stringify({ home: goals.home ?? null, away: goals.away ?? null }),
     markets:    '{}',
     country:    league.country || league.nation || '',
@@ -333,28 +481,8 @@ export async function fetchLiveOdds(apiKey: string): Promise<Map<string, OddsRes
     if (!id) continue;
 
     const oddsArr: any[] = entry.odds || [];
-
-    // Find explicitly the Match Winner market by name
-    const mw = oddsArr.find((o: any) => {
-      const n = String(o.name || '').toLowerCase();
-      return n === 'match winner' || n === 'home/away' || n === '1x2' ||
-             n === 'match result' || n === 'result' || n === 'fulltime result';
-    });
-    if (!mw) continue;
-
-    let home = 0, draw = 0, away = 0;
-    for (const v of (mw.values || []) as any[]) {
-      const val = String(v.value || '').toLowerCase();
-      const odd = parseFloat(v.odd || 0);
-      if (odd <= 1) continue;
-      if      (val === 'home')  home  = home  || odd;
-      else if (val === 'draw')  draw  = draw  || odd;
-      else if (val === 'away')  away  = away  || odd;
-    }
-
-    if (home > 0) {
-      map.set(id, { home, draw, away, markets: { h2h: mw.values || [] } });
-    }
+    const parsed = extractOddsFromBets(oddsArr);
+    if (parsed.home > 0) map.set(id, parsed);
   }
   console.log(`[sportsApi] live odds: ${map.size} fixtures with Match Winner`);
   return map;

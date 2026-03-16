@@ -114,7 +114,7 @@ class InMemoryWorker {
   private concurrency: number;
   private running: number = 0;
   private queue: any[] = [];
-  private handlers: Record<string, Function[]> = {};
+  private handlers: Record<string, Array<(...args: any[]) => void>> = {};
 
   constructor(queueName: string, processor: (job: any) => Promise<any>, opts?: any) {
     this.processor = processor;
@@ -147,7 +147,7 @@ class InMemoryWorker {
     }
   }
 
-  on(event: string, handler: Function) {
+  on(event: string, handler: (...args: any[]) => void) {
     if (!this.handlers[event]) this.handlers[event] = [];
     this.handlers[event].push(handler);
   }

@@ -55,6 +55,13 @@ export async function apiFetch<T = any>(
   const urlStr = typeof url === 'string' ? url : String(url);
   // Collision-resistant cache key
   const key = `${method}:${urlStr}`;
+  const rawPath = typeof input === 'string' ? input : urlStr;
+  const isPublicApi =
+    typeof rawPath === 'string' &&
+    (rawPath.startsWith('/api/events') ||
+      rawPath.startsWith('/api/sports') ||
+      rawPath.startsWith('/api/health') ||
+      rawPath.startsWith('/api/dev'));
 
   try {
     const noCache = rest.cache === 'no-store' || rest.cache === 'no-cache';
@@ -75,7 +82,7 @@ export async function apiFetch<T = any>(
     // Headers merging logic (respect user's Content-Type)
     const headers = {
         ...(rest.headers || {}),
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(!isPublicApi && token ? { 'Authorization': `Bearer ${token}` } : {}),
         // Only add Content-Type: application/json if body exists AND user didn't set Content-Type (e.g. multipart/form-data)
         ...(rest.body && !(rest.headers as any)?.['Content-Type'] ? { 'Content-Type': 'application/json' } : {}),
     };
@@ -164,7 +171,8 @@ export async function apiFetch<T = any>(
     // Improved Network Error Regex
     const isConn = /ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|NetworkError|ERR_ABORTED|Failed to fetch/i.test(msg);
     
-    if (isConn && import.meta.env.DEV && typeof input === 'string' && input.startsWith('/')) {
+    const allowRemoteFallback = String(import.meta.env.VITE_REMOTE_FALLBACK || '') === '1';
+    if (isConn && allowRemoteFallback && typeof input === 'string' && input.startsWith('/')) {
       try {
         const fallbackUrl = `${REMOTE_FALLBACK_BASE}${input}`;
         if (import.meta.env.DEV) {
@@ -174,7 +182,7 @@ export async function apiFetch<T = any>(
         // Reconstruct headers for fallback
         const fallbackHeaders = {
             ...(rest.headers || {}),
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            ...(!isPublicApi && token ? { 'Authorization': `Bearer ${token}` } : {}),
             ...(rest.body && !(rest.headers as any)?.['Content-Type'] ? { 'Content-Type': 'application/json' } : {}),
         };
         if (!fallbackHeaders['Content-Type'] && !rest.body) {
@@ -198,7 +206,9 @@ export async function apiFetch<T = any>(
               errorMessage = errorData.error;
               if (errorData.details) errorMessage += ` (${errorData.details})`;
             }
-          } catch {}
+          } catch {
+            errorMessage = response.statusText;
+          }
           throw new Error(`Remote request failed: ${response.status} ${errorMessage}`);
         }
         if (response.status === 204) {

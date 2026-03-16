@@ -30,9 +30,7 @@ const parseLiveEvent = (item: any) => {
     const dstr = item.event_date || item.fixture?.date;
     if (dstr) {
         const d = new Date(dstr);
-        // SIMULATION MODE: Fix 'now' to 2026-03-07
-        const now = new Date('2026-03-07T12:00:00Z').getTime();
-        // const now = Date.now();
+        const now = Date.now();
         if (!Number.isNaN(d.getTime())) {
              const diff = now - d.getTime();
              const isYearOff = diff > 300 * 24 * 60 * 60 * 1000;
@@ -153,10 +151,7 @@ export function useLiveFeed(sport?: string) {
     // Initial fetch
     fetchLiveEvents();
     
-    // Start interval (3 seconds)
-    pollingRef.current = setInterval(fetchLiveEvents, 3000);
-    
-    console.log('[useLiveFeed] Started polling (3s interval)');
+    pollingRef.current = setInterval(fetchLiveEvents, 5000);
 
     return () => {
       if (pollingRef.current) {

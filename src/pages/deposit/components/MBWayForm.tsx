@@ -143,8 +143,7 @@ export default function MBWayForm({
       setError('Sessão expirada. A redirecionar para login...');
       setTimeout(() => navigate('/login'), 2000);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user, navigate]);
 
   useEffect(() => {
     if (paymentStatus !== 'pending' || initialBalance == null) {
@@ -210,8 +209,8 @@ export default function MBWayForm({
       if (typeof onSuccess === 'function') {
         onSuccess();
       }
-    } catch (err) {
-      const msg = err?.message || 'Erro ao processar pagamento';
+    } catch (err: any) {
+      const msg = String(err?.message || 'Erro ao processar pagamento');
       if (msg.includes('Sessão expirada') || msg.includes('login novamente')) {
         setError(`${msg} Redirecionando...`);
         setTimeout(() => navigate('/login'), 2000);
@@ -224,7 +223,7 @@ export default function MBWayForm({
     }
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const depositAmount = propAmount ?? parseFloat(amount);
     await startMbWayPayment(depositAmount);
@@ -236,7 +235,6 @@ export default function MBWayForm({
     }
     const depositAmount = propAmount;
     startMbWayPayment(depositAmount);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propAmount, isAuthenticated]);
 
   /** ----------------------------------------------------------------------

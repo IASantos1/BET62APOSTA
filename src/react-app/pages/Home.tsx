@@ -63,9 +63,8 @@ function Home({ mode = 'home' }: HomeProps) {
       });
   }, [processedLive, upcomingEvents]);
 
-  // STRICT SEPARATION: Mode 'live' -> Live only. Mode 'home' -> Pre-game only.
-  const displayedLive = mode === 'live' ? processedLive : [];
-  const displayedUpcoming = mode === 'home' ? sortedUpcoming : [];
+  const displayedLive = processedLive;
+  const displayedUpcoming = mode === 'live' ? [] : sortedUpcoming;
 
   const groupedLive = useGroupedEvents(displayedLive, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
@@ -87,6 +86,13 @@ function Home({ mode = 'home' }: HomeProps) {
     return result;
   }, [groupedUpcoming]);
 
+  const noSearchResults = useMemo(() => {
+    if (!query.trim()) return false;
+    const liveCount = groupedLive.reduce((acc, [, ev]) => acc + ev.length, 0);
+    const upCount = limitedUpcoming.reduce((acc, [, ev]) => acc + ev.length, 0);
+    return liveCount + upCount === 0;
+  }, [groupedLive, limitedUpcoming, query]);
+
   const handleOpenEvent = (event: Event) => {
     navigate(`/event/${event.id}`);
   };
@@ -103,52 +109,6 @@ function Home({ mode = 'home' }: HomeProps) {
       setHasEverHadEvents(true);
     }
   }, [processedLive, upcomingEvents, hasEverHadEvents]);
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _debugDetails = (
-    <>
-      <p>API Base: {import.meta.env.VITE_API_BASE || '(local)'}</p>
-      <p>Modo: {mode}</p>
-      <p>Categoria: {selectedCategory || 'all'}</p>
-      <p>Query: "{query}"</p>
-      <p>Live HTTP: {httpLive.length}</p>
-      <p>Live WS: {wsLive.length}</p>
-      <p>Live Merged: {processedLive.length}</p>
-      <p>Upcoming: {upcomingEvents.length}</p>
-      <p>Sorted Upcoming: {sortedUpcoming.length}</p>
-      <p>Grouped: {groupedLive.length} Live, {limitedUpcoming.length} Pre</p>
-      <p>System Active: {String(true)}</p>
-      <p>Data Stream: {String(true)}</p>
-      <p>Status: {loading ? 'Syncing...' : 'Ready'}</p>
-    </>
-  );
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _debugInfo = showDebug ? (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 16,
-        right: 16,
-        background: 'rgba(0,0,0,0.85)',
-        color: '#0f0',
-        padding: '12px 16px',
-        borderRadius: 8,
-        fontSize: 12,
-        fontFamily: 'monospace',
-        zIndex: 9999,
-        pointerEvents: 'none',
-        maxWidth: '320px',
-        maxHeight: '60vh',
-        overflowY: 'auto',
-      }}
-    >
-      {_debugDetails}
-    </div>
-  ) : null;
-
-  // Prevent unused warning in a clean way (by logging if false, which is harmless)
-  if (showDebug && Math.random() > 100) console.log(_debugInfo);
 
   // Caso não apareça nada (primeira carga, sem eventos) - REMOVIDO POR SOLICITAÇÃO
   // if (!loading && !hasEverHadEvents && groupedLive.length === 0 && limitedUpcoming.length === 0) { ... }
@@ -397,18 +357,15 @@ function Home({ mode = 'home' }: HomeProps) {
                   </div>
                 )}
               </div>
-            ) : !loading && !hasEverHadEvents && groupedLive.length === 0 && limitedUpcoming.length === 0 ? (
-              <div className="text-center py-20 bg-gray-900/30 rounded-xl border border-gray-800">
-                <p className="text-xl text-gray-400 mb-4">Nenhum evento encontrado</p>
-                <p className="text-gray-500">Tente limpar a busca ou mudar de categoria.</p>
-                {query && (
-                  <button
-                    onClick={() => setQuery('')}
-                    className="mt-6 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-medium"
-                  >
-                    Limpar busca
-                  </button>
-                )}
+            ) : noSearchResults ? (
+              <div className="text-center py-12 rounded-xl border border-gray-800 bg-gray-900/30">
+                <p className="text-gray-300">Sem resultados para a busca.</p>
+                <button
+                  onClick={() => setQuery('')}
+                  className="mt-4 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-medium"
+                >
+                  Limpar busca
+                </button>
               </div>
             ) : null}
           </section>

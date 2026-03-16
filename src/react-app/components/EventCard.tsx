@@ -110,17 +110,17 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
   // const aRef = cleanStr(awayTeamName);
 
   const hhSelection = selections?.find((s: any) => {
-    const lbl = handleLabelOutcome('h2h', s.name || s.outcome || '');
+    const lbl = handleLabelOutcome('h2h', s.label || s.name || s.outcome || '');
     return lbl === 'Casa';
   });
 
   const ddSelection = selections?.find((s: any) => {
-    const lbl = handleLabelOutcome('h2h', s.name || s.outcome || '');
+    const lbl = handleLabelOutcome('h2h', s.label || s.name || s.outcome || '');
     return lbl === 'Empate';
   });
 
   const aaSelection = selections?.find((s: any) => {
-    const lbl = handleLabelOutcome('h2h', s.name || s.outcome || '');
+    const lbl = handleLabelOutcome('h2h', s.label || s.name || s.outcome || '');
     return lbl === 'Fora';
   });
 

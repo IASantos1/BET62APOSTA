@@ -6,7 +6,6 @@ const { useState, useEffect, useCallback, useRef } = React;
 import type { Match } from '../types/sports';
 import { getLiveMatches } from '../services/sportsDataHub';
 import { liveScoresWS, LiveScoreUpdate, LiveOddsUpdate } from '../services/websocket/liveScoresWebSocket';
-import { fetchLiveOddsBySport, fetchFixture1X2OddsFromApiFootball } from '../services/oddsService';
 
 interface UseLiveMatchesOptions {
   autoRefresh?: boolean;
@@ -293,144 +292,14 @@ export function useLiveMatches(
     fetchMatches(true);
   }, [useWebSocket, isWebSocketConnected, fetchMatches]);
 
-  const syncOdds = useCallback(async () => {
-    try {
-      // Descobrir quais desportos estão presentes na lista atual
-      const sports = new Set<string>();
-      matches.forEach((m) => {
-        const s = String(m.sport || '').toLowerCase();
-        if (s) sports.add(s);
-      });
-
-      // Sempre incluir futebol (mantém compatibilidade)
-      if (sports.size === 0) sports.add('football');
-
-      // Buscar odds por desporto (futebol 1X2; basquete moneyline)
-      const oddsLists: { matchId: string | number; odds: { home: number; draw?: number; away: number } }[] = [];
-      for (const sport of Array.from(sports)) {
-        const list = await fetchLiveOddsBySport(sport);
-        if (Array.isArray(list) && list.length > 0) {
-          oddsLists.push(
-            ...list.map((i) => ({
-              matchId: i.matchId,
-              odds: { home: i.odds.home, draw: i.odds.draw, away: i.odds.away },
-            })),
-          );
-        }
-      }
-
-      const baseMatches = matchesCache.data && matchesCache.data.length > 0 ? matchesCache.data : matches;
-      if (!baseMatches || baseMatches.length === 0) return;
-
-      console.log(`[SYNC ODDS] Atualizando ${oddsLists.length} jogos com odds novas`);
-
-      const merged = baseMatches.map((match) => {
-        const item = oddsLists.find(
-          (it) =>
-            String(it.matchId) === String(match.id) ||
-            (match.fixtureId != null && String(it.matchId) === String(match.fixtureId)),
-        );
-
-        if (!item) return match;
-
-        return {
-          ...match,
-          odds: {
-            home: item.odds.home,
-            draw: item.odds.draw,
-            away: item.odds.away,
-          },
-        };
-      });
-
-      const footballNeedingFallback = merged.filter((match) => {
-        const sportName = String(match.sport || '').toLowerCase();
-        const odds = match.odds;
-        const hasValidOdds =
-          odds &&
-          typeof odds.home === 'number' &&
-          typeof odds.away === 'number' &&
-          odds.home > 1.01 &&
-          odds.away > 1.01;
-
-        if (!sportName) return false;
-        const isFootball =
-          sportName.includes('futebol') ||
-          sportName.includes('football') ||
-          sportName.includes('soccer');
-
-        return isFootball && !hasValidOdds;
-      });
-
-      const limitedFootball = footballNeedingFallback.slice(0, 10);
-      const fallbackResults = await Promise.all(
-        limitedFootball.map(async (match) => {
-          const rawId = match.fixtureId != null ? match.fixtureId : match.id;
-          const odds = await fetchFixture1X2OddsFromApiFootball(rawId);
-          return {
-            key: String(match.id),
-            odds,
-          };
-        }),
-      );
-
-      const fallbackMap = new Map<string, { home: number; draw?: number; away: number }>();
-      fallbackResults.forEach((item) => {
-        if (item.odds) {
-          fallbackMap.set(item.key, item.odds);
-        }
-      });
-
-      const finalMatches = merged.map((match) => {
-        const odds = match.odds;
-        const hasValidOdds =
-          odds &&
-          typeof odds.home === 'number' &&
-          typeof odds.away === 'number' &&
-          odds.home > 1.01 &&
-          odds.away > 1.01;
-        if (hasValidOdds) return match;
-
-        const fb = fallbackMap.get(String(match.id));
-        if (!fb) return match;
-
-        return {
-          ...match,
-          odds: {
-            home: fb.home,
-            draw: fb.draw ?? 0,
-            away: fb.away,
-          },
-        };
-      });
-
-      matchesCache.data = finalMatches;
-      matchesCache.timestamp = Date.now();
-      persistCacheToStorage();
-
-      setMatches(finalMatches);
-
-      // Alimentar WS (apenas com pares id/odds)
-      liveScoresWS.updateOddsBatch(
-        oddsLists.map((item) => ({
-          matchId: String(item.matchId),
-          odds: {
-            home: item.odds.home,
-            draw: item.odds.draw ?? 0,
-            away: item.odds.away,
-          },
-        })),
-      );
-    } catch {
-      return;
-    }
-  }, [matches]);
+  const syncOdds = useCallback(async () => {}, []);
 
   useEffect(() => {
     if (oddsIntervalRef.current) {
       clearInterval(oddsIntervalRef.current);
       oddsIntervalRef.current = null;
     }
+    return;
 
     if (useWebSocket && isWebSocketConnected) {
       console.log('WS ativo → polling de odds desativado');

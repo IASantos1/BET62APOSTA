@@ -105,6 +105,125 @@ app.get('/api/featured-games', cacheControl({ maxAge: 30, staleWhileRevalidate: 
   }
 });
 
+function sportToDisplayName(sport: string): string {
+  const s = String(sport || '').toLowerCase();
+  if (s === 'soccer') return 'Futebol';
+  if (s === 'basketball' || s === 'nba') return 'Basquetebol';
+  if (s === 'baseball') return 'Basebol';
+  if (s === 'ice-hockey') return 'Hóquei';
+  if (s === 'american-football') return 'NFL';
+  if (s === 'handball') return 'Handebol';
+  if (s === 'volleyball') return 'Voleibol';
+  if (s === 'rugby') return 'Rúgbi';
+  return sport || 'Futebol';
+}
+
+function formatKickoffTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return '--:--';
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function parseScore(score: any): { homeScore?: number; awayScore?: number } {
+  try {
+    const sc = typeof score === 'string' ? JSON.parse(score) : score;
+    const h = sc?.home;
+    const a = sc?.away;
+    const hn = typeof h === 'number' ? h : (h != null ? Number(h) : NaN);
+    const an = typeof a === 'number' ? a : (a != null ? Number(a) : NaN);
+    return {
+      homeScore: Number.isFinite(hn) ? hn : undefined,
+      awayScore: Number.isFinite(an) ? an : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function rowToMatch(r: any): any {
+  const id = String(r.external_event_id || r.id || '');
+  const sport = sportToDisplayName(String(r.sport || 'soccer'));
+  const isLive = Number(r.is_live || 0) === 1;
+  const elapsed = typeof r.elapsed === 'number' ? r.elapsed : Number(r.elapsed || 0) || 0;
+  const statusShort = String(r.status || '');
+  const { homeScore, awayScore } = parseScore(r.score);
+  const startTime = String(r.event_date || '');
+  const homeOdd = Number(r.home_odd || 0);
+  const awayOdd = Number(r.away_odd || 0);
+  const drawOdd = Number(r.draw_odd || 0);
+  const hasOdds = homeOdd > 1.01 && awayOdd > 1.01;
+  if (!hasOdds) return null;
+
+  return {
+    id,
+    fixtureId: (() => {
+      const raw = id.includes('_') ? id.split('_').slice(1).join('_') : id;
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) ? n : undefined;
+    })(),
+    sport,
+    league: String(r.league || ''),
+    country: String(r.country || ''),
+    homeTeam: String(r.home_team || ''),
+    awayTeam: String(r.away_team || ''),
+    homeScore,
+    awayScore,
+    status: statusShort,
+    statusShort,
+    startTime,
+    time: isLive ? (elapsed > 0 ? `${elapsed}'` : 'AO VIVO') : formatKickoffTime(startTime),
+    elapsed: elapsed || undefined,
+    period: statusShort || undefined,
+    isLive,
+    homeTeamLogo: String(r.home_team_logo || ''),
+    awayTeamLogo: String(r.away_team_logo || ''),
+    odds: {
+      home: homeOdd,
+      draw: drawOdd > 1.01 ? drawOdd : 0,
+      away: awayOdd,
+    },
+  };
+}
+
+app.get('/api/matches/live', async (c) => {
+  try {
+    const res = await c.env.DB.prepare(`
+      SELECT *
+      FROM events
+      WHERE is_live = 1
+        AND status NOT IN ('FT','AET','PEN','AWD','WO','ABD','Finished','Match Finished','Final','Ended','AOT','AP','POST','SUSP','CANC','TBD')
+      ORDER BY event_date ASC
+      LIMIT 300
+    `).all();
+    const out = (res.results || []).map(rowToMatch).filter(Boolean);
+    return c.json(out);
+  } catch (err) {
+    console.error('[matches/live] error:', err);
+    return c.json([]);
+  }
+});
+
+app.get('/api/matches/upcoming', async (c) => {
+  try {
+    const res = await c.env.DB.prepare(`
+      SELECT *
+      FROM events
+      WHERE is_live = 0
+        AND event_date BETWEEN datetime('now', '-1 hours') AND datetime('now', '+48 hours')
+        AND status NOT IN ('FT','AET','PEN','AWD','WO','ABD','Finished','Match Finished','Final','Ended','AOT','AP','POST','SUSP','CANC','TBD')
+      ORDER BY event_date ASC
+      LIMIT 300
+    `).all();
+    const out = (res.results || []).map(rowToMatch).filter(Boolean);
+    return c.json(out);
+  } catch (err) {
+    console.error('[matches/upcoming] error:', err);
+    return c.json([]);
+  }
+});
+
 // ── Admin: manual sync trigger ────────────────────────────────────────
 app.post('/api/admin/force-sync', async (c) => {
   const token = c.req.header('Authorization')?.replace('Bearer ', '');
@@ -112,7 +231,7 @@ app.post('/api/admin/force-sync', async (c) => {
   const isDev   = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development';
   if (!isAdmin && !isDev) return c.json({ error: 'Forbidden' }, 403);
 
-  c.executionCtx.waitUntil(runSportsSync(c.env));
+  c.executionCtx.waitUntil(runSportsSync(c.env, { forceFull: true }));
   return c.json({ status: 'sync started' });
 });
 

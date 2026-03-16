@@ -1,6 +1,4 @@
 import type { Match } from '../types/sports';
-import type { ApiFootballMatch } from './apiFootballLive';
-import { fetchLiveMatchesFromApiFootball, fetchUpcomingMatchesFromApiFootball } from './apiFootballLive';
 
 function isLeagueBlocked(name: string): boolean {
   const n = name.toLowerCase();
@@ -37,8 +35,8 @@ function isLeagueBlocked(name: string): boolean {
   return false;
 }
 
-const LIVE_CACHE_TTL = 10 * 1000;
-const UPCOMING_CACHE_TTL = 2 * 60 * 1000;
+const LIVE_CACHE_TTL = 5 * 1000;
+const UPCOMING_CACHE_TTL = 30 * 1000;
 const MATCH_DETAILS_CACHE_TTL = 10 * 60 * 1000;
 const cache = new Map<string, { data: any; timestamp: number }>();
 
@@ -54,35 +52,92 @@ function setCache(key: string, data: any) {
   cache.set(key, { data, timestamp: Date.now() });
 }
 
-function mapApiFootballMatchToNormalized(match: ApiFootballMatch): Match {
+function sportToDisplay(sport: string): string {
+  const s = String(sport || '').toLowerCase();
+  if (s === 'soccer') return 'Futebol';
+  if (s === 'basketball' || s === 'nba') return 'Basquetebol';
+  if (s === 'baseball') return 'Basebol';
+  if (s === 'ice-hockey') return 'Hóquei';
+  if (s === 'american-football') return 'NFL';
+  if (s === 'handball') return 'Handebol';
+  if (s === 'volleyball') return 'Voleibol';
+  if (s === 'rugby') return 'Rúgbi';
+  return sport || 'Futebol';
+}
+
+function normalizeSportKey(key: string): string {
+  const s = String(key || '').toLowerCase().trim();
+  if (s === 'all' || !s) return 'all';
+  if (s === 'football' || s === 'futebol') return 'soccer';
+  if (s === 'icehockey' || s === 'hockey') return 'ice-hockey';
+  if (s === 'americanfootball' || s === 'nfl' || s === 'futebol-americano' || s === 'futebol americano') return 'american-football';
+  return s;
+}
+
+function formatKickoffTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return '--:--';
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function toMatch(ev: any): Match | null {
+  const id = String(ev?.external_event_id || ev?.id || '');
+  if (!id) return null;
+  const homeTeam = String(ev?.home_team || '');
+  const awayTeam = String(ev?.away_team || '');
+  if (!homeTeam || !awayTeam) return null;
+
+  const isLive = Boolean(Number(ev?.is_live || 0) === 1);
+  const statusShort = String(ev?.fixture?.status?.short || ev?.status || '');
+  const elapsed = typeof ev?.elapsed === 'number' ? ev.elapsed : Number(ev?.fixture?.status?.elapsed || 0) || 0;
+  const timer = String(ev?.timer || ev?.fixture?.status?.timer || '').trim();
+
+  const goalsHome = ev?.goals?.home ?? ev?.score?.home ?? null;
+  const goalsAway = ev?.goals?.away ?? ev?.score?.away ?? null;
+  const homeScore = typeof goalsHome === 'number' ? goalsHome : (goalsHome != null ? Number(goalsHome) : undefined);
+  const awayScore = typeof goalsAway === 'number' ? goalsAway : (goalsAway != null ? Number(goalsAway) : undefined);
+
+  const homeOdd = Number(ev?.home_odd || 0);
+  const awayOdd = Number(ev?.away_odd || 0);
+  const drawOdd = Number(ev?.draw_odd || 0);
+  const hasOdds = homeOdd > 1.01 && awayOdd > 1.01;
+  if (!hasOdds) return null;
+
+  const startTime = String(ev?.event_date || ev?.fixture?.date || '');
+  const time = isLive
+    ? (timer || (elapsed > 0 ? `${elapsed}'` : 'AO VIVO'))
+    : formatKickoffTime(startTime);
+
   return {
-    id: match.id,
-    fixtureId: match.fixtureId,
-    sport: match.sport,
-    league: match.league,
-    country: match.country,
-    homeTeam: match.homeTeam,
-    awayTeam: match.awayTeam,
-    homeScore: match.homeScore ?? undefined,
-    awayScore: match.awayScore ?? undefined,
-    status: match.status,
-    statusShort: match.statusShort,
-    startTime: match.startTime,
-    time: match.time,
-    elapsed: match.elapsed ?? undefined,
-    isLive: match.isLive,
-    homeTeamLogo: match.homeTeamLogo,
-    awayTeamLogo: match.awayTeamLogo,
-    leagueLogo: match.leagueLogo,
-    countryFlag: match.countryFlag,
-    venue: match.venue,
-    odds: match.odds
-      ? {
-          home: match.odds.home,
-          draw: match.odds.draw,
-          away: match.odds.away,
-        }
-      : undefined,
+    id,
+    fixtureId: (() => {
+      const raw = id.includes('_') ? id.split('_').slice(1).join('_') : id;
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) ? n : undefined;
+    })(),
+    sport: sportToDisplay(String(ev?.sport || 'soccer')),
+    league: String(ev?.league || ''),
+    country: String(ev?.country || ''),
+    homeTeam,
+    awayTeam,
+    homeScore: homeScore ?? undefined,
+    awayScore: awayScore ?? undefined,
+    status: String(ev?.status || statusShort || ''),
+    statusShort,
+    startTime,
+    time,
+    elapsed: elapsed || undefined,
+    period: statusShort || undefined,
+    isLive,
+    homeTeamLogo: String(ev?.home_team_logo || ''),
+    awayTeamLogo: String(ev?.away_team_logo || ''),
+    odds: {
+      home: homeOdd,
+      draw: drawOdd > 1.01 ? drawOdd : 0,
+      away: awayOdd,
+    },
   };
 }
 
@@ -93,24 +148,19 @@ export async function getLiveMatches(sportKey?: string): Promise<Match[]> {
   if (cached) return cached;
 
   try {
-    console.log('🔄 sportsDataHub: Buscando jogos ao vivo da API-Football...');
-    const apiFootballMatches = await fetchLiveMatchesFromApiFootball();
+    const sportParam = normalizeSportKey(sportKey || 'all');
+    const url = `/api/events/by-sport?sports=${encodeURIComponent(sportParam)}&include=odds&realtime=1`;
+    const res = await fetch(url, { cache: 'no-store' });
+    const data: any = await res.json().catch(() => null);
+    const live = Array.isArray(data?.live) ? data.live : [];
 
-    if (apiFootballMatches && apiFootballMatches.length > 0) {
-      const filtered = apiFootballMatches.filter((m) => !isLeagueBlocked(m.league));
-      const toUse =
-        filtered.length > 0 ? filtered : apiFootballMatches;
+    const normalized = live
+      .filter((m: any) => !isLeagueBlocked(String(m?.league || '')))
+      .map(toMatch)
+      .filter(Boolean) as Match[];
 
-      const normalized = toUse.map(mapApiFootballMatchToNormalized);
-      console.log(
-        `✅ sportsDataHub: ${normalized.length} jogos ao vivo recebidos da API-Football (filtrados=${filtered.length}, brutos=${apiFootballMatches.length})`,
-      );
-      setCache(cacheKey, normalized);
-      return normalized;
-    }
-
-    console.warn('⚠️ sportsDataHub: Nenhum jogo ao vivo disponível no momento');
-    return [];
+    setCache(cacheKey, normalized);
+    return normalized;
   } catch (error) {
     console.error('❌ sportsDataHub: Erro ao buscar jogos ao vivo da API:', error);
     return [];
@@ -124,24 +174,19 @@ export async function getUpcomingMatches(sportKey?: string): Promise<Match[]> {
   if (cached) return cached;
 
   try {
-    console.log('🔄 sportsDataHub: Buscando pré-jogos da API-Football...');
-    const apiFootballMatches = await fetchUpcomingMatchesFromApiFootball(3);
+    const sportParam = normalizeSportKey(sportKey || 'all');
+    const url = `/api/events/by-sport?sports=${encodeURIComponent(sportParam)}&include=odds`;
+    const res = await fetch(url, { cache: 'no-store' });
+    const data: any = await res.json().catch(() => null);
+    const pre = Array.isArray(data?.pregame) ? data.pregame : [];
 
-    if (apiFootballMatches && apiFootballMatches.length > 0) {
-      const filtered = apiFootballMatches.filter((m) => !isLeagueBlocked(m.league));
-      const toUse =
-        filtered.length > 0 ? filtered : apiFootballMatches;
+    const normalized = pre
+      .filter((m: any) => !isLeagueBlocked(String(m?.league || '')))
+      .map(toMatch)
+      .filter(Boolean) as Match[];
 
-      const normalized = toUse.map(mapApiFootballMatchToNormalized);
-      console.log(
-        `✅ sportsDataHub: ${normalized.length} pré-jogos recebidos da API-Football (filtrados=${filtered.length}, brutos=${apiFootballMatches.length})`,
-      );
-      setCache(cacheKey, normalized);
-      return normalized;
-    }
-
-    console.warn('⚠️ sportsDataHub: Nenhum pré-jogo disponível no momento');
-    return [];
+    setCache(cacheKey, normalized);
+    return normalized;
   } catch (error) {
     console.error('❌ sportsDataHub: Erro ao buscar pré-jogos da API:', error);
     return [];

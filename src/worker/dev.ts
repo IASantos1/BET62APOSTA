@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Env } from '../shared/types';
 import { runSportsSync } from './services/sportsSync';
 import { fetchLiveFixtures, fetchDateFixtures, fetchLiveOdds, fetchDayOdds, SPORT_CONFIG } from './services/sportsApi';
+import { fetchOddsApiEvents } from './services/oddsApi';
 import { PasswordService } from './services/security/passwordService';
 import { TokenService } from './services/security/tokenService';
 
@@ -13,7 +14,7 @@ dev.post('/force-sync', async (c) => {
     const sport = body.sport || 'soccer';
     console.log(`[Dev] force-sync for sport=${sport}`);
 
-    const result = await runSportsSync(c.env);
+    const result = await runSportsSync(c.env, { forceFull: true });
     return c.json({ success: true, ...result });
   } catch (e: any) {
     console.error('[Dev] force-sync error:', e);
@@ -21,8 +22,23 @@ dev.post('/force-sync', async (c) => {
   }
 });
 
+dev.post('/force-import', async (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
+  const isAdmin = token === c.env.ADMIN_TOKEN;
+  const isDev   = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development';
+  if (!isAdmin && !isDev) return c.json({ error: 'Forbidden' }, 403);
+
+  try {
+    const result = await runSportsSync(c.env, { forceFull: true });
+    return c.json({ success: true, ...result });
+  } catch (e: any) {
+    console.error('[Dev] force-import error:', e);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 dev.get('/force-poll', async (c) => {
-  c.executionCtx.waitUntil(runSportsSync(c.env));
+  c.executionCtx.waitUntil(runSportsSync(c.env, { forceFull: true }));
   return c.json({ success: true, message: 'Sync started in background' });
 });
 
@@ -35,7 +51,7 @@ dev.get('/debug-sync', async (c) => {
   console.error = (...a) => { logs.push('[ERROR] ' + a.join(' ')); orig.error(...a); };
 
   try {
-    await runSportsSync(c.env);
+    await runSportsSync(c.env, { forceFull: true });
     return c.json({ success: true, logs });
   } catch (e: any) {
     return c.json({ error: e.message, logs }, 500);
@@ -106,6 +122,78 @@ dev.get('/odds-api-test', async (c) => {
       day_odds_count:  dayOdds.size,
       live_sample:     liveArr,
       day_sample:      dayArr,
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+dev.get('/oddsio-test', async (c) => {
+  try {
+    const apiKey = c.env.ODDS_API_KEY;
+    if (!apiKey) return c.json({ error: 'No ODDS_API_KEY' }, 400);
+
+    const sport = c.req.query('sport') || 'soccer';
+    const events = await fetchOddsApiEvents(apiKey, sport, 3, c.env.ODDS_API_BOOKMAKERS || '', 'pending,live', 30, 3);
+    return c.json({
+      sport,
+      count: events.length,
+      with_odds: events.filter((e) => e.home_odd > 1).length,
+      sample: events.slice(0, 3),
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+dev.get('/oddsio-bookmakers', async (c) => {
+  try {
+    const apiKey = c.env.ODDS_API_KEY;
+    if (!apiKey) return c.json({ error: 'No ODDS_API_KEY' }, 400);
+    const url = `https://api.odds-api.io/v3/bookmakers?apiKey=${apiKey}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+    const text = await res.text();
+    const json = (() => { try { return JSON.parse(text); } catch { return null; } })();
+    const list = Array.isArray(json) ? json : [];
+    const q = (c.req.query('q') || '').toLowerCase().trim();
+    if (q) {
+      const matches = list.filter((b: any) => String(b?.name || '').toLowerCase().includes(q));
+      return c.json({ http: res.status, q, matches: matches.slice(0, 50), total: matches.length });
+    }
+    return c.json({ http: res.status, sample: list.slice(0, 50) });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+dev.get('/oddsio-raw', async (c) => {
+  try {
+    const apiKey = c.env.ODDS_API_KEY;
+    if (!apiKey) return c.json({ error: 'No ODDS_API_KEY' }, 400);
+    const sport = c.req.query('sport') || 'football';
+    const overrideBooks = c.req.query('bookmakers') || '';
+    const bookmaker = (overrideBooks || c.env.ODDS_API_BOOKMAKERS || '').split(',')[0]?.trim() || '';
+    const evUrl = `https://api.odds-api.io/v3/events?apiKey=${apiKey}&sport=${encodeURIComponent(sport)}&status=pending,live&limit=5${bookmaker ? `&bookmaker=${encodeURIComponent(bookmaker)}` : ''}`;
+    const evRes = await fetch(evUrl, { signal: AbortSignal.timeout(20000) });
+    const evText = await evRes.text();
+    const evJson = (() => { try { return JSON.parse(evText); } catch { return null; } })();
+    const first = Array.isArray(evJson) ? evJson[0] : null;
+    const eventId = first?.id || first?.eventId || first?.event_id || null;
+    if (!eventId) return c.json({ events_http: evRes.status, events_preview: String(evText).slice(0, 600) }, 200);
+
+    const booksCsv = overrideBooks || c.env.ODDS_API_BOOKMAKERS || '';
+    const books = booksCsv ? `&bookmakers=${encodeURIComponent(booksCsv)}` : '';
+    const oddsUrl = `https://api.odds-api.io/v3/odds?apiKey=${apiKey}&eventId=${encodeURIComponent(String(eventId))}${books}`;
+    const oddsRes = await fetch(oddsUrl, { signal: AbortSignal.timeout(20000) });
+    const oddsText = await oddsRes.text();
+    const oddsJson = (() => { try { return JSON.parse(oddsText); } catch { return null; } })();
+    return c.json({
+      sport,
+      bookmaker,
+      events_http: evRes.status,
+      odds_http: oddsRes.status,
+      eventId: String(eventId),
+      odds_preview: oddsJson || String(oddsText).slice(0, 1200),
     });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);

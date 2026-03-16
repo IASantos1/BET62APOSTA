@@ -56,8 +56,9 @@ export default function EventDetails() {
   // const { liveUpdates, isConnected: wsConnected } = useEventLiveUpdates(id);
 
   // Extract logos
-  const homeTeamLogo = displayEvent?.home_team_logo || displayEvent?.teams?.home?.logo || displayEvent?.logo_home || 'https://media.api-sports.io/football/teams/default.png';
-  const awayTeamLogo = displayEvent?.away_team_logo || displayEvent?.teams?.away?.logo || displayEvent?.logo_away || 'https://media.api-sports.io/football/teams/default.png';
+  const DEFAULT_LOGO = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjY2NjIiBzdHJva2Utd2lkdGg9IjIiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PHBhdGggZD0iTTEyIDh2OG0tNCAwaDgiLz48L3N2Zz4=';
+  const homeTeamLogo = displayEvent?.home_team_logo || displayEvent?.teams?.home?.logo || displayEvent?.logo_home || DEFAULT_LOGO;
+  const awayTeamLogo = displayEvent?.away_team_logo || displayEvent?.teams?.away?.logo || displayEvent?.logo_away || DEFAULT_LOGO;
 
   // Use displayEvent for helpers where possible, but keep existing helpers consistent
   // Actually, labelOutcome relies on displayEventWithOdds closure, but we should use the latest event if we want accurate team names (though they rarely change).

@@ -27,8 +27,7 @@ const scoreEvent = (e: Event) =>
     const d = new Date(raw);
     if (Number.isNaN(d.getTime())) return true;
     
-    // SIMULATION MODE: Fix 'now' to 2026-03-09
-    const now = new Date('2026-03-09T12:00:00Z').getTime();
+    const now = Date.now();
     
     let t = d.getTime();
     const diff = now - t;
@@ -44,12 +43,6 @@ const scoreEvent = (e: Event) =>
     // Show events from 12h ago until 14 days ahead
     return t > now - 12 * 60 * 60 * 1000 && t <= fourteenDaysAhead;
   };
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const shouldHideEvent = (_evt: Event) => {
-    return false; // DEBUG: Relax filters completely
-  };
-
 
 const dedupEvents = (list: Event[]): Event[] => {
   if (!list || list.length === 0) return [];
@@ -76,6 +69,13 @@ const dedupEvents = (list: Event[]): Event[] => {
   return Array.from(by.values());
 };
 
+const shouldHideEvent = (evt: Event) => {
+  const h = Number((evt as any)?.home_odd || 0);
+  const d = Number((evt as any)?.draw_odd || 0);
+  const a = Number((evt as any)?.away_odd || 0);
+  return !(h > 1.01 || d > 1.01 || a > 1.01);
+};
+
 export function useSportsEvents(category: string | null) {
   const [live, setLive] = useState<Event[]>([]);
   const [pregame, setPregame] = useState<Event[]>([]);
@@ -100,21 +100,15 @@ export function useSportsEvents(category: string | null) {
         Number(e.draw_odd||0) !== Number(x.draw_odd||0) ||
         Number(e.away_odd||0) !== Number(x.away_odd||0) ||
         e.is_live !== x.is_live ||
-        (e.fixture?.status?.short || e.status) !== (x.fixture?.status?.short || x.status)
+        (e.fixture?.status?.short || e.status) !== (x.fixture?.status?.short || x.status) ||
+        Number(e.elapsed||0) !== Number((x as any).elapsed||0) ||
+        String((e as any).score || '') !== String((x as any).score || '')
       ) return false;
     }
     return true;
   };
 
   const updateState = (newLive: Event[], newPregame: Event[]) => {
-    if (
-      !isFirstLoadRef.current &&
-      newLive.length === 0 &&
-      newPregame.length === 0 &&
-      (lastLiveRef.current.length > 0 || lastPregameRef.current.length > 0)
-    ) {
-      return;
-    }
     if (!eq(newLive, lastLiveRef.current)) {
       setLive(newLive);
       lastLiveRef.current = newLive;
@@ -208,6 +202,7 @@ export function useSportsEvents(category: string | null) {
           params.set('league', cleanLeague);
         }
         params.set('include', 'odds'); 
+        params.set('realtime', '1');
         // params.set('_ts', Date.now().toString()); // Disabled for aggressive caching as requested
  
         const url = `/api/events/by-sport?${params.toString()}`;
@@ -262,16 +257,11 @@ export function useSportsEvents(category: string | null) {
           pregameEvents = pregameEvents.filter(isGameActive);
           
           const filteredLive = liveEvents; 
-          const filteredPregame = pregameEvents.filter(isTodayAdjusted).slice(0, 60);
+          const maxPregame = safeCategory === 'all' ? 200 : 60;
+          const filteredPregame = pregameEvents.filter(isTodayAdjusted).slice(0, maxPregame);
           
-          const hasOdds = (evt: Event) => {
-             if (Number(evt.is_live) === 1) return true;
-             if (Array.isArray(evt.markets) && evt.markets.length > 0) return true;
-             return (Number(evt.home_odd) > 1 && Number(evt.away_odd) > 1);
-          };
-
           const finalLive = filteredLive;
-          const finalPregame = filteredPregame.filter(hasOdds);
+          const finalPregame = filteredPregame;
 
           updateState(finalLive, finalPregame);
           return; 
@@ -317,8 +307,7 @@ export function useSportsEvents(category: string | null) {
     // Initial fetch
     fetchData();
 
-    // Determine interval: 3s for ALL (Hidden Robot Requirement)
-    const intervalTime = 3000;
+    const intervalTime = 5000;
     let timeoutId: NodeJS.Timeout;
 
     const scheduleNext = () => {
