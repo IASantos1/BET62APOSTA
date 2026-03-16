@@ -140,7 +140,16 @@ export default function EventDetails() {
   if (error || !displayEvent) return <div className="p-8 text-center text-red-600">{error || 'Evento não encontrado'}</div>;
 
   const statusShort = typeof displayEvent.status === 'object' ? displayEvent.status?.short : displayEvent.status;
-  const isLive = statusShort === 'LIVE' || displayEvent.is_live === 1;
+  const statusKey = String(statusShort || displayEvent?.fixture?.status?.short || '').toUpperCase().trim();
+  const liveStatuses = new Set([
+    'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'P',
+    'Q1', 'Q2', 'Q3', 'Q4', 'OT',
+    'P1', 'P2', 'P3',
+    'S1', 'S2', 'S3', 'S4', 'S5',
+    'IN', 'IN1', 'IN2', 'IN3', 'IN4', 'IN5', 'IN6', 'IN7', 'IN8', 'IN9',
+    'IN_PROGRESS',
+  ]);
+  const isLive = displayEvent.is_live === 1 || liveStatuses.has(statusKey);
   const liveTimerRaw = String((displayEvent as any)?.timer || displayEvent?.fixture?.status?.timer || '').trim();
   const liveTimer = liveTimerRaw
     ? (liveTimerRaw.includes(':')

@@ -176,7 +176,7 @@ export function useSportsEvents(category: string | null) {
         } else if (rawSport.includes('ténis') || rawSport.includes('tenis') || rawSport.includes('tennis')) { 
           sportParam = 'tennis'; 
         } else if (rawSport.includes('hóquei') || rawSport.includes('hockey') || rawSport.includes('nhl') || rawSport.includes('ice-hockey')) { 
-          sportParam = 'hockey'; 
+          sportParam = 'ice-hockey'; 
         } else if (rawSport.includes('mma') || rawSport.includes('ufc')) { 
           sportParam = 'mma'; 
         } else if (rawSport.includes('fórmula') || rawSport.includes('formula')) { 

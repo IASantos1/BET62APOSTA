@@ -18,10 +18,10 @@ const getVal = (o: any) => {
 };
 
 const parseLiveEvent = (item: any) => {
-    if (!item.fixture || !item.teams) return null;
+    if (!item) return null;
 
     // Safety: Hide Finished/Abnormal statuses from Live Feed
-    const status = item.fixture?.status?.short || item.status;
+    const status = item.fixture?.status?.short || item.status?.short || item.status;
     if (['FT', 'AET', 'PEN', 'Finished', 'Match Finished', 'AOT', 'AP', 'Ended', 'Final', 'WO', 'ABD', 'AWD'].includes(status)) {
         return null;
     }
@@ -48,6 +48,21 @@ const parseLiveEvent = (item: any) => {
         }
     }
     
+    const teams =
+      item.teams ||
+      (item.home && item.away
+        ? { home: { name: item.home.name, logo: item.home.logo }, away: { name: item.away.name, logo: item.away.logo } }
+        : null);
+    const fixture =
+      item.fixture ||
+      {
+        id: item.external_event_id || item.id,
+        date: item.event_date || item.date,
+        status: item.status && typeof item.status === 'object' ? item.status : { short: item.status || 'LIVE', elapsed: item.elapsed || 0, timer: item.timer || '' },
+      };
+
+    if (!teams || !teams.home?.name || !teams.away?.name) return null;
+
     let h = item.home_odd;
     let d = item.draw_odd;
     let a = item.away_odd;
@@ -93,19 +108,23 @@ const parseLiveEvent = (item: any) => {
 
     const ev: any = {
         ...item,
+        id: String(item.external_event_id || item.id || fixture.id || ''),
+        external_event_id: String(item.external_event_id || item.id || fixture.id || ''),
         is_live: true,
-        home_team: item.teams.home.name,
-        away_team: item.teams.away.name,
-        league: item.league?.name,
-        league_name: item.league?.name,
+        home_team: teams.home.name,
+        away_team: teams.away.name,
+        league: item.league?.name || item.league || '',
+        league_name: item.league?.name || item.league || '',
         home_odd: h,
         draw_odd: d,
         away_odd: a,
         fixture: {
-            ...item.fixture,
-            status: item.fixture?.status || { short: 'LIVE', elapsed: 0 }
+            ...fixture,
+            status: fixture?.status || { short: 'LIVE', elapsed: 0, timer: '' }
         },
-        score: item.score || item.goals || { home: 0, away: 0 }
+        teams,
+        score: item.score || item.goals || { home: 0, away: 0 },
+        goals: item.goals || item.score || { home: 0, away: 0 }
     };
     return ev;
 };
@@ -120,7 +139,7 @@ export function useLiveFeed(sport?: string) {
   // Poll function
   const fetchLiveEvents = useCallback(async () => {
       try {
-          const url = `/api/events/by-sport?sports=${sport || 'all'}&include=odds`;
+          const url = `/api/events/by-sport?sports=${sport || 'all'}&include=odds&realtime=1`;
           const data = await apiFetch<any>(url, { cache: 'no-store' });
           
           if (data && Array.isArray(data.live)) {
@@ -133,7 +152,7 @@ export function useLiveFeed(sport?: string) {
                   data.live.forEach((raw: any) => {
                       const parsed = parseLiveEvent(raw);
                       if (parsed) {
-                          const id = String(parsed.fixture?.id || parsed.id);
+                          const id = String(parsed.id || parsed.external_event_id || parsed.fixture?.id);
                           next.set(id, parsed);
                       }
                   });

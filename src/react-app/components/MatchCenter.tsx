@@ -55,13 +55,22 @@ export function MatchCenter({ event, initialMatch, darkMode }: { event: any; ini
     const ac = new AbortController()
     const fetchOdds = async () => {
       try {
-        const j = await apiFetch<any>(`/api/events/${Number(event.id)}/odds?realtime=1`, { signal: ac.signal, cache: 'no-store' })
+        const evId = encodeURIComponent(String(event.external_event_id || event.id || ''))
+        const j = await apiFetch<any>(`/api/events/${evId}/odds?realtime=1`, { signal: ac.signal, cache: 'no-store' })
         const m = j && j.markets ? j.markets : {}
         if (m && typeof m === 'object') setMarkets(m)
       } catch { setMarkets({}) }
     }
     fetchOdds()
-    const isLive = Number(event?.is_live || 0) === 1 || ['1H','2H','HT','ET','P','LIVE'].includes(String(event?.status || event?.fixture?.status?.short || ''))
+    const status = String(event?.status?.short || event?.status || event?.fixture?.status?.short || '').toUpperCase().trim()
+    const isLive = Number(event?.is_live || 0) === 1 || new Set([
+      'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'P',
+      'Q1', 'Q2', 'Q3', 'Q4', 'OT',
+      'P1', 'P2', 'P3',
+      'S1', 'S2', 'S3', 'S4', 'S5',
+      'IN', 'IN1', 'IN2', 'IN3', 'IN4', 'IN5', 'IN6', 'IN7', 'IN8', 'IN9',
+      'IN_PROGRESS',
+    ]).has(status)
     const t = isLive ? setInterval(fetchOdds, 5000) : null
     return () => { if (t) clearInterval(t); ac.abort() }
   }, [event])

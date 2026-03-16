@@ -6,7 +6,7 @@
 import { Hono } from 'hono';
 import { Env } from '../shared/types';
 import { fetchOddsApiEvents, fetchOddsApiMarketsForFixture, matchOddsEvent } from './services/oddsApi';
-import { fetchLiveOddsForSport } from './services/sportsApi';
+import { fetchGameOdds, fetchLiveOddsForSport } from './services/sportsApi';
 import { fetchLiveFixtures, fetchDateFixtures, LIVE_STATUSES as API_LIVE_STATUSES, SPORT_CONFIG } from './services/sportsApi';
 
 let cachedLiveOdds: { expiresAt: number; map: Map<string, any> } | null = null;
@@ -18,13 +18,15 @@ const sports = new Hono<{ Bindings: Env }>();
 const LIVE_STATUSES = new Set([
   '1H', '2H', 'HT', 'ET', 'P', 'LIVE',
   'Q1', 'Q2', 'Q3', 'Q4', 'OT', 'BT',
+  'P1', 'P2', 'P3',
   'S1', 'S2', 'S3', 'S4', 'S5',
   'IN', 'IN1', 'IN2', 'IN3', 'IN4', 'IN5', 'IN6', 'IN7', 'IN8', 'IN9',
 ]);
 
 const FINISHED_STATUSES = new Set([
-  'FT', 'AET', 'PEN', 'AWD', 'WO', 'ABD', 'AOT', 'AP',
-  'Finished', 'Match Finished', 'Final', 'Ended',
+  'FT', 'AET', 'PEN', 'AWD', 'WO', 'ABD',
+  'FT_PEN', 'AOT', 'AP', 'POST', 'SUSP', 'TBD',
+  'Finished', 'Match Finished', 'Final', 'Ended', 'NS_CANC', 'CANC',
 ]);
 
 const SPORT_ALIASES: Record<string, string> = {
@@ -154,6 +156,12 @@ function formatEvent(r: any): any {
       status: { short: statusShort, long: statusShort, elapsed: Number(r.elapsed) || 0 },
       timestamp: r.event_date ? Math.floor(new Date(r.event_date).getTime() / 1000) : 0,
     },
+    home_team_logo: r.home_team_logo || '',
+    away_team_logo: r.away_team_logo || '',
+    teams: {
+      home: { name: r.home_team || '', logo: r.home_team_logo || '' },
+      away: { name: r.away_team || '', logo: r.away_team_logo || '' },
+    },
     home:  { name: r.home_team || '', logo: r.home_team_logo || '' },
     away:  { name: r.away_team || '', logo: r.away_team_logo || '' },
     odds: { h2h: Array.isArray(h2h) ? h2h : [] },
@@ -162,15 +170,14 @@ function formatEvent(r: any): any {
 
 function rewriteMediaUrl(proxyBase: string | undefined, url: string): string {
   const base = String(proxyBase || '').trim().replace(/\/+$/, '');
-  if (!base) return url;
   const u = String(url || '').trim();
   if (!u) return u;
   if (!u.startsWith('https://media.api-sports.io/')) return u;
+  if (!base) return `/api/events/media?url=${encodeURIComponent(u)}`;
   return base + u.slice('https://media.api-sports.io'.length);
 }
 
 function applyMediaProxy(rows: any[], proxyBase: string | undefined): any[] {
-  if (!proxyBase) return rows;
   return rows.map((r) => ({
     ...r,
     home_team_logo: rewriteMediaUrl(proxyBase, r.home_team_logo || ''),
@@ -247,11 +254,13 @@ sports.get('/by-sport', async (c) => {
     const { live, pregame } = splitEvents(rows);
     console.log(`[Sports] sport=${sport} → live:${live.length} pregame:${pregame.length}`);
 
-    if (realtime && c.env.API_SPORTS_KEY && live.length > 0) {
-      const liveSports = Array.from(new Set(live.map((e) => normalizeSport(String(e.sport || 'soccer'))))).slice(0, 4);
-      for (const sp of liveSports) {
-        const cacheKey = sp;
-        const cached = cachedLiveFixtures.get(cacheKey);
+    if (realtime && c.env.API_SPORTS_KEY && (live.length > 0 || pregame.length > 0)) {
+      const sportsToFetch = Array.from(
+        new Set([...live, ...pregame].map((e) => normalizeSport(String(e.sport || 'soccer')))),
+      ).slice(0, 6);
+
+      for (const sp of sportsToFetch) {
+        const cached = cachedLiveFixtures.get(sp);
         if (!cached || cached.expiresAt <= nowMs) {
           let list = await fetchLiveFixtures(c.env.API_SPORTS_KEY, sp);
           if ((!Array.isArray(list) || list.length === 0) && sp !== 'soccer') {
@@ -259,9 +268,51 @@ sports.get('/by-sport', async (c) => {
           }
           const map = new Map<string, any>();
           for (const e of list) map.set(e.external_event_id, e);
-          cachedLiveFixtures.set(cacheKey, { expiresAt: nowMs + 10_000, map });
+          cachedLiveFixtures.set(sp, { expiresAt: nowMs + 10_000, map });
         }
       }
+
+      const applySnap = (ev: any, snap: any) => {
+        const st = String(snap?.status || snap?.fixture?.status?.short || '').trim();
+        const isLiveStatus = API_LIVE_STATUSES.has(st) || LIVE_STATUSES.has(st);
+        const isFinished = FINISHED_STATUSES.has(st);
+        if (isLiveStatus) ev.is_live = 1;
+        if (isFinished) ev.is_live = 0;
+
+        ev.status = snap.status || st || ev.status;
+        ev.elapsed = snap.elapsed ?? ev.elapsed;
+        (ev as any).timer = (snap as any).timer || (snap?.fixture?.status?.timer || '');
+        ev.score = snap.score ?? ev.score;
+
+        const homeLogo = rewriteMediaUrl(c.env.MEDIA_PROXY_BASE, String(snap.home_team_logo || snap.teams?.home?.logo || ''));
+        const awayLogo = rewriteMediaUrl(c.env.MEDIA_PROXY_BASE, String(snap.away_team_logo || snap.teams?.away?.logo || ''));
+        if (homeLogo) ev.home_team_logo = homeLogo;
+        if (awayLogo) ev.away_team_logo = awayLogo;
+        if (homeLogo || awayLogo) {
+          ev.teams = {
+            home: { name: ev.home_team || ev.teams?.home?.name || '', logo: homeLogo || ev.teams?.home?.logo || '' },
+            away: { name: ev.away_team || ev.teams?.away?.name || '', logo: awayLogo || ev.teams?.away?.logo || '' },
+          };
+          ev.home = { ...(ev.home || {}), name: ev.home_team || ev.home?.name || '', logo: homeLogo || ev.home?.logo || '' };
+          ev.away = { ...(ev.away || {}), name: ev.away_team || ev.away?.name || '', logo: awayLogo || ev.away?.logo || '' };
+        }
+
+        try {
+          const sc = typeof snap.score === 'string' ? JSON.parse(String(snap.score || '{}')) : snap.score;
+          if (sc && (sc.home != null || sc.away != null)) {
+            ev.goals = { home: sc.home ?? null, away: sc.away ?? null };
+            ev.score = ev.goals;
+          }
+        } catch { /* empty */ }
+
+        ev.fixture = {
+          ...(ev.fixture || {}),
+          id: ev.external_event_id || ev.id,
+          date: ev.event_date || ev.fixture?.date,
+          status: { ...(ev.fixture?.status || {}), short: st || ev.fixture?.status?.short, long: st || ev.fixture?.status?.long, elapsed: ev.elapsed, timer: (ev as any).timer || '' },
+          timestamp: ev.event_date ? Math.floor(new Date(ev.event_date).getTime() / 1000) : (ev.fixture?.timestamp || 0),
+        };
+      };
 
       const liveSet = new Set<string>();
       for (const ev of live) {
@@ -269,26 +320,29 @@ sports.get('/by-sport', async (c) => {
         const snap = cachedLiveFixtures.get(sp)?.map.get(String(ev.external_event_id || ev.id));
         if (!snap) continue;
         liveSet.add(String(ev.external_event_id || ev.id));
+        applySnap(ev, snap);
+      }
 
-        ev.status = snap.status;
-        ev.elapsed = snap.elapsed;
-        (ev as any).timer = (snap as any).timer || '';
-        ev.score = snap.score;
-        try {
-          const sc = JSON.parse(String(snap.score || '{}'));
-          ev.goals = { home: sc.home ?? null, away: sc.away ?? null };
-          ev.fixture = {
-            ...(ev.fixture || {}),
-            status: { ...(ev.fixture?.status || {}), short: snap.status, long: snap.status, elapsed: snap.elapsed, timer: (snap as any).timer || '' },
-          };
-        } catch { /* empty */ }
+      for (let i = pregame.length - 1; i >= 0; i--) {
+        const ev = pregame[i];
+        const sp = normalizeSport(String(ev.sport || 'soccer'));
+        const snap = cachedLiveFixtures.get(sp)?.map.get(String(ev.external_event_id || ev.id));
+        if (!snap) continue;
+        applySnap(ev, snap);
+        const st = String(ev?.status?.short || ev?.status || ev?.fixture?.status?.short || '').trim();
+        const isLiveStatus = API_LIVE_STATUSES.has(st) || LIVE_STATUSES.has(st);
+        if (Number(ev.is_live) === 1 || isLiveStatus) {
+          pregame.splice(i, 1);
+          live.push(ev);
+          liveSet.add(String(ev.external_event_id || ev.id));
+        }
       }
 
       for (let i = live.length - 1; i >= 0; i--) {
-        const status = String(live[i]?.status || live[i]?.fixture?.status?.short || '').trim();
-        const isLiveStatus = API_LIVE_STATUSES.has(status) || LIVE_STATUSES.has(status);
-        const extId = String(live[i]?.external_event_id || live[i]?.id || '');
-        if (!isLiveStatus && extId && !liveSet.has(extId)) {
+        const st = String(live[i]?.status?.short || live[i]?.status || live[i]?.fixture?.status?.short || '').trim();
+        const isLiveStatus = API_LIVE_STATUSES.has(st) || LIVE_STATUSES.has(st);
+        const isFinished = FINISHED_STATUSES.has(st);
+        if (isFinished || !isLiveStatus) {
           live.splice(i, 1);
         }
       }
@@ -304,37 +358,43 @@ sports.get('/by-sport', async (c) => {
         }
       }
 
+      let perGameFallbacks = 0;
       for (const ev of live) {
         const sp = normalizeSport(String(ev.sport || 'soccer'));
         const rawId = String(ev.external_event_id || ev.id || '').split('_').slice(1).join('_');
         const o = rawId ? cachedLiveOddsBySport.get(sp)?.map.get(rawId) : null;
-        if (!o || !(Number(o.home || 0) > 1)) continue;
 
-        ev.home_odd = o.home;
-        ev.draw_odd = o.draw;
-        ev.away_odd = o.away;
+        if (o && Number(o.home || 0) > 1) {
+          ev.home_odd = o.home;
+          ev.draw_odd = o.draw;
+          ev.away_odd = o.away;
+        } else if (sp !== 'soccer' && rawId && perGameFallbacks < 12) {
+          perGameFallbacks++;
+          const single = await fetchGameOdds(c.env.API_SPORTS_KEY, sp, rawId);
+          if (single && Number(single.home || 0) > 1) {
+            ev.home_odd = single.home;
+            ev.draw_odd = single.draw;
+            ev.away_odd = single.away;
+          } else {
+            continue;
+          }
+        } else {
+          continue;
+        }
 
-        const h2h = Array.isArray(o.markets?.h2h) ? o.markets.h2h : [];
-        if (h2h.length >= 2) {
-          ev.markets = [
-            {
-              id: 'mkt_h2h',
-              key: 'h2h',
-              name: 'Resultado Final',
-              outcomes: h2h,
-              selections: h2h
-                .map((x: any) => {
-                  const v = String(x.value || x.name || x.outcome || '').toLowerCase();
-                  const odd = Number(x.odd ?? x.price ?? x.value ?? 0);
-                  if (!(odd > 1)) return null;
-                  if (v === 'home' || v === '1') return { id: 'sel_home', label: 'Casa', name: 'Casa', odd };
-                  if (v === 'draw' || v === 'x') return { id: 'sel_draw', label: 'Empate', name: 'Empate', odd };
-                  if (v === 'away' || v === '2') return { id: 'sel_away', label: 'Fora', name: 'Fora', odd };
-                  return null;
-                })
-                .filter(Boolean),
-            },
-          ];
+        const existing = Array.isArray(ev.markets) ? ev.markets : [];
+        const hasH2h = existing.some((m: any) => String(m?.key || '') === 'h2h');
+        if (!hasH2h) {
+          const sels: any[] = [];
+          const homeOdd = Number(ev.home_odd || 0);
+          const drawOdd = Number(ev.draw_odd || 0);
+          const awayOdd = Number(ev.away_odd || 0);
+          if (homeOdd > 1) sels.push({ id: 'sel_home', label: 'Casa', name: 'Casa', odd: homeOdd });
+          if (drawOdd > 1) sels.push({ id: 'sel_draw', label: 'Empate', name: 'Empate', odd: drawOdd });
+          if (awayOdd > 1) sels.push({ id: 'sel_away', label: 'Fora', name: 'Fora', odd: awayOdd });
+          if (sels.length >= 2) {
+            ev.markets = [...existing, { id: 'mkt_h2h', key: 'h2h', name: 'Resultado Final', selections: sels, outcomes: sels }];
+          }
         }
       }
 
@@ -374,10 +434,28 @@ sports.get('/by-sport', async (c) => {
   }
 });
 
+sports.get('/media', async (c) => {
+  const url = String(c.req.query('url') || '').trim();
+  if (!url.startsWith('https://media.api-sports.io/')) return c.text('bad url', 400);
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return c.text('not found', 404);
+    const headers = new Headers(res.headers);
+    headers.set('Access-Control-Allow-Origin', '*');
+    headers.set('Cache-Control', 'public, max-age=86400');
+    return new Response(res.body, { status: 200, headers });
+  } catch {
+    return c.text('error', 502);
+  }
+});
+
 sports.get('/:id/odds', async (c) => {
   try {
     const id = c.req.param('id');
     const realtime = String(c.req.query('realtime') || '') === '1';
+    const parts = id.includes('_') ? id.split('_') : [];
+    const sportPrefix = parts.length >= 2 ? parts[0] : 'soccer';
+    const rawIdFromParam = parts.length >= 2 ? parts.slice(1).join('_') : id;
     const row = await c.env.DB
       .prepare('SELECT league, home_team, away_team, event_date, markets, home_odd, draw_odd, away_odd FROM events WHERE external_event_id = ? OR CAST(id AS TEXT) = ? LIMIT 1')
       .bind(id, id)
@@ -397,23 +475,44 @@ sports.get('/:id/odds', async (c) => {
     }
 
     if (realtime && c.env.API_SPORTS_KEY) {
-      const nowMs = Date.now();
-      if (!cachedLiveOdds || cachedLiveOdds.expiresAt <= nowMs) {
-        const map = await fetchLiveOddsForSport(c.env.API_SPORTS_KEY, 'soccer');
-        cachedLiveOdds = { expiresAt: nowMs + 10_000, map };
-      }
-      const rawId = String((row as any).external_event_id || id).split('_').slice(1).join('_');
-      const o = rawId ? cachedLiveOdds.map.get(rawId) : null;
-      if (o && Number(o.home || 0) > 1) {
-        const h2h = Array.isArray(o.markets?.h2h) ? o.markets.h2h : [];
-        return c.json({
-          home_odd: o.home,
-          draw_odd: o.draw,
-          away_odd: o.away,
-          markets: { h2h },
-          updated_at: new Date().toISOString(),
-          provider: 'api-football',
-        });
+      if (sportPrefix === 'soccer') {
+        const nowMs = Date.now();
+        if (!cachedLiveOdds || cachedLiveOdds.expiresAt <= nowMs) {
+          const map = await fetchLiveOddsForSport(c.env.API_SPORTS_KEY, 'soccer');
+          cachedLiveOdds = { expiresAt: nowMs + 10_000, map };
+        }
+        const rawId = rawIdFromParam || String((row as any).external_event_id || id).split('_').slice(1).join('_');
+        const o = rawId ? cachedLiveOdds.map.get(rawId) : null;
+        if (o && Number(o.home || 0) > 1) {
+          const h2h = Array.isArray(o.markets?.h2h) ? o.markets.h2h : [];
+          return c.json({
+            home_odd: o.home,
+            draw_odd: o.draw,
+            away_odd: o.away,
+            markets: { h2h },
+            updated_at: new Date().toISOString(),
+            provider: 'api-sports',
+          });
+        }
+      } else {
+        const odds = await fetchGameOdds(c.env.API_SPORTS_KEY, sportPrefix, rawIdFromParam);
+        if (odds && Number(odds.home || 0) > 1) {
+          const h2h = Array.isArray((odds as any).markets?.h2h) && (odds as any).markets.h2h.length
+            ? (odds as any).markets.h2h
+            : [
+                { value: 'Home', odd: String(odds.home) },
+                ...(Number(odds.draw || 0) > 1 ? [{ value: 'Draw', odd: String(odds.draw) }] : []),
+                { value: 'Away', odd: String(odds.away) },
+              ];
+          return c.json({
+            home_odd: odds.home,
+            draw_odd: odds.draw,
+            away_odd: odds.away,
+            markets: { h2h },
+            updated_at: new Date().toISOString(),
+            provider: 'api-sports',
+          });
+        }
       }
     }
 

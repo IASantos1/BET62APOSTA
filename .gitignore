@@ -8,14 +8,17 @@ yarn-error.log*
 .wrangler/
 .wrangler-local/
 .wrangler-home/
+.wrangler-local-tmp/
 .dev.vars
 
 # Environment
 .env
+.env.*
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
 
 # Editor
 .vscode/
@@ -29,6 +32,7 @@ yarn-error.log*
 # System
 Thumbs.db
 .DS_Store
+Microsoft/Windows/
 
 # Build
 dist/
@@ -43,3 +47,7 @@ logs/
 *.sqlite
 *.db
 temp.sqlite
+tmp_*
+temp_*
+worker_output.txt
+support.status

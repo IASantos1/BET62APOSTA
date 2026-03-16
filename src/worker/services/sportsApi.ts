@@ -288,10 +288,7 @@ export async function fetchGameOdds(
   const cfg = SPORT_CONFIG[sport];
   if (!cfg || !cfg.oddsEndpoint) return null;
   const key = cfg.fixtureKey || 'game';
-  const tryUrls = [
-    `${cfg.base}${cfg.oddsEndpoint}?${key}=${encodeURIComponent(id)}`,
-    `${cfg.base}${cfg.oddsEndpoint}?id=${encodeURIComponent(id)}`,
-  ];
+  const tryUrls = [`${cfg.base}${cfg.oddsEndpoint}?${key}=${encodeURIComponent(id)}`];
 
   for (const url of tryUrls) {
     const data = await apiGet(url, apiKey);
@@ -490,36 +487,8 @@ export async function fetchLiveOdds(apiKey: string): Promise<Map<string, OddsRes
 
 export async function fetchLiveOddsForSport(apiKey: string, sport: string): Promise<Map<string, OddsResult>> {
   if (sport === 'soccer') return fetchLiveOdds(apiKey);
-  const cfg = SPORT_CONFIG[sport];
-  if (!cfg || !cfg.oddsEndpoint) return new Map();
+  return new Map();
 
-  const map = new Map<string, OddsResult>();
-  const data = await apiGet(`${cfg.base}${cfg.oddsEndpoint}/live`, apiKey);
-  if (!data?.response) return map;
-
-  for (const entry of data.response as any[]) {
-    const id = String(entry.game?.id || entry.fixture?.id || entry.id || '');
-    if (!id) continue;
-
-    const oddsArr: any[] = Array.isArray(entry.odds) ? entry.odds : [];
-    if (oddsArr.length > 0) {
-      const parsed = extractOddsFromBets(oddsArr);
-      if (parsed.home > 0) map.set(id, parsed);
-      continue;
-    }
-
-    const bookmakers: any[] = Array.isArray(entry.bookmakers) ? entry.bookmakers : [];
-    for (const bm of bookmakers) {
-      const parsed = extractOddsFromBets(bm?.bets || bm?.odds || []);
-      if (parsed.home > 0) {
-        map.set(id, parsed);
-        break;
-      }
-    }
-  }
-
-  console.log(`[sportsApi] ${sport} live odds: ${map.size} games`);
-  return map;
 }
 
 // ── Public: Pre-game odds by date (football paid: /odds?date=) ───────

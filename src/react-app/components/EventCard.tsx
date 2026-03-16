@@ -1,5 +1,5 @@
 import { OddButton } from '@/react-app/components/OddButton';
-import { useMemo, useState, memo } from 'react';
+import { useMemo, useState, useEffect, memo } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { formatLeagueHeader, abbreviateTeamName, getSportFromLeague, getSportIcon, labelOutcome } from '@/shared/helpers';
@@ -26,6 +26,8 @@ interface EventCardProps {
 export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) { 
   const { darkMode, addNotification, addToBetSlip } = useApp(); 
   const [isHovered, setIsHovered] = useState(false); 
+  const [homeLogoOk, setHomeLogoOk] = useState(true);
+  const [awayLogoOk, setAwayLogoOk] = useState(true);
 
   // Robustly extract event ID (support both structures)
   const eventId = event.id || event.fixture?.id;
@@ -39,6 +41,18 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
   
   const homeTeamLogo = event.home_team_logo || event.teams?.home?.logo || event.logo_home || DEFAULT_LOGO;
   const awayTeamLogo = event.away_team_logo || event.teams?.away?.logo || event.logo_away || DEFAULT_LOGO;
+
+  useEffect(() => {
+    setHomeLogoOk(true);
+    setAwayLogoOk(true);
+  }, [homeTeamLogo, awayTeamLogo]);
+
+  const initials = (name: string) => {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    const a = parts[0]?.[0] || '';
+    const b = parts.length > 1 ? (parts[parts.length - 1]?.[0] || '') : (parts[0]?.[1] || '');
+    return (a + b).toUpperCase();
+  };
   
   const eventLeague = event.league?.name || event.league || 'Unknown League'; // Handle object or string
   const eventSport = event.sport;
@@ -243,7 +257,18 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
           <span className="flex items-center gap-2 w-full">
             <div className="flex items-center gap-2 flex-1 min-w-0 justify-end text-right">
                  <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(homeTeamName)}</span>
-                 <img src={homeTeamLogo} alt={homeTeamName} className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5" onError={(e) => e.currentTarget.style.display = 'none'} />
+                 {homeTeamLogo && homeLogoOk ? (
+                   <img
+                     src={homeTeamLogo}
+                     alt={homeTeamName}
+                     className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5"
+                     onError={() => setHomeLogoOk(false)}
+                   />
+                 ) : (
+                   <div className="w-6 h-6 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold">
+                     {initials(homeTeamName)}
+                   </div>
+                 )}
             </div>
 
            {(() => {
@@ -306,7 +331,18 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
            })()}
            
             <div className="flex items-center gap-2 flex-1 min-w-0 justify-start text-left">
-                 <img src={awayTeamLogo} alt={awayTeamName} className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5" onError={(e) => e.currentTarget.style.display = 'none'} />
+                 {awayTeamLogo && awayLogoOk ? (
+                   <img
+                     src={awayTeamLogo}
+                     alt={awayTeamName}
+                     className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5"
+                     onError={() => setAwayLogoOk(false)}
+                   />
+                 ) : (
+                   <div className="w-6 h-6 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold">
+                     {initials(awayTeamName)}
+                   </div>
+                 )}
                  <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(awayTeamName)}</span>
             </div>
            </span>

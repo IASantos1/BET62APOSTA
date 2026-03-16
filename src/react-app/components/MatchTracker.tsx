@@ -346,17 +346,27 @@ export default function MatchTracker({ darkMode, live, homeName, awayName, leagu
 
   useEffect(() => {
     if (hasRealEvents) {
-        const evs = live.fixture.events.map((e: any, idx: number) => {
-            const isHome = e.team.name === homeName || e.team.id === live?.fixture?.home?.id; // Basic check
-            const typeMap: any = { 'Goal': 'goal', 'Card': 'card', 'subst': 'substitution' };
+        const evs = live.fixture.events
+          .map((e: any, idx: number) => {
+            const teamName = String(e?.team?.name || '').trim();
+            const teamId = e?.team?.id;
+            const isHome = (teamName && teamName === homeName) || (teamId != null && teamId === live?.fixture?.home?.id);
+            const typeMap: any = { Goal: 'goal', Card: 'card', subst: 'substitution' };
+            const elapsed = e?.time?.elapsed ?? e?.elapsed ?? null;
+            const extra = e?.time?.extra ?? e?.extra ?? null;
+            const minute =
+              elapsed != null && elapsed !== ''
+                ? `${elapsed}${extra ? `+${extra}` : ''}'`
+                : '';
             return {
-                id: idx,
-                minute: e.time.elapsed + (e.time.extra ? `+${e.time.extra}` : '') + "'",
-                type: typeMap[e.type] || 'attack',
-                team: isHome ? 'home' : 'away',
-                description: `${e.type} - ${e.player?.name || ''} ${e.detail || ''}`
+              id: idx,
+              minute,
+              type: typeMap[e?.type] || 'attack',
+              team: isHome ? 'home' : 'away',
+              description: `${String(e?.type || '')}${e?.player?.name ? ` - ${e.player.name}` : ''}${e?.detail ? ` ${e.detail}` : ''}`.trim(),
             };
-        }).reverse(); // Newest first
+          })
+          .reverse(); // Newest first
         setGameEvents(evs);
     }
   }, [live, hasRealEvents, homeName]);
