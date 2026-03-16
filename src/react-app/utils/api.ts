@@ -1,20 +1,16 @@
 function resolveApiBase() {
   const raw = import.meta.env.VITE_API_BASE || '';
-  // If explicitly set, use it (overrides local proxy)
-  if (raw && raw.trim() !== '') {
-    return raw.replace(/\/$/, '');
-  }
-
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
-    // Localhost -> Use direct backend URL to avoid Vite proxy issues
-    // Check against localhost, 127.0.0.1, and 0.0.0.0 (though hostname usually doesn't return 0.0.0.0)
     if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
-       return ''; // Use relative path to allow Vite proxy
+      const forceRemote = String(import.meta.env.VITE_FORCE_REMOTE || '') === '1';
+      if (forceRemote && raw && raw.trim() !== '') return raw.replace(/\/$/, '');
+      return '';
     }
-    // Production
+    if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
     return 'https://bet62.workers.dev'; // Update with your real worker URL
   }
+  if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
   return '';
 }
 

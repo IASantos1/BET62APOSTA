@@ -12,6 +12,28 @@ import { fetchLiveFixtures, fetchDateFixtures, LIVE_STATUSES as API_LIVE_STATUSE
 let cachedLiveOdds: { expiresAt: number; map: Map<string, any> } | null = null;
 const cachedLiveFixtures = new Map<string, { expiresAt: number; map: Map<string, any> }>();
 const cachedLiveOddsBySport = new Map<string, { expiresAt: number; map: Map<string, any> }>();
+const cachedGameOdds = new Map<string, { expiresAt: number; odds: any | null }>();
+
+function pruneCache<T extends { expiresAt: number }>(cache: Map<string, T>, nowMs: number, maxSize: number) {
+  if (cache.size === 0) return;
+  if (cache.size <= maxSize) {
+    for (const [k, v] of cache) {
+      if (v.expiresAt <= nowMs) cache.delete(k);
+    }
+    return;
+  }
+  for (const [k, v] of cache) {
+    if (v.expiresAt <= nowMs) cache.delete(k);
+  }
+  if (cache.size <= maxSize) return;
+  const toRemove = cache.size - maxSize;
+  let removed = 0;
+  for (const k of cache.keys()) {
+    cache.delete(k);
+    removed++;
+    if (removed >= toRemove) break;
+  }
+}
 
 const sports = new Hono<{ Bindings: Env }>();
 
@@ -29,6 +51,33 @@ const FINISHED_STATUSES = new Set([
   'FIN', 'FINAL',
   'Finished', 'Match Finished', 'Final', 'Ended', 'NS_CANC', 'CANC',
 ]);
+
+const LIVE_MAX_AGE_MS: Record<string, number> = {
+  soccer: 3.5 * 60 * 60 * 1000,
+  basketball: 3 * 60 * 60 * 1000,
+  'ice-hockey': 4 * 60 * 60 * 1000,
+  handball: 3 * 60 * 60 * 1000,
+  volleyball: 4 * 60 * 60 * 1000,
+  rugby: 3.5 * 60 * 60 * 1000,
+  'american-football': 5 * 60 * 60 * 1000,
+  baseball: 6 * 60 * 60 * 1000,
+  tennis: 8 * 60 * 60 * 1000,
+};
+
+function isStaleLiveEvent(ev: any, nowMs: number): boolean {
+  const sp = normalizeSport(String(ev?.sport || 'soccer'));
+  const maxAge = LIVE_MAX_AGE_MS[sp] ?? (6 * 60 * 60 * 1000);
+  const rawDate = ev?.event_date || ev?.fixture?.date;
+  if (!rawDate) return false;
+  const startMs = new Date(rawDate).getTime();
+  if (!Number.isFinite(startMs) || startMs <= 0) return false;
+  const ageMs = nowMs - startMs;
+  if (ageMs <= 0) return false;
+  if (ageMs > maxAge) return true;
+  const elapsed = Number(ev?.elapsed ?? ev?.fixture?.status?.elapsed ?? NaN);
+  if (sp === 'soccer' && Number.isFinite(elapsed) && elapsed >= 120) return true;
+  return false;
+}
 
 const SPORT_ALIASES: Record<string, string> = {
   football:           'soccer',
@@ -195,6 +244,7 @@ sports.get('/by-sport', async (c) => {
     const wantsOdds = include.split(',').map((s) => s.trim()).includes('odds');
     const realtime = String(c.req.query('realtime') || '') === '1';
     const nowMs = Date.now();
+    pruneCache(cachedGameOdds, nowMs, 600);
 
     let query = `
       SELECT *
@@ -259,6 +309,7 @@ sports.get('/by-sport', async (c) => {
       const sportsToFetch = Array.from(
         new Set([...live, ...pregame].map((e) => normalizeSport(String(e.sport || 'soccer')))),
       ).slice(0, 6);
+      const fetchedSports = new Set(sportsToFetch);
 
       for (const sp of sportsToFetch) {
         const cached = cachedLiveFixtures.get(sp);
@@ -269,7 +320,7 @@ sports.get('/by-sport', async (c) => {
           }
           const map = new Map<string, any>();
           for (const e of list) map.set(e.external_event_id, e);
-          cachedLiveFixtures.set(sp, { expiresAt: nowMs + 10_000, map });
+          cachedLiveFixtures.set(sp, { expiresAt: nowMs + 30_000, map });
         }
       }
 
@@ -343,7 +394,17 @@ sports.get('/by-sport', async (c) => {
         const st = String(live[i]?.status?.short || live[i]?.status || live[i]?.fixture?.status?.short || '').toUpperCase().trim();
         const isLiveStatus = API_LIVE_STATUSES.has(st) || LIVE_STATUSES.has(st);
         const isFinished = FINISHED_STATUSES.has(st);
-        if (isFinished || !isLiveStatus) {
+        const extId = String(live[i]?.external_event_id || live[i]?.id || '');
+        const sp = normalizeSport(String(live[i]?.sport || 'soccer'));
+        if (extId && fetchedSports.has(sp) && !liveSet.has(extId)) {
+          live.splice(i, 1);
+        } else if (isFinished || !isLiveStatus) {
+          live.splice(i, 1);
+        }
+      }
+
+      for (let i = live.length - 1; i >= 0; i--) {
+        if (isStaleLiveEvent(live[i], nowMs)) {
           live.splice(i, 1);
         }
       }
@@ -355,7 +416,7 @@ sports.get('/by-sport', async (c) => {
         const cached = cachedLiveOddsBySport.get(sp);
         if (!cached || cached.expiresAt <= nowMs) {
           const map = await fetchLiveOddsForSport(c.env.API_SPORTS_KEY, sp);
-          cachedLiveOddsBySport.set(sp, { expiresAt: nowMs + 10_000, map });
+          cachedLiveOddsBySport.set(sp, { expiresAt: nowMs + 30_000, map });
         }
       }
 
@@ -370,8 +431,11 @@ sports.get('/by-sport', async (c) => {
           ev.draw_odd = o.draw;
           ev.away_odd = o.away;
         } else if (sp !== 'soccer' && rawId && perGameFallbacks < 12) {
+          const cacheKey = `${sp}:${rawId}`;
+          const cached = cachedGameOdds.get(cacheKey);
+          const single = cached && cached.expiresAt > nowMs ? cached.odds : await fetchGameOdds(c.env.API_SPORTS_KEY, sp, rawId);
+          if (!cached || cached.expiresAt <= nowMs) cachedGameOdds.set(cacheKey, { expiresAt: nowMs + 30_000, odds: single });
           perGameFallbacks++;
-          const single = await fetchGameOdds(c.env.API_SPORTS_KEY, sp, rawId);
           if (single && Number(single.home || 0) > 1) {
             ev.home_odd = single.home;
             ev.draw_odd = single.draw;
