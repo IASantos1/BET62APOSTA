@@ -26,6 +26,7 @@ const LIVE_STATUSES = new Set([
 const FINISHED_STATUSES = new Set([
   'FT', 'AET', 'PEN', 'AWD', 'WO', 'ABD',
   'FT_PEN', 'AOT', 'AP', 'POST', 'SUSP', 'TBD',
+  'FIN', 'FINAL',
   'Finished', 'Match Finished', 'Final', 'Ended', 'NS_CANC', 'CANC',
 ]);
 
@@ -202,7 +203,7 @@ sports.get('/by-sport', async (c) => {
         (is_live = 1 AND event_date > datetime('now', '-5 hours'))
         OR event_date BETWEEN datetime('now', '-1 hours') AND datetime('now', '+7 days')
       )
-      AND status NOT IN ('FT','AET','PEN','AWD','WO','ABD','Finished','Match Finished','Final','Ended','AOT','AP','POST','SUSP','CANC','TBD')
+      AND status NOT IN ('FT','AET','PEN','AWD','WO','ABD','FIN','FINAL','Finished','Match Finished','Final','Ended','AOT','AP','POST','SUSP','CANC','TBD','FT_PEN','NS_CANC')
       AND league NOT IN ('Test League','Test','Debug League','Copa Alagoas')
       AND league NOT LIKE 'Test%'
       AND lower(league) NOT LIKE '%serie c%'
@@ -273,7 +274,7 @@ sports.get('/by-sport', async (c) => {
       }
 
       const applySnap = (ev: any, snap: any) => {
-        const st = String(snap?.status || snap?.fixture?.status?.short || '').trim();
+        const st = String(snap?.status || snap?.fixture?.status?.short || '').toUpperCase().trim();
         const isLiveStatus = API_LIVE_STATUSES.has(st) || LIVE_STATUSES.has(st);
         const isFinished = FINISHED_STATUSES.has(st);
         if (isLiveStatus) ev.is_live = 1;
@@ -329,7 +330,7 @@ sports.get('/by-sport', async (c) => {
         const snap = cachedLiveFixtures.get(sp)?.map.get(String(ev.external_event_id || ev.id));
         if (!snap) continue;
         applySnap(ev, snap);
-        const st = String(ev?.status?.short || ev?.status || ev?.fixture?.status?.short || '').trim();
+        const st = String(ev?.status?.short || ev?.status || ev?.fixture?.status?.short || '').toUpperCase().trim();
         const isLiveStatus = API_LIVE_STATUSES.has(st) || LIVE_STATUSES.has(st);
         if (Number(ev.is_live) === 1 || isLiveStatus) {
           pregame.splice(i, 1);
@@ -339,7 +340,7 @@ sports.get('/by-sport', async (c) => {
       }
 
       for (let i = live.length - 1; i >= 0; i--) {
-        const st = String(live[i]?.status?.short || live[i]?.status || live[i]?.fixture?.status?.short || '').trim();
+        const st = String(live[i]?.status?.short || live[i]?.status || live[i]?.fixture?.status?.short || '').toUpperCase().trim();
         const isLiveStatus = API_LIVE_STATUSES.has(st) || LIVE_STATUSES.has(st);
         const isFinished = FINISHED_STATUSES.has(st);
         if (isFinished || !isLiveStatus) {

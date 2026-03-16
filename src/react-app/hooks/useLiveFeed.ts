@@ -21,8 +21,8 @@ const parseLiveEvent = (item: any) => {
     if (!item) return null;
 
     // Safety: Hide Finished/Abnormal statuses from Live Feed
-    const status = item.fixture?.status?.short || item.status?.short || item.status;
-    if (['FT', 'AET', 'PEN', 'Finished', 'Match Finished', 'AOT', 'AP', 'Ended', 'Final', 'WO', 'ABD', 'AWD'].includes(status)) {
+    const status = String(item.fixture?.status?.short || item.status?.short || item.status || '').toUpperCase().trim();
+    if (['FT', 'AET', 'PEN', 'FT_PEN', 'FIN', 'FINAL', 'ENDED', 'AOT', 'AP', 'POST', 'SUSP', 'TBD', 'WO', 'ABD', 'AWD', 'CANC', 'NS_CANC'].includes(status)) {
         return null;
     }
     

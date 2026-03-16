@@ -248,9 +248,15 @@ export function useSportsEvents(category: string | null) {
 
           const isGameActive = (e: Event) => {
              const status = e.status;
-             const s = (typeof status === 'object' && status !== null) ? (status as any).short : status;
+             const sRaw = (typeof status === 'object' && status !== null) ? (status as any).short : status;
+             const s = String(sRaw || '').toUpperCase().trim();
              if (!s) return true;
-             return !['FT', 'AET', 'PEN', 'PST', 'CANC', 'ABD', 'WO', 'AWARDED'].includes(s);
+             return ![
+               'FT', 'AET', 'PEN', 'FT_PEN',
+               'FIN', 'FINAL', 'ENDED', 'FIM',
+               'PST', 'POST', 'CANC', 'CANCELLED', 'CANCELED',
+               'ABD', 'ABANDONED', 'WO', 'AWD', 'AWARDED',
+             ].includes(s);
           };
           
           liveEvents = liveEvents.filter(isGameActive);
@@ -277,9 +283,15 @@ export function useSportsEvents(category: string | null) {
             
             const isGameActive = (e: Event) => {
                 const status = e.status;
-                const s = (typeof status === 'object' && status !== null) ? (status as any).short : status;
+                const sRaw = (typeof status === 'object' && status !== null) ? (status as any).short : status;
+                const s = String(sRaw || '').toUpperCase().trim();
                 if (!s) return true;
-                return !['FT', 'AET', 'PEN', 'PST', 'CANC', 'ABD', 'WO', 'AWARDED'].includes(s);
+                return ![
+                  'FT', 'AET', 'PEN', 'FT_PEN',
+                  'FIN', 'FINAL', 'ENDED', 'FIM',
+                  'PST', 'POST', 'CANC', 'CANCELLED', 'CANCELED',
+                  'ABD', 'ABANDONED', 'WO', 'AWD', 'AWARDED',
+                ].includes(s);
             };
 
             const activeLive = dedupedLive.filter(isGameActive);
