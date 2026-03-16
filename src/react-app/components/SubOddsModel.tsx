@@ -149,7 +149,12 @@ export function SubOddsModel({
   // --- Lógica de Odds Principais (Legado/Core) ---
 
   const h2hInternalItems = useMemo(() => {
-    const raw = (eventOdds && (eventOdds as any)['h2h']) || (eventOdds && (eventOdds as any)['h2h_3_way']);
+    const raw =
+      (eventOdds && (eventOdds as any)['h2h']) ||
+      (eventOdds && (eventOdds as any)['h2h_3_way']) ||
+      (eventOdds && (eventOdds as any)['main']) ||
+      (eventOdds && (eventOdds as any)['1x2']) ||
+      (eventOdds && (eventOdds as any)['match_winner']);
     const list = Array.isArray(raw) ? raw : (raw?.outcomes || raw?.values || []);
     const isSuspended = raw?.suspended === true || raw?.status === 'suspended';
     
@@ -269,6 +274,10 @@ export function SubOddsModel({
   // --- Renderização Dinâmica por Grupos ---
 
   const renderMarketContent = (key: string) => {
+      if (key !== 'h2h' && ['h2h_3_way', '1x2', 'main', 'match_winner'].includes(key)) {
+          if (resultadoRegulamentar.length > 0) return null;
+      }
+
       // 1. H2H
       if (key === 'h2h') {
           if (resultadoRegulamentar.length === 0) return null;
