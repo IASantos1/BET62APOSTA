@@ -6,11 +6,12 @@
 import { Hono } from 'hono';
 import { Env } from '../shared/types';
 import { fetchOddsApiEvents, fetchOddsApiMarketsForFixture, matchOddsEvent } from './services/oddsApi';
-import { fetchLiveOdds } from './services/sportsApi';
+import { fetchLiveOddsForSport } from './services/sportsApi';
 import { fetchLiveFixtures, fetchDateFixtures, LIVE_STATUSES as API_LIVE_STATUSES } from './services/sportsApi';
 
 let cachedLiveOdds: { expiresAt: number; map: Map<string, any> } | null = null;
 const cachedLiveFixtures = new Map<string, { expiresAt: number; map: Map<string, any> }>();
+const cachedLiveOddsBySport = new Map<string, { expiresAt: number; map: Map<string, any> }>();
 
 const sports = new Hono<{ Bindings: Env }>();
 
@@ -293,68 +294,74 @@ sports.get('/by-sport', async (c) => {
       }
     }
 
-    if (realtime && wantsOdds && c.env.ODDS_API_KEY && (sport === 'soccer' || isAll) && live.length > 0) {
-      if (c.env.API_SPORTS_KEY) {
-        if (!cachedLiveOdds || cachedLiveOdds.expiresAt <= nowMs) {
-          const map = await fetchLiveOdds(c.env.API_SPORTS_KEY);
-          cachedLiveOdds = { expiresAt: nowMs + 10_000, map };
-        }
-
-        for (const ev of live) {
-          const rawId = String(ev.external_event_id || ev.id || '').split('_').slice(1).join('_');
-          const o = rawId ? cachedLiveOdds.map.get(rawId) : null;
-          if (o && Number(o.home || 0) > 1) {
-            ev.home_odd = o.home;
-            ev.draw_odd = o.draw;
-            ev.away_odd = o.away;
-            const h2h = Array.isArray(o.markets?.h2h) ? o.markets.h2h : [];
-            if (h2h.length >= 2) {
-              ev.markets = [
-                {
-                  id: 'mkt_h2h',
-                  key: 'h2h',
-                  name: 'Resultado Final',
-                  outcomes: h2h,
-                  selections: h2h
-                    .map((x: any) => {
-                      const v = String(x.value || x.name || x.outcome || '').toLowerCase();
-                      const odd = Number(x.odd ?? x.price ?? x.value ?? 0);
-                      if (!(odd > 1)) return null;
-                      if (v === 'home') return { id: 'sel_home', label: 'Casa', name: 'Casa', odd };
-                      if (v === 'draw') return { id: 'sel_draw', label: 'Empate', name: 'Empate', odd };
-                      if (v === 'away') return { id: 'sel_away', label: 'Fora', name: 'Fora', odd };
-                      return null;
-                    })
-                    .filter(Boolean),
-                },
-              ];
-            }
-          }
+    if (realtime && wantsOdds && c.env.API_SPORTS_KEY && live.length > 0) {
+      const liveSportsForOdds = Array.from(new Set(live.map((e) => normalizeSport(String(e.sport || 'soccer'))))).slice(0, 4);
+      for (const sp of liveSportsForOdds) {
+        const cached = cachedLiveOddsBySport.get(sp);
+        if (!cached || cached.expiresAt <= nowMs) {
+          const map = await fetchLiveOddsForSport(c.env.API_SPORTS_KEY, sp);
+          cachedLiveOddsBySport.set(sp, { expiresAt: nowMs + 10_000, map });
         }
       }
 
-      const oddsEvents = await fetchOddsApiEvents(
-        c.env.ODDS_API_KEY,
-        'soccer',
-        1,
-        c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
-        'live',
-        Math.min(20, live.length * 3),
-        3,
-      );
-
       for (const ev of live) {
-        const best = matchOddsEvent(
-          { league: String(ev.league || ''), home: String(ev.home_team || ''), away: String(ev.away_team || ''), kickoff: String(ev.event_date || '') },
-          oddsEvents,
-          70,
+        const sp = normalizeSport(String(ev.sport || 'soccer'));
+        const rawId = String(ev.external_event_id || ev.id || '').split('_').slice(1).join('_');
+        const o = rawId ? cachedLiveOddsBySport.get(sp)?.map.get(rawId) : null;
+        if (!o || !(Number(o.home || 0) > 1)) continue;
+
+        ev.home_odd = o.home;
+        ev.draw_odd = o.draw;
+        ev.away_odd = o.away;
+
+        const h2h = Array.isArray(o.markets?.h2h) ? o.markets.h2h : [];
+        if (h2h.length >= 2) {
+          ev.markets = [
+            {
+              id: 'mkt_h2h',
+              key: 'h2h',
+              name: 'Resultado Final',
+              outcomes: h2h,
+              selections: h2h
+                .map((x: any) => {
+                  const v = String(x.value || x.name || x.outcome || '').toLowerCase();
+                  const odd = Number(x.odd ?? x.price ?? x.value ?? 0);
+                  if (!(odd > 1)) return null;
+                  if (v === 'home' || v === '1') return { id: 'sel_home', label: 'Casa', name: 'Casa', odd };
+                  if (v === 'draw' || v === 'x') return { id: 'sel_draw', label: 'Empate', name: 'Empate', odd };
+                  if (v === 'away' || v === '2') return { id: 'sel_away', label: 'Fora', name: 'Fora', odd };
+                  return null;
+                })
+                .filter(Boolean),
+            },
+          ];
+        }
+      }
+
+      if (c.env.ODDS_API_KEY && (sport === 'soccer' || isAll)) {
+        const oddsEvents = await fetchOddsApiEvents(
+          c.env.ODDS_API_KEY,
+          'soccer',
+          1,
+          c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
+          'live',
+          Math.min(20, live.length * 3),
+          3,
         );
-        if (best && best.home_odd > 1) {
-          ev.home_odd = best.home_odd;
-          ev.draw_odd = best.draw_odd;
-          ev.away_odd = best.away_odd;
-          if (best.markets && best.markets.length > 0) {
-            ev.markets = best.markets;
+
+        for (const ev of live) {
+          const best = matchOddsEvent(
+            { league: String(ev.league || ''), home: String(ev.home_team || ''), away: String(ev.away_team || ''), kickoff: String(ev.event_date || '') },
+            oddsEvents,
+            70,
+          );
+          if (best && best.home_odd > 1) {
+            ev.home_odd = best.home_odd;
+            ev.draw_odd = best.draw_odd;
+            ev.away_odd = best.away_odd;
+            if (best.markets && best.markets.length > 0) {
+              ev.markets = best.markets;
+            }
           }
         }
       }
@@ -392,7 +399,7 @@ sports.get('/:id/odds', async (c) => {
     if (realtime && c.env.API_SPORTS_KEY) {
       const nowMs = Date.now();
       if (!cachedLiveOdds || cachedLiveOdds.expiresAt <= nowMs) {
-        const map = await fetchLiveOdds(c.env.API_SPORTS_KEY);
+        const map = await fetchLiveOddsForSport(c.env.API_SPORTS_KEY, 'soccer');
         cachedLiveOdds = { expiresAt: nowMs + 10_000, map };
       }
       const rawId = String((row as any).external_event_id || id).split('_').slice(1).join('_');
