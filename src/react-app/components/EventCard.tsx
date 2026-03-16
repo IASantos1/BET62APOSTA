@@ -73,8 +73,23 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
   }, [event.event_date]);
 
+  const isLiveEvent = useMemo(() => {
+    if (Number(event?.is_live || 0) === 1) return true;
+    const status = String(event?.status ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
+    const liveStatuses = new Set([
+      '1H', '2H', 'HT', 'ET', 'BT', 'P', 'LIVE',
+      'Q1', 'Q2', 'Q3', 'Q4', 'OT',
+      'P1', 'P2', 'P3',
+      'S1', 'S2', 'S3', 'S4', 'S5',
+      'IN', 'IN1', 'IN2', 'IN3', 'IN4', 'IN5', 'IN6', 'IN7', 'IN8', 'IN9',
+      'IN_PROGRESS',
+    ]);
+    return liveStatuses.has(status);
+  }, [event]);
+
   // Game Timer Logic (simplified)
   const gameTime = useMemo(() => {
+      if (!isLiveEvent) return undefined;
       // Direct access from event props
       const elapsed = event.elapsed ?? event.fixture?.status?.elapsed ?? (event.fixture as any)?.elapsed;
       if (elapsed !== undefined && elapsed !== null) return elapsed;
@@ -89,7 +104,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
       if (status === 'P') return 'PEN';
       
       return undefined;
-  }, [event]);
+  }, [event, isLiveEvent]);
 
   const cleanTeam = (s: string) => {
     const raw = String(s || '');
@@ -205,7 +220,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                     {country && <span className="opacity-70 font-normal hidden sm:inline">· {country}</span>}
                     
                     <div className="flex items-center gap-1 ml-1 pl-1 border-l border-gray-300 dark:border-gray-600">
-                         {(gameTime !== undefined && gameTime !== null) && (
+                         {(gameTime !== undefined && gameTime !== null) && isLiveEvent && (
                             <span className="text-red-600 font-bold animate-pulse text-[10px] uppercase border border-red-600/30 px-1 rounded bg-red-600/5 mr-1">
                                 {gameTime}{typeof gameTime === 'number' || !isNaN(Number(gameTime)) ? "'" : ''}
                             </span>
@@ -248,12 +263,12 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
              let awayScore = formatScore(rawAway);
 
              // Force 0-0 for live events if scores are missing
-             if (event.is_live === 1) {
+             if (isLiveEvent) {
                 if (homeScore === undefined) homeScore = 0;
                 if (awayScore === undefined) awayScore = 0;
              }
              
-             if (homeScore !== undefined && awayScore !== undefined) {
+             if (isLiveEvent && homeScore !== undefined && awayScore !== undefined) {
                  return (
                     <span className="text-sm font-bold text-red-600 animate-pulse shrink-0 px-2">
                         {homeScore}-{awayScore}
@@ -261,7 +276,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                  );
              }
              
-             if (event.is_live === 1 && event.score) {
+             if (isLiveEvent && event.score) {
                  let displayScore = event.score;
                  
                  // Try to parse JSON string score (e.g. {"home":1,"away":0})

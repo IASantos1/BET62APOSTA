@@ -115,6 +115,36 @@ const Field2D = ({ ball, trail, attackSide, darkMode }: { ball: {x: number, y: n
   )
 }
 
+const Court2D = ({ darkMode }: { darkMode: boolean }) => {
+  return (
+    <div className={`relative w-full h-48 md:h-56 overflow-hidden shadow-inner border-y ${darkMode ? 'border-gray-800' : 'border-black/10'}`}>
+      <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, #b45309 0%, #d97706 50%, #b45309 100%)' }} />
+      <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'repeating-linear-gradient(90deg, rgba(0,0,0,0.12) 0, rgba(0,0,0,0.12) 2px, transparent 2px, transparent 24px)' }} />
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/50 -translate-x-1/2" />
+        <div className="absolute left-1/2 top-1/2 w-24 h-24 border-2 border-white/50 rounded-full -translate-x-1/2 -translate-y-1/2" />
+        <div className="absolute left-0 top-1/2 w-20 h-32 border-r-2 border-t-2 border-b-2 border-white/50 -translate-y-1/2" />
+        <div className="absolute right-0 top-1/2 w-20 h-32 border-l-2 border-t-2 border-b-2 border-white/50 -translate-y-1/2" />
+        <div className="absolute left-4 top-1/2 w-10 h-10 border-2 border-white/50 rounded-full -translate-y-1/2" />
+        <div className="absolute right-4 top-1/2 w-10 h-10 border-2 border-white/50 rounded-full -translate-y-1/2" />
+      </div>
+    </div>
+  )
+}
+
+const Rink2D = ({ darkMode }: { darkMode: boolean }) => {
+  return (
+    <div className={`relative w-full h-48 md:h-56 overflow-hidden shadow-inner border-y ${darkMode ? 'border-gray-800' : 'border-black/10'}`}>
+      <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, #e5e7eb 0%, #f8fafc 100%)' }} />
+      <div className="absolute inset-3 border-2 border-red-500/40 rounded-[28px]" />
+      <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-red-500/40 -translate-x-1/2" />
+      <div className="absolute left-1/2 top-1/2 w-24 h-24 border-2 border-blue-500/40 rounded-full -translate-x-1/2 -translate-y-1/2" />
+      <div className={`absolute left-3 top-1/2 w-16 h-24 border-2 rounded-[20px] -translate-y-1/2 ${darkMode ? 'border-blue-500/35' : 'border-blue-500/30'}`} />
+      <div className={`absolute right-3 top-1/2 w-16 h-24 border-2 rounded-[20px] -translate-y-1/2 ${darkMode ? 'border-blue-500/35' : 'border-blue-500/30'}`} />
+    </div>
+  )
+}
+
 const MomentumBar = ({ value, darkMode }: { value: number, darkMode: boolean }) => {
   // value 0-100 (50 is neutral, <50 home pressure, >50 away pressure)
   return (
@@ -252,7 +282,22 @@ export default function MatchTracker({ darkMode, live, homeName, awayName, leagu
   // --- Formatting ---
   const home = useMemo(() => abbreviateTeamName(homeName || 'Casa'), [homeName])
   const away = useMemo(() => abbreviateTeamName(awayName || 'Fora'), [awayName])
-  const time = useMemo(() => live?.minute ? `${live.minute}'` : '00:00', [live])
+  const time = useMemo(() => {
+    const timerRaw = String(live?.timer || live?.fixture?.status?.timer || '').trim()
+    if (timerRaw) {
+      if (timerRaw.includes(':')) return timerRaw
+      const n = Number(timerRaw)
+      if (Number.isFinite(n) && n >= 0) {
+        const mm = String(Math.floor(n)).padStart(2, '0')
+        return `${mm}:00`
+      }
+    }
+    const minute = live?.minute
+    if (minute != null && minute !== '') return `${minute}'`
+    const elapsed = live?.elapsed ?? live?.fixture?.status?.elapsed
+    if (typeof elapsed === 'number' && elapsed > 0) return `${elapsed}'`
+    return '—'
+  }, [live])
   const score = useMemo(() => {
     if (!live) return '0-0';
     if (typeof live.score === 'string') return live.score;
@@ -268,10 +313,11 @@ export default function MatchTracker({ darkMode, live, homeName, awayName, leagu
   }, [live])
   
   const status = useMemo(() => {
-    const s = String(live?.status || '').toUpperCase()
-    if (s === 'HT' || s === 'INT') return 'INTERVALO'
-    if (s === 'FT' || s === 'FIN') return 'FINAL'
-    return 'AO VIVO'
+    const s = String(live?.fixture?.status?.short || live?.status || '').toUpperCase().trim()
+    if (!s) return 'AO VIVO'
+    if (s === 'HT' || s === 'INT' || s === 'BT') return 'INTERVALO'
+    if (s === 'FT' || s === 'FIN' || s === 'FINAL') return 'FINAL'
+    return s
   }, [live])
 
   // --- Real Data Integration ---
@@ -378,6 +424,11 @@ export default function MatchTracker({ darkMode, live, homeName, awayName, leagu
   }, [live, home, away, hasRealEvents, hasRealStats]) 
   */
 
+  const sportKey = String(sportName || '').toLowerCase()
+  const isBasketball = sportKey.includes('basquet') || sportKey.includes('basket')
+  const isHockey = sportKey.includes('hóquei') || sportKey.includes('hockey')
+  const isSoccer = sportKey.includes('futebol') || sportKey.includes('soccer')
+
   return (
     <div className={`w-full max-w-2xl mx-auto overflow-hidden rounded-xl shadow-lg relative ${darkMode ? 'bg-gray-900' : 'bg-gray-100'}`}>
       {/* Goal Overlay Removed */}
@@ -385,12 +436,35 @@ export default function MatchTracker({ darkMode, live, homeName, awayName, leagu
       <MatchHeader league={leagueName} sport={sportName} status={status} darkMode={darkMode} />
       
       <Scoreboard home={home} away={away} score={score} time={time} darkMode={darkMode} />
-      
-      <Field2D ball={ball} trail={trail} attackSide={attackSide} darkMode={darkMode} />
+      {isBasketball ? (
+        <Court2D darkMode={darkMode} />
+      ) : isHockey ? (
+        <Rink2D darkMode={darkMode} />
+      ) : (
+        <Field2D ball={ball} trail={trail} attackSide={attackSide} darkMode={darkMode} />
+      )}
       
       <MomentumBar value={pressure} darkMode={darkMode} />
       
-      <MatchStats stats={stats} darkMode={darkMode} />
+      {isSoccer ? (
+        <MatchStats stats={stats} darkMode={darkMode} />
+      ) : (
+        <div className={`px-4 py-4 border-b ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+          <h4 className={`text-xs font-bold uppercase mb-3 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Estatísticas</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+            <div className={`${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+              {(live?.fixture?.stats?.[0]?.statistics || []).slice(0, 8).map((s: any, i: number) => (
+                <p key={`hs-${i}`}>{String(s.type || '')}: {typeof s.value === 'number' ? s.value : String(s.value ?? '')}</p>
+              ))}
+            </div>
+            <div className={`${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+              {(live?.fixture?.stats?.[1]?.statistics || []).slice(0, 8).map((s: any, i: number) => (
+                <p key={`as-${i}`}>{String(s.type || '')}: {typeof s.value === 'number' ? s.value : String(s.value ?? '')}</p>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       
       <MatchTimeline events={gameEvents} darkMode={darkMode} />
     </div>

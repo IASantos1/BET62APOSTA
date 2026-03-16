@@ -98,7 +98,7 @@ export default function EventDetails() {
     return () => ac.abort();
   }, [id]);
 
-  // --- Fetch Live Stats (polling every 60s when live) ---
+  // --- Fetch Live Stats (polling when live) ---
   useEffect(() => {
     if (!id) return;
     let timer: ReturnType<typeof setTimeout>;
@@ -115,7 +115,8 @@ export default function EventDetails() {
     fetchStats();
     const isLive = displayEvent?.is_live === 1 || (typeof displayEvent?.status === 'object' ? ['1H','2H','HT','ET','P'].includes(displayEvent?.status?.short) : false);
     if (isLive) {
-      timer = setInterval(fetchStats, 60000);
+      const intervalMs = String(displayEvent?.sport || '').toLowerCase() === 'soccer' ? 60000 : 15000;
+      timer = setInterval(fetchStats, intervalMs);
     }
     return () => clearInterval(timer);
   }, [id, displayEvent?.is_live]);
@@ -140,6 +141,18 @@ export default function EventDetails() {
 
   const statusShort = typeof displayEvent.status === 'object' ? displayEvent.status?.short : displayEvent.status;
   const isLive = statusShort === 'LIVE' || displayEvent.is_live === 1;
+  const liveTimerRaw = String((displayEvent as any)?.timer || displayEvent?.fixture?.status?.timer || '').trim();
+  const liveTimer = liveTimerRaw
+    ? (liveTimerRaw.includes(':')
+        ? liveTimerRaw
+        : (() => {
+            const n = Number(liveTimerRaw);
+            if (!Number.isFinite(n) || n < 0) return '';
+            const mm = String(Math.floor(n)).padStart(2, '0');
+            return `${mm}:00`;
+          })())
+    : '';
+  const liveElapsed = Number((displayEvent as any)?.elapsed ?? displayEvent?.fixture?.status?.elapsed ?? 0) || 0;
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'}`}>
@@ -193,7 +206,9 @@ export default function EventDetails() {
                    {isLive && ( 
                      <div className="text-sm md:text-lg text-white/90 mt-1 flex items-center justify-center gap-2"> 
                        <span className="font-din font-bold bg-black/30 px-2 py-0.5 rounded">{statusShort || displayEvent.fixture?.status?.short}</span>
-                       <span className="font-din font-bold bg-red-600 px-2 py-0.5 rounded">{displayEvent.elapsed || displayEvent.fixture?.status?.elapsed ? `${displayEvent.elapsed || displayEvent.fixture.status.elapsed}'` : ''}</span> 
+                       <span className="font-din font-bold bg-red-600 px-2 py-0.5 rounded">
+                         {liveTimer || (liveElapsed > 0 ? `${liveElapsed}'` : '')}
+                       </span> 
                        {isLive && <span className="ml-1 flex h-2 w-2 relative" title="A receber actualizações">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>

@@ -7,7 +7,7 @@ import { Hono } from 'hono';
 import { Env } from '../shared/types';
 import { fetchOddsApiEvents, fetchOddsApiMarketsForFixture, matchOddsEvent } from './services/oddsApi';
 import { fetchLiveOddsForSport } from './services/sportsApi';
-import { fetchLiveFixtures, fetchDateFixtures, LIVE_STATUSES as API_LIVE_STATUSES } from './services/sportsApi';
+import { fetchLiveFixtures, fetchDateFixtures, LIVE_STATUSES as API_LIVE_STATUSES, SPORT_CONFIG } from './services/sportsApi';
 
 let cachedLiveOdds: { expiresAt: number; map: Map<string, any> } | null = null;
 const cachedLiveFixtures = new Map<string, { expiresAt: number; map: Map<string, any> }>();
@@ -503,19 +503,31 @@ sports.get('/:id/stats', async (c) => {
       .bind(id, id)
       .first() as any;
     const extId = row?.external_event_id || id;
-    const fixtureId = extId.includes('_') ? extId.split('_').slice(1).join('_') : extId;
+    const parts = extId.includes('_') ? extId.split('_') : [];
+    const sport = parts.length >= 2 ? parts[0] : 'soccer';
+    const fixtureId = parts.length >= 2 ? parts.slice(1).join('_') : extId;
 
     const headers = {
       'x-apisports-key': apiKey,
       'Accept': 'application/json',
     };
-    const base = 'https://v3.football.api-sports.io';
+    const cfg = SPORT_CONFIG[sport] || SPORT_CONFIG['soccer'];
+    const base = cfg.base;
+    const key = cfg.fixtureKey || 'fixture';
+    const statsUrl = sport === 'soccer'
+      ? `${base}/fixtures/statistics?fixture=${fixtureId}`
+      : `${base}${cfg.endpoint}/statistics?${key}=${fixtureId}`;
+    const eventsUrl = sport === 'soccer'
+      ? `${base}/fixtures/events?fixture=${fixtureId}`
+      : `${base}${cfg.endpoint}/events?${key}=${fixtureId}`;
+    const lineupsUrl = `${base}/fixtures/lineups?fixture=${fixtureId}`;
+    const playersUrl = `${base}/fixtures/players?fixture=${fixtureId}`;
 
     const [statsRes, eventsRes, lineupsRes, playersRes] = await Promise.allSettled([
-      fetch(`${base}/fixtures/statistics?fixture=${fixtureId}`, { headers, signal: AbortSignal.timeout(8000) }),
-      fetch(`${base}/fixtures/events?fixture=${fixtureId}`, { headers, signal: AbortSignal.timeout(8000) }),
-      fetch(`${base}/fixtures/lineups?fixture=${fixtureId}`, { headers, signal: AbortSignal.timeout(8000) }),
-      fetch(`${base}/fixtures/players?fixture=${fixtureId}`, { headers, signal: AbortSignal.timeout(8000) }),
+      fetch(statsUrl, { headers, signal: AbortSignal.timeout(8000) }),
+      fetch(eventsUrl, { headers, signal: AbortSignal.timeout(8000) }),
+      sport === 'soccer' ? fetch(lineupsUrl, { headers, signal: AbortSignal.timeout(8000) }) : Promise.reject(null),
+      sport === 'soccer' ? fetch(playersUrl, { headers, signal: AbortSignal.timeout(8000) }) : Promise.reject(null),
     ]);
 
     const statsData = statsRes.status === 'fulfilled' && statsRes.value.ok

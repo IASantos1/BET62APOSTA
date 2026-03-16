@@ -28,7 +28,7 @@ const app = new Hono<{ Bindings: Env }>();
 
 // ── CORS ──────────────────────────────────────────────────────────────
 app.use('*', cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://bet62.pt'],
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000', 'https://bet62.pt'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
