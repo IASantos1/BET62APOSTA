@@ -1,4 +1,5 @@
 export const REMOTE_FALLBACK_BASE = 'https://bet62apostasesportivas.bet62.workers.dev';
+export const LOCAL_FALLBACK_BASE = 'http://127.0.0.1:8788';
 
 function resolveApiBase() {
   const raw = import.meta.env.VITE_API_BASE || '';
@@ -7,10 +8,10 @@ function resolveApiBase() {
     if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
       const forceRemote = String(import.meta.env.VITE_FORCE_REMOTE || '') === '1';
       const useLocal = String(import.meta.env.VITE_USE_LOCAL || '') === '1';
-      if (useLocal) return '';
+      if (useLocal) return LOCAL_FALLBACK_BASE;
       if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
       if (forceRemote) return REMOTE_FALLBACK_BASE;
-      return REMOTE_FALLBACK_BASE;
+      return LOCAL_FALLBACK_BASE;
     }
     if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
     return REMOTE_FALLBACK_BASE;

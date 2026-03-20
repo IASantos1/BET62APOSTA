@@ -1,4 +1,4 @@
-name = "bet62-api-local-dev-v3"
+name = "bet62apostasesportivas"
 main = "src/worker/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
@@ -9,12 +9,12 @@ keep_vars = true
 crons = ["*/5 * * * *"]
 
 [vars]
-ENVIRONMENT = "dev"
+ENVIRONMENT = "production"
 JWT_SECRET = "7f8a9b1c-2d3e-4f5g-6h7i-8j9k0l1m2n3o-secret-key-2025"
 ADMIN_TOKEN = "dev-admin-token"
 APP_MODE = "REAL"
 BETTING_ENABLED = "1"
-LICENSED = ""
+LICENSED = "1"
 BLOCKED_COUNTRIES = ""
 REAL_FEED_ENABLED = "1"
 DEV_FAKE_MATCH_DETAIL = "false"
@@ -25,6 +25,7 @@ MEDIA_PROXY_BASE = ""
 PAYPAL_CLIENT_ID = ""
 PAYPAL_CLIENT_SECRET = ""
 PAYPAL_ENVIRONMENT = "sandbox"
+FRONTEND_URL = "https://bet62apostasesportivas.pages.dev"
 
 [[d1_databases]]
 binding = "DB"
