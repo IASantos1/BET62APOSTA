@@ -5,6 +5,7 @@ import { fetchLiveFixtures, fetchDateFixtures, fetchLiveOdds, fetchDayOdds, SPOR
 import { fetchOddsApiEvents } from './services/oddsApi';
 import { PasswordService } from './services/security/passwordService';
 import { TokenService } from './services/security/tokenService';
+import { getApiSportsKey } from './services/env';
 
 const dev = new Hono<{ Bindings: Env }>();
 
@@ -76,10 +77,87 @@ dev.get('/db-stats', async (c) => {
   }
 });
 
+dev.post('/upsert-events', async (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
+  const isAdmin = token === c.env.ADMIN_TOKEN;
+  const isDev   = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development';
+  if (!isAdmin && !isDev) return c.json({ error: 'Forbidden' }, 403);
+
+  const body = await c.req.json().catch(() => ({}));
+  const events = Array.isArray(body?.events) ? body.events : [];
+  if (events.length === 0) return c.json({ ok: true, upserted: 0 });
+
+  const now = new Date().toISOString();
+  const BATCH = 5;
+  let upserted = 0;
+
+  for (let i = 0; i < events.length; i += BATCH) {
+    const batch = events.slice(i, i + BATCH);
+    const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+    const vals: any[] = [];
+
+    for (const e of batch) {
+      vals.push(
+        String(e.external_event_id || ''),
+        String(e.sport || 'soccer'),
+        String(e.league || ''),
+        String(e.home_team || ''),
+        String(e.away_team || ''),
+        String(e.team_match || ''),
+        String(e.event_date || ''),
+        String(e.status || 'NS'),
+        Number(e.is_live || 0),
+        Number(e.home_odd || 0),
+        Number(e.draw_odd || 0),
+        Number(e.away_odd || 0),
+        Number(e.elapsed || 0),
+        typeof e.score === 'string' ? e.score : JSON.stringify(e.score || { home: null, away: null }),
+        typeof e.markets === 'string' ? e.markets : JSON.stringify(e.markets || {}),
+        String(e.home_team_logo || ''),
+        String(e.away_team_logo || ''),
+        String(e.country || ''),
+        now,
+      );
+    }
+
+    const sql = `
+      INSERT INTO events (
+        external_event_id, sport, league, home_team, away_team, team_match,
+        event_date, status, is_live, home_odd, draw_odd, away_odd,
+        elapsed, score, markets, home_team_logo, away_team_logo, country, updated_at
+      ) VALUES ${ph}
+      ON CONFLICT(external_event_id) DO UPDATE SET
+        sport           = excluded.sport,
+        league          = excluded.league,
+        home_team       = excluded.home_team,
+        away_team       = excluded.away_team,
+        team_match      = excluded.team_match,
+        event_date      = excluded.event_date,
+        status          = excluded.status,
+        is_live         = excluded.is_live,
+        home_odd        = CASE WHEN excluded.home_odd > 0   THEN excluded.home_odd   ELSE events.home_odd END,
+        draw_odd        = CASE WHEN excluded.draw_odd > 0   THEN excluded.draw_odd   ELSE events.draw_odd END,
+        away_odd        = CASE WHEN excluded.away_odd > 0   THEN excluded.away_odd   ELSE events.away_odd END,
+        elapsed         = excluded.elapsed,
+        score           = CASE WHEN excluded.score    != '{"home":null,"away":null}' THEN excluded.score    ELSE events.score    END,
+        markets         = CASE WHEN excluded.markets  != '{}' THEN excluded.markets  ELSE events.markets  END,
+        home_team_logo  = CASE WHEN excluded.home_team_logo != '' THEN excluded.home_team_logo ELSE events.home_team_logo END,
+        away_team_logo  = CASE WHEN excluded.away_team_logo != '' THEN excluded.away_team_logo ELSE events.away_team_logo END,
+        country         = CASE WHEN excluded.country != '' THEN excluded.country ELSE events.country END,
+        updated_at      = excluded.updated_at
+    `;
+
+    await c.env.DB.prepare(sql).bind(...vals).run();
+    upserted += batch.length;
+  }
+
+  return c.json({ ok: true, upserted });
+});
+
 dev.get('/live-api-test', async (c) => {
   try {
     const sport = c.req.query('sport') || 'soccer';
-    const apiKey = c.env.API_SPORTS_KEY;
+    const apiKey = getApiSportsKey(c.env);
     if (!apiKey) return c.json({ error: 'No API_SPORTS_KEY' }, 500);
 
     const live = await fetchLiveFixtures(apiKey, sport);
@@ -92,7 +170,7 @@ dev.get('/live-api-test', async (c) => {
 dev.get('/schedule-api-test', async (c) => {
   try {
     const sport  = c.req.query('sport') || 'soccer';
-    const apiKey = c.env.API_SPORTS_KEY;
+    const apiKey = getApiSportsKey(c.env);
     if (!apiKey) return c.json({ error: 'No API_SPORTS_KEY' }, 500);
 
     const today  = new Date().toISOString().slice(0, 10);
@@ -105,7 +183,7 @@ dev.get('/schedule-api-test', async (c) => {
 
 dev.get('/odds-api-test', async (c) => {
   try {
-    const apiKey = c.env.API_SPORTS_KEY;
+    const apiKey = getApiSportsKey(c.env);
     if (!apiKey) return c.json({ error: 'No API_SPORTS_KEY' }, 400);
 
     const today    = new Date().toISOString().slice(0, 10);

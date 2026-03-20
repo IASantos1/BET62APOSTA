@@ -2,14 +2,36 @@ import type { Env } from '../../../shared/types';
 import type { NormalizedEvent } from '../sportsApi';
 import type { OddsEvent } from '../oddsApi';
 
+let unifiedTablesReady: boolean | null = null;
+
 function seasonStartYear(raw: string | undefined): string {
   const s = String(raw || '').trim();
   const m = s.match(/(\d{4})/);
   return m ? m[1] : '';
 }
 
+async function hasTable(env: Env, name: string): Promise<boolean> {
+  try {
+    const out = await env.DB
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
+      .bind(name)
+      .first('name');
+    return !!out;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureUnifiedTables(env: Env): Promise<boolean> {
+  if (unifiedTablesReady != null) return unifiedTablesReady;
+  const ok = await hasTable(env, 'matches');
+  unifiedTablesReady = ok;
+  return ok;
+}
+
 export async function upsertUnifiedMatches(env: Env, events: NormalizedEvent[]): Promise<void> {
   if (!events.length) return;
+  if (!(await ensureUnifiedTables(env))) return;
   const now = new Date().toISOString();
   const season = seasonStartYear(env.API_SPORTS_SEASON);
   const BATCH = 8;
@@ -58,6 +80,7 @@ export async function upsertUnifiedMatches(env: Env, events: NormalizedEvent[]):
 }
 
 export async function upsertUnifiedOddsLatest(env: Env, events: NormalizedEvent[]): Promise<void> {
+  if (!(await ensureUnifiedTables(env))) return;
   const now = new Date().toISOString();
   const rows = events.filter((e) => Number(e.home_odd || 0) > 1);
   if (!rows.length) return;
@@ -101,6 +124,7 @@ export async function upsertUnifiedOddsLatest(env: Env, events: NormalizedEvent[
 
 export async function upsertOddsApiRaw(env: Env, sport: string, oddsEvents: OddsEvent[]): Promise<void> {
   if (!oddsEvents.length) return;
+  if (!(await ensureUnifiedTables(env))) return;
   const now = new Date().toISOString();
   const BATCH = 10;
 
