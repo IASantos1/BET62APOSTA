@@ -30,12 +30,21 @@ const app = new Hono<{ Bindings: Env }>();
 // ── CORS ──────────────────────────────────────────────────────────────
 app.use('*', cors({
   origin: (origin) => {
-    if (!origin) return '*';
-    const o = String(origin);
+    if (!origin) return null;
+    const o = String(origin).trim();
+
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o)) return o;
-    if (o === 'https://bet62.pt') return o;
-    if (o === 'https://bet62apostasesportivas.bet62.workers.dev') return o;
-    return 'https://bet62.pt';
+
+    const allowed = new Set<string>([
+      'https://bet62.plus',
+      'https://www.bet62.plus',
+      'https://bet62.pt',
+      'https://www.bet62.pt',
+      'https://bet62apostasesportivas.pages.dev',
+      'https://bet62apostasesportivas.bet62.workers.dev',
+    ]);
+
+    return allowed.has(o) ? o : null;
   },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
