@@ -411,6 +411,58 @@ sports.get('/by-sport', async (c) => {
       }
     }
 
+    if (isAll && apiKey && rawRows.length < 60) {
+      const today = new Date();
+      const d0 = today.toISOString().slice(0, 10);
+      const dt1 = new Date(today);
+      dt1.setDate(today.getDate() + 1);
+      const d1 = dt1.toISOString().slice(0, 10);
+
+      const sportsToLoad = ['soccer', 'basketball', 'tennis', 'volleyball', 'handball', 'ice-hockey']
+        .filter((s) => !!SPORT_CONFIG[s])
+        .slice(0, 4);
+
+      const baseEvents: any[] = [];
+      for (const sp of sportsToLoad) {
+        const liveList = await fetchLiveFixtures(apiKey, sp);
+        const day0 = await fetchDateFixtures(apiKey, sp, d0);
+        const day1 = await fetchDateFixtures(apiKey, sp, d1);
+        baseEvents.push(...liveList, ...day0, ...day1);
+      }
+
+      const seen = new Set<string>();
+      const extra = baseEvents.filter((e: any) => e && e.external_event_id && !seen.has(String(e.external_event_id)) && (seen.add(String(e.external_event_id)), true));
+
+      let mergedExtra = extra;
+      if (wantsOdds) {
+        for (const sp of sportsToLoad) {
+          const m0 = await fetchDayOddsForSport(apiKey, sp, d0, 2);
+          const m1 = await fetchDayOddsForSport(apiKey, sp, d1, 2);
+          const liveMap = await fetchLiveOddsForSport(apiKey, sp);
+
+          mergedExtra = mergedExtra.map((ev: any) => {
+            const evSport = normalizeSport(String(ev.sport || 'soccer'));
+            if (evSport !== sp) return ev;
+            const afterDay = applyOdds(ev, m0);
+            const afterDay2 = applyOdds(afterDay, m1);
+            const afterLive = applyOdds(afterDay2, liveMap);
+            return afterLive;
+          });
+        }
+      }
+
+      const existingIds = new Set(rawRows.map((r: any) => String(r?.external_event_id || '')));
+      rawRows = [
+        ...rawRows,
+        ...mergedExtra.filter((e: any) => {
+          const id = String(e?.external_event_id || '');
+          if (!id || existingIds.has(id)) return false;
+          existingIds.add(id);
+          return true;
+        }),
+      ];
+    }
+
     const rows = applyMediaProxy(rawRows, c.env.MEDIA_PROXY_BASE);
     let { live, pregame } = splitEvents(rows);
 
@@ -899,6 +951,20 @@ sports.get('/:id/stats', async (c) => {
   } catch (err) {
     console.error('[Sports] /:id/stats error:', err);
     return c.json({ stats: [], events: [], lineups: [], players: [] });
+  }
+});
+
+sports.get('/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const row = await c.env.DB
+      .prepare('SELECT * FROM events WHERE external_event_id = ? OR CAST(id AS TEXT) = ? LIMIT 1')
+      .bind(id, id)
+      .first();
+    if (!row) return c.json({ error: 'Not found' }, 404);
+    return c.json(row);
+  } catch (e: any) {
+    return c.json({ error: String(e?.message || e || 'Internal Server Error') }, 500);
   }
 });
 

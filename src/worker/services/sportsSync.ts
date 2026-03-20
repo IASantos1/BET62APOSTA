@@ -216,8 +216,8 @@ async function syncSoccer(env: Env, isFullSync: boolean): Promise<number> {
 
   console.log(`[SportsSync] soccer: ${liveWithOdds.length} live + ${scheduledWithOdds.length} scheduled → ${merged.length} unique`);
   await upsertEvents(env, merged);
-  await upsertUnifiedMatches(env, merged);
-  await upsertUnifiedOddsLatest(env, merged);
+  try { await upsertUnifiedMatches(env, merged); } catch (err) { console.warn('[SportsSync] upsertUnifiedMatches skipped:', err); }
+  try { await upsertUnifiedOddsLatest(env, merged); } catch (err) { console.warn('[SportsSync] upsertUnifiedOddsLatest skipped:', err); }
   return merged.length;
 }
 
@@ -298,7 +298,7 @@ async function syncOddsApiOnlySport(env: Env, sport: string): Promise<number> {
     3,
   );
   if (!oddsApiEvents.length) return 0;
-  await upsertOddsApiRaw(env, sport, oddsApiEvents);
+  try { await upsertOddsApiRaw(env, sport, oddsApiEvents); } catch (err) { console.warn('[SportsSync] upsertOddsApiRaw skipped:', err); }
 
   const events: NormalizedEvent[] = oddsApiEvents
     .map((e) => {
