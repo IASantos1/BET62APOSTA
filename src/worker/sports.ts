@@ -961,22 +961,35 @@ sports.get('/:id', async (c) => {
       .prepare('SELECT * FROM events WHERE external_event_id = ? OR CAST(id AS TEXT) = ? LIMIT 1')
       .bind(id, id)
       .first();
-    if (!row) return c.json({ error: 'Not found' }, 404);
-    return c.json(row);
-  } catch (e: any) {
-    return c.json({ error: String(e?.message || e || 'Internal Server Error') }, 500);
-  }
-});
 
-sports.get('/:id', async (c) => {
-  try {
-    const id = c.req.param('id');
-    const row = await c.env.DB
-      .prepare('SELECT * FROM events WHERE external_event_id = ? OR CAST(id AS TEXT) = ? LIMIT 1')
-      .bind(id, id)
-      .first();
+    if (!row) {
+      const apiKey = getApiSportsKey(c.env);
+      if (!apiKey || !id.includes('_')) return c.json({ error: 'Not found' }, 404);
 
-    if (!row) return c.json({ error: 'Not found' }, 404);
+      const parts = id.split('_');
+      const sportPrefix = normalizeSport(parts[0] || 'soccer');
+      const rawId = parts.slice(1).join('_');
+      const extId = `${sportPrefix}_${rawId}`;
+
+      const today = new Date();
+      const dates: string[] = [];
+      for (const off of [-1, 0, 1]) {
+        const d = new Date(today);
+        d.setDate(today.getDate() + off);
+        dates.push(d.toISOString().slice(0, 10));
+      }
+
+      const candidates: any[] = [];
+      try { candidates.push(...await fetchLiveFixtures(apiKey, sportPrefix)); } catch (err) { console.warn('[Sports] live fallback failed:', err); }
+      for (const ds of dates) {
+        try { candidates.push(...await fetchDateFixtures(apiKey, sportPrefix, ds)); } catch (err) { console.warn('[Sports] date fallback failed:', err); }
+      }
+
+      const found = candidates.find((e: any) => String(e?.external_event_id || '') === extId);
+      if (!found) return c.json({ error: 'Not found' }, 404);
+
+      return c.json(formatEvent(found));
+    }
     const r: any = row as any;
     r.home_team_logo = rewriteMediaUrl(c.env.MEDIA_PROXY_BASE, r.home_team_logo || '');
     r.away_team_logo = rewriteMediaUrl(c.env.MEDIA_PROXY_BASE, r.away_team_logo || '');
