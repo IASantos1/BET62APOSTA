@@ -70,10 +70,14 @@ const dedupEvents = (list: Event[]): Event[] => {
 };
 
 const shouldHideEvent = (evt: Event) => {
-  const h = Number((evt as any)?.home_odd || 0);
-  const d = Number((evt as any)?.draw_odd || 0);
-  const a = Number((evt as any)?.away_odd || 0);
-  return !(h > 1.01 || d > 1.01 || a > 1.01);
+  const home = String((evt as any)?.home_team || (evt as any)?.teams?.home?.name || '').trim();
+  const away = String((evt as any)?.away_team || (evt as any)?.teams?.away?.name || '').trim();
+  if (!home || !away) return true;
+  const lh = home.toLowerCase();
+  const la = away.toLowerCase();
+  if (lh === 'undefined' || la === 'undefined') return true;
+  if (lh === 'home team' || la === 'away team') return true;
+  return false;
 };
 
 export function useSportsEvents(category: string | null) {
@@ -83,6 +87,7 @@ export function useSportsEvents(category: string | null) {
 
   const abortRef = useRef<AbortController | null>(null);
   const isFirstLoadRef = useRef(true);
+  const triedAllFallbackRef = useRef(false);
   const lastLiveRef = useRef<Event[]>([]);
   const lastPregameRef = useRef<Event[]>([]);
 
@@ -202,17 +207,30 @@ export function useSportsEvents(category: string | null) {
           params.set('league', cleanLeague);
         }
         params.set('include', 'odds'); 
-        params.set('realtime', '1');
+        params.set('realtime', safeCategory === 'all' ? '0' : '1');
         // params.set('_ts', Date.now().toString()); // Disabled for aggressive caching as requested
  
         const url = `/api/events/by-sport?${params.toString()}`;
         // console.log('FETCH URL', url);
         // Disable cache to ensure fresh data
-        const data = await apiFetch<any>(url, { cache: 'no-store', signal: controller.signal });
+        let data = await apiFetch<any>(url, { cache: 'no-store', signal: controller.signal });
         // console.log('API DATA RAW:', data);
 
-        const liveCount = Array.isArray(data?.live) ? data.live.length : 0;
-        const pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
+        let liveCount = Array.isArray(data?.live) ? data.live.length : 0;
+        let pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
+
+        const hasStructuredInitial = Array.isArray(data?.live) || Array.isArray(data?.pregame);
+        const hasAnyStructuredInitial = liveCount > 0 || pregameCount > 0;
+        if (!triedAllFallbackRef.current && safeCategory !== 'all' && hasStructuredInitial && !hasAnyStructuredInitial) {
+          triedAllFallbackRef.current = true;
+          const p2 = new URLSearchParams();
+          p2.set('sports', 'all');
+          p2.set('include', 'odds');
+          p2.set('realtime', '0');
+          data = await apiFetch<any>(`/api/events/by-sport?${p2.toString()}`, { cache: 'no-store', signal: controller.signal });
+          liveCount = Array.isArray(data?.live) ? data.live.length : 0;
+          pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
+        }
 
         /*
         console.log('[useSportsEvents] API Response:', { 
@@ -248,12 +266,15 @@ export function useSportsEvents(category: string | null) {
 
           const isGameActive = (e: Event) => {
              const status = e.status;
-             const sRaw = (typeof status === 'object' && status !== null) ? (status as any).short : status;
+             const sRaw =
+               (typeof status === 'object' && status !== null)
+                 ? ((status as any).short ?? (status as any).long)
+                 : status;
              const s = String(sRaw || '').toUpperCase().trim();
              if (!s) return true;
              return ![
                'FT', 'AET', 'PEN', 'FT_PEN',
-               'FIN', 'FINAL', 'ENDED', 'FIM',
+               'FIN', 'FINAL', 'FINISHED', 'MATCH FINISHED', 'ENDED', 'FIM',
                'PST', 'POST', 'CANC', 'CANCELLED', 'CANCELED',
                'ABD', 'ABANDONED', 'WO', 'AWD', 'AWARDED',
              ].includes(s);
@@ -261,12 +282,30 @@ export function useSportsEvents(category: string | null) {
           
           liveEvents = liveEvents.filter(isGameActive);
           pregameEvents = pregameEvents.filter(isGameActive);
+
+          const hasPrimaryOdds = (e: Event) => {
+            const h = Number((e as any)?.home_odd || 0);
+            const a = Number((e as any)?.away_odd || 0);
+            if (h > 1 && a > 1) return true;
+            const mk = Array.isArray((e as any)?.markets) ? (e as any).markets : [];
+            const h2h = mk.find((m: any) => String(m?.key || '') === 'h2h');
+            const sels = h2h?.selections || h2h?.outcomes || [];
+            const ok = Array.isArray(sels) ? sels.filter((s: any) => Number(s?.odd || s?.price || 0) > 1).length : 0;
+            return ok >= 2;
+          };
+
+          const preferOdds = (arr: Event[], max: number) => {
+            const withOdds = arr.filter(hasPrimaryOdds);
+            const withoutOdds = arr.filter((e) => !hasPrimaryOdds(e));
+            if (withOdds.length >= Math.min(20, Math.floor(max / 2))) return withOdds.slice(0, max);
+            return [...withOdds, ...withoutOdds].slice(0, max);
+          };
           
           const filteredLive = liveEvents; 
           const maxPregame = safeCategory === 'all' ? 200 : 60;
-          const filteredPregame = pregameEvents.filter(isTodayAdjusted).slice(0, maxPregame);
+          const filteredPregame = preferOdds(pregameEvents.filter(isTodayAdjusted), maxPregame);
+          const finalLive = preferOdds(filteredLive, safeCategory === 'all' ? 100 : 60);
           
-          const finalLive = filteredLive;
           const finalPregame = filteredPregame;
 
           updateState(finalLive, finalPregame);
@@ -283,12 +322,15 @@ export function useSportsEvents(category: string | null) {
             
             const isGameActive = (e: Event) => {
                 const status = e.status;
-                const sRaw = (typeof status === 'object' && status !== null) ? (status as any).short : status;
+                const sRaw =
+                  (typeof status === 'object' && status !== null)
+                    ? ((status as any).short ?? (status as any).long)
+                    : status;
                 const s = String(sRaw || '').toUpperCase().trim();
                 if (!s) return true;
                 return ![
                   'FT', 'AET', 'PEN', 'FT_PEN',
-                  'FIN', 'FINAL', 'ENDED', 'FIM',
+                  'FIN', 'FINAL', 'FINISHED', 'MATCH FINISHED', 'ENDED', 'FIM',
                   'PST', 'POST', 'CANC', 'CANCELLED', 'CANCELED',
                   'ABD', 'ABANDONED', 'WO', 'AWD', 'AWARDED',
                 ].includes(s);
@@ -297,8 +339,25 @@ export function useSportsEvents(category: string | null) {
             const activeLive = dedupedLive.filter(isGameActive);
             const activePregame = dedupedPregame.filter(isGameActive);
 
-            const finalLive = activeLive;
-            const finalPregame = activePregame.filter(isTodayAdjusted).slice(0, 60);
+            const hasPrimaryOdds = (e: Event) => {
+              const h = Number((e as any)?.home_odd || 0);
+              const a = Number((e as any)?.away_odd || 0);
+              if (h > 1 && a > 1) return true;
+              const mk = Array.isArray((e as any)?.markets) ? (e as any).markets : [];
+              const h2h = mk.find((m: any) => String(m?.key || '') === 'h2h');
+              const sels = h2h?.selections || h2h?.outcomes || [];
+              const ok = Array.isArray(sels) ? sels.filter((s: any) => Number(s?.odd || s?.price || 0) > 1).length : 0;
+              return ok >= 2;
+            };
+            const preferOdds = (arr: Event[], max: number) => {
+              const withOdds = arr.filter(hasPrimaryOdds);
+              const withoutOdds = arr.filter((e) => !hasPrimaryOdds(e));
+              if (withOdds.length >= Math.min(20, Math.floor(max / 2))) return withOdds.slice(0, max);
+              return [...withOdds, ...withoutOdds].slice(0, max);
+            };
+
+            const finalLive = preferOdds(activeLive, safeCategory === 'all' ? 100 : 60);
+            const finalPregame = preferOdds(activePregame.filter(isTodayAdjusted), 60);
 
             updateState(finalLive, finalPregame);
             return;

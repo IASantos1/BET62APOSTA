@@ -26,7 +26,7 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"],
+  "include": ["src/react-app", "src/shared", "src/vite-env.d.ts"],
   "exclude": ["src/worker"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

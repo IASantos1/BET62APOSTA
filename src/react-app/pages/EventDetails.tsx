@@ -77,6 +77,8 @@ export default function EventDetails() {
     return val?.total ?? val?.score ?? val?.current ?? 0;
   };
 
+  const [realtimeOdds, setRealtimeOdds] = useState<any | null>(null);
+
   // --- Fetch Event ---
   useEffect(() => {
     if (!id) return;
@@ -96,6 +98,36 @@ export default function EventDetails() {
 
     fetchEvent();
     return () => ac.abort();
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    let inflight = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (inflight) {
+        timeoutId = setTimeout(tick, 1500);
+        return;
+      }
+      inflight = true;
+      try {
+        const data = await apiFetch<any>(`/api/events/${id}/odds?realtime=1`, { cache: 'no-store' });
+        if (!cancelled && data && data.markets) {
+          setRealtimeOdds(data.markets);
+        }
+      } catch { /* silent */ }
+      inflight = false;
+      timeoutId = setTimeout(tick, 15_000);
+    };
+
+    tick();
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [id]);
 
   // --- Fetch Live Stats (polling when live) ---
@@ -262,8 +294,8 @@ export default function EventDetails() {
           <MemoSubOddsModel
             event={displayEvent}
             darkMode={darkMode}
-            markets={displayEvent.odds}
-            eventOdds={displayEvent.odds}
+            markets={realtimeOdds || displayEvent.odds}
+            eventOdds={realtimeOdds || displayEvent.odds}
             onSelect={onSelect}
             labelOutcome={handleLabelOutcome}
             applyMarginClamp={applyMarginClamp}

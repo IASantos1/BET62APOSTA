@@ -6,34 +6,10 @@
 import { Hono } from 'hono';
 import { Env } from '../shared/types';
 import { fetchOddsApiEvents, fetchOddsApiMarketsForFixture, matchOddsEvent } from './services/oddsApi';
-import { fetchGameOdds, fetchLiveOddsForSport } from './services/sportsApi';
-import { fetchLiveFixtures, fetchDateFixtures, LIVE_STATUSES as API_LIVE_STATUSES, SPORT_CONFIG } from './services/sportsApi';
+import { applyOdds, fetchDayOddsForSport, fetchLiveOddsForSport, fetchLiveFixtures, fetchDateFixtures, fetchOddsForEvents, LIVE_STATUSES as API_LIVE_STATUSES, SPORT_CONFIG } from './services/sportsApi';
+import { getApiSportsKey, getOddsApiKey } from './services/env';
 
-let cachedLiveOdds: { expiresAt: number; map: Map<string, any> } | null = null;
 const cachedLiveFixtures = new Map<string, { expiresAt: number; map: Map<string, any> }>();
-const cachedLiveOddsBySport = new Map<string, { expiresAt: number; map: Map<string, any> }>();
-const cachedGameOdds = new Map<string, { expiresAt: number; odds: any | null }>();
-
-function pruneCache<T extends { expiresAt: number }>(cache: Map<string, T>, nowMs: number, maxSize: number) {
-  if (cache.size === 0) return;
-  if (cache.size <= maxSize) {
-    for (const [k, v] of cache) {
-      if (v.expiresAt <= nowMs) cache.delete(k);
-    }
-    return;
-  }
-  for (const [k, v] of cache) {
-    if (v.expiresAt <= nowMs) cache.delete(k);
-  }
-  if (cache.size <= maxSize) return;
-  const toRemove = cache.size - maxSize;
-  let removed = 0;
-  for (const k of cache.keys()) {
-    cache.delete(k);
-    removed++;
-    if (removed >= toRemove) break;
-  }
-}
 
 const sports = new Hono<{ Bindings: Env }>();
 
@@ -101,6 +77,19 @@ function normalizeSport(raw: string): string {
   return SPORT_ALIASES[s] ?? s;
 }
 
+function parseEventDateMs(input: any): number {
+  const raw = String(input || '').trim();
+  if (!raw) return 0;
+  const t = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const normalized = t.replace(/\+00:00$/, 'Z');
+  let ms = Date.parse(normalized);
+  if (!Number.isFinite(ms)) {
+    const base = t.slice(0, 19).replace(' ', 'T') + 'Z';
+    ms = Date.parse(base);
+  }
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 function splitEvents(rows: any[]): { live: any[]; pregame: any[] } {
   const live: any[] = [];
   const pregame: any[] = [];
@@ -111,30 +100,21 @@ function splitEvents(rows: any[]): { live: any[]; pregame: any[] } {
     const isLiveFlag = Number(r.is_live) === 1;
     const isLiveStatus = LIVE_STATUSES.has(status);
     const isFinished = FINISHED_STATUSES.has(status);
+    const d = parseEventDateMs(r.event_date);
+    if (!d) continue;
 
-    // Never show finished games in live, regardless of is_live flag
-    if (isFinished) {
-      const d = r.event_date ? new Date(r.event_date).getTime() : 0;
-      if (!d || d < now - 3 * 60 * 60 * 1000) continue;
-      pregame.push(formatEvent(r));
-      continue;
-    }
+    if (isFinished) continue;
 
     if (isLiveFlag || isLiveStatus) {
-      const d = r.event_date ? new Date(r.event_date).getTime() : 0;
-      // Exclude stale NS/PST events flagged as live but started >2h ago
-      const statusStr = String(r.status || 'NS').trim();
-      if (d && d < now - 4 * 60 * 60 * 1000 && !isLiveStatus) continue;
-      if ((statusStr === 'NS' || statusStr === 'PST' || statusStr === 'TBD') && d && d < now - 2 * 60 * 60 * 1000) continue;
+      const sport = normalizeSport(String(r.sport || 'soccer'));
+      const maxAge = LIVE_MAX_AGE_MS[sport] ?? (4 * 60 * 60 * 1000);
+      if (d < now - maxAge) continue;
       live.push(formatEvent(r));
       continue;
     }
 
-    const d = r.event_date ? new Date(r.event_date).getTime() : 0;
-    if (!d) continue;
     if (d < now - 3 * 60 * 60 * 1000) continue;
     if (d > now + 14 * 24 * 60 * 60 * 1000) continue;
-
     pregame.push(formatEvent(r));
   }
 
@@ -144,22 +124,34 @@ function splitEvents(rows: any[]): { live: any[]; pregame: any[] } {
 function formatEvent(r: any): any {
   let markets: any = {};
   try { markets = JSON.parse(r.markets || '{}'); } catch { /* empty */ }
+  const h2h = Array.isArray(markets?.h2h) ? markets.h2h : [];
 
-  const h2h = markets.h2h || [];
+  const deriveFromLegacyH2h = (arr: any[], sport: string) => {
+    if (!Array.isArray(arr) || arr.length < 2) return null;
+    let home = 0;
+    let draw = 0;
+    let away = 0;
+    for (const o of arr) {
+      const name = String(o?.value ?? o?.label ?? o?.name ?? o?.outcome ?? '').toLowerCase().trim();
+      const odd = Number(o?.odd ?? o?.price ?? o?.value ?? 0);
+      if (!(odd > 1)) continue;
+      if (name === 'home' || name === '1' || name === 'casa') home = home || odd;
+      else if (name === 'draw' || name === 'x' || name === 'empate') draw = draw || odd;
+      else if (name === 'away' || name === '2' || name === 'fora') away = away || odd;
+    }
+    const vals = [home, draw, away].filter((x) => x > 1);
+    if (vals.length < 2) return null;
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    if (min < 1.15 && max > 6) return null;
+    if (max > 50) return null;
+    if (sport !== 'soccer') draw = 0;
+    return { home, draw, away };
+  };
+
   let home_odd = Number(r.home_odd) || 0;
   let draw_odd = Number(r.draw_odd) || 0;
   let away_odd = Number(r.away_odd) || 0;
-
-  if (Array.isArray(h2h) && h2h.length >= 2) {
-    for (const o of h2h) {
-      const v = String(o.value || o.outcome || '');
-      const odd = parseFloat(o.odd ?? o.price ?? 0);
-      if (odd <= 1) continue;
-      if (v === 'Home' || v === '1' || v.toLowerCase() === 'home') home_odd = odd;
-      else if (v === 'Draw' || v === 'X' || v.toLowerCase() === 'draw') draw_odd = odd;
-      else if (v === 'Away' || v === '2' || v.toLowerCase() === 'away') away_odd = odd;
-    }
-  }
 
   const goals = { home: null as number | null, away: null as number | null };
   try {
@@ -169,11 +161,20 @@ function formatEvent(r: any): any {
 
   const statusShort = String(r.status || 'NS').trim();
   const id = r.external_event_id || String(r.id);
+  const sport = normalizeSport(String(r.sport || 'soccer'));
+  if (!(home_odd > 1) && !(away_odd > 1)) {
+    const derived = deriveFromLegacyH2h(h2h, sport);
+    if (derived) {
+      home_odd = derived.home;
+      draw_odd = derived.draw;
+      away_odd = derived.away;
+    }
+  }
   const marketsArr: any[] = [];
   const h2hSelections: any[] = [];
 
   if (home_odd > 1) h2hSelections.push({ id: 'sel_home', label: 'Casa', name: 'Casa', odd: home_odd });
-  if (draw_odd > 1) h2hSelections.push({ id: 'sel_draw', label: 'Empate', name: 'Empate', odd: draw_odd });
+  if (sport === 'soccer' && draw_odd > 1) h2hSelections.push({ id: 'sel_draw', label: 'Empate', name: 'Empate', odd: draw_odd });
   if (away_odd > 1) h2hSelections.push({ id: 'sel_away', label: 'Fora', name: 'Fora', odd: away_odd });
 
   if (h2hSelections.length >= 2) {
@@ -222,6 +223,12 @@ function rewriteMediaUrl(proxyBase: string | undefined, url: string): string {
   const base = String(proxyBase || '').trim().replace(/\/+$/, '');
   const u = String(url || '').trim();
   if (!u) return u;
+  if (u.startsWith('/api/events/media?url=')) {
+    const q = u.split('?')[1] || '';
+    const params = new URLSearchParams(q);
+    const raw = params.get('url') || '';
+    return raw ? decodeURIComponent(raw) : u;
+  }
   if (!u.startsWith('https://media.api-sports.io/')) return u;
   if (!base) return `/api/events/media?url=${encodeURIComponent(u)}`;
   return base + u.slice('https://media.api-sports.io'.length);
@@ -235,6 +242,38 @@ function applyMediaProxy(rows: any[], proxyBase: string | undefined): any[] {
   }));
 }
 
+function ensureH2hMarketsArray(ev: any): any {
+  const toNum = (v: any) => {
+    const n = typeof v === 'string' ? parseFloat(v) : Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const sport = normalizeSport(String(ev?.sport || 'soccer'));
+  const homeOdd = toNum(ev?.home_odd);
+  const drawOdd = toNum(ev?.draw_odd);
+  const awayOdd = toNum(ev?.away_odd);
+
+  const isThreeWay = sport === 'soccer';
+
+  const selections: any[] = [];
+  if (homeOdd > 1) selections.push({ id: 'sel_home', label: 'Casa', name: 'Casa', odd: homeOdd, price: homeOdd });
+  if (isThreeWay && drawOdd > 1) selections.push({ id: 'sel_draw', label: 'Empate', name: 'Empate', odd: drawOdd, price: drawOdd });
+  if (awayOdd > 1) selections.push({ id: 'sel_away', label: 'Fora', name: 'Fora', odd: awayOdd, price: awayOdd });
+
+  const existing = Array.isArray(ev?.markets) ? ev.markets : [];
+  const hasH2h = existing.some((m: any) => String(m?.key || '') === 'h2h');
+  if (hasH2h) return ev;
+  if (selections.length < 2) return { ...ev, markets: existing };
+
+  return {
+    ...ev,
+    markets: [
+      ...existing,
+      { id: 'mkt_h2h', key: 'h2h', name: 'Resultado Final', selections },
+    ],
+  };
+}
+
 sports.get('/by-sport', async (c) => {
   try {
     const rawSport = c.req.query('sports') || c.req.query('sport') || 'soccer';
@@ -243,17 +282,22 @@ sports.get('/by-sport', async (c) => {
     const include = String(c.req.query('include') || '');
     const wantsOdds = include.split(',').map((s) => s.trim()).includes('odds');
     const realtime = String(c.req.query('realtime') || '') === '1';
+    const doRealtime = realtime;
     const nowMs = Date.now();
-    pruneCache(cachedGameOdds, nowMs, 600);
+    const apiKey = getApiSportsKey(c.env);
+    const oddsKey = getOddsApiKey(c.env);
+
+    const eventDt = `datetime(replace(substr(event_date, 1, 19), 'T', ' '))`;
 
     let query = `
       SELECT *
       FROM events
-      WHERE (
-        (is_live = 1 AND event_date > datetime('now', '-5 hours'))
-        OR event_date BETWEEN datetime('now', '-1 hours') AND datetime('now', '+7 days')
-      )
-      AND status NOT IN ('FT','AET','PEN','AWD','WO','ABD','FIN','FINAL','Finished','Match Finished','Final','Ended','AOT','AP','POST','SUSP','CANC','TBD','FT_PEN','NS_CANC')
+      WHERE ${eventDt} IS NOT NULL
+        AND (
+          (is_live = 1 AND ${eventDt} > datetime('now', '-5 hours'))
+          OR ${eventDt} BETWEEN datetime('now', '-3 hours') AND datetime('now', '+14 days')
+        )
+      AND COALESCE(status, 'NS') NOT IN ('FT','AET','PEN','AWD','WO','ABD','FIN','FINAL','Finished','Match Finished','Final','Ended','AOT','AP','POST','SUSP','CANC','TBD','FT_PEN','NS_CANC')
       AND league NOT IN ('Test League','Test','Debug League','Copa Alagoas')
       AND league NOT LIKE 'Test%'
       AND lower(league) NOT LIKE '%serie c%'
@@ -262,22 +306,10 @@ sports.get('/by-sport', async (c) => {
       AND lower(league) NOT LIKE '%série d%'
     `;
     const params: any[] = [];
-    const soccerOddsFilter = `
-      (
-        CAST(home_odd AS REAL) > 1
-        OR CAST(draw_odd AS REAL) > 1
-        OR CAST(away_odd AS REAL) > 1
-      )
-    `;
 
     if (!isAll) {
       query += ' AND sport = ?';
       params.push(sport);
-      if (sport === 'soccer') {
-        query += ` AND ${soccerOddsFilter}`;
-      }
-    } else {
-      query += ` AND (sport != 'soccer' OR ${soccerOddsFilter})`;
     }
 
     // Ordenar: ao vivo primeiro → top ligas → com odds → data ASC
@@ -295,28 +327,152 @@ sports.get('/by-sport', async (c) => {
           'NBA','EuroLeague','NHL','KHL','MLB','NFL','Six Nations'
         ) THEN 0 ELSE 1 END ASC,
         CASE WHEN CAST(home_odd AS REAL) > 1 THEN 0 ELSE 1 END ASC,
-        event_date ASC
+        ${eventDt} ASC
       LIMIT 500
     `;
 
     const res = await c.env.DB.prepare(query).bind(...params).all();
-    const rows = applyMediaProxy(res.results || [], c.env.MEDIA_PROXY_BASE);
+    let rawRows: any[] = res.results || [];
 
-    const { live, pregame } = splitEvents(rows);
+    if (wantsOdds && apiKey && rawRows.length > 0) {
+      const hasMissingSoccer = rawRows.some((r: any) => normalizeSport(String(r.sport || 'soccer')) === 'soccer' && !(Number(r.home_odd || 0) > 1));
+      if (hasMissingSoccer) {
+        const today = new Date();
+        const d0 = today.toISOString().slice(0, 10);
+        const dt1 = new Date(today);
+        dt1.setDate(today.getDate() + 1);
+        const d1 = dt1.toISOString().slice(0, 10);
+
+        const m0 = await fetchDayOddsForSport(apiKey, 'soccer', d0, 2);
+        const m1 = await fetchDayOddsForSport(apiKey, 'soccer', d1, 2);
+
+        rawRows = rawRows.map((r: any) => {
+          const evSport = normalizeSport(String(r.sport || 'soccer'));
+          if (evSport !== 'soccer') return r;
+          if (Number(r.home_odd || 0) > 1) return r;
+          try {
+            const after0 = applyOdds(r as any, m0);
+            const after1 = applyOdds(after0 as any, m1);
+            return after1;
+          } catch {
+            return r;
+          }
+        });
+      }
+    }
+
+    if (doRealtime && wantsOdds && apiKey && !isAll && rawRows.length > 0) {
+      const today = new Date();
+      const d0 = today.toISOString().slice(0, 10);
+      const dt1 = new Date(today);
+      dt1.setDate(today.getDate() + 1);
+      const d1 = dt1.toISOString().slice(0, 10);
+
+      const m0 = await fetchDayOddsForSport(apiKey, sport, d0, 2);
+      const m1 = await fetchDayOddsForSport(apiKey, sport, d1, 2);
+      const liveMap = await fetchLiveOddsForSport(apiKey, sport);
+
+      rawRows = rawRows.map((r: any) => {
+        try {
+          const id = String(r.external_event_id || '');
+          if (!id || !id.includes('_')) return r;
+          const evSport = normalizeSport(String(r.sport || 'soccer'));
+          if (evSport !== sport) return r;
+          const afterDay = applyOdds(r as any, m0);
+          const afterDay2 = applyOdds(afterDay as any, m1);
+          const afterLive = applyOdds(afterDay2 as any, liveMap);
+          return afterLive;
+        } catch {
+          return r;
+        }
+      });
+
+      const needs = rawRows
+        .filter((r: any) => {
+          const evSport = normalizeSport(String(r.sport || 'soccer'));
+          if (evSport !== sport) return false;
+          const id = String(r.external_event_id || '');
+          if (!id || !id.includes('_')) return false;
+          return !(Number(r.home_odd || 0) > 1);
+        })
+        .slice(0, 45);
+
+      if (needs.length > 0) {
+        const map = await fetchOddsForEvents(apiKey, sport, needs as any, 45, 4);
+        if (map.size > 0) {
+          rawRows = rawRows.map((r: any) => {
+            const id = String(r.external_event_id || '');
+            if (!id || !id.includes('_')) return r;
+            const evSport = normalizeSport(String(r.sport || 'soccer'));
+            if (evSport !== sport) return r;
+            return applyOdds(r as any, map);
+          });
+        }
+      }
+    }
+
+    const rows = applyMediaProxy(rawRows, c.env.MEDIA_PROXY_BASE);
+    let { live, pregame } = splitEvents(rows);
+
+    if (live.length === 0 && pregame.length === 0 && apiKey) {
+      const today = new Date();
+      const d0 = today.toISOString().slice(0, 10);
+      const dt1 = new Date(today);
+      dt1.setDate(today.getDate() + 1);
+      const d1 = dt1.toISOString().slice(0, 10);
+
+      const pickSports = () => {
+        if (!isAll) return [sport];
+        return ['soccer', 'basketball', 'tennis', 'volleyball', 'handball', 'ice-hockey'].filter((s) => !!SPORT_CONFIG[s]).slice(0, 4);
+      };
+
+      const sportsToLoad = pickSports();
+      const baseEvents: any[] = [];
+
+      for (const sp of sportsToLoad) {
+        const liveList = await fetchLiveFixtures(apiKey, sp);
+        const day0 = await fetchDateFixtures(apiKey, sp, d0);
+        const day1 = await fetchDateFixtures(apiKey, sp, d1);
+        baseEvents.push(...liveList, ...day0, ...day1);
+      }
+
+      const seen = new Set<string>();
+      let merged = baseEvents.filter((e: any) => e && e.external_event_id && !seen.has(String(e.external_event_id)) && (seen.add(String(e.external_event_id)), true));
+
+      if (wantsOdds) {
+        for (const sp of sportsToLoad) {
+          const m0 = await fetchDayOddsForSport(apiKey, sp, d0, 2);
+          const m1 = await fetchDayOddsForSport(apiKey, sp, d1, 2);
+          const liveMap = await fetchLiveOddsForSport(apiKey, sp);
+
+          merged = merged.map((ev: any) => {
+            const evSport = normalizeSport(String(ev.sport || 'soccer'));
+            if (evSport !== sp) return ev;
+            const afterDay = applyOdds(ev, m0);
+            const afterDay2 = applyOdds(afterDay, m1);
+            const afterLive = applyOdds(afterDay2, liveMap);
+            return afterLive;
+          });
+        }
+      }
+
+      const mergedRows = applyMediaProxy(merged, c.env.MEDIA_PROXY_BASE);
+      ({ live, pregame } = splitEvents(mergedRows));
+    }
+
     console.log(`[Sports] sport=${sport} → live:${live.length} pregame:${pregame.length}`);
 
-    if (realtime && c.env.API_SPORTS_KEY && (live.length > 0 || pregame.length > 0)) {
+    if (doRealtime && apiKey && (live.length > 0 || pregame.length > 0)) {
       const sportsToFetch = Array.from(
         new Set([...live, ...pregame].map((e) => normalizeSport(String(e.sport || 'soccer')))),
       ).slice(0, 6);
-      const fetchedSports = new Set(sportsToFetch);
 
       for (const sp of sportsToFetch) {
         const cached = cachedLiveFixtures.get(sp);
         if (!cached || cached.expiresAt <= nowMs) {
-          let list = await fetchLiveFixtures(c.env.API_SPORTS_KEY, sp);
+          let list = await fetchLiveFixtures(apiKey, sp);
           if ((!Array.isArray(list) || list.length === 0) && sp !== 'soccer') {
-            list = await fetchDateFixtures(c.env.API_SPORTS_KEY, sp, new Date().toISOString().slice(0, 10));
+            list = await fetchDateFixtures(apiKey, sp, new Date().toISOString().slice(0, 10));
           }
           const map = new Map<string, any>();
           for (const e of list) map.set(e.external_event_id, e);
@@ -394,11 +550,7 @@ sports.get('/by-sport', async (c) => {
         const st = String(live[i]?.status?.short || live[i]?.status || live[i]?.fixture?.status?.short || '').toUpperCase().trim();
         const isLiveStatus = API_LIVE_STATUSES.has(st) || LIVE_STATUSES.has(st);
         const isFinished = FINISHED_STATUSES.has(st);
-        const extId = String(live[i]?.external_event_id || live[i]?.id || '');
-        const sp = normalizeSport(String(live[i]?.sport || 'soccer'));
-        if (extId && fetchedSports.has(sp) && !liveSet.has(extId)) {
-          live.splice(i, 1);
-        } else if (isFinished || !isLiveStatus) {
+        if (isFinished || !isLiveStatus) {
           live.splice(i, 1);
         }
       }
@@ -410,102 +562,63 @@ sports.get('/by-sport', async (c) => {
       }
     }
 
-    if (realtime && wantsOdds && c.env.API_SPORTS_KEY && live.length > 0) {
-      const liveSportsForOdds = Array.from(new Set(live.map((e) => normalizeSport(String(e.sport || 'soccer'))))).slice(0, 4);
-      for (const sp of liveSportsForOdds) {
-        const cached = cachedLiveOddsBySport.get(sp);
-        if (!cached || cached.expiresAt <= nowMs) {
-          const map = await fetchLiveOddsForSport(c.env.API_SPORTS_KEY, sp);
-          cachedLiveOddsBySport.set(sp, { expiresAt: nowMs + 30_000, map });
-        }
-      }
-
-      let perGameFallbacks = 0;
-      for (const ev of live) {
-        const sp = normalizeSport(String(ev.sport || 'soccer'));
-        const rawId = String(ev.external_event_id || ev.id || '').split('_').slice(1).join('_');
-        const o = rawId ? cachedLiveOddsBySport.get(sp)?.map.get(rawId) : null;
-
-        if (o && Number(o.home || 0) > 1) {
-          ev.home_odd = o.home;
-          ev.draw_odd = o.draw;
-          ev.away_odd = o.away;
-        } else if (sp !== 'soccer' && rawId && perGameFallbacks < 12) {
-          const cacheKey = `${sp}:${rawId}`;
-          const cached = cachedGameOdds.get(cacheKey);
-          const single = cached && cached.expiresAt > nowMs ? cached.odds : await fetchGameOdds(c.env.API_SPORTS_KEY, sp, rawId);
-          if (!cached || cached.expiresAt <= nowMs) cachedGameOdds.set(cacheKey, { expiresAt: nowMs + 30_000, odds: single });
-          perGameFallbacks++;
-          if (single && Number(single.home || 0) > 1) {
-            ev.home_odd = single.home;
-            ev.draw_odd = single.draw;
-            ev.away_odd = single.away;
-          } else {
-            continue;
-          }
-        } else {
-          continue;
-        }
-
-        const existing = Array.isArray(ev.markets) ? ev.markets : [];
-        const hasH2h = existing.some((m: any) => String(m?.key || '') === 'h2h');
-        if (!hasH2h) {
-          const sels: any[] = [];
-          const homeOdd = Number(ev.home_odd || 0);
-          const drawOdd = Number(ev.draw_odd || 0);
-          const awayOdd = Number(ev.away_odd || 0);
-          if (homeOdd > 1) sels.push({ id: 'sel_home', label: 'Casa', name: 'Casa', odd: homeOdd });
-          if (drawOdd > 1) sels.push({ id: 'sel_draw', label: 'Empate', name: 'Empate', odd: drawOdd });
-          if (awayOdd > 1) sels.push({ id: 'sel_away', label: 'Fora', name: 'Fora', odd: awayOdd });
-          if (sels.length >= 2) {
-            ev.markets = [...existing, { id: 'mkt_h2h', key: 'h2h', name: 'Resultado Final', selections: sels, outcomes: sels }];
-          }
-        }
-      }
-
-      if (c.env.ODDS_API_KEY && (sport === 'soccer' || isAll)) {
+    if (doRealtime && wantsOdds && oddsKey && live.length > 0) {
+      const sportsForOdds = Array.from(new Set(live.map((e) => normalizeSport(String(e.sport || 'soccer'))))).slice(0, 6);
+      const oddsBySport = new Map<string, any[]>();
+      for (const sp of sportsForOdds) {
         const oddsEvents = await fetchOddsApiEvents(
-          c.env.ODDS_API_KEY,
-          'soccer',
+          oddsKey,
+          sp,
           1,
           c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
           'live',
-          Math.min(20, live.length * 3),
-          3,
+          Math.min(25, live.length * 2),
+          2,
         );
+        oddsBySport.set(sp, oddsEvents);
+      }
 
-        for (const ev of live) {
-          const best = matchOddsEvent(
-            { league: String(ev.league || ''), home: String(ev.home_team || ''), away: String(ev.away_team || ''), kickoff: String(ev.event_date || '') },
-            oddsEvents,
-            90,
-          );
-          const goalsObj = (ev as any).goals || (ev as any).score || null;
-          const gHome = goalsObj && typeof goalsObj === 'object' ? Number((goalsObj as any).home ?? (goalsObj as any).Home ?? NaN) : NaN;
-          const gAway = goalsObj && typeof goalsObj === 'object' ? Number((goalsObj as any).away ?? (goalsObj as any).Away ?? NaN) : NaN;
-          const hasGoals = Number.isFinite(gHome) && Number.isFinite(gAway);
-          const leader = hasGoals ? (gHome > gAway ? 'home' : gAway > gHome ? 'away' : 'draw') : 'unknown';
-          const bHome = Number(best?.home_odd || 0);
-          const bDraw = Number(best?.draw_odd || 0);
-          const bAway = Number(best?.away_odd || 0);
-          const minOdd = Math.min(bHome || Infinity, bDraw || Infinity, bAway || Infinity);
-          const leaderOdd = leader === 'home' ? bHome : leader === 'away' ? bAway : bDraw;
-          const looksWrongForScore =
-            hasGoals &&
-            leader !== 'draw' &&
-            (bDraw > 0 && bDraw <= minOdd * 1.05 || (leaderOdd > 0 && leaderOdd > minOdd * 1.15));
+      for (const ev of live) {
+        const sp = normalizeSport(String(ev.sport || 'soccer'));
+        const oddsEvents = oddsBySport.get(sp) || [];
+        const best = matchOddsEvent(
+          { league: String(ev.league || ''), home: String(ev.home_team || ''), away: String(ev.away_team || ''), kickoff: String(ev.event_date || '') },
+          oddsEvents as any,
+          sp === 'soccer' ? 92 : 85,
+        );
+        if (!best) continue;
 
-          if (best && best.home_odd > 1 && !looksWrongForScore) {
-            ev.home_odd = best.home_odd;
-            ev.draw_odd = best.draw_odd;
-            ev.away_odd = best.away_odd;
-            if (best.markets && best.markets.length > 0) {
-              ev.markets = best.markets;
-            }
+        const goalsObj = (ev as any).goals || (ev as any).score || null;
+        const gHome = goalsObj && typeof goalsObj === 'object' ? Number((goalsObj as any).home ?? (goalsObj as any).Home ?? NaN) : NaN;
+        const gAway = goalsObj && typeof goalsObj === 'object' ? Number((goalsObj as any).away ?? (goalsObj as any).Away ?? NaN) : NaN;
+        const hasGoals = Number.isFinite(gHome) && Number.isFinite(gAway);
+        const leader = hasGoals ? (gHome > gAway ? 'home' : gAway > gHome ? 'away' : 'draw') : 'unknown';
+
+        const bHome = Number(best?.home_odd || 0);
+        const bDraw = Number(best?.draw_odd || 0);
+        const bAway = Number(best?.away_odd || 0);
+        const oddsArr = [bHome, bDraw, bAway].filter((x) => x > 1);
+        const minOdd = oddsArr.length ? Math.min(...oddsArr) : Infinity;
+        const leaderOdd = leader === 'home' ? bHome : leader === 'away' ? bAway : bDraw;
+        const looksWrongForScore =
+          sp === 'soccer' &&
+          hasGoals &&
+          leader !== 'draw' &&
+          ((bDraw > 1 && bDraw <= minOdd * 1.05) || (leaderOdd > 1 && leaderOdd > minOdd * 1.15));
+
+        if (best.home_odd > 1 && !looksWrongForScore) {
+          ev.home_odd = best.home_odd;
+          ev.draw_odd = best.draw_odd;
+          ev.away_odd = best.away_odd;
+          if (best.markets && best.markets.length > 0) {
+            ev.markets = best.markets;
           }
         }
       }
     }
+
+    for (let i = 0; i < live.length; i++) live[i] = ensureH2hMarketsArray(live[i]);
+    for (let i = 0; i < pregame.length; i++) pregame[i] = ensureH2hMarketsArray(pregame[i]);
 
     return c.json({ live, pregame });
   } catch (err) {
@@ -544,6 +657,8 @@ sports.get('/:id/odds', async (c) => {
   try {
     const id = c.req.param('id');
     const realtime = String(c.req.query('realtime') || '') === '1';
+    const oddsKey = getOddsApiKey(c.env);
+    const apiKey = getApiSportsKey(c.env);
     const parts = id.includes('_') ? id.split('_') : [];
     const sportPrefix = parts.length >= 2 ? parts[0] : 'soccer';
     const rawIdFromParam = parts.length >= 2 ? parts.slice(1).join('_') : id;
@@ -554,70 +669,99 @@ sports.get('/:id/odds', async (c) => {
 
     if (!row) return c.json({ markets: {} });
 
-    if (realtime && c.env.ODDS_API_KEY) {
+    if (realtime && oddsKey) {
       const r: any = row as any;
       const out = await fetchOddsApiMarketsForFixture(
-        c.env.ODDS_API_KEY,
-        { league: String(r.league || ''), home: String(r.home_team || ''), away: String(r.away_team || ''), kickoff: String(r.event_date || ''), sport: 'soccer' },
+        oddsKey,
+        { league: String(r.league || ''), home: String(r.home_team || ''), away: String(r.away_team || ''), kickoff: String(r.event_date || ''), sport: sportPrefix },
         c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
         'pending,live',
       );
       if (out) return c.json(out);
     }
 
-    if (realtime && c.env.API_SPORTS_KEY) {
-      if (sportPrefix === 'soccer') {
-        const nowMs = Date.now();
-        if (!cachedLiveOdds || cachedLiveOdds.expiresAt <= nowMs) {
-          const map = await fetchLiveOddsForSport(c.env.API_SPORTS_KEY, 'soccer');
-          cachedLiveOdds = { expiresAt: nowMs + 10_000, map };
-        }
-        const rawId = rawIdFromParam || String((row as any).external_event_id || id).split('_').slice(1).join('_');
-        const o = rawId ? cachedLiveOdds.map.get(rawId) : null;
-        if (o && Number(o.home || 0) > 1) {
-          const h2h = Array.isArray(o.markets?.h2h) ? o.markets.h2h : [];
-          return c.json({
-            home_odd: o.home,
-            draw_odd: o.draw,
-            away_odd: o.away,
-            markets: { h2h },
-            updated_at: new Date().toISOString(),
-            provider: 'api-sports',
+    if (realtime && sportPrefix === 'soccer' && apiKey) {
+      const fixtureId = Number(rawIdFromParam);
+      if (Number.isFinite(fixtureId) && fixtureId > 0) {
+        try {
+          const qp = new URLSearchParams();
+          qp.set('fixture', String(fixtureId));
+          const url = `https://v3.football.api-sports.io/odds?${qp.toString()}`;
+          const res = await fetch(url, {
+            headers: { 'x-apisports-key': String(apiKey) },
+            signal: AbortSignal.timeout(9000),
           });
-        }
-      } else {
-        const odds = await fetchGameOdds(c.env.API_SPORTS_KEY, sportPrefix, rawIdFromParam);
-        if (odds && Number(odds.home || 0) > 1) {
-          const h2h = Array.isArray((odds as any).markets?.h2h) && (odds as any).markets.h2h.length
-            ? (odds as any).markets.h2h
-            : [
-                { value: 'Home', odd: String(odds.home) },
-                ...(Number(odds.draw || 0) > 1 ? [{ value: 'Draw', odd: String(odds.draw) }] : []),
-                { value: 'Away', odd: String(odds.away) },
-              ];
-          return c.json({
-            home_odd: odds.home,
-            draw_odd: odds.draw,
-            away_odd: odds.away,
-            markets: { h2h },
-            updated_at: new Date().toISOString(),
-            provider: 'api-sports',
-          });
+          if (res.ok) {
+            const data = await res.json() as any;
+            const response = Array.isArray(data?.response) ? data.response : [];
+            const bestByMarket = new Map<string, Map<string, { label: string; odd: number }>>();
+
+            const normalizeKey = (k: string) => {
+              const s = String(k || '').toLowerCase();
+              if (s.includes('match winner') || s.includes('full time result') || s.includes('1x2') || s.includes('home/away')) return 'h2h';
+              if (s.includes('double chance')) return 'double_chance';
+              if (s.includes('draw no bet')) return 'dnb';
+              if (s.includes('both teams') && s.includes('score')) return 'btts';
+              if (s.includes('asian handicap') || s.includes('handicap') || s.includes('spread')) return 'handicap';
+              if (s.includes('goals over/under') || s.includes('over/under') || s.includes('total goals')) return 'totals';
+              if (s.includes('correct score') || s.includes('exact score')) return 'correct_score';
+              if (s.includes('half time/full time') || s.includes('ht/ft')) return 'half_time_full_time';
+              return 'specials';
+            };
+
+            for (const item of response) {
+              const bookmakers = Array.isArray(item?.bookmakers) ? item.bookmakers : [];
+              for (const bm of bookmakers) {
+                const bets = Array.isArray(bm?.bets) ? bm.bets : [];
+                for (const bet of bets) {
+                  const key = normalizeKey(bet?.name || bet?.id);
+                  if (!bestByMarket.has(key)) bestByMarket.set(key, new Map());
+                  const best = bestByMarket.get(key)!;
+                  const values = Array.isArray(bet?.values) ? bet.values : [];
+                  for (const v of values) {
+                    const labelRaw = String(v?.value ?? v?.label ?? v?.name ?? '').trim();
+                    const odd = Number(v?.odd ?? v?.price ?? 0);
+                    if (!labelRaw || !(odd > 1)) continue;
+                    const lk = labelRaw.toLowerCase();
+                    const prev = best.get(lk);
+                    if (!prev || odd > prev.odd) best.set(lk, { label: labelRaw, odd });
+                  }
+                }
+              }
+            }
+
+            const markets: Record<string, any[]> = {};
+            for (const [key, map] of bestByMarket) {
+              const arr = Array.from(map.values())
+                .map((x) => ({ name: x.label, label: x.label, price: x.odd, odd: x.odd }))
+                .sort((a, b) => Number(a.price) - Number(b.price))
+                .slice(0, 220);
+              if (arr.length > 0) markets[key] = arr;
+            }
+
+            const pick = (lbl: string) => (markets.h2h || []).find((s: any) => String(s?.label || s?.name || '').toLowerCase() === lbl)?.odd || 0;
+            const home_odd = pick('home') || pick('1') || pick('casa') || 0;
+            const draw_odd = pick('draw') || pick('x') || pick('empate') || 0;
+            const away_odd = pick('away') || pick('2') || pick('fora') || 0;
+
+            const out = {
+              home_odd,
+              draw_odd,
+              away_odd,
+              markets,
+              updated_at: new Date().toISOString(),
+              provider: 'api-sports',
+            };
+            if (Object.keys(markets).length > 0) return c.json(out);
+          }
+        } catch {
+          /* ignore */
         }
       }
     }
 
     let markets: any = {};
     try { markets = JSON.parse((row as any).markets || '{}'); } catch { /* empty */ }
-
-    // Garantir h2h no markets com as odds principais
-    if (!(markets.h2h?.length) && (row as any).home_odd > 0) {
-      markets.h2h = [
-        { value: 'Home', odd: String((row as any).home_odd) },
-        { value: 'Draw', odd: String((row as any).draw_odd) },
-        { value: 'Away', odd: String((row as any).away_odd) },
-      ];
-    }
 
     const h = Number((row as any).home_odd || 0);
     const d = Number((row as any).draw_odd || 0);
@@ -667,6 +811,23 @@ sports.get('/:id/odds', async (c) => {
       if (normalized[nk].length > 200) normalized[nk] = normalized[nk].slice(0, 200);
     }
 
+    const dedupeBest = (arr: any[]) => {
+      const best = new Map<string, any>();
+      for (const it of arr) {
+        const label = String(it?.label || it?.name || '').trim();
+        const price = Number(it?.price || it?.odd || 0);
+        if (!label || !(price > 1)) continue;
+        const k = label.toLowerCase();
+        const prev = best.get(k);
+        if (!prev || Number(prev.price || 0) < price) best.set(k, it);
+      }
+      return Array.from(best.values());
+    };
+
+    for (const k of Object.keys(normalized)) {
+      normalized[k] = dedupeBest(normalized[k]).slice(0, 200);
+    }
+
     return c.json({
       home_odd: h,
       draw_odd: d,
@@ -684,7 +845,7 @@ sports.get('/:id/odds', async (c) => {
 sports.get('/:id/stats', async (c) => {
   try {
     const id = c.req.param('id');
-    const apiKey = c.env.API_SPORTS_KEY;
+    const apiKey = getApiSportsKey(c.env);
     if (!apiKey) return c.json({ stats: [], events: [] });
 
     // Resolve external_event_id → raw fixture id (e.g. "soccer_1529480" → "1529480")

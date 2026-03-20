@@ -58,7 +58,7 @@ database_name = "bet62-db"
 database_id = "ebaef170-b999-47d6-887d-24c5e16a674b"
 
 [env.production]
-name = "bet62-api-v2-temp"
+name = "bet62apostasesportivas"
 account_id = "ca04a31d62caccd4774fd850d109bb91"
 triggers = { crons = ["*/5 * * * *"] }
 
@@ -76,6 +76,7 @@ NODE_ENV = "production"
 API_SPORTS_SEASON = "2025"
 ODDS_API_BOOKMAKERS = "Bet365,1xbet,Betano,888Sport,SportingBet"
 MEDIA_PROXY_BASE = ""
+FRONTEND_URL = "https://bet62apostasesportivas.pages.dev"
 
 [[env.production.d1_databases]]
 binding = "DB"

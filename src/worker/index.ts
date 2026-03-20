@@ -4,6 +4,7 @@ import { upgradeWebSocket } from 'hono/cloudflare-workers';
 import { Env } from '../shared/types';
 import { cacheControl } from './middleware/cache';
 import { runSportsSync } from './services/sportsSync';
+import { getApiSportsKey, getFrontendUrl, getOddsApiKey } from './services/env';
 
 import wallet from './wallet';
 import bets from './bets';
@@ -28,7 +29,14 @@ const app = new Hono<{ Bindings: Env }>();
 
 // ── CORS ──────────────────────────────────────────────────────────────
 app.use('*', cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000', 'https://bet62.pt'],
+  origin: (origin) => {
+    if (!origin) return '*';
+    const o = String(origin);
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o)) return o;
+    if (o === 'https://bet62.pt') return o;
+    if (o === 'https://bet62apostasesportivas.bet62.workers.dev') return o;
+    return 'https://bet62.pt';
+  },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -38,6 +46,30 @@ app.use('*', cors({
 app.use('*', async (c, next) => {
   console.log(`[Worker] ${c.req.method} ${c.req.path}`);
   await next();
+});
+
+app.post('/api/admin/force-sync', async (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
+  const isAdmin = token === c.env.ADMIN_TOKEN;
+  const isDev   = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development';
+  if (!isAdmin && !isDev) return c.json({ error: 'Forbidden' }, 403);
+
+  c.executionCtx.waitUntil(runSportsSync(c.env, { forceFull: true }));
+  return c.json({ status: 'sync started' });
+});
+
+app.post('/api/admin/force-sync-wait', async (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
+  const isAdmin = token === c.env.ADMIN_TOKEN;
+  const isDev   = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development';
+  if (!isAdmin && !isDev) return c.json({ error: 'Forbidden' }, 403);
+
+  try {
+    const result = await runSportsSync(c.env, { forceFull: true });
+    return c.json({ ok: true, ...result });
+  } catch (err: any) {
+    return c.json({ ok: false, error: String(err?.message || err) }, 500);
+  }
 });
 
 // ── Domain routers ────────────────────────────────────────────────────
@@ -87,15 +119,41 @@ app.get('/api/pricing/config', (c) => {
 });
 
 app.get('/api/health', (c) => c.json({ status: 'ok', ts: new Date().toISOString() }));
+app.get('/api/dev/time', async (c) => {
+  const jsNow = new Date().toISOString();
+  const db = await c.env.DB.prepare(`SELECT datetime('now') as now, datetime('now','localtime') as local_now`).first();
+  return c.json({ jsNow, dbNow: db?.now || null, dbLocalNow: db?.local_now || null });
+});
+
+app.get('/', (c) => {
+  const isProd = c.env.ENVIRONMENT === 'production';
+  const frontendUrl = getFrontendUrl(c.env);
+  if (isProd && frontendUrl) {
+    return c.redirect(frontendUrl, 302);
+  }
+  return c.json({
+    ok: true,
+    name: 'BET62 Worker API',
+    env: c.env.ENVIRONMENT,
+    endpoints: [
+      '/api/health',
+      '/api/sports',
+      '/api/events/by-sport',
+      '/api/debug/db-status?key=...',
+      '/api/debug/env-check?key=...',
+    ],
+  });
+});
 
 // ── Featured games (alias for by-sport live) ──────────────────────────
 app.get('/api/featured-games', cacheControl({ maxAge: 30, staleWhileRevalidate: 60 }), async (c) => {
   try {
+    const eventDt = `datetime(replace(substr(event_date, 1, 19), 'T', ' '))`;
     const res = await c.env.DB.prepare(`
       SELECT * FROM events
       WHERE is_live = 1
-        OR event_date BETWEEN datetime('now', '-1 hour') AND datetime('now', '+48 hours')
-      ORDER BY is_live DESC, event_date ASC
+        OR ${eventDt} BETWEEN datetime('now', '-3 hours') AND datetime('now', '+48 hours')
+      ORDER BY is_live DESC, ${eventDt} ASC
       LIMIT 30
     `).all();
     return c.json(res.results || []);
@@ -193,7 +251,7 @@ app.get('/api/matches/live', async (c) => {
       SELECT *
       FROM events
       WHERE is_live = 1
-        AND status NOT IN ('FT','AET','PEN','AWD','WO','ABD','Finished','Match Finished','Final','Ended','AOT','AP','POST','SUSP','CANC','TBD')
+        AND COALESCE(status, 'NS') NOT IN ('FT','AET','PEN','AWD','WO','ABD','Finished','Match Finished','Final','Ended','AOT','AP','POST','SUSP','CANC','TBD')
       ORDER BY event_date ASC
       LIMIT 300
     `).all();
@@ -212,7 +270,7 @@ app.get('/api/matches/upcoming', async (c) => {
       FROM events
       WHERE is_live = 0
         AND event_date BETWEEN datetime('now', '-1 hours') AND datetime('now', '+48 hours')
-        AND status NOT IN ('FT','AET','PEN','AWD','WO','ABD','Finished','Match Finished','Final','Ended','AOT','AP','POST','SUSP','CANC','TBD')
+        AND COALESCE(status, 'NS') NOT IN ('FT','AET','PEN','AWD','WO','ABD','Finished','Match Finished','Final','Ended','AOT','AP','POST','SUSP','CANC','TBD')
       ORDER BY event_date ASC
       LIMIT 300
     `).all();
@@ -222,17 +280,6 @@ app.get('/api/matches/upcoming', async (c) => {
     console.error('[matches/upcoming] error:', err);
     return c.json([]);
   }
-});
-
-// ── Admin: manual sync trigger ────────────────────────────────────────
-app.post('/api/admin/force-sync', async (c) => {
-  const token = c.req.header('Authorization')?.replace('Bearer ', '');
-  const isAdmin = token === c.env.ADMIN_TOKEN;
-  const isDev   = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development';
-  if (!isAdmin && !isDev) return c.json({ error: 'Forbidden' }, 403);
-
-  c.executionCtx.waitUntil(runSportsSync(c.env, { forceFull: true }));
-  return c.json({ status: 'sync started' });
 });
 
 // ── Admin: cleanup events table ───────────────────────────────────────
@@ -269,6 +316,28 @@ app.get('/api/debug/db-status', async (c) => {
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
+});
+
+app.get('/api/debug/env-check', async (c) => {
+  const token = c.req.query('key') || c.req.header('Authorization')?.replace('Bearer ', '');
+  const isAdmin = token === c.env.ADMIN_TOKEN;
+  const isDev   = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development';
+  if (!isAdmin && !isDev) return c.json({ error: 'Forbidden' }, 403);
+
+  const apiSports = getApiSportsKey(c.env);
+  const oddsApi = getOddsApiKey(c.env);
+  const frontendUrl = getFrontendUrl(c.env);
+
+  return c.json({
+    env: c.env.ENVIRONMENT,
+    hasApiSportsKey: apiSports.length > 0,
+    apiSportsKeyPrefix: apiSports ? apiSports.slice(0, 6) + '...' : '',
+    hasOddsApiKey: oddsApi.length > 0,
+    oddsApiKeyPrefix: oddsApi ? oddsApi.slice(0, 6) + '...' : '',
+    apiSportsSeason: String((c.env as any).API_SPORTS_SEASON || ''),
+    oddsBookmakers: String((c.env as any).ODDS_API_BOOKMAKERS || ''),
+    frontendUrl,
+  });
 });
 
 // ── WebSocket live feed ───────────────────────────────────────────────

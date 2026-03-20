@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useApp } from '../contexts/AppContext';
+import { useApp } from '@/react-app/contexts/AppContext';
 
 export function Footer() {
   const { darkMode } = useApp();

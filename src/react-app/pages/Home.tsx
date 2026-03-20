@@ -1,15 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useApp } from '../contexts/AppContext';
-import { useSportsEvents } from '../hooks/useSportsEvents';
-import { useLiveFeed } from '../hooks/useLiveFeed';
+import { useApp } from '@/react-app/contexts/AppContext';
+import { useSportsEvents } from '@/react-app/hooks/useSportsEvents';
 import EventCard from '../components/EventCard';
 import { Sidebar } from '../components/Sidebar';
 import { BannerCarousel } from '../components/BannerCarousel';
 import { BetSlip } from '../components/BetSlip';
 import { useNavigate, Link } from 'react-router-dom';
 import { getSportIcon } from '../../shared/helpers';
-import { useMergedEvents } from '../hooks/useMergedEvents';
 import { useEventSearch } from '../hooks/useEventSearch';
 import { useUpcomingCache } from '../hooks/useUpcomingCache';
 import { useGroupedEvents } from '../hooks/useGroupedEvents';
@@ -28,10 +26,8 @@ function Home({ mode = 'home' }: HomeProps) {
   const { live: httpLive, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || 'all');
   const loading = eventsLoading;
   const showBanner = true;
-  const { liveEvents: wsLive } = useLiveFeed(selectedCategory || 'all');
-
-  // Merge HTTP + WebSocket (prioriza WS para placar/status)
-  const processedLive = useMergedEvents(httpLive, wsLive);
+  
+  const processedLive = httpLive;
 
   const { upcomingEvents } = useUpcomingCache(pregame);
 
@@ -103,6 +99,10 @@ function Home({ mode = 'home' }: HomeProps) {
   // Previous: useEffect inside conditional block if (processedLive.length > 0 ...)
   // Now: useEffect always called, logic inside
   const [hasEverHadEvents, setHasEverHadEvents] = useState(false);
+  const [showIntro, setShowIntro] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return sessionStorage.getItem('bet62_intro_shown') !== '1';
+  });
 
   useEffect(() => {
     if ((processedLive.length > 0 || upcomingEvents.length > 0) && !hasEverHadEvents) {
@@ -110,17 +110,50 @@ function Home({ mode = 'home' }: HomeProps) {
     }
   }, [processedLive, upcomingEvents, hasEverHadEvents]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (sessionStorage.getItem('bet62_intro_shown') === '1') return;
+
+    if (loading) {
+      setShowIntro(true);
+      return;
+    }
+
+    const t = setTimeout(() => {
+      setShowIntro(false);
+      sessionStorage.setItem('bet62_intro_shown', '1');
+    }, 350);
+    return () => clearTimeout(t);
+  }, [loading]);
+
   // Caso não apareça nada (primeira carga, sem eventos) - REMOVIDO POR SOLICITAÇÃO
   // if (!loading && !hasEverHadEvents && groupedLive.length === 0 && limitedUpcoming.length === 0) { ... }
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-[#121212] text-white' : 'bg-gray-50 text-gray-900'}`}>
+      {showIntro && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black">
+          <div className="absolute inset-0 bg-gradient-to-b from-black via-[#0b0b10] to-black"></div>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(255,0,60,0.10)_0%,transparent_55%)]"></div>
+
+          <div className="relative z-10 flex flex-col items-center px-6">
+            <div className="text-6xl font-extrabold tracking-[0.22em]">
+              <span className="text-white">BET</span>
+              <span className="text-red-600">62</span>
+            </div>
+            <div className="mt-5 flex items-center gap-3 text-white/70">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
+              <div className="text-xs uppercase tracking-[0.25em]">Carregando</div>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
       {/* DEBUG PANEL */}
       {showDebug && (
         <div className="bg-red-900/80 text-white p-2 text-xs font-mono fixed bottom-0 left-0 z-50 w-full">
             DEBUG: Mode={mode} | 
             HTTP Live={httpLive.length} | 
-            WS Live={wsLive.length} | 
             Processed Live={processedLive.length} | 
             Pregame Raw={pregame.length} | 
             Upcoming Cache={upcomingEvents.length} |

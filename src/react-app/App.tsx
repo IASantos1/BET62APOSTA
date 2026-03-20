@@ -3,8 +3,8 @@ import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const queryClient = new QueryClient();
-import { AuthProvider } from './contexts/AuthContext';
-import { AppProvider, useApp } from './contexts/AppContext';
+import { AuthProvider } from '@/react-app/contexts/AuthContext';
+import { AppProvider, useApp } from '@/react-app/contexts/AppContext';
 // import { RealtimeProvider } from './contexts/RealtimeContext'; // Removed
 import { Header } from './components/Header';
 import { ToastContainer } from './components/Toast';

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useApp } from "@/react-app/contexts/AppContext";
 import { apiFetch } from "@/react-app/utils/api";
 
@@ -49,15 +49,73 @@ export function BannerCarousel() {
   const { addToBetSlip, addNotification } = useApp();
   const [banners, setBanners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const fallbackBanners = useMemo(() => ([
+    {
+      id: 'promo-1',
+      title: 'Bónus de Boas‑Vindas',
+      home: 'Depósito',
+      away: 'Bónus',
+      time: 'PROMOÇÃO',
+      live: false,
+      odds: { homeOld: null, home: '0', draw: '0', away: '0' },
+      league: 'BET62',
+      homeLogo: null,
+      awayLogo: null,
+      sport: 'soccer',
+    },
+    {
+      id: 'promo-2',
+      title: 'Cashout & Odds Turbo',
+      home: 'Cashout',
+      away: 'Turbo',
+      time: 'NOVIDADES',
+      live: false,
+      odds: { homeOld: null, home: '0', draw: '0', away: '0' },
+      league: 'BET62',
+      homeLogo: null,
+      awayLogo: null,
+      sport: 'basketball',
+    },
+    {
+      id: 'promo-3',
+      title: 'Aposta Ao Vivo',
+      home: 'Live',
+      away: 'Now',
+      time: 'AO VIVO',
+      live: false,
+      odds: { homeOld: null, home: '0', draw: '0', away: '0' },
+      league: 'BET62',
+      homeLogo: null,
+      awayLogo: null,
+      sport: 'tennis',
+    },
+  ]), []);
+
+  const getBgSvg = (sport: string) => {
+    const s = String(sport || '').toLowerCase();
+    if (s.includes('basket')) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#0b0f1a"/><g opacity="0.22" stroke="#9ca3af" stroke-width="6" fill="none"><rect x="80" y="60" width="1040" height="480" rx="20"/><line x1="600" y1="60" x2="600" y2="540"/><circle cx="600" cy="300" r="90"/><rect x="80" y="190" width="180" height="220" rx="12"/><rect x="940" y="190" width="180" height="220" rx="12"/><circle cx="170" cy="300" r="55"/><circle cx="1030" cy="300" r="55"/></g><g opacity="0.10" fill="#ffd700"><circle cx="180" cy="100" r="4"/><circle cx="1020" cy="520" r="3"/><circle cx="980" cy="110" r="2"/></g></svg>`;
+    }
+    if (s.includes('tennis')) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#0b0f1a"/><g opacity="0.22" stroke="#9ca3af" stroke-width="6" fill="none"><rect x="120" y="80" width="960" height="440" rx="20"/><line x1="600" y1="80" x2="600" y2="520"/><line x1="120" y1="300" x2="1080" y2="300"/><rect x="220" y="150" width="760" height="300" rx="16"/><line x1="600" y1="150" x2="600" y2="450"/></g><g opacity="0.10" fill="#ffd700"><circle cx="220" cy="110" r="4"/><circle cx="980" cy="500" r="3"/><circle cx="930" cy="120" r="2"/></g></svg>`;
+    }
+    if (s.includes('soccer') || s.includes('football')) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#0b0f1a"/><g opacity="0.22" stroke="#9ca3af" stroke-width="6" fill="none"><rect x="70" y="70" width="1060" height="460" rx="20"/><line x1="600" y1="70" x2="600" y2="530"/><circle cx="600" cy="300" r="85"/><rect x="70" y="200" width="160" height="200" rx="12"/><rect x="970" y="200" width="160" height="200" rx="12"/><rect x="70" y="240" width="70" height="120" rx="10"/><rect x="1060" y="240" width="70" height="120" rx="10"/></g><g opacity="0.10" fill="#ffd700"><circle cx="140" cy="120" r="4"/><circle cx="1050" cy="480" r="3"/><circle cx="980" cy="120" r="2"/></g></svg>`;
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#0b0f1a"/><g opacity="0.18" stroke="#9ca3af" stroke-width="6" fill="none"><rect x="90" y="90" width="1020" height="420" rx="22"/><line x1="90" y1="300" x2="1110" y2="300"/><line x1="600" y1="90" x2="600" y2="510"/></g><g opacity="0.10" fill="#ffd700"><circle cx="220" cy="130" r="4"/><circle cx="980" cy="470" r="3"/><circle cx="940" cy="140" r="2"/></g></svg>`;
+  };
 
   // FETCH DATA
   useEffect(() => {
     const loadBanners = async () => {
       try {
-        const data = await apiFetch<any[]>('/api/featured-games', { cache: 'no-store' });
-        
+        const bySport = await apiFetch<any>('/api/events/by-sport?sports=all&include=odds&realtime=0', { cache: 'no-store' });
+        const pre = Array.isArray(bySport?.pregame) ? bySport.pregame : [];
+        const live = Array.isArray(bySport?.live) ? bySport.live : [];
+        const data = pre.length > 0 ? pre : (Array.isArray(live) ? live : []);
+
         if (Array.isArray(data) && data.length > 0) {
-          const validData = data.filter(evt => {
+          const validData = data.filter((evt: any) => {
             const status = evt.status || evt.fixture?.status?.short;
             if (['FT', 'AET', 'PEN', 'Finished'].includes(status)) return false;
 
@@ -76,11 +134,11 @@ export function BannerCarousel() {
 
             const eventTime = dAdj.getTime();
             const isLive = status === 'live' || ['1H','2H','HT','ET','P','LIVE'].includes(status) || evt.is_live === 1;
-            if (isLive) return false;
+            if (pre.length > 0 && isLive) return false;
 
-            if (eventTime <= now.getTime()) return false;
+            if (pre.length > 0 && eventTime <= now.getTime()) return false;
 
-            const endWindow = now.getTime() + 72 * 60 * 60 * 1000;
+            const endWindow = now.getTime() + 7 * 24 * 60 * 60 * 1000;
             if (eventTime > endWindow) return false;
 
             return true;
@@ -89,7 +147,7 @@ export function BannerCarousel() {
           // Sort by score
           const sorted = validData.sort((a, b) => scoreEvent(b) - scoreEvent(a));
 
-          const mapped = sorted.map(evt => {
+          const mapped = sorted.map((evt: any) => {
             const rawDate = evt.event_date || evt.fixture?.date;
             const baseDate = rawDate ? new Date(rawDate) : new Date();
             const now = new Date();
@@ -109,13 +167,16 @@ export function BannerCarousel() {
             const homeOld = hasBoost ? (parseFloat(homeOdd) * 0.9).toFixed(2) : null;
 
             const homeLogo =
+              evt.home_team_logo ||
+              evt.teams?.home?.logo ||
               evt.fixture?.teams?.home?.logo ||
-              evt.fixture?.home?.logo ||
               null;
             const awayLogo =
+              evt.away_team_logo ||
+              evt.teams?.away?.logo ||
               evt.fixture?.teams?.away?.logo ||
-              evt.fixture?.away?.logo ||
               null;
+            const sport = evt.sport || 'soccer';
 
             return {
               id: evt.id,
@@ -123,7 +184,7 @@ export function BannerCarousel() {
               home: evt.home_team,
               away: evt.away_team,
               time: timeStr,
-              live: false,
+              live: Number(evt.is_live || 0) === 1,
               odds: {
                 homeOld: homeOld,
                 home: homeOdd,
@@ -132,7 +193,8 @@ export function BannerCarousel() {
               },
               league: evt.league || 'Destaque',
               homeLogo,
-              awayLogo
+              awayLogo,
+              sport,
             };
           });
           setBanners(mapped.slice(0, 3));
@@ -148,7 +210,8 @@ export function BannerCarousel() {
     loadBanners();
   }, []);
 
-  if (loading || banners.length === 0) return null;
+  if (loading) return null;
+  const viewBanners = banners.length > 0 ? banners : fallbackBanners;
 
   const handleBet = (banner: any, selection: string, odd: string) => {
     const price = parseFloat(odd);
@@ -192,20 +255,47 @@ export function BannerCarousel() {
           position: relative;
           overflow: hidden;
           flex: 1;
-          background: linear-gradient(135deg, #020617 40%, #003b1f 100%); 
-          border: 1px solid rgba(34, 197, 94, 0.5); 
+          background: linear-gradient(135deg, #0b0f1a 40%, #1f2937 100%); 
+          border: 1px solid rgba(156, 163, 175, 0.35); 
           color: #fff; 
           padding: 16px 12px; 
           border-radius: 6px; 
           min-height: 180px; 
           box-shadow: 
-            0 0 15px rgba(34, 197, 94, 0.2), 
+            0 0 15px rgba(148, 163, 184, 0.14), 
             0 10px 30px rgba(0, 0, 0, 0.8); 
           transition: all 0.5s ease;
           display: flex;
           flex-direction: column;
           justify-content: space-between;
         } 
+
+        .banner-bg {
+          position: absolute;
+          inset: 0;
+          opacity: 0.55;
+          background-size: cover;
+          background-position: center;
+          filter: blur(0px);
+          pointer-events: none;
+        }
+
+        .banner-watermark {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: flex-start;
+          padding-left: 14px;
+          opacity: 0.08;
+          pointer-events: none;
+        }
+
+        .banner-watermark img {
+          width: 140px;
+          height: 140px;
+          object-fit: contain;
+        }
 
         /* EFEITO DE RAIO (SHINE) */
         .banner::after {
@@ -321,8 +411,8 @@ export function BannerCarousel() {
         
         .odd-btn { 
           flex: 1; 
-          background: #020617; 
-          border: 1px solid #22c55e; 
+          background: rgba(2, 6, 23, 0.7); 
+          border: 1px solid rgba(156, 163, 175, 0.35); 
           padding: 8px 6px; 
           border-radius: 4px; 
           display: flex;
@@ -335,9 +425,9 @@ export function BannerCarousel() {
         }  
 
         .odd-btn:hover {
-          background: rgba(34, 197, 94, 0.1);
+          background: rgba(148, 163, 184, 0.10);
           transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(34, 197, 94, 0.2);
+          box-shadow: 0 4px 12px rgba(148, 163, 184, 0.15);
         }
 
         .odd-btn:active {
@@ -481,8 +571,14 @@ export function BannerCarousel() {
       > 
         {/* BANNERS TRACK */}
         <div className="carousel-track">
-          {banners.map((banner, i) => (
+          {viewBanners.map((banner, i) => (
             <div key={banner.id ?? i} className="banner"> 
+              <div className="banner-bg" style={{ backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(getBgSvg(banner.sport))}")` }} />
+              {banner.homeLogo && (
+                <div className="banner-watermark">
+                  <img src={banner.homeLogo} alt="" />
+                </div>
+              )}
               <div className="badges"> 
                 {banner.live && <span className="live-blink">AO VIVO</span>} 
                 {banner.odds.homeOld && <span className="boost">ODD BOOST</span>} 
@@ -515,7 +611,7 @@ export function BannerCarousel() {
                       <small className="old-odd">{banner.odds.homeOld}</small> 
                     )} 
                     <b className={banner.odds.homeOld ? "boosted" : ""}> 
-                      {banner.odds.home} 
+                      {Number(banner.odds.home) > 0 ? banner.odds.home : '—'} 
                     </b> 
                   </div>
                 </div> 
@@ -529,7 +625,7 @@ export function BannerCarousel() {
     
                 <div className="odd-btn" onClick={() => handleBet(banner, '2', banner.odds.away)}> 
                   <span>2</span> 
-                  <b>{banner.odds.away}</b> 
+                  <b>{Number(banner.odds.away) > 0 ? banner.odds.away : '—'}</b> 
                 </div> 
               </div> 
             </div> 

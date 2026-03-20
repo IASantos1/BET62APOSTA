@@ -44,6 +44,8 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   first_inning_totals: { title: 'Total do 1º Inning' },
   player_strikeouts: { title: 'Strikeouts do Jogador' },
   player_rbi: { title: 'RBI do Jogador' },
+  run_line: { title: 'Run Line' },
+  puck_line: { title: 'Puck Line' },
 
   // F1
   podium: { title: 'Pódio' },
@@ -77,6 +79,7 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   total_goal_odd_even: { title: 'Total de Gols (Par/Ímpar)' },
   half_time_full_time: { title: 'Half Time/Full Time' },
   winning_margin: { title: 'Winning Margin' },
+  next_goal: { title: 'Próximo Gol' },
 
   // American Football
   player_touchdowns: { title: 'Touchdowns do Jogador' },
@@ -144,7 +147,7 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
 export const MARKET_GROUPS = [
   {
     title: "Mercado Raiz",
-    keys: ["h2h", "spreads", "handicap", "totals"]
+    keys: ["h2h", "spreads", "handicap", "totals", "btts"]
   },
   {
     title: "Mercados de Resultado",
@@ -152,7 +155,7 @@ export const MARKET_GROUPS = [
   },
   {
     title: "Mercados de Gols",
-    keys: ["btts", "team_totals", "correct_score", "score_exact", "first_to_score", "team_to_score_first", "team_to_score_last", "race_to", "goal_range", "exact_goals", "minute_goals", "first_goal", "last_goal", "total_goal_odd_even", "both_teams_to_score_both_halves"]
+    keys: ["team_totals", "correct_score", "score_exact", "first_to_score", "team_to_score_first", "team_to_score_last", "race_to", "goal_range", "exact_goals", "minute_goals", "first_goal", "last_goal", "next_goal", "total_goal_odd_even", "both_teams_to_score_both_halves"]
   },
   {
     title: "Mercados Temporais",
@@ -160,7 +163,7 @@ export const MARKET_GROUPS = [
   },
   {
     title: "Mercados Estatísticos",
-    keys: ["corners_team", "corners_totals", "corners_total", "corner_handicap", "corners_h2h", "corners_btts", "cards_totals", "cards_total", "cards_h2h", "cards_handicap", "total_aces", "total_double_faults", "shots_on_goal", "total_strikes", "puck_possession"]
+    keys: ["corners_team", "corners_totals", "corners_total", "corner_handicap", "corners_h2h", "corners_btts", "cards_totals", "cards_total", "cards_h2h", "cards_handicap", "total_aces", "total_double_faults", "shots_on_goal", "total_strikes", "puck_possession", "run_line", "puck_line"]
   },
   {
     title: "Mercados de Jogadores",

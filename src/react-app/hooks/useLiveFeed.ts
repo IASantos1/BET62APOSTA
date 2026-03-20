@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiFetch } from '../utils/api';
 
 // Helper for robust outcome matching
@@ -115,9 +115,9 @@ const parseLiveEvent = (item: any) => {
         away_team: teams.away.name,
         league: item.league?.name || item.league || '',
         league_name: item.league?.name || item.league || '',
-        home_odd: h,
-        draw_odd: d,
-        away_odd: a,
+        home_odd: 0,
+        draw_odd: 0,
+        away_odd: 0,
         fixture: {
             ...fixture,
             status: fixture?.status || { short: 'LIVE', elapsed: 0, timer: '' }
@@ -133,13 +133,11 @@ export function useLiveFeed(sport?: string) {
   const [eventsMap, setEventsMap] = useState<Map<string, any>>(new Map());
   // const [isConnected, setIsConnected] = useState(true); // Always true for polling
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
-  
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   // Poll function
   const fetchLiveEvents = useCallback(async () => {
       try {
-          const url = `/api/events/by-sport?sports=${sport || 'all'}&include=odds&realtime=1`;
+          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1`;
           const data = await apiFetch<any>(url, { cache: 'no-store' });
           
           if (data && Array.isArray(data.live)) {
@@ -167,15 +165,30 @@ export function useLiveFeed(sport?: string) {
   }, [sport]);
 
   useEffect(() => {
-    // Initial fetch
-    fetchLiveEvents();
-    
-    pollingRef.current = setInterval(fetchLiveEvents, 5000);
+    let cancelled = false;
+    let inflight = false;
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    const loop = async () => {
+      if (cancelled) return;
+      if (inflight) {
+        timeoutId = setTimeout(loop, 1500);
+        return;
+      }
+      inflight = true;
+      try {
+        await fetchLiveEvents();
+      } finally {
+        inflight = false;
+        timeoutId = setTimeout(loop, 10_000);
+      }
+    };
+
+    loop();
 
     return () => {
-      if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-      }
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [fetchLiveEvents]);
 

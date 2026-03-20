@@ -57,6 +57,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
   const eventLeague = event.league?.name || event.league || 'Unknown League'; // Handle object or string
   const eventSport = event.sport;
   const sport = eventSport ? normalizeSport(eventSport) : getSportFromLeague(typeof eventLeague === 'string' ? eventLeague : (eventLeague?.name || ''));
+  const isTennis = sport === 'tennis';
 
   // Removed useRealtimeOdds hook
   
@@ -101,29 +102,6 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     return liveStatuses.has(status);
   }, [event]);
 
-  // Game Timer Logic (simplified)
-  const gameTime = useMemo(() => {
-      if (!isLiveEvent) return undefined;
-      // Direct access from event props
-      const elapsed = event.elapsed ?? event.fixture?.status?.elapsed ?? (event.fixture as any)?.elapsed;
-      const status = String(event.status ?? event.fixture?.status?.short ?? '').toUpperCase().trim();
-      const isClocklessSport = ['basketball', 'ice-hockey', 'baseball', 'volleyball', 'handball', 'american-football', 'rugby', 'tennis'].includes(sport);
-      if (isClocklessSport && Number(elapsed) === 0) {
-        if (status) return status;
-      }
-      if (elapsed !== undefined && elapsed !== null) return elapsed;
-
-      // Fallback to status if no elapsed time
-      if (status === 'HT') return 'INT';
-      if (status === 'FT') return 'FIM';
-      if (status === '1H') return '1T';
-      if (status === '2H') return '2T';
-      if (status === 'ET') return 'PRO';
-      if (status === 'P') return 'PEN';
-      
-      return undefined;
-  }, [event, isLiveEvent]);
-
   const cleanTeam = (s: string) => {
     const raw = String(s || '');
     const head = raw.split(',')[0] || raw;
@@ -157,9 +135,17 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     return lbl === 'Fora';
   });
 
-  const hh = Number(hhSelection?.odd || hhSelection?.price || hhSelection?.value || 0);
-  const dd = Number(ddSelection?.odd || ddSelection?.price || ddSelection?.value || 0);
-  const aa = Number(aaSelection?.odd || aaSelection?.price || aaSelection?.value || 0);
+  const pickOdd = (v: any) => {
+    if (v === null || v === undefined) return 0;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    const s = String(v).trim().replace(',', '.');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const hh = pickOdd(hhSelection?.odd || hhSelection?.price || hhSelection?.value) || pickOdd((event as any)?.home_odd);
+  const dd = pickOdd(ddSelection?.odd || ddSelection?.price || ddSelection?.value) || pickOdd((event as any)?.draw_odd);
+  const aa = pickOdd(aaSelection?.odd || aaSelection?.price || aaSelection?.value) || pickOdd((event as any)?.away_odd);
 
   const homeTrend = useTrend(hh);
   const drawTrend = useTrend(dd);
@@ -238,13 +224,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                     {country && <span className="opacity-70 font-normal hidden sm:inline">· {country}</span>}
                     
                     <div className="flex items-center gap-1 ml-1 pl-1 border-l border-gray-300 dark:border-gray-600">
-                         {(gameTime !== undefined && gameTime !== null) && isLiveEvent && (
-                            <span className="text-red-600 font-bold animate-pulse text-[10px] uppercase border border-red-600/30 px-1 rounded bg-red-600/5 mr-1">
-                                {gameTime}{typeof gameTime === 'number' || !isNaN(Number(gameTime)) ? "'" : ''}
-                            </span>
-                        )}
                         {eventDayMonth && <span className="opacity-80 text-[10px]">{eventDayMonth}</span>}
-                        {eventTime && <span className="opacity-80 text-[10px] ml-1">{eventTime}</span>}
                     </div>
                 </div>
             </span>
@@ -258,98 +238,92 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
           onClick={(e: ReactMouseEvent<HTMLButtonElement>) => { e.stopPropagation(); onOpenEvent(event); }} 
           className={`text-left w-full ${darkMode ? 'text-white hover:text-red-300' : 'text-gray-900 hover:text-red-700'} underline-offset-2 hover:underline overflow-hidden`} 
         > 
-          <span className="flex items-center gap-2 w-full">
-            <div className="flex items-center gap-2 flex-1 min-w-0 justify-end text-right">
-                 <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(homeTeamName)}</span>
-                 {homeTeamLogo && homeLogoOk ? (
-                   <img
-                     src={homeTeamLogo}
-                     alt={homeTeamName}
-                     className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5"
-                     onError={() => setHomeLogoOk(false)}
-                   />
-                 ) : (
-                   <div className="w-6 h-6 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold">
-                     {initials(homeTeamName)}
-                   </div>
-                 )}
+          <span className="flex items-center gap-2 w-full justify-start">
+            <div className="flex items-center gap-2 min-w-0 max-w-[46%]">
+              {!isTennis && (
+                homeTeamLogo && homeLogoOk ? (
+                  <img
+                    src={homeTeamLogo}
+                    alt={homeTeamName}
+                    className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5"
+                    onError={() => setHomeLogoOk(false)}
+                  />
+                ) : (
+                  <div className="w-6 h-6 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold">
+                    {initials(homeTeamName)}
+                  </div>
+                )
+              )}
+              <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(homeTeamName)}</span>
             </div>
 
-           {(() => {
-             // Use robust eventId
-             const rawHome = (event as any).goals?.home ?? (event as any).golsCasa ?? (event as any).score_home;
-             const rawAway = (event as any).goals?.away ?? (event as any).golsFora ?? (event as any).score_away;
-             
-             const formatScore = (val: any) => {
-                 if (val === null || val === undefined) return undefined;
-                 if (typeof val === 'object') {
-                     return val.total ?? val.score ?? val.current ?? 0;
-                 }
-                 return val;
-             };
+            {(() => {
+              const rawHome = (event as any).goals?.home ?? (event as any).golsCasa ?? (event as any).score_home;
+              const rawAway = (event as any).goals?.away ?? (event as any).golsFora ?? (event as any).score_away;
 
-             let homeScore = formatScore(rawHome);
-             let awayScore = formatScore(rawAway);
+              const formatScore = (val: any) => {
+                if (val === null || val === undefined) return undefined;
+                if (typeof val === 'object') return (val as any).total ?? (val as any).score ?? (val as any).current ?? 0;
+                return val;
+              };
 
-             // Force 0-0 for live events if scores are missing
-             if (isLiveEvent) {
+              let homeScore = formatScore(rawHome);
+              let awayScore = formatScore(rawAway);
+
+              if (isLiveEvent) {
                 if (homeScore === undefined) homeScore = 0;
                 if (awayScore === undefined) awayScore = 0;
-             }
-             
-             if (isLiveEvent && homeScore !== undefined && awayScore !== undefined) {
-                 return (
-                    <span className="text-sm font-bold text-red-600 animate-pulse shrink-0 px-2">
-                        {homeScore}-{awayScore}
-                    </span>
-                 );
-             }
-             
-             if (isLiveEvent && event.score) {
-                 let displayScore = event.score;
-                 
-                 // Try to parse JSON string score (e.g. {"home":1,"away":0})
-                 if (typeof displayScore === 'string' && (displayScore.includes('{') || displayScore.includes(':'))) {
-                     try {
-                         const parsed = JSON.parse(displayScore);
-                         if (parsed.home !== undefined && parsed.away !== undefined) {
-                             displayScore = `${parsed.home}-${parsed.away}`;
-                         }
-                     } catch (e) {
-                         // Keep original string if parse fails
-                     }
-                 } else if (typeof displayScore === 'object' && displayScore.home !== undefined) {
-                     displayScore = `${displayScore.home}-${displayScore.away}`;
-                 } else {
-                      displayScore = typeof event.score === 'object' ? formatScore(event.score) : event.score;
-                 }
+              }
 
-                 return (
-                    <span className="text-sm font-bold text-red-600 animate-pulse shrink-0 px-2">
-                        {displayScore}
-                    </span>
-                 );
-             }
-             
-             return <span className="text-xs font-normal shrink-0 px-2">{eventTime || 'vs'}</span>;
-           })()}
+              let scoreStr = '';
+              if (isLiveEvent && homeScore !== undefined && awayScore !== undefined) {
+                scoreStr = `${homeScore}-${awayScore}`;
+              } else if (isLiveEvent && event.score) {
+                let displayScore: any = event.score;
+                if (typeof displayScore === 'string' && (displayScore.includes('{') || displayScore.includes(':'))) {
+                  try {
+                    const parsed = JSON.parse(displayScore);
+                    if (parsed.home !== undefined && parsed.away !== undefined) {
+                      displayScore = `${parsed.home}-${parsed.away}`;
+                    }
+                  } catch {
+                    displayScore = String(displayScore);
+                  }
+                } else if (typeof displayScore === 'object' && displayScore?.home !== undefined) {
+                  displayScore = `${displayScore.home}-${displayScore.away}`;
+                }
+                scoreStr = String(displayScore);
+              }
+
+              const centerText = isLiveEvent
+                ? (scoreStr || 'AO VIVO')
+                : (eventTime || 'vs');
+
+              return (
+                <span className={`text-xs font-bold shrink-0 px-1 ${isLiveEvent ? 'text-red-600' : (darkMode ? 'text-gray-300' : 'text-gray-600')}`}>
+                  {centerText}
+                </span>
+              );
+            })()}
            
-            <div className="flex items-center gap-2 flex-1 min-w-0 justify-start text-left">
-                 {awayTeamLogo && awayLogoOk ? (
-                   <img
-                     src={awayTeamLogo}
-                     alt={awayTeamName}
-                     className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5"
-                     onError={() => setAwayLogoOk(false)}
-                   />
-                 ) : (
-                   <div className="w-6 h-6 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold">
-                     {initials(awayTeamName)}
-                   </div>
-                 )}
-                 <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(awayTeamName)}</span>
+            <div className="flex items-center gap-2 min-w-0 max-w-[46%]">
+              <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(awayTeamName)}</span>
+              {!isTennis && (
+                awayTeamLogo && awayLogoOk ? (
+                  <img
+                    src={awayTeamLogo}
+                    alt={awayTeamName}
+                    className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5"
+                    onError={() => setAwayLogoOk(false)}
+                  />
+                ) : (
+                  <div className="w-6 h-6 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold">
+                    {initials(awayTeamName)}
+                  </div>
+                )
+              )}
             </div>
-           </span>
+          </span>
         </button>
         
       </div>

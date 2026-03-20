@@ -20,6 +20,7 @@ const topCompetitions: SidebarSection = {
     'França - Ligue 1',
     'Itália - Serie A',
     'Brasil - Série A',
+    'Ténis',
     'Seleções Amigáveis',
     'Copa do Mundo',
   ],
@@ -30,6 +31,7 @@ const sports: SidebarSection = {
   items: [ 
     'Futebol', 
     'Basquetebol', 
+    'Ténis',
     'Futebol Americano', 
     'Handebol', 
     'MMA', 

@@ -9,11 +9,9 @@ import type { Market, Selection } from '../../shared/types';
 
 const ODDS_API_BASE = 'https://api.odds-api.io/v3';
 
-const SPORT_SLUG: Record<string, string> = {
-  soccer:       'football',
-  basketball:   'basketball',
-  'ice-hockey': 'hockey',
-  baseball:     'baseball',
+type SportsCatalog = {
+  updatedAt: number;
+  list: Array<{ name: string; slug: string }>;
 };
 
 type BookmakerCatalog = {
@@ -22,7 +20,7 @@ type BookmakerCatalog = {
 };
 
 let bookmakerCatalog: BookmakerCatalog | null = null;
-const lastFetchAtBySport = new Map<string, number>();
+let sportsCatalog: SportsCatalog | null = null;
 const fixtureOddsCache = new Map<string, { expiresAt: number; data: OddsMarketsResult }>();
 const eventsCache = new Map<string, { expiresAt: number; data: any[] }>();
 
@@ -31,6 +29,7 @@ export interface OddsEvent {
   home:        string;
   away:        string;
   date:        string;
+  status?:     string;
   home_odd:    number;
   draw_odd:    number;
   away_odd:    number;
@@ -131,16 +130,78 @@ async function resolveBookmakers(apiKey: string, requestedCsv: string): Promise<
   return Array.from(new Set(resolved)).join(',');
 }
 
+async function getSportsList(): Promise<Array<{ name: string; slug: string }>> {
+  const now = Date.now();
+  if (sportsCatalog && now - sportsCatalog.updatedAt < 6 * 60 * 60 * 1000) {
+    return sportsCatalog.list;
+  }
+
+  const data = await fetchJson(`${ODDS_API_BASE}/sports`);
+  const list: Array<{ name: string; slug: string }> = [];
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      const name = item?.name ? String(item.name) : '';
+      const slug = item?.slug ? String(item.slug) : '';
+      if (name && slug) list.push({ name, slug });
+    }
+  }
+
+  sportsCatalog = { updatedAt: now, list };
+  return list;
+}
+
+async function resolveSportSlug(sport: string): Promise<string> {
+  const raw = String(sport || '').trim();
+  if (!raw) return '';
+
+  const aliases: Record<string, string> = {
+    soccer: 'football',
+    football: 'football',
+    'ice-hockey': 'hockey',
+    hockey: 'hockey',
+    'american-football': 'american-football',
+    nfl: 'american-football',
+    mma: 'mma',
+    ufc: 'mma',
+    'formula-1': 'formula-1',
+    f1: 'formula-1',
+    afl: 'afl',
+  };
+
+  const want = aliases[raw.toLowerCase()] || raw.toLowerCase();
+  const wantKey = normKey(want);
+
+  const list = await getSportsList();
+  if (list.length === 0) return want;
+
+  const exact = list.find((s) => normKey(s.slug) === wantKey || normKey(s.name) === wantKey);
+  if (exact) return exact.slug;
+
+  const partial = list.find((s) => normKey(s.slug).includes(wantKey) || wantKey.includes(normKey(s.slug)));
+  if (partial) return partial.slug;
+
+  return want;
+}
+
 function toMarketKey(name: string): string {
   const n = String(name || '').toLowerCase();
-  if (n === 'ml' || n.includes('moneyline') || n.includes('match winner') || n.includes('1x2') || n.includes('h2h') || n.includes('result')) return 'h2h';
+  if (n === 'ml' || n.includes('moneyline') || n.includes('match winner') || n.includes('1x2') || n.includes('h2h') || n === 'result') return 'h2h';
   if (n.includes('double chance')) return 'double_chance';
   if (n.includes('draw no bet')) return 'dnb';
   if (n.includes('both teams to score')) return 'btts';
-  if (n.includes('spread') || n.includes('handicap')) return 'handicap';
-  if (n.includes('totals') || n.includes('goals over/under') || n.includes('over/under')) return 'totals';
+  if (n.includes('spread') || n.includes('asian handicap') || (n.includes('handicap') && !n.includes('corner') && !n.includes('card'))) return 'handicap';
+  if (n.includes('totals') || n.includes('goals over/under') || n.includes('over/under') || n.includes('total goals')) return 'totals';
   if (n.includes('half time') && (n.includes('result') || n.includes('ml'))) return 'h2h_ht';
   if (n.includes('totals ht')) return 'totals_ht';
+  if (n.includes('ht/ft') || (n.includes('half') && n.includes('full') && n.includes('time'))) return 'half_time_full_time';
+  if (n.includes('correct score') || n.includes('exact score')) return 'correct_score';
+  if (n.includes('next goal')) return 'next_goal';
+  if (n.includes('team to score first') || n.includes('first team to score') || n.includes('first to score')) return 'team_to_score_first';
+  if (n.includes('corners') && (n.includes('over/under') || n.includes('totals'))) return 'corners_total';
+  if (n.includes('corner') && n.includes('handicap')) return 'corner_handicap';
+  if (n.includes('cards') && (n.includes('over/under') || n.includes('totals'))) return 'cards_total';
+  if (n.includes('run line')) return 'run_line';
+  if (n.includes('puck line')) return 'puck_line';
   return `special_${normKey(n).slice(0, 32) || 'misc'}`;
 }
 
@@ -291,22 +352,33 @@ export type OddsMarketsResult = {
 };
 
 function payloadToLegacyMarkets(payload: any, resolvedBooks: string): { markets: Record<string, any[]>; primary: { home: number; draw: number; away: number } } {
-  const result: Record<string, any[]> = {};
-  const mk = (k: string) => {
-    if (!result[k]) result[k] = [];
-    return result[k];
-  };
-
   const markets = payloadToMarkets(payload, resolvedBooks);
   const primary = marketsToPrimary(markets);
 
+  const bestByMarket = new Map<string, Map<string, { label: string; odd: number }>>();
+
   for (const m of markets) {
-    const k = m.key;
-    const arr = mk(k);
-    for (const s of m.selections) {
-      if (arr.length >= 120) break;
-      arr.push({ name: s.label, label: s.label, price: s.odd, odd: s.odd });
+    if (!m?.key) continue;
+    const key = String(m.key);
+    if (!bestByMarket.has(key)) bestByMarket.set(key, new Map());
+    const best = bestByMarket.get(key)!;
+
+    for (const s of m.selections || []) {
+      const label = String(s?.label || '').trim();
+      const odd = Number(s?.odd || 0);
+      if (!label || !(odd > 1)) continue;
+      const lk = label.toLowerCase();
+      const prev = best.get(lk);
+      if (!prev || odd > prev.odd) best.set(lk, { label, odd });
     }
+  }
+
+  const result: Record<string, any[]> = {};
+  for (const [key, map] of bestByMarket) {
+    const arr = Array.from(map.values())
+      .map((x) => ({ name: x.label, label: x.label, price: x.odd, odd: x.odd }))
+      .slice(0, 120);
+    if (arr.length > 0) result[key] = arr;
   }
 
   return { markets: result, primary };
@@ -424,26 +496,22 @@ export async function fetchOddsApiEvents(
   maxEvents = 30,
   concurrency = 3,
 ): Promise<OddsEvent[]> {
-  const slug = SPORT_SLUG[sport];
-  if (!slug || !apiKey) return [];
+  if (!apiKey) return [];
+  const slug = await resolveSportSlug(sport);
+  if (!slug) return [];
 
   const nowMs = Date.now();
-  const last = lastFetchAtBySport.get(slug) || 0;
-  if (nowMs - last < 10_000) return [];
-  lastFetchAtBySport.set(slug, nowMs);
 
   const now = new Date();
   const from = new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString();
   const to   = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000).toISOString();
 
   const resolvedBooks = await resolveBookmakers(apiKey, bookmakersCsv);
-  const firstBook = resolvedBooks ? resolvedBooks.split(',')[0].trim() : '';
-  const bookmakerParam = firstBook ? `&bookmaker=${encodeURIComponent(firstBook)}` : '';
-  const cacheKey = `${slug}|${statusCsv}|${firstBook}|${from.slice(0, 13)}|${to.slice(0, 13)}`;
+  const cacheKey = `${slug}|${statusCsv}|${from.slice(0, 13)}|${to.slice(0, 13)}`;
   const cached = eventsCache.get(cacheKey);
   const data = cached && cached.expiresAt > nowMs
     ? cached.data
-    : await fetchJson(`${ODDS_API_BASE}/events?apiKey=${apiKey}&sport=${slug}&status=${encodeURIComponent(statusCsv)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=300${bookmakerParam}`);
+    : await fetchJson(`${ODDS_API_BASE}/events?apiKey=${apiKey}&sport=${slug}&status=${encodeURIComponent(statusCsv)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=300`);
   if (!cached || cached.expiresAt <= nowMs) {
     if (Array.isArray(data)) eventsCache.set(cacheKey, { expiresAt: nowMs + 10_000, data });
   }
@@ -455,12 +523,13 @@ export async function fetchOddsApiEvents(
       const home = ev.home_team || ev.home || ev.homeTeam || ev.home_name || '';
       const away = ev.away_team || ev.away || ev.awayTeam || ev.away_name || '';
       const date = ev.commence_time || ev.date || ev.start_time || ev.scheduled || '';
+      const status = ev.status || ev.state || ev.phase || ev.stage || '';
       const leagueSlug = ev.league?.slug || ev.competition?.slug || ev.league_slug || '';
       const leagueName = ev.league?.name || ev.competition?.name || ev.league_name || ev.sport_title || '';
       if (!id || !home || !away || !date) return null;
-      return { id: String(id), home, away, date, leagueSlug, leagueName };
+      return { id: String(id), home, away, date, status: String(status || ''), leagueSlug, leagueName };
     })
-    .filter(Boolean) as Array<{ id: string; home: string; away: string; date: string; leagueSlug: string; leagueName: string }>;
+    .filter(Boolean) as Array<{ id: string; home: string; away: string; date: string; status: string; leagueSlug: string; leagueName: string }>;
 
   const picked = baseEvents.slice(0, Math.max(1, maxEvents));
 
@@ -480,6 +549,7 @@ export async function fetchOddsApiEvents(
       home: item.ev.home,
       away: item.ev.away,
       date: item.ev.date,
+        status: item.ev.status,
       home_odd: odds.home,
       draw_odd: odds.draw,
       away_odd: odds.away,
@@ -568,25 +638,24 @@ export async function fetchOddsApiMarketsForFixture(
   bookmakersCsv: string,
   statusCsv: string = 'pending,live',
 ): Promise<OddsMarketsResult | null> {
-  const slug = SPORT_SLUG[fixture.sport || 'soccer'] || 'football';
+  const slug = await resolveSportSlug(fixture.sport || 'soccer');
+  if (!slug) return null;
   const cacheKey = `${slug}|${normTeam(fixture.home)}|${normTeam(fixture.away)}|${String(fixture.kickoff || '').slice(0, 16)}|${statusCsv}`;
   const nowMs = Date.now();
   const cached = fixtureOddsCache.get(cacheKey);
   if (cached && cached.expiresAt > nowMs) return cached.data;
 
   const resolvedBooks = await resolveBookmakers(apiKey, bookmakersCsv);
-  const firstBook = resolvedBooks ? resolvedBooks.split(',')[0].trim() : '';
-  const bookmakerParam = firstBook ? `&bookmaker=${encodeURIComponent(firstBook)}` : '';
 
   const now = new Date();
   const from = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString();
   const to = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
 
-  const listKey = `${slug}|${statusCsv}|${firstBook}|${from.slice(0, 13)}|${to.slice(0, 13)}`;
+  const listKey = `${slug}|${statusCsv}|${from.slice(0, 13)}|${to.slice(0, 13)}`;
   const listCached = eventsCache.get(listKey);
   const events = listCached && listCached.expiresAt > nowMs
     ? listCached.data
-    : await fetchJson(`${ODDS_API_BASE}/events?apiKey=${apiKey}&sport=${slug}&status=${encodeURIComponent(statusCsv)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=300${bookmakerParam}`);
+    : await fetchJson(`${ODDS_API_BASE}/events?apiKey=${apiKey}&sport=${slug}&status=${encodeURIComponent(statusCsv)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=300`);
   if (Array.isArray(events)) eventsCache.set(listKey, { expiresAt: nowMs + 10_000, data: events });
   if (!Array.isArray(events) || events.length === 0) return null;
 
@@ -604,17 +673,45 @@ export async function fetchOddsApiMarketsForFixture(
 
   const baseSide = { league: fixture.league, home: fixture.home, away: fixture.away, kickoff: fixture.kickoff };
   const wrapped = candidates.map((c) => ({ item: c, league: c.leagueName, home: c.home, away: c.away, kickoff: c.date }));
-  const best = findBestCandidate(baseSide, wrapped, 70);
-  if (!best) return null;
+  const minScore = slug === 'football' ? 60 : 55;
+  const best = findBestCandidate(baseSide, wrapped, minScore);
 
-  const bestMeta = wrapped.find((c) => c.item === best.item);
-  const isSwapped = !!bestMeta && (
-    scoreMatch(baseSide, { league: bestMeta.league, home: bestMeta.away, away: bestMeta.home, kickoff: bestMeta.kickoff }) >
-    scoreMatch(baseSide, { league: bestMeta.league, home: bestMeta.home, away: bestMeta.away, kickoff: bestMeta.kickoff })
-  );
+  const pickFallback = () => {
+    const targetMs = Date.parse(String(fixture.kickoff || ''));
+    let bestItem: { id: string; home: string; away: string; date: string; leagueName: string } | null = null;
+    let bestDiff = Infinity;
+    let swapped = false;
+    for (const c of candidates) {
+      const cMs = Date.parse(String(c.date || ''));
+      if (!Number.isFinite(targetMs) || !Number.isFinite(cMs)) continue;
+      const diffMin = Math.abs(cMs - targetMs) / 60000;
+      if (diffMin > 6 * 60) continue;
+      const direct = teamsMatch(fixture.home, c.home) && teamsMatch(fixture.away, c.away);
+      const swap = teamsMatch(fixture.home, c.away) && teamsMatch(fixture.away, c.home);
+      if (!direct && !swap) continue;
+      if (diffMin < bestDiff) {
+        bestDiff = diffMin;
+        bestItem = c;
+        swapped = swap && !direct;
+      }
+    }
+    return bestItem ? { item: bestItem, swapped } : null;
+  };
+
+  const bestMeta = wrapped.find((c) => c.item === best?.item);
+  const fallback = !best ? pickFallback() : null;
+  if (!best && !fallback) return null;
+
+  const bestId = best ? String(best.item.id) : String(fallback!.item.id);
+  const isSwapped =
+    fallback?.swapped ??
+    (!!bestMeta && (
+      scoreMatch(baseSide, { league: bestMeta.league, home: bestMeta.away, away: bestMeta.home, kickoff: bestMeta.kickoff }) >
+      scoreMatch(baseSide, { league: bestMeta.league, home: bestMeta.home, away: bestMeta.away, kickoff: bestMeta.kickoff })
+    ));
 
   const books = resolvedBooks ? `&bookmakers=${encodeURIComponent(resolvedBooks)}` : '';
-  const payload = await fetchJson(`${ODDS_API_BASE}/odds?apiKey=${apiKey}&eventId=${encodeURIComponent(best.item.id)}${books}`);
+  const payload = await fetchJson(`${ODDS_API_BASE}/odds?apiKey=${apiKey}&eventId=${encodeURIComponent(bestId)}${books}`);
   if (!payload) return null;
 
   const { markets, primary } = payloadToLegacyMarkets(payload, resolvedBooks);

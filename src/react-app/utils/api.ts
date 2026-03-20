@@ -1,20 +1,24 @@
+export const REMOTE_FALLBACK_BASE = 'https://bet62apostasesportivas.bet62.workers.dev';
+
 function resolveApiBase() {
   const raw = import.meta.env.VITE_API_BASE || '';
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
     if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
       const forceRemote = String(import.meta.env.VITE_FORCE_REMOTE || '') === '1';
-      if (forceRemote && raw && raw.trim() !== '') return raw.replace(/\/$/, '');
-      return '';
+      const useLocal = String(import.meta.env.VITE_USE_LOCAL || '') === '1';
+      if (useLocal) return '';
+      if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
+      if (forceRemote) return REMOTE_FALLBACK_BASE;
+      return REMOTE_FALLBACK_BASE;
     }
     if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
-    return 'https://bet62.workers.dev'; // Update with your real worker URL
+    return REMOTE_FALLBACK_BASE;
   }
   if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
-  return '';
+  return REMOTE_FALLBACK_BASE;
 }
 
-export const REMOTE_FALLBACK_BASE = 'https://bet62.workers.dev';
 const API_BASE = resolveApiBase();
 console.log('[API] Base resolved to:', API_BASE); // DEBUG
 const __api_cache = new Map<string, any>();
@@ -81,15 +85,9 @@ export async function apiFetch<T = any>(
         ...(!isPublicApi && token ? { 'Authorization': `Bearer ${token}` } : {}),
         // Only add Content-Type: application/json if body exists AND user didn't set Content-Type (e.g. multipart/form-data)
         ...(rest.body && !(rest.headers as any)?.['Content-Type'] ? { 'Content-Type': 'application/json' } : {}),
+        // Avoid forcing Content-Type on GET (causes unnecessary CORS preflight); prefer Accept
+        ...(!(rest.headers as any)?.['Accept'] ? { 'Accept': 'application/json' } : {}),
     };
-
-    // Default to application/json if no body but also no specific Content-Type? 
-    // Usually GET requests don't need Content-Type.
-    // The previous logic forced it. Let's keep it safe:
-    if (!headers['Content-Type'] && !rest.body) {
-        // Some APIs expect Accept header or Content-Type even on GET
-        headers['Content-Type'] = 'application/json';
-    }
 
     const fetchPromise = fetch(url, {
       ...rest,
@@ -167,7 +165,7 @@ export async function apiFetch<T = any>(
     // Improved Network Error Regex
     const isConn = /ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|NetworkError|ERR_ABORTED|Failed to fetch/i.test(msg);
     
-    const allowRemoteFallback = String(import.meta.env.VITE_REMOTE_FALLBACK || '') === '1';
+    const allowRemoteFallback = String(import.meta.env.VITE_REMOTE_FALLBACK ?? '1') === '1';
     if (isConn && allowRemoteFallback && typeof input === 'string' && input.startsWith('/')) {
       try {
         const fallbackUrl = `${REMOTE_FALLBACK_BASE}${input}`;
@@ -180,10 +178,8 @@ export async function apiFetch<T = any>(
             ...(rest.headers || {}),
             ...(!isPublicApi && token ? { 'Authorization': `Bearer ${token}` } : {}),
             ...(rest.body && !(rest.headers as any)?.['Content-Type'] ? { 'Content-Type': 'application/json' } : {}),
+            ...(!(rest.headers as any)?.['Accept'] ? { 'Accept': 'application/json' } : {}),
         };
-        if (!fallbackHeaders['Content-Type'] && !rest.body) {
-            fallbackHeaders['Content-Type'] = 'application/json';
-        }
 
         const response = await fetch(fallbackUrl, {
           ...rest,

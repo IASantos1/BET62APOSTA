@@ -171,7 +171,18 @@ function extractTimer(fx: any): string {
 }
 
 function extractDate(fx: any): string | null {
-  if (fx?.date) return fx.date;
+  const raw = fx?.date;
+  if (typeof raw === 'string' && raw) {
+    if (raw.includes('T')) return raw;
+    const timeRaw = fx?.time?.time ?? fx?.time ?? fx?.start_time ?? fx?.startTime ?? '';
+    const time = String(timeRaw || '').trim();
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(time)) {
+      const hhmmss = time.length === 5 ? `${time}:00` : time;
+      const iso = new Date(`${raw}T${hhmmss}Z`).toISOString();
+      return iso;
+    }
+    return new Date(raw).toISOString();
+  }
   if (fx?.timestamp) return new Date(fx.timestamp * 1000).toISOString();
   return null;
 }
