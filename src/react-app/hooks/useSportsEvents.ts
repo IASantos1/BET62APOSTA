@@ -146,8 +146,7 @@ export function useSportsEvents(category: string | null) {
         let sportParam = 'all';
         let leagueFilter = '';
 
-        console.log('API BASE', import.meta.env.VITE_API_BASE);
-        console.log('CATEGORY', category, 'SAFE', safeCategory);
+        if (import.meta.env.DEV) console.log('[events] fetching category:', safeCategory);
 
         // Parse da categoria
         if (safeCategory && safeCategory !== 'all') {
@@ -308,6 +307,7 @@ export function useSportsEvents(category: string | null) {
           
           const finalPregame = filteredPregame;
 
+          if (import.meta.env.DEV) console.log('[events] loaded live:', finalLive.length, 'pregame:', finalPregame.length);
           updateState(finalLive, finalPregame);
           return; 
         } else if (Array.isArray(data) && data.length > 0) {

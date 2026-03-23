@@ -1,27 +1,18 @@
 export const REMOTE_FALLBACK_BASE = 'https://bet62apostasesportivas.bet62.workers.dev';
 export const LOCAL_FALLBACK_BASE = 'http://127.0.0.1:8788';
 
+// Always use relative paths — Vite dev proxy forwards /api/* to the remote worker.
+// In production builds pointing directly at the worker, VITE_API_BASE can be set.
 function resolveApiBase() {
-  const raw = import.meta.env.VITE_API_BASE || '';
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
-      const forceRemote = String(import.meta.env.VITE_FORCE_REMOTE || '') === '1';
-      const useLocal = String(import.meta.env.VITE_USE_LOCAL || '') === '1';
-      if (useLocal) return LOCAL_FALLBACK_BASE;
-      if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
-      if (forceRemote) return REMOTE_FALLBACK_BASE;
-      return LOCAL_FALLBACK_BASE;
-    }
-    if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
-    return REMOTE_FALLBACK_BASE;
-  }
-  if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
-  return REMOTE_FALLBACK_BASE;
+  const raw = (import.meta.env.VITE_API_BASE || '').trim();
+  // If an explicit base is provided AND we're NOT in dev, honour it.
+  // In dev we always want the Vite proxy (relative paths).
+  if (raw && !import.meta.env.DEV) return raw.replace(/\/$/, '');
+  return '';
 }
 
 const API_BASE = resolveApiBase();
-console.log('[API] Base resolved to:', API_BASE); // DEBUG
+if (import.meta.env.DEV) console.log('[API] Base resolved to:', API_BASE || '(relative — proxied by Vite)');
 const __api_cache = new Map<string, any>();
 const __api_cache_ts = new Map<string, number>();
 const __api_inflight = new Map<string, Promise<any>>();

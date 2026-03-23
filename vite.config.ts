@@ -2,6 +2,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+const REMOTE_WORKER = 'https://bet62apostasesportivas.bet62.workers.dev';
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -23,15 +25,11 @@ export default defineConfig({
     port: 5000,
     allowedHosts: true,
     proxy: {
-      '/api/live/ws': {
-        target: 'ws://127.0.0.1:8788',
-        ws: true,
-        changeOrigin: true,
-      },
       '/api': {
-        target: 'http://127.0.0.1:8788',
+        target: REMOTE_WORKER,
         changeOrigin: true,
-        secure: false,
+        secure: true,
+        rewrite: (path) => path,
       },
     },
   },
