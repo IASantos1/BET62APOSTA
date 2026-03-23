@@ -73,14 +73,9 @@ export const SPORT_CONFIG: Record<string, SportConfig> = {
 
 // ── League Blocklist ──────────────────────────────────────────────────
 const BLOCKED_KEYWORDS = [
-  'women', 'woman', 'female', 'femenin', 'feminin', 'femenil', 'ladies', 'dames',
-  'mulheres', 'feminino', ' w ', '(w)', '- w', 'frauen', 'féminin',
-  'u16', 'u17', 'u18', 'u19', 'u20', 'u21', 'u22', 'u23',
-  'under-16', 'under-17', 'under-18', 'under-19', 'under-20', 'under-21', 'under-23',
-  'youth', 'junior', 'sub-17', 'sub-18', 'sub-20', 'sub-23',
   'reserve', 'reserva', 'reserves', 'filiali',
   'virtual', 'esport', 'e-sport', 'cyber', 'simulated', 'test league',
-  'amateur', 'amador', 'regional', 'futsal', 'beach', 'indoor', 'sala',
+  'amateur', 'amador', 'futsal', 'beach', 'indoor', 'sala',
   '5x5', '4x4', '3x3', 'setka', 'tt-cup', 'masters.',
   'student', 'university', 'college', 'school',
   'friendly', 'amistoso', 'cup alagoas', 'copa alagoas',
@@ -92,11 +87,22 @@ const BLOCKED_LEAGUES_EXACT = new Set([
   'Test League', 'Test', 'Debug League',
 ]);
 
-export function isBlockedLeague(name: string): boolean {
+// ── Middle East country block ──────────────────────────────────────────
+const BLOCKED_COUNTRIES = new Set([
+  'saudi arabia', 'qatar', 'united arab emirates', 'uae', 'kuwait',
+  'bahrain', 'oman', 'jordan', 'iraq', 'syria', 'lebanon', 'palestine',
+  'palestinian territory', 'yemen', 'iran', 'israel',
+]);
+
+export function isBlockedLeague(name: string, country?: string): boolean {
   if (BLOCKED_LEAGUES_EXACT.has(name)) return true;
   const lower = name.toLowerCase();
   for (const kw of BLOCKED_KEYWORDS) {
     if (lower.includes(kw)) return true;
+  }
+  if (country) {
+    const lc = country.toLowerCase().trim();
+    if (BLOCKED_COUNTRIES.has(lc)) return true;
   }
   return false;
 }
@@ -395,7 +401,8 @@ function normalizeFixture(raw: any, sport: string): NormalizedEvent | null {
   const awayLogo = teams.away?.logo || teams.away?.image || '';
 
   const leagueName = league.name || raw.league_name || 'Unknown';
-  if (isBlockedLeague(leagueName)) return null;
+  const leagueCountry = league.country || league.nation || '';
+  if (isBlockedLeague(leagueName, leagueCountry)) return null;
 
   const statusShort = extractStatusShort(fx);
   if (FINISHED_STATUSES.has(statusShort)) return null;

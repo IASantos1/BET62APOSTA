@@ -380,27 +380,27 @@ export const HeroBanners: React.FC<HeroBannersProps> = ({ featuredMatches, onSel
                       {match.odds.home && (
                         <button
                           onClick={(e) => handleOddClick(e, match, '1', match.odds!.home!)}
-                          className="flex-1 min-h-[30px] flex flex-col items-center justify-center px-1.5 py-0.5 rounded-lg transition-all duration-200 cursor-pointer bg-red-900/60 hover:bg-red-700/70 text-white border border-red-600/50 hover:border-red-500/70 active:scale-95 backdrop-blur-sm"
+                          className="flex-1 min-h-[30px] flex flex-col items-center justify-center px-1.5 py-0.5 rounded-lg transition-all duration-200 cursor-pointer bg-red-600 hover:bg-red-700 text-white border border-red-600 active:scale-95"
                         >
-                          <span className="text-[8px] font-semibold leading-none text-red-200/80">1</span>
+                          <span className="text-[8px] font-semibold leading-none text-white/80">1</span>
                           <span className="font-black text-xs leading-tight">{match.odds.home.toFixed(2)}</span>
                         </button>
                       )}
                       {match.odds.draw !== undefined && match.odds.draw !== null && (
                         <button
                           onClick={(e) => handleOddClick(e, match, 'X', match.odds!.draw!)}
-                          className="flex-1 min-h-[30px] flex flex-col items-center justify-center px-1.5 py-0.5 rounded-lg transition-all duration-200 cursor-pointer bg-red-900/60 hover:bg-red-700/70 text-white border border-red-600/50 hover:border-red-500/70 active:scale-95 backdrop-blur-sm"
+                          className="flex-1 min-h-[30px] flex flex-col items-center justify-center px-1.5 py-0.5 rounded-lg transition-all duration-200 cursor-pointer bg-red-600 hover:bg-red-700 text-white border border-red-600 active:scale-95"
                         >
-                          <span className="text-[8px] font-semibold leading-none text-red-200/80">X</span>
+                          <span className="text-[8px] font-semibold leading-none text-white/80">X</span>
                           <span className="font-black text-xs leading-tight">{match.odds.draw.toFixed(2)}</span>
                         </button>
                       )}
                       {match.odds.away && (
                         <button
                           onClick={(e) => handleOddClick(e, match, '2', match.odds!.away!)}
-                          className="flex-1 min-h-[30px] flex flex-col items-center justify-center px-1.5 py-0.5 rounded-lg transition-all duration-200 cursor-pointer bg-red-900/60 hover:bg-red-700/70 text-white border border-red-600/50 hover:border-red-500/70 active:scale-95 backdrop-blur-sm"
+                          className="flex-1 min-h-[30px] flex flex-col items-center justify-center px-1.5 py-0.5 rounded-lg transition-all duration-200 cursor-pointer bg-red-600 hover:bg-red-700 text-white border border-red-600 active:scale-95"
                         >
-                          <span className="text-[8px] font-semibold leading-none text-red-200/80">2</span>
+                          <span className="text-[8px] font-semibold leading-none text-white/80">2</span>
                           <span className="font-black text-xs leading-tight">{match.odds.away.toFixed(2)}</span>
                         </button>
                       )}

@@ -249,7 +249,7 @@ const LiveClock = React.memo(({
 }) => {
   if (!isLive) return null;
 
-  const showMinute = ['P1', 'P2', 'PRO', '1H', '2H', 'ET'].includes(currentPeriod);
+  const showMinute = ['P1', 'P2', 'P3', 'PRO', '1H', '2H', 'ET', 'Q1', 'Q2', 'Q3', 'Q4', 'OT', 'OT1', 'OT2', 'S1', 'S2', 'S3', 'S4', 'S5', 'IN', 'IN1', 'IN2', 'IN3', 'IN4', 'IN5', 'IN6', 'IN7', 'IN8', 'IN9'].includes(currentPeriod);
   const isPaused = currentPeriod === 'INT' || currentPeriod === 'PEN';
 
   return (

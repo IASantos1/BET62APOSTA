@@ -71,7 +71,7 @@ async function getOddsEvents(sport, statusCsv) {
   const url  = `${ODDS_API_BASE}/events?apiKey=${ODDS_API_KEY}&sport=${slug}&status=${encodeURIComponent(statusCsv)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=200`;
   const data = await apiFetch(url);
   const list = Array.isArray(data) ? data : (data && Array.isArray(data.data) ? data.data : []);
-  const ttl  = statusCsv.includes('live') && !statusCsv.includes('pending') ? 10_000 : 30_000;
+  const ttl  = statusCsv.includes('live') && !statusCsv.includes('pending') ? 20_000 : 180_000;
   cSet(ck, list, ttl);
   console.log(`[proxy] odds-api.io: ${list.length} ${sport} events (${statusCsv})`);
   return list;
@@ -86,7 +86,7 @@ async function getOddsForEventId(eventId) {
   const url = `${ODDS_API_BASE}/odds?apiKey=${ODDS_API_KEY}&eventId=${encodeURIComponent(eventId)}&bookmakers=${bms}`;
   const data = await apiFetch(url);
   const result = parseH2hFromOddsPayload(data);
-  cSet(ck, result, 20_000);
+  cSet(ck, result, 90_000);
   return result;
 }
 
@@ -167,7 +167,7 @@ async function enrichList(events, type) {
   const matched = matchedPairs.filter(p => p.best);
   const uniqueIds = [...new Set(matched.map(p => String(p.best.id)))];
   const oddsById = new Map();
-  await Promise.all(uniqueIds.slice(0, 20).map(async id => {
+  await Promise.all(uniqueIds.slice(0, 12).map(async id => {
     oddsById.set(id, await getOddsForEventId(id));
   }));
 
@@ -213,8 +213,8 @@ function forwardToCF(reqUrl, method, headers, body) {
 
 // ── Response cache (stale-while-revalidate for CF outages) ─────────────────
 const _responseCache = new Map();
-const RESP_TTL_MS   = 15_000;  // 15s fresh
-const STALE_TTL_MS  = 120_000; // 2min stale serve
+const RESP_TTL_MS   = 45_000;   // 45s fresh
+const STALE_TTL_MS  = 600_000;  // 10min stale serve
 
 function rcGet(key) {
   const e = _responseCache.get(key);
