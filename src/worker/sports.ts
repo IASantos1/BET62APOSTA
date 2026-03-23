@@ -366,6 +366,47 @@ sports.get('/by-sport', async (c) => {
       }
     }
 
+    if (wantsOdds && oddsKey && rawRows.length > 0) {
+      const sportGroups = new Map<string, any[]>();
+      for (const r of rawRows) {
+        const sp = normalizeSport(String(r.sport || 'soccer'));
+        if (!sportGroups.has(sp)) sportGroups.set(sp, []);
+        sportGroups.get(sp)!.push(r);
+      }
+
+      const bookmakersCsv = c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet';
+
+      for (const [sp, groupRows] of sportGroups) {
+        const hasMissing = groupRows.some((r: any) => !(Number(r.home_odd || 0) > 1));
+        if (!hasMissing) continue;
+
+        const hasLive = groupRows.some((r: any) => Number(r.is_live) === 1 || LIVE_STATUSES.has(String(r.status || '').toUpperCase().trim()));
+        const statusCsv = hasLive ? 'pending,live' : 'pending';
+
+        const oddsEvents = await fetchOddsApiEvents(
+          oddsKey, sp, 2, bookmakersCsv, statusCsv, Math.min(60, groupRows.length * 2), 3,
+        );
+        if (!oddsEvents || oddsEvents.length === 0) continue;
+
+        const minScore = sp === 'soccer' ? 62 : 58;
+
+        rawRows = rawRows.map((r: any) => {
+          const rSp = normalizeSport(String(r.sport || 'soccer'));
+          if (rSp !== sp) return r;
+          if (Number(r.home_odd || 0) > 1) return r;
+          const best = matchOddsEvent(
+            { league: String(r.league || ''), home: String(r.home_team || ''), away: String(r.away_team || ''), kickoff: String(r.event_date || '') },
+            oddsEvents as any,
+            minScore,
+          );
+          if (!best || !(best.home_odd > 1)) return r;
+          const updated = { ...r, home_odd: best.home_odd, draw_odd: best.draw_odd, away_odd: best.away_odd };
+          if (best.markets && best.markets.length > 0) updated.markets = JSON.stringify(best.markets);
+          return updated;
+        });
+      }
+    }
+
     if (doRealtime && wantsOdds && apiKey && !isAll && rawRows.length > 0) {
       const today = new Date();
       const d0 = today.toISOString().slice(0, 10);
@@ -641,7 +682,7 @@ sports.get('/by-sport', async (c) => {
         const best = matchOddsEvent(
           { league: String(ev.league || ''), home: String(ev.home_team || ''), away: String(ev.away_team || ''), kickoff: String(ev.event_date || '') },
           oddsEvents as any,
-          sp === 'soccer' ? 92 : 85,
+          sp === 'soccer' ? 65 : 60,
         );
         if (!best) continue;
 

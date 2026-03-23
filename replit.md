@@ -20,17 +20,33 @@ A Portuguese-language sports betting platform (BET62) built with React + Vite on
 
 ## Development Setup
 
-The frontend dev server runs at port 5000, binding to 0.0.0.0 with all hosts allowed for Replit proxy compatibility.
+Two workflows must run simultaneously:
 
-API calls proxy to the Cloudflare Worker backend (local port 8788). If the local worker isn't running, the app falls back to the remote deployed worker at `https://bet62apostasesportivas.bet62.workers.dev`.
+1. **Start worker** (`npm run worker`) — Odds enrichment proxy on port 8080. Forwards all requests to the deployed CF Worker and enriches `/api/events/by-sport?include=odds` responses with real odds from odds-api.io using Replit's `ODDS_API_KEY` secret. Implements stale-while-revalidate caching to handle intermittent CF Worker 1102 errors.
+
+2. **Start application** (`npm run dev`) — Vite dev server on port 5000 with all API traffic proxied through the local odds proxy at `http://127.0.0.1:8080`.
+
+The proxy pipeline: Browser → Vite (5000) → odds-proxy (8080) → CF Worker (remote) + odds-api.io enrichment.
 
 ## Running the App
 
 ```bash
+npm run worker      # Start odds enrichment proxy (port 8080) — required first
 npm run dev         # Start frontend dev server (port 5000)
-npm run worker      # Start local Cloudflare Worker (port 8788)
 npm run build       # Build for production
+npm run deploy:prod # Deploy CF Worker to production (requires CF auth)
 ```
+
+## odds-api.io Integration
+
+The `scripts/odds-proxy.mjs` proxy implements the odds-api.io enrichment:
+- Fetches events list from `/v3/events` (per sport, cached 30s)
+- Matches CF Worker events to odds-api.io events using team name fuzzy matching (min score 58)
+- Fetches per-event odds from `/v3/odds?eventId=...&bookmakers=...` (cached 20s)
+- Bookmakers: Bet365, 1xbet, Betano, 888Sport, SportingBet
+- Results are injected as `home_odd`/`draw_odd`/`away_odd` on each event
+
+For the deployed CF Worker to use odds-api.io directly, set `ODDS_API_KEY` as a Cloudflare Worker secret via `wrangler secret put ODDS_API_KEY`.
 
 ## Deployment
 
