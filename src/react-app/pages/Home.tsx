@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { useSportsEvents } from '@/react-app/hooks/useSportsEvents';
@@ -99,32 +99,13 @@ function Home({ mode = 'home' }: HomeProps) {
   // Previous: useEffect inside conditional block if (processedLive.length > 0 ...)
   // Now: useEffect always called, logic inside
   const [hasEverHadEvents, setHasEverHadEvents] = useState(false);
-  const [showIntro, setShowIntro] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    return sessionStorage.getItem('bet62_intro_shown') !== '1';
-  });
+  const [showIntro, setShowIntro] = useState(false);
 
   useEffect(() => {
     if ((processedLive.length > 0 || upcomingEvents.length > 0) && !hasEverHadEvents) {
       setHasEverHadEvents(true);
     }
   }, [processedLive, upcomingEvents, hasEverHadEvents]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (sessionStorage.getItem('bet62_intro_shown') === '1') return;
-
-    if (loading) {
-      setShowIntro(true);
-      return;
-    }
-
-    const t = setTimeout(() => {
-      setShowIntro(false);
-      sessionStorage.setItem('bet62_intro_shown', '1');
-    }, 350);
-    return () => clearTimeout(t);
-  }, [loading]);
 
   // Caso não apareça nada (primeira carga, sem eventos) - REMOVIDO POR SOLICITAÇÃO
   // if (!loading && !hasEverHadEvents && groupedLive.length === 0 && limitedUpcoming.length === 0) { ... }

@@ -15,8 +15,9 @@ export default defineConfig({
     __READDY_PROJECT_ID__: JSON.stringify(''),
     __READDY_VERSION_ID__: JSON.stringify(''),
     __READDY_AI_DOMAIN__: JSON.stringify(''),
-    __STRIPE_PUBLIC_KEY__: JSON.stringify(''),
+    __STRIPE_PUBLIC_KEY__: JSON.stringify(process.env.STRIPE_PUBLIC_KEY || process.env.VITE_STRIPE_PUBLIC_KEY || ''),
   },
+  envPrefix: ['VITE_'],
   server: {
     host: '0.0.0.0',
     port: 5000,

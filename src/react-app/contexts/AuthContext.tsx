@@ -61,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
  useEffect(() => {
     let alive = true;
 
-    apiFetch<any>('/api/auth/me')
+    apiFetch<any>('/api/auth/me', { timeout: 8000 })
       .then((u) => {
         if (!alive) return;
         if (u && typeof u === 'object' && 'user' in u) {

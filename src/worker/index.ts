@@ -35,6 +35,9 @@ app.use('*', cors({
 
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o)) return o;
 
+    // Permitir domínios Replit em desenvolvimento
+    if (/\.replit\.dev$/.test(o) || /\.janeway\.replit\.dev$/.test(o)) return o;
+
     const allowed = new Set<string>([
       'https://bet62.plus',
       'https://www.bet62.plus',

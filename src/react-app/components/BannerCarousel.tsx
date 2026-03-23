@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useApp } from "@/react-app/contexts/AppContext";
 import { apiFetch } from "@/react-app/utils/api";
 
-export function scoreEvent(event: any) { 
+function scoreEvent(event: any) { 
   let score = 0; 
 
   // ⏱️ TEMPO PARA COMEÇAR 
@@ -163,8 +163,30 @@ export function BannerCarousel() {
             const drawOdd = evt.draw_odd || evt.odds?.draw_odd || 0;
             const awayOdd = evt.away_odd || evt.odds?.away_odd || 0;
 
-            const hasBoost = evt.odd_boost || (Math.random() > 0.8);
+            const hasBoost = evt.odd_boost || false;
             const homeOld = hasBoost ? (parseFloat(homeOdd) * 0.9).toFixed(2) : null;
+
+            // Extrair mercados adicionais da Odds API
+            let markets: any[] = [];
+            try {
+              const rawMarkets = evt.markets;
+              if (typeof rawMarkets === 'string') markets = JSON.parse(rawMarkets) || [];
+              else if (Array.isArray(rawMarkets)) markets = rawMarkets;
+            } catch { markets = []; }
+
+            // Over/Under 2.5
+            const ouMarket = markets.find((m: any) =>
+              m.key === 'ou_2.5' || m.name?.includes('2.5') || m.id === 'ou_2.5'
+            );
+            const overOdd = ouMarket?.selections?.find((s: any) => s.label?.toLowerCase().includes('over'))?.odd || null;
+            const underOdd = ouMarket?.selections?.find((s: any) => s.label?.toLowerCase().includes('under'))?.odd || null;
+
+            // Ambas Marcam
+            const bttsMarket = markets.find((m: any) =>
+              m.key === 'btts' || m.name?.toLowerCase().includes('ambas') || m.name?.toLowerCase().includes('both')
+            );
+            const bttsYes = bttsMarket?.selections?.find((s: any) => s.label === 'Sim' || s.label === 'Yes')?.odd || null;
+            const bttsNo = bttsMarket?.selections?.find((s: any) => s.label === 'Não' || s.label === 'No')?.odd || null;
 
             const homeLogo =
               evt.home_team_logo ||
@@ -186,10 +208,16 @@ export function BannerCarousel() {
               time: timeStr,
               live: Number(evt.is_live || 0) === 1,
               odds: {
-                homeOld: homeOld,
+                homeOld,
                 home: homeOdd,
                 draw: drawOdd,
-                away: awayOdd
+                away: awayOdd,
+              },
+              extraMarkets: {
+                over25: overOdd,
+                under25: underOdd,
+                bttsYes,
+                bttsNo,
               },
               league: evt.league || 'Destaque',
               homeLogo,
@@ -197,7 +225,7 @@ export function BannerCarousel() {
               sport,
             };
           });
-          setBanners(mapped.slice(0, 3));
+          setBanners(mapped.slice(0, 5));
         }
       } catch (err) {
         // console.error("Failed to load featured games", err);
@@ -603,6 +631,7 @@ export function BannerCarousel() {
               <h2>{banner.title}</h2> 
               <p>{banner.time}</p> 
     
+              {/* Mercado Principal: 1X2 */}
               <div className="odds"> 
                 <div className="odd-btn" onClick={() => handleBet(banner, '1', banner.odds.home)}> 
                   <span>1</span> 
@@ -627,7 +656,37 @@ export function BannerCarousel() {
                   <span>2</span> 
                   <b>{Number(banner.odds.away) > 0 ? banner.odds.away : '—'}</b> 
                 </div> 
-              </div> 
+              </div>
+
+              {/* Mercados Extras: Over/Under + Ambas Marcam (da Odds API) */}
+              {banner.extraMarkets && (banner.extraMarkets.over25 || banner.extraMarkets.bttsYes) && (
+                <div style={{ marginTop: '6px', display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {banner.extraMarkets.over25 && (
+                    <div className="odd-btn" style={{ flex: '1', minWidth: '40px' }} onClick={() => handleBet(banner, 'Over 2.5', String(banner.extraMarkets.over25))}>
+                      <span style={{ fontSize: '7px', color: '#60a5fa' }}>Ov 2.5</span>
+                      <b style={{ fontSize: '11px', color: '#93c5fd' }}>{Number(banner.extraMarkets.over25).toFixed(2)}</b>
+                    </div>
+                  )}
+                  {banner.extraMarkets.under25 && (
+                    <div className="odd-btn" style={{ flex: '1', minWidth: '40px' }} onClick={() => handleBet(banner, 'Under 2.5', String(banner.extraMarkets.under25))}>
+                      <span style={{ fontSize: '7px', color: '#60a5fa' }}>Un 2.5</span>
+                      <b style={{ fontSize: '11px', color: '#93c5fd' }}>{Number(banner.extraMarkets.under25).toFixed(2)}</b>
+                    </div>
+                  )}
+                  {banner.extraMarkets.bttsYes && (
+                    <div className="odd-btn" style={{ flex: '1', minWidth: '40px' }} onClick={() => handleBet(banner, 'Ambas Marcam', String(banner.extraMarkets.bttsYes))}>
+                      <span style={{ fontSize: '7px', color: '#4ade80' }}>AM Sim</span>
+                      <b style={{ fontSize: '11px', color: '#86efac' }}>{Number(banner.extraMarkets.bttsYes).toFixed(2)}</b>
+                    </div>
+                  )}
+                  {banner.extraMarkets.bttsNo && (
+                    <div className="odd-btn" style={{ flex: '1', minWidth: '40px' }} onClick={() => handleBet(banner, 'Ambas Não Marcam', String(banner.extraMarkets.bttsNo))}>
+                      <span style={{ fontSize: '7px', color: '#4ade80' }}>AM Não</span>
+                      <b style={{ fontSize: '11px', color: '#86efac' }}>{Number(banner.extraMarkets.bttsNo).toFixed(2)}</b>
+                    </div>
+                  )}
+                </div>
+              )}
             </div> 
           ))}
         </div>

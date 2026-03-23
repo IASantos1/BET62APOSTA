@@ -213,7 +213,7 @@ export function useSportsEvents(category: string | null) {
         const url = `/api/events/by-sport?${params.toString()}`;
         // console.log('FETCH URL', url);
         // Disable cache to ensure fresh data
-        let data = await apiFetch<any>(url, { cache: 'no-store', signal: controller.signal });
+        let data = await apiFetch<any>(url, { cache: 'no-store', signal: controller.signal, timeout: 12000 });
         // console.log('API DATA RAW:', data);
 
         let liveCount = Array.isArray(data?.live) ? data.live.length : 0;

@@ -37,3 +37,12 @@ externalPort = 80
 deploymentTarget = "static"
 build = ["npm", "run", "build"]
 publicDir = "dist"
+
+[userenv]
+
+[userenv.shared]
+VITE_PAYPAL_CLIENT_ID = "AVH5-CoY-PDfHQV46wcKn4ZlcItmmjfjINXKs3Gonfn6pDvr5_DqsB6TkMHiFSe-uEMkfAgoJ2BNAd3V"
+VITE_STRIPE_PUBLIC_KEY = "pk_live_51NVFe5E4nt1bzpPdTRAVmYqmUZ1KQzWSpIzFFcAUPfybXXsxLJ44zLM9YVw7wdYY26rIVTRGnUGYYAQghVSuo1Kz00gaGzBfEK"
+VITE_REMOTE_FALLBACK = "1"
+VITE_API_BASE = "https://bet62apostasesportivas.bet62.workers.dev"
+VITE_FORCE_REMOTE = "1"

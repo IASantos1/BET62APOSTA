@@ -167,7 +167,8 @@ export async function apiFetch<T = any>(
     const isConn = /ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|NetworkError|ERR_ABORTED|Failed to fetch/i.test(msg);
     
     const allowRemoteFallback = String(import.meta.env.VITE_REMOTE_FALLBACK ?? '1') === '1';
-    if (isConn && allowRemoteFallback && typeof input === 'string' && input.startsWith('/')) {
+    const isLocalBase = API_BASE.includes('127.0.0.1') || API_BASE.includes('localhost');
+    if (isConn && allowRemoteFallback && isLocalBase && typeof input === 'string' && input.startsWith('/')) {
       try {
         const fallbackUrl = `${REMOTE_FALLBACK_BASE}${input}`;
         if (import.meta.env.DEV) {
