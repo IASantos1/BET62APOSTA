@@ -185,36 +185,92 @@ async function resolveSportSlug(sport: string): Promise<string> {
 
 function toMarketKey(name: string): string {
   const n = String(name || '').toLowerCase();
-  if (n === 'ml' || n.includes('moneyline') || n.includes('match winner') || n.includes('1x2') || n.includes('h2h') || n === 'result') return 'h2h';
+  // Resultado / Match Winner
+  if (n === 'ml' || n === 'h2h' || n === 'result' || n === '1x2' || n.includes('moneyline') || n.includes('match winner') || n.includes('full time result') || n.includes('home/away') || n.includes('match result')) return 'h2h';
+  // 1ª Parte / Half Time result
+  if ((n.includes('half time') || n.includes('1st half') || n.includes('first half') || n.includes('ht') && n.length < 10) && (n.includes('result') || n.includes('winner') || n.includes('ml') || n === 'half time result')) return 'h2h_ht';
+  // 2ª Parte
+  if ((n.includes('2nd half') || n.includes('second half')) && (n.includes('result') || n.includes('winner'))) return 'h2h_2h';
+  // Dupla Chance
   if (n.includes('double chance')) return 'double_chance';
+  // Empate Anula
   if (n.includes('draw no bet')) return 'dnb';
-  if (n.includes('both teams to score')) return 'btts';
-  if (n.includes('spread') || n.includes('asian handicap') || (n.includes('handicap') && !n.includes('corner') && !n.includes('card'))) return 'handicap';
-  if (n.includes('totals') || n.includes('goals over/under') || n.includes('over/under') || n.includes('total goals')) return 'totals';
-  if (n.includes('half time') && (n.includes('result') || n.includes('ml'))) return 'h2h_ht';
-  if (n.includes('totals ht')) return 'totals_ht';
-  if (n.includes('ht/ft') || (n.includes('half') && n.includes('full') && n.includes('time'))) return 'half_time_full_time';
+  // Ambas Marcam
+  if (n.includes('both teams to score') || n.includes('btts') || n.includes('both score') || n.includes('gg/ng')) return 'btts';
+  // Handicap
+  if (n.includes('asian handicap') || n.includes('spread') || (n.includes('handicap') && !n.includes('corner') && !n.includes('card') && !n.includes('corner'))) return 'handicap';
+  // Totais de Gols
+  if ((n.includes('goals over/under') || n.includes('total goals') || n.includes('goal totals') || (n.includes('over/under') && n.includes('goal'))) && !n.includes('corner') && !n.includes('card')) {
+    if (n.includes('first half') || n.includes('1st half') || n.includes('half time')) return 'totals_ht';
+    if (n.includes('second half') || n.includes('2nd half')) return 'totals_2h';
+    return 'totals';
+  }
+  if ((n === 'totals' || n.includes('total') && n.includes('over')) && !n.includes('corner') && !n.includes('card')) return 'totals';
+  // Over/Under genérico
+  if (n.includes('over/under') && !n.includes('corner') && !n.includes('card')) {
+    if (n.includes('first half') || n.includes('1st half')) return 'totals_ht';
+    return 'totals';
+  }
+  // HT/FT
+  if (n.includes('ht/ft') || n.includes('halftime/fulltime') || (n.includes('half') && n.includes('full') && n.includes('time'))) return 'half_time_full_time';
+  // Resultado Correto
   if (n.includes('correct score') || n.includes('exact score')) return 'correct_score';
-  if (n.includes('next goal')) return 'next_goal';
+  // Próximo Gol
+  if (n.includes('next goal') || n.includes('first goal scorer') || n.includes('anytime scorer')) return 'next_goal';
+  // Primeiro a Marcar
   if (n.includes('team to score first') || n.includes('first team to score') || n.includes('first to score')) return 'team_to_score_first';
-  if (n.includes('corners') && (n.includes('over/under') || n.includes('totals'))) return 'corners_total';
+  // Cantos
+  if (n.includes('corner') && (n.includes('over/under') || n.includes('totals') || n.includes('total'))) return 'corners_total';
   if (n.includes('corner') && n.includes('handicap')) return 'corner_handicap';
-  if (n.includes('cards') && (n.includes('over/under') || n.includes('totals'))) return 'cards_total';
+  if (n.includes('corner') && (n.includes('winner') || n.includes('result') || n.includes('match'))) return 'corners_match';
+  // Cartões
+  if (n.includes('card') && (n.includes('over/under') || n.includes('totals') || n.includes('total'))) return 'cards_total';
+  // Beisebol / Hóquei
   if (n.includes('run line')) return 'run_line';
   if (n.includes('puck line')) return 'puck_line';
+  // Marcadores de Jogadores
+  if (n.includes('player') || n.includes('scorer') || n.includes('anytime goal') || n.includes('first goal') || n.includes('last goal')) return 'player_goals';
+  // Especiais Temporais
+  if ((n.includes('minute') || n.includes('time of') || n.includes('when ')) && n.includes('goal')) return 'goal_time';
+  // Fallback por categoria
+  if (n.includes('corner')) return 'corners_total';
+  if (n.includes('card') || n.includes('booking')) return 'cards_total';
+  if (n.includes('penalty')) return 'penalty';
+  if (n.includes('clean sheet')) return 'clean_sheet';
+  if (n.includes('win to nil') || n.includes('to nil')) return 'win_to_nil';
+  if (n.includes('both halves') || n.includes('both team') && n.includes('score')) return 'btts';
   return `special_${normKey(n).slice(0, 32) || 'misc'}`;
 }
 
 function toMarketName(key: string, rawName: string): string {
-  if (key === 'h2h') return 'Resultado Final';
-  if (key === 'double_chance') return 'Dupla Chance';
-  if (key === 'dnb') return 'Empate Anula';
-  if (key === 'btts') return 'Ambas Marcam';
-  if (key === 'handicap') return 'Handicap';
-  if (key === 'totals') return 'Totais';
-  if (key === 'h2h_ht') return 'Resultado 1ª Parte';
-  if (key === 'totals_ht') return 'Totais 1ª Parte';
-  return rawName || key;
+  const MAP: Record<string, string> = {
+    h2h: 'Resultado Final',
+    h2h_ht: 'Resultado 1ª Parte',
+    h2h_2h: 'Resultado 2ª Parte',
+    double_chance: 'Dupla Chance',
+    dnb: 'Empate Anula Aposta',
+    btts: 'Ambas Marcam',
+    handicap: 'Handicap Asiático',
+    totals: 'Total de Gols',
+    totals_ht: 'Total de Gols 1ª Parte',
+    totals_2h: 'Total de Gols 2ª Parte',
+    half_time_full_time: 'Intervalo/Resultado Final',
+    correct_score: 'Resultado Correto',
+    next_goal: 'Próximo Gol',
+    team_to_score_first: 'Equipa a Marcar Primeiro',
+    corners_total: 'Total de Cantos',
+    corner_handicap: 'Handicap de Cantos',
+    corners_match: 'Vencedor de Cantos',
+    cards_total: 'Total de Cartões',
+    run_line: 'Run Line',
+    puck_line: 'Puck Line',
+    player_goals: 'Marcadores',
+    goal_time: 'Minuto do Gol',
+    penalty: 'Grande Penalidade',
+    clean_sheet: 'Baliza a Zero',
+    win_to_nil: 'Vitória Sem Sofrer',
+  };
+  return MAP[key] || rawName || key;
 }
 
 function pickNum(v: any): number {
@@ -227,108 +283,245 @@ function pushSel(list: Selection[], id: string, label: string, odd: number): voi
   list.push({ id, label, odd });
 }
 
+/** Extract individual market entries from a bookmaker object or array */
+function extractMarketsFromBookmaker(bm: any): Array<{ name: string; odds: any[] }> {
+  const out: Array<{ name: string; odds: any[] }> = [];
+  // Format A: bm is already an array of market objects [ { name, odds }, ... ]
+  if (Array.isArray(bm)) {
+    for (const m of bm) {
+      const name = String(m?.name || m?.key || m?.id || '');
+      const oddsArr = m?.odds || m?.outcomes || m?.values || [];
+      if (name) out.push({ name, odds: Array.isArray(oddsArr) ? oddsArr : [] });
+    }
+    return out;
+  }
+  // Format B: bm has a .markets property that is an array
+  if (Array.isArray(bm?.markets)) {
+    for (const m of bm.markets) {
+      const name = String(m?.name || m?.key || m?.id || '');
+      const oddsArr = m?.odds || m?.outcomes || m?.values || [];
+      if (name) out.push({ name, odds: Array.isArray(oddsArr) ? oddsArr : [] });
+    }
+    return out;
+  }
+  return out;
+}
+
+/** Normalize a single outcome/odds line into {home, draw, away, hdp, over, under, yes, no, label, price} */
+function normalizeOddsLine(o: any): Record<string, any> {
+  if (!o || typeof o !== 'object') return {};
+  // Handle outcome-style objects: { name: "Home", price: 1.85 }
+  const name = String(o?.name || o?.label || o?.outcome || o?.selection || o?.value || '').toLowerCase().trim();
+  const price = pickNum(o?.price ?? o?.odd ?? o?.value ?? 0);
+  if (name && price > 1) {
+    // Map outcome names to structured fields
+    const result: Record<string, any> = { label: String(o?.name || o?.label || o?.outcome || o?.selection || '').trim(), price };
+    if (name === 'home' || name === '1' || name === 'home win') result.home = price;
+    else if (name === 'draw' || name === 'x' || name === 'tie') result.draw = price;
+    else if (name === 'away' || name === '2' || name === 'away win') result.away = price;
+    else if (name === 'yes' || name === 'sim') result.yes = price;
+    else if (name === 'no' || name === 'não' || name === 'nao') result.no = price;
+    else if (name === '1x') result['1X'] = price;
+    else if (name === 'x2') result['X2'] = price;
+    else if (name === '12') result['12'] = price;
+    else {
+      // Try over/under with point
+      const overM = /^(over|acima|mais)[^0-9]*([0-9]+(?:\.[0-9]+)?)/i.exec(name);
+      const underM = /^(under|abaixo|menos)[^0-9]*([0-9]+(?:\.[0-9]+)?)/i.exec(name);
+      if (overM) { result.over = price; result.hdp = overM[2]; }
+      else if (underM) { result.under = price; result.hdp = underM[2]; }
+    }
+    return result;
+  }
+  // Already a structured odds line (has hdp/over/under/home/away/draw)
+  return { ...o };
+}
+
 function payloadToMarkets(payload: any, resolvedBooks: string): Market[] {
   const outByKey = new Map<string, Market>();
   const limitPerMarket = 80;
 
-  const books = resolvedBooks
-    ? resolvedBooks.split(',').map((s) => s.trim()).filter(Boolean)
-    : Object.keys(payload?.bookmakers || {});
+  const bmRaw = payload?.bookmakers;
 
-  const bmObj = payload?.bookmakers || {};
-  const bmKeys = Object.keys(bmObj);
+  // Build a flat list of bookmaker market arrays to process
+  // Support three formats:
+  // 1. Dict: { "bet365": [ market, ... ], ... }
+  // 2. Array of bookmaker objects: [ { name: "bet365", markets: [...] }, ... ]
+  // 3. Direct markets array: [ market, ... ]
 
-  const getBookArr = (book: string) => {
-    if (Array.isArray(bmObj?.[book])) return bmObj[book];
-    const norm = normKey(book);
-    const alt = bmKeys.find((k) => normKey(k) === norm);
-    if (alt && Array.isArray(bmObj?.[alt])) return bmObj[alt];
-    return null;
+  const bookEntries: Array<{ bookName: string; markets: Array<{ name: string; odds: any[] }> }> = [];
+
+  if (bmRaw && typeof bmRaw === 'object' && !Array.isArray(bmRaw)) {
+    // Format 1: dict
+    for (const [bookName, val] of Object.entries(bmRaw)) {
+      const mList = extractMarketsFromBookmaker(val);
+      if (mList.length > 0) bookEntries.push({ bookName, markets: mList });
+    }
+  } else if (Array.isArray(bmRaw)) {
+    if (bmRaw.length > 0 && (bmRaw[0]?.name || bmRaw[0]?.key || bmRaw[0]?.markets)) {
+      // Format 2: array of bookmaker objects
+      for (const bm of bmRaw) {
+        const bookName = String(bm?.name || bm?.key || bm?.slug || '');
+        const mList = extractMarketsFromBookmaker(bm);
+        if (mList.length > 0) bookEntries.push({ bookName, markets: mList });
+      }
+    } else {
+      // Format 3: direct markets array (single bookmaker)
+      const mList = extractMarketsFromBookmaker(bmRaw);
+      bookEntries.push({ bookName: 'default', markets: mList });
+    }
+  }
+
+  // Also check top-level markets (payload.markets directly)
+  if (Array.isArray(payload?.markets)) {
+    const mList = extractMarketsFromBookmaker(payload.markets);
+    bookEntries.push({ bookName: 'direct', markets: mList });
+  }
+
+  const requestedBooks = resolvedBooks
+    ? new Set(resolvedBooks.split(',').map((s) => normKey(s.trim())).filter(Boolean))
+    : null;
+
+  const processEntry = (marketEntry: { name: string; odds: any[] }) => {
+    const rawName = marketEntry.name;
+    const key = toMarketKey(rawName);
+    if (!outByKey.has(key)) {
+      outByKey.set(key, { id: `mkt_${key}`, key, name: toMarketName(key, rawName), selections: [] });
+    }
+    const market = outByKey.get(key)!;
+    if (market.selections.length >= limitPerMarket) return;
+
+    const oddsArr = marketEntry.odds;
+
+    if (key === 'h2h' || key === 'h2h_ht' || key === 'h2h_2h') {
+      // Try structured line first
+      if (oddsArr.length === 1 && (oddsArr[0]?.home !== undefined || oddsArr[0]?.draw !== undefined)) {
+        const o = oddsArr[0];
+        pushSel(market.selections, 'sel_home', 'Casa', pickNum(o.home));
+        pushSel(market.selections, 'sel_draw', 'Empate', pickNum(o.draw));
+        pushSel(market.selections, 'sel_away', 'Fora', pickNum(o.away));
+      } else {
+        // Outcome-style: [{name:"Home",price:1.85}, {name:"Draw",...}, {name:"Away",...}]
+        let home = 0, draw = 0, away = 0;
+        for (const o of oddsArr) {
+          const nl = normalizeOddsLine(o);
+          if (nl.home) home = home || nl.home;
+          if (nl.draw) draw = draw || nl.draw;
+          if (nl.away) away = away || nl.away;
+        }
+        pushSel(market.selections, 'sel_home', 'Casa', home);
+        pushSel(market.selections, 'sel_draw', 'Empate', draw);
+        pushSel(market.selections, 'sel_away', 'Fora', away);
+      }
+    } else if (key === 'double_chance') {
+      let oneX = 0, xTwo = 0, oneTwo = 0;
+      for (const o of oddsArr) {
+        const nl = normalizeOddsLine(o);
+        if (nl['1X']) oneX = oneX || nl['1X'];
+        if (nl['X2']) xTwo = xTwo || nl['X2'];
+        if (nl['12']) oneTwo = oneTwo || nl['12'];
+        // structured
+        const name = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
+        if (name === '1x' || name === 'home or draw') oneX = oneX || pickNum(o?.price ?? o?.odd ?? 0);
+        if (name === 'x2' || name === 'draw or away') xTwo = xTwo || pickNum(o?.price ?? o?.odd ?? 0);
+        if (name === '12' || name === 'home or away') oneTwo = oneTwo || pickNum(o?.price ?? o?.odd ?? 0);
+      }
+      pushSel(market.selections, 'sel_1x', '1X', oneX);
+      pushSel(market.selections, 'sel_x2', 'X2', xTwo);
+      pushSel(market.selections, 'sel_12', '12', oneTwo);
+    } else if (key === 'dnb') {
+      let home = 0, away = 0;
+      for (const o of oddsArr) {
+        const nl = normalizeOddsLine(o);
+        if (nl.home) home = home || nl.home;
+        if (nl.away) away = away || nl.away;
+      }
+      pushSel(market.selections, 'sel_home', 'Casa', home);
+      pushSel(market.selections, 'sel_away', 'Fora', away);
+    } else if (key === 'btts') {
+      let yes = 0, no = 0;
+      for (const o of oddsArr) {
+        const nl = normalizeOddsLine(o);
+        if (nl.yes) yes = yes || nl.yes;
+        if (nl.no) no = no || nl.no;
+      }
+      pushSel(market.selections, 'sel_yes', 'Sim', yes);
+      pushSel(market.selections, 'sel_no', 'Não', no);
+    } else if (key === 'totals' || key === 'totals_ht' || key === 'totals_2h') {
+      // May have multiple lines (Over/Under for various goal totals)
+      const overByPoint = new Map<string, number>();
+      const underByPoint = new Map<string, number>();
+      for (const o of oddsArr) {
+        if (market.selections.length >= limitPerMarket) break;
+        // Structured line: { hdp: "2.5", over: 1.85, under: 2.1 }
+        if (o?.hdp !== undefined || o?.point !== undefined) {
+          const point = String(o?.hdp ?? o?.point ?? '');
+          const over = pickNum(o?.over);
+          const under = pickNum(o?.under);
+          if (point && over > 1) overByPoint.set(point, overByPoint.get(point) || over);
+          if (point && under > 1) underByPoint.set(point, underByPoint.get(point) || under);
+        } else {
+          // Outcome style: { name: "Over 2.5", price: 1.85 }
+          const nl = normalizeOddsLine(o);
+          if (nl.hdp !== undefined && nl.over) overByPoint.set(String(nl.hdp), overByPoint.get(String(nl.hdp)) || nl.over);
+          if (nl.hdp !== undefined && nl.under) underByPoint.set(String(nl.hdp), underByPoint.get(String(nl.hdp)) || nl.under);
+        }
+      }
+      for (const [point, over] of overByPoint) {
+        if (market.selections.length >= limitPerMarket) break;
+        pushSel(market.selections, `sel_over_${point}`, `Acima ${point}`, over);
+      }
+      for (const [point, under] of underByPoint) {
+        if (market.selections.length >= limitPerMarket) break;
+        pushSel(market.selections, `sel_under_${point}`, `Abaixo ${point}`, under);
+      }
+    } else if (key === 'handicap') {
+      const homeByHdp = new Map<string, number>();
+      const awayByHdp = new Map<string, number>();
+      for (const o of oddsArr) {
+        if (market.selections.length >= limitPerMarket) break;
+        if (o?.hdp !== undefined || o?.point !== undefined) {
+          const point = String(o?.hdp ?? o?.point ?? '');
+          const h = pickNum(o?.home);
+          const a = pickNum(o?.away);
+          if (point && h > 1) homeByHdp.set(point, homeByHdp.get(point) || h);
+          if (point && a > 1) awayByHdp.set(point, awayByHdp.get(point) || a);
+        } else {
+          const name = String(o?.name || o?.label || '').toLowerCase();
+          const price = pickNum(o?.price ?? o?.odd ?? 0);
+          const hdpM = /([+-]?[0-9]+(?:\.[0-9]+)?)/.exec(name);
+          const hdpVal = hdpM ? hdpM[1] : '';
+          if (/home|casa/i.test(name) && hdpVal && price > 1) homeByHdp.set(hdpVal, homeByHdp.get(hdpVal) || price);
+          if (/away|fora/i.test(name) && hdpVal && price > 1) awayByHdp.set(hdpVal, awayByHdp.get(hdpVal) || price);
+        }
+      }
+      for (const [hdp, val] of homeByHdp) {
+        if (market.selections.length >= limitPerMarket) break;
+        pushSel(market.selections, `sel_home_${hdp}`, `Casa ${hdp}`, val);
+      }
+      for (const [hdp, val] of awayByHdp) {
+        if (market.selections.length >= limitPerMarket) break;
+        pushSel(market.selections, `sel_away_${hdp}`, `Fora ${hdp}`, val);
+      }
+    } else {
+      // Generic: try to extract label + price from each odds entry
+      for (const o of oddsArr) {
+        if (market.selections.length >= limitPerMarket) break;
+        const label = String(o?.label || o?.name || o?.outcome || o?.selection || o?.value || '').trim();
+        const price = pickNum(o?.price ?? o?.odd ?? o?.value ?? 0);
+        if (label && price > 1) pushSel(market.selections, `sel_${normKey(label).slice(0, 24)}`, label, price);
+      }
+    }
   };
 
-  for (const book of books) {
-    const arr = getBookArr(book);
-    if (!arr) continue;
-
-    for (const m of arr) {
-      const rawName = String(m?.name || m?.key || '');
-      const key = toMarketKey(rawName);
-      if (!outByKey.has(key)) {
-        outByKey.set(key, { id: `mkt_${key}`, key, name: toMarketName(key, rawName), selections: [] });
-      }
-
-      const market = outByKey.get(key)!;
-      if (market.selections.length >= limitPerMarket) continue;
-
-      if (key === 'h2h' || key === 'h2h_ht') {
-        const o = Array.isArray(m?.odds) && m.odds.length ? m.odds[0] : null;
-        if (o) {
-          pushSel(market.selections, 'sel_home', 'Casa', pickNum(o.home));
-          pushSel(market.selections, 'sel_draw', 'Empate', pickNum(o.draw));
-          pushSel(market.selections, 'sel_away', 'Fora', pickNum(o.away));
-        }
-      } else if (key === 'double_chance') {
-        const o = Array.isArray(m?.odds) && m.odds.length ? m.odds[0] : null;
-        if (o) {
-          pushSel(market.selections, 'sel_1x', '1X', pickNum(o['1X'] ?? o['1x'] ?? o['1x2'] ?? o['1X2']));
-          pushSel(market.selections, 'sel_x2', 'X2', pickNum(o['X2'] ?? o['x2']));
-          pushSel(market.selections, 'sel_12', '12', pickNum(o['12']));
-        }
-      } else if (key === 'dnb') {
-        const o = Array.isArray(m?.odds) && m.odds.length ? m.odds[0] : null;
-        if (o) {
-          pushSel(market.selections, 'sel_home', 'Casa', pickNum(o.home));
-          pushSel(market.selections, 'sel_away', 'Fora', pickNum(o.away));
-        }
-      } else if (key === 'btts') {
-        const o = Array.isArray(m?.odds) && m.odds.length ? m.odds[0] : null;
-        if (o) {
-          pushSel(market.selections, 'sel_yes', 'Sim', pickNum(o.yes));
-          pushSel(market.selections, 'sel_no', 'Não', pickNum(o.no));
-        }
-      } else if (key === 'totals' || key === 'totals_ht') {
-        if (Array.isArray(m?.odds)) {
-          for (const line of m.odds) {
-            if (market.selections.length >= limitPerMarket) break;
-            const point = line?.hdp;
-            const over = pickNum(line?.over);
-            const under = pickNum(line?.under);
-            if (point !== undefined && (over > 1 || under > 1)) {
-              pushSel(market.selections, `sel_over_${point}`, `Over ${point}`, over);
-              pushSel(market.selections, `sel_under_${point}`, `Under ${point}`, under);
-            }
-          }
-        }
-      } else if (key === 'handicap') {
-        if (Array.isArray(m?.odds)) {
-          for (const line of m.odds) {
-            if (market.selections.length >= limitPerMarket) break;
-            const point = line?.hdp;
-            const h = pickNum(line?.home);
-            const a = pickNum(line?.away);
-            if (point !== undefined && (h > 1 || a > 1)) {
-              pushSel(market.selections, `sel_home_${point}`, `Casa ${point}`, h);
-              pushSel(market.selections, `sel_away_${point}`, `Fora ${point}`, a);
-            }
-          }
-        }
-      } else {
-        if (Array.isArray(m?.odds)) {
-          for (const o of m.odds) {
-            if (market.selections.length >= limitPerMarket) break;
-            const label = String(o?.label || o?.name || o?.outcome || o?.selection || '').trim();
-            const price =
-              pickNum(o?.price) ||
-              pickNum(o?.odd) ||
-              pickNum(o?.value) ||
-              pickNum(o?.under) ||
-              pickNum(o?.over) ||
-              pickNum(o?.home) ||
-              pickNum(o?.away);
-            if (label && price > 1) pushSel(market.selections, `sel_${normKey(label).slice(0, 24)}`, label, price);
-          }
-        }
-      }
+  for (const { bookName, markets: mList } of bookEntries) {
+    // Filter by requested books if specified
+    if (requestedBooks && requestedBooks.size > 0) {
+      const bk = normKey(bookName);
+      if (!requestedBooks.has(bk) && ![...requestedBooks].some(rb => bk.includes(rb) || rb.includes(bk))) continue;
+    }
+    for (const m of mList) {
+      processEntry(m);
     }
   }
 
@@ -673,7 +866,7 @@ export async function fetchOddsApiMarketsForFixture(
 
   const baseSide = { league: fixture.league, home: fixture.home, away: fixture.away, kickoff: fixture.kickoff };
   const wrapped = candidates.map((c) => ({ item: c, league: c.leagueName, home: c.home, away: c.away, kickoff: c.date }));
-  const minScore = slug === 'football' ? 60 : 55;
+  const minScore = slug === 'football' ? 50 : 45;
   const best = findBestCandidate(baseSide, wrapped, minScore);
 
   const pickFallback = () => {
@@ -738,7 +931,8 @@ export async function fetchOddsApiMarketsForFixture(
     provider: 'odds-api.io',
   };
 
-  fixtureOddsCache.set(cacheKey, { expiresAt: nowMs + 10_000, data });
+  const ttlMs = statusCsv.includes('live') && !statusCsv.includes('pending') ? 10_000 : 30_000;
+  fixtureOddsCache.set(cacheKey, { expiresAt: nowMs + ttlMs, data });
   return data;
 }
 

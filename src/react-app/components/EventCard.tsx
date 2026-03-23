@@ -295,13 +295,24 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                 scoreStr = String(displayScore);
               }
 
-              const centerText = isLiveEvent
-                ? (scoreStr || 'AO VIVO')
-                : (eventTime || 'vs');
+              const elapsed = Number((event as any).elapsed ?? (event as any).fixture?.status?.elapsed ?? (event as any).status?.elapsed ?? 0) || 0;
+              const timer = String((event as any).timer || (event as any).fixture?.status?.timer || '').trim();
+              const displayTimer = timer || (elapsed > 0 ? `${elapsed}'` : '');
+
+              if (isLiveEvent) {
+                return (
+                  <span className="flex flex-col items-center shrink-0 px-1 gap-0.5">
+                    <span className="text-xs font-bold text-red-600">{scoreStr || 'AO VIVO'}</span>
+                    {displayTimer && (
+                      <span className="text-[10px] font-bold text-green-500 bg-green-500/10 rounded px-1 leading-tight">{displayTimer}</span>
+                    )}
+                  </span>
+                );
+              }
 
               return (
-                <span className={`text-xs font-bold shrink-0 px-1 ${isLiveEvent ? 'text-red-600' : (darkMode ? 'text-gray-300' : 'text-gray-600')}`}>
-                  {centerText}
+                <span className={`text-xs font-bold shrink-0 px-1 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  {eventTime || 'vs'}
                 </span>
               );
             })()}

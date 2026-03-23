@@ -78,6 +78,8 @@ export default function EventDetails() {
   };
 
   const [realtimeOdds, setRealtimeOdds] = useState<any | null>(null);
+  const [oddsSuspended, setOddsSuspended] = useState(false);
+  const [oddsSuspendedReason, setOddsSuspendedReason] = useState<string>('');
 
   // --- Fetch Event ---
   useEffect(() => {
@@ -115,8 +117,10 @@ export default function EventDetails() {
       inflight = true;
       try {
         const data = await apiFetch<any>(`/api/events/${id}/odds?realtime=1`, { cache: 'no-store' });
-        if (!cancelled && data && data.markets) {
-          setRealtimeOdds(data.markets);
+        if (!cancelled && data) {
+          if (data.markets) setRealtimeOdds(data.markets);
+          setOddsSuspended(!!data.suspended);
+          setOddsSuspendedReason(String(data.suspended_reason || ''));
         }
       } catch { /* silent */ }
       inflight = false;
@@ -292,7 +296,7 @@ export default function EventDetails() {
 
           {/* Odds */}
           <MemoSubOddsModel
-            event={displayEvent}
+            event={{ ...displayEvent, suspended: oddsSuspended, suspendReason: oddsSuspendedReason }}
             darkMode={darkMode}
             markets={realtimeOdds || displayEvent.odds}
             eventOdds={realtimeOdds || displayEvent.odds}

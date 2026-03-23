@@ -8,6 +8,7 @@ import { Env } from '../shared/types';
 import { fetchOddsApiEvents, fetchOddsApiMarketsForFixture, matchOddsEvent } from './services/oddsApi';
 import { applyOdds, fetchDayOddsForSport, fetchLiveOddsForSport, fetchLiveFixtures, fetchDateFixtures, fetchOddsForEvents, LIVE_STATUSES as API_LIVE_STATUSES, SPORT_CONFIG } from './services/sportsApi';
 import { getApiSportsKey, getOddsApiKey } from './services/env';
+import { shouldSuspendLiveOdds } from './engine/liveGuard';
 
 const cachedLiveFixtures = new Map<string, { expiresAt: number; map: Map<string, any> }>();
 
@@ -181,6 +182,9 @@ function formatEvent(r: any): any {
     marketsArr.push({ id: 'mkt_h2h', key: 'h2h', name: 'Resultado Final', selections: h2hSelections });
   }
 
+  const elapsedNum = Number(r.elapsed) || 0;
+  const timerStr = String(r.timer || '').trim() || (elapsedNum > 0 ? `${elapsedNum}'` : '');
+
   return {
     id,
     external_event_id: id,
@@ -193,8 +197,9 @@ function formatEvent(r: any): any {
     event_date: r.event_date,
     date:       r.event_date,
     is_live:    Number(r.is_live) || 0,
-    status:     { short: statusShort, long: statusShort, elapsed: Number(r.elapsed) || 0 },
-    elapsed:    Number(r.elapsed) || 0,
+    status:     { short: statusShort, long: statusShort, elapsed: elapsedNum, timer: timerStr },
+    elapsed:    elapsedNum,
+    timer:      timerStr,
     goals,
     score:      goals,
     home_odd,
@@ -204,7 +209,7 @@ function formatEvent(r: any): any {
     fixture: {
       id,
       date:   r.event_date,
-      status: { short: statusShort, long: statusShort, elapsed: Number(r.elapsed) || 0 },
+      status: { short: statusShort, long: statusShort, elapsed: elapsedNum, timer: timerStr },
       timestamp: r.event_date ? Math.floor(new Date(r.event_date).getTime() / 1000) : 0,
     },
     home_team_logo: r.home_team_logo || '',
@@ -715,21 +720,28 @@ sports.get('/:id/odds', async (c) => {
     const sportPrefix = parts.length >= 2 ? parts[0] : 'soccer';
     const rawIdFromParam = parts.length >= 2 ? parts.slice(1).join('_') : id;
     const row = await c.env.DB
-      .prepare('SELECT league, home_team, away_team, event_date, markets, home_odd, draw_odd, away_odd FROM events WHERE external_event_id = ? OR CAST(id AS TEXT) = ? LIMIT 1')
+      .prepare('SELECT league, home_team, away_team, event_date, markets, home_odd, draw_odd, away_odd, is_live, elapsed, status FROM events WHERE external_event_id = ? OR CAST(id AS TEXT) = ? LIMIT 1')
       .bind(id, id)
       .first();
 
     if (!row) return c.json({ markets: {} });
 
+    const r: any = row as any;
+    const isLive = Number(r.is_live) === 1;
+    const elapsed = Number(r.elapsed) || 0;
+    const statusShortRaw = String(r.status || 'NS').trim();
+    const fixtureForGuard = { status: { short: statusShortRaw }, elapsed, is_live: isLive };
+    const suspended = isLive && shouldSuspendLiveOdds(fixtureForGuard);
+    const suspended_reason = suspended ? (elapsed < 2 ? 'KICKOFF' : elapsed > 88 ? 'FINAL_MINUTES' : 'LIVE_GUARD') : '';
+
     if (realtime && oddsKey) {
-      const r: any = row as any;
       const out = await fetchOddsApiMarketsForFixture(
         oddsKey,
         { league: String(r.league || ''), home: String(r.home_team || ''), away: String(r.away_team || ''), kickoff: String(r.event_date || ''), sport: sportPrefix },
         c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
         'pending,live',
       );
-      if (out) return c.json(out);
+      if (out) return c.json({ ...out, suspended, suspended_reason });
     }
 
     if (realtime && sportPrefix === 'soccer' && apiKey) {
@@ -804,7 +816,7 @@ sports.get('/:id/odds', async (c) => {
               updated_at: new Date().toISOString(),
               provider: 'api-sports',
             };
-            if (Object.keys(markets).length > 0) return c.json(out);
+            if (Object.keys(markets).length > 0) return c.json({ ...out, suspended, suspended_reason });
           }
         } catch {
           /* ignore */
@@ -887,6 +899,8 @@ sports.get('/:id/odds', async (c) => {
       markets: normalized,
       updated_at: new Date().toISOString(),
       provider: 'db',
+      suspended,
+      suspended_reason,
     });
   } catch (err) {
     console.error('[Sports] /:id/odds error:', err);
