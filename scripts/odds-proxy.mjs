@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * odds-proxy.mjs — Local enrichment proxy (port 8788)
+ * odds-proxy.mjs — Local enrichment proxy (port 8080)
  *
- * Routes:
- *   /api/events/by-sport?*include=odds*  → fetch from CF worker, enrich with odds-api.io
- *   everything else                      → pass through to CF worker
+ * Strategy:
+ *   1. Try CF Worker for event list
+ *   2. If CF Worker fails/empty → build events DIRECTLY from odds-api.io
+ *   3. Enrich all events with real odds from odds-api.io
  *
- * Run: node scripts/odds-proxy.mjs
- * Vite proxy target → http://127.0.0.1:8788
+ * Budget: ~500 req/hour (5000 limit on free tier)
  */
 
 import http  from 'http';
@@ -19,7 +19,7 @@ const ODDS_API_KEY   = process.env.ODDS_API_KEY   || '';
 const BOOKMAKERS_CSV = process.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet';
 const ODDS_API_BASE  = 'https://api.odds-api.io/v3';
 
-if (!ODDS_API_KEY) console.warn('[proxy] WARNING: ODDS_API_KEY not set — enrichment disabled');
+if (!ODDS_API_KEY) console.warn('[proxy] WARNING: ODDS_API_KEY not set');
 else console.log(`[proxy] ODDS_API_KEY: ✓ set | Bookmakers: ${BOOKMAKERS_CSV}`);
 
 // ── Simple in-memory cache ─────────────────────────────────────────────────
@@ -27,7 +27,30 @@ const _cache = new Map();
 const cGet = (k) => { const e = _cache.get(k); return e && e.exp > Date.now() ? e.data : null; };
 const cSet = (k, d, ttl) => _cache.set(k, { exp: Date.now() + ttl, data: d });
 
-// ── Team match helpers ─────────────────────────────────────────────────────
+// ── Sport slug maps ────────────────────────────────────────────────────────
+const SLUG_TO_API = {
+  soccer: 'football', basketball: 'basketball', tennis: 'tennis',
+  'ice-hockey': 'icehockey', handball: 'handball', volleyball: 'volleyball',
+  'american-football': 'americanfootball', baseball: 'baseball', rugby: 'rugbyleague',
+};
+const API_TO_SPORT = {
+  football: 'soccer', basketball: 'basketball', tennis: 'tennis',
+  icehockey: 'ice-hockey', handball: 'handball', volleyball: 'volleyball',
+  americanfootball: 'american-football', baseball: 'baseball', rugbyleague: 'rugby',
+};
+
+// ── Middle East country block ──────────────────────────────────────────────
+const BLOCKED_ME = new Set([
+  'saudi arabia', 'qatar', 'united arab emirates', 'uae', 'kuwait',
+  'bahrain', 'oman', 'jordan', 'iraq', 'syria', 'lebanon', 'palestine',
+  'palestinian territory', 'yemen', 'iran', 'israel',
+]);
+
+function isBlockedCountry(country) {
+  return BLOCKED_ME.has(String(country || '').toLowerCase().trim());
+}
+
+// ── Team fuzzy match ───────────────────────────────────────────────────────
 function norm(s) {
   return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
 }
@@ -50,55 +73,55 @@ async function apiFetch(url) {
     const res = await fetch(url, { signal: AbortSignal.timeout(12_000) });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      console.warn(`[proxy] HTTP ${res.status} for ${url.replace(ODDS_API_KEY, 'REDACTED').slice(0, 120)} | body: ${body.slice(0, 300)}`);
+      console.warn(`[proxy] HTTP ${res.status} | body: ${body.slice(0, 200)}`);
       return null;
     }
     return res.json();
   } catch (e) { console.warn('[proxy] fetch error:', e?.message); return null; }
 }
 
-const SLUG = { soccer: 'football', basketball: 'basketball', tennis: 'tennis', 'ice-hockey': 'icehockey', handball: 'handball', volleyball: 'volleyball', 'american-football': 'americanfootball', baseball: 'baseball', rugby: 'rugbyleague' };
-
+// ── odds-api.io: fetch event list ─────────────────────────────────────────
 async function getOddsEvents(sport, statusCsv) {
   if (!ODDS_API_KEY) return [];
   const ck = `ev:${sport}:${statusCsv}`;
   const cached = cGet(ck);
   if (cached) return cached;
-  const slug = SLUG[sport] || sport;
+  const apiSlug = SLUG_TO_API[sport] || sport;
   const now  = new Date();
   const from = new Date(now.getTime() - 6 * 3600_000).toISOString();
   const to   = new Date(now.getTime() + 48 * 3600_000).toISOString();
-  const url  = `${ODDS_API_BASE}/events?apiKey=${ODDS_API_KEY}&sport=${slug}&status=${encodeURIComponent(statusCsv)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=200`;
+  const url  = `${ODDS_API_BASE}/events?apiKey=${ODDS_API_KEY}&sport=${apiSlug}&status=${encodeURIComponent(statusCsv)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=200`;
   const data = await apiFetch(url);
-  const list = Array.isArray(data) ? data : (data && Array.isArray(data.data) ? data.data : []);
-  const ttl  = statusCsv.includes('live') && !statusCsv.includes('pending') ? 20_000 : 180_000;
+  const list = Array.isArray(data) ? data : (data?.data && Array.isArray(data.data) ? data.data : []);
+  const ttl  = statusCsv === 'live' ? 20_000 : 180_000;
   cSet(ck, list, ttl);
   console.log(`[proxy] odds-api.io: ${list.length} ${sport} events (${statusCsv})`);
   return list;
 }
 
-// Fetch odds for a single event ID from odds-api.io
+// ── odds-api.io: fetch odds for a single event ────────────────────────────
 async function getOddsForEventId(eventId) {
   const ck = `odds:${eventId}`;
   const cached = cGet(ck);
-  if (cached) return cached;
+  if (cached !== undefined && cached !== null) return cached;
   const bms = encodeURIComponent(BOOKMAKERS_CSV);
   const url = `${ODDS_API_BASE}/odds?apiKey=${ODDS_API_KEY}&eventId=${encodeURIComponent(eventId)}&bookmakers=${bms}`;
   const data = await apiFetch(url);
-  const result = parseH2hFromOddsPayload(data);
+  const result = parseH2h(data);
   cSet(ck, result, 90_000);
   return result;
 }
 
+// ── Odds parsing ───────────────────────────────────────────────────────────
 function isH2hMarket(name) {
   const k = String(name || '').toLowerCase().trim();
-  return k === 'ml' || k === '1x2' || k === 'h2h' || k.includes('moneyline') || k.includes('match winner') || k.includes('match result') || k.includes('full time result') || k.includes('result final') || k.includes('resultado');
+  return k === 'ml' || k === '1x2' || k === 'h2h' || k.includes('moneyline') ||
+    k.includes('match winner') || k.includes('match result') ||
+    k.includes('full time result') || k.includes('result final') || k.includes('resultado');
 }
 
-function parseH2hFromOddsPayload(payload) {
+function parseH2h(payload) {
   if (!payload || typeof payload !== 'object') return null;
-
-  // Format: { bookmakers: { "Bet365": [ { name: "ML", odds: [{home,draw,away}] } ] } }
   const bms = payload.bookmakers;
   if (bms && typeof bms === 'object') {
     const entries = Array.isArray(bms) ? bms : Object.values(bms);
@@ -106,32 +129,27 @@ function parseH2hFromOddsPayload(payload) {
       const markets = Array.isArray(bm) ? bm : (bm?.markets || []);
       for (const m of markets) {
         if (!isH2hMarket(m?.name || m?.key || m?.type)) continue;
-        const oddsArr = m?.odds || m?.outcomes || [];
-        const h = tryExtract1x2(oddsArr);
+        const h = extract1x2(m?.odds || m?.outcomes || []);
         if (h) return h;
       }
     }
   }
-  // Format: top-level markets array
   if (Array.isArray(payload.markets)) {
     for (const m of payload.markets) {
       if (!isH2hMarket(m?.name || m?.key)) continue;
-      const oddsArr = m?.odds || m?.outcomes || m?.selections || [];
-      const h = tryExtract1x2(oddsArr);
+      const h = extract1x2(m?.odds || m?.outcomes || m?.selections || []);
       if (h) return h;
     }
   }
   return null;
 }
 
-function tryExtract1x2(arr) {
-  if (!Array.isArray(arr) || arr.length === 0) return null;
-  // Structured: [{home,draw,away}]
+function extract1x2(arr) {
+  if (!Array.isArray(arr) || !arr.length) return null;
   if (arr[0]?.home !== undefined) {
     const h = Number(arr[0].home), d = Number(arr[0].draw || 0), a = Number(arr[0].away || 0);
     if (h > 1) return { home: h, draw: d, away: a };
   }
-  // Outcome style: [{name:"Home",price:1.85}]
   let home = 0, draw = 0, away = 0;
   for (const o of arr) {
     const name = String(o?.name || o?.label || o?.outcome || '').toLowerCase().trim();
@@ -144,6 +162,99 @@ function tryExtract1x2(arr) {
   return home > 1 ? { home, draw, away } : null;
 }
 
+// ── Convert odds-api.io event → frontend NormalizedEvent ──────────────────
+function oddsApiToNormalized(oe, sport, oddsById) {
+  const homeName = oe.home_team || oe.home || '';
+  const awayName = oe.away_team || oe.away || '';
+  if (!homeName || !awayName) return null;
+
+  const leagueObj = oe.league || {};
+  const leagueName = leagueObj.name || oe.competition || 'Unknown';
+  const country = leagueObj.country || oe.country || '';
+
+  if (isBlockedCountry(country)) return null;
+
+  const statusRaw = String(oe.status || '').toLowerCase();
+  const isLive = statusRaw === 'live' || statusRaw === 'in_progress' || statusRaw === 'inprogress';
+  const h2h = oddsById ? oddsById.get(String(oe.id)) : null;
+
+  const scoreHome = oe.score?.home ?? oe.scores?.home ?? null;
+  const scoreAway = oe.score?.away ?? oe.scores?.away ?? null;
+
+  // Use odds-api.io sport slug → app sport name
+  const sportSlug = oe.sport?.slug || 'football';
+  const appSport = API_TO_SPORT[sportSlug] || sport || 'soccer';
+
+  return {
+    external_event_id: `${appSport}_oa_${oe.id}`,
+    sport: appSport,
+    league: leagueName,
+    home_team: homeName,
+    away_team: awayName,
+    team_match: `${homeName} vs ${awayName}`,
+    event_date: oe.date || new Date().toISOString(),
+    status: isLive ? 'LIVE' : 'NS',
+    is_live: isLive ? 1 : 0,
+    home_odd:  h2h?.home  || 0,
+    draw_odd:  h2h?.draw  || 0,
+    away_odd:  h2h?.away  || 0,
+    elapsed: oe.elapsed || 0,
+    timer: String(oe.timer || oe.elapsed || '').trim(),
+    score: JSON.stringify({ home: scoreHome, away: scoreAway }),
+    markets: '{}',
+    country,
+    home_team_logo: oe.home_logo || oe.home_image || oe.homeImage || '',
+    away_team_logo: oe.away_logo || oe.away_image || oe.awayImage || '',
+  };
+}
+
+// ── Build full event list from odds-api.io (fallback when CF Worker is down)─
+async function buildFromOddsApi(sports) {
+  const sportsToFetch = (sports === 'all' || !sports)
+    ? ['soccer']  // Start with soccer (most events), add more as needed
+    : String(sports).split(',').map(s => s.trim()).filter(Boolean);
+
+  const allLive = [];
+  const allPregame = [];
+
+  await Promise.all(sportsToFetch.map(async sport => {
+    const [liveEvs, pregameEvs] = await Promise.all([
+      getOddsEvents(sport, 'live'),
+      getOddsEvents(sport, 'pending'),
+    ]);
+    allLive.push(...liveEvs);
+    allPregame.push(...pregameEvs);
+  }));
+
+  // Fetch odds for all live events + top pregame by date
+  const liveTop = allLive.slice(0, 15);
+  const pregameTop = allPregame
+    .filter(e => !isBlockedCountry(e.league?.country || e.country || ''))
+    .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0))
+    .slice(0, 60);
+
+  // Odds budget: all live (≤15) + up to 20 pregame = max 35 events (~1400 req/hour)
+  const liveOddsIds = liveTop.map(e => String(e.id));
+  const pregameOddsIds = pregameTop.map(e => String(e.id)).slice(0, 20);
+  const uniqueIds = [...new Set([...liveOddsIds, ...pregameOddsIds])];
+
+  const oddsById = new Map();
+  await Promise.all(uniqueIds.map(async id => {
+    oddsById.set(id, await getOddsForEventId(id));
+  }));
+
+  const live = liveTop
+    .map(oe => oddsApiToNormalized(oe, 'soccer', oddsById))
+    .filter(Boolean);
+  const pregame = pregameTop
+    .map(oe => oddsApiToNormalized(oe, 'soccer', oddsById))
+    .filter(Boolean);
+
+  console.log(`[proxy] odds-api.io fallback: ${live.length} live, ${pregame.length} pregame`);
+  return { live, pregame };
+}
+
+// ── Enrich CF Worker events with odds-api.io odds ─────────────────────────
 async function enrichList(events, type) {
   if (!ODDS_API_KEY || !events.length) return events;
   const sports = [...new Set(events.map(ev => String(ev.sport || 'soccer').toLowerCase().replace('football', 'soccer')))];
@@ -151,23 +262,21 @@ async function enrichList(events, type) {
   const poolBySport = new Map();
   await Promise.all(sports.map(async sp => { poolBySport.set(sp, await getOddsEvents(sp, statusCsv)); }));
 
-  // Find best odds-api.io match for each event
   const matchedPairs = events.map(ev => {
     const sp = String(ev.sport || 'soccer').toLowerCase().replace('football', 'soccer');
     const pool = poolBySport.get(sp) || [];
     let best = null, bestSc = 0;
     for (const oe of pool) {
-      const sc = pairScore(ev.home_team || '', ev.away_team || '', oe.home_team || oe.home || oe.homeTeam || '', oe.away_team || oe.away || oe.awayTeam || '');
+      const sc = pairScore(ev.home_team || '', ev.away_team || '', oe.home_team || oe.home || '', oe.away_team || oe.away || '');
       if (sc >= 58 && sc > bestSc) { best = oe; bestSc = sc; }
     }
     return { ev, best, bestSc };
   });
 
-  // Fetch odds only for matched events (parallel, max 8 concurrent)
   const matched = matchedPairs.filter(p => p.best);
-  const uniqueIds = [...new Set(matched.map(p => String(p.best.id)))];
+  const uniqueIds = [...new Set(matched.map(p => String(p.best.id)))].slice(0, 30);
   const oddsById = new Map();
-  await Promise.all(uniqueIds.slice(0, 12).map(async id => {
+  await Promise.all(uniqueIds.map(async id => {
     oddsById.set(id, await getOddsForEventId(id));
   }));
 
@@ -177,10 +286,9 @@ async function enrichList(events, type) {
     const h2h = oddsById.get(String(best.id));
     if (!h2h) return ev;
     enriched++;
-    console.log(`[proxy] ✓ ${ev.home_team} v ${ev.away_team} (sc=${Math.round(bestSc)}) → ${h2h.home}/${h2h.draw}/${h2h.away}`);
     return { ...ev, home_odd: h2h.home, draw_odd: h2h.draw, away_odd: h2h.away };
   });
-  if (enriched) console.log(`[proxy] enriched ${enriched}/${events.length} ${type} events`);
+  if (enriched) console.log(`[proxy] enriched ${enriched}/${events.length} ${type}`);
   return result;
 }
 
@@ -197,7 +305,6 @@ function forwardToCF(reqUrl, method, headers, body) {
       headers: { ...headers, host: target.hostname },
     };
     delete opts.headers['connection'];
-    delete opts.headers['host'];
     opts.headers['host'] = target.hostname;
 
     const req = mod.request(opts, (res) => {
@@ -211,10 +318,10 @@ function forwardToCF(reqUrl, method, headers, body) {
   });
 }
 
-// ── Response cache (stale-while-revalidate for CF outages) ─────────────────
+// ── Response cache (stale-while-revalidate) ────────────────────────────────
 const _responseCache = new Map();
-const RESP_TTL_MS   = 45_000;   // 45s fresh
-const STALE_TTL_MS  = 600_000;  // 10min stale serve
+const RESP_TTL_MS  = 45_000;   // 45s fresh
+const STALE_TTL_MS = 600_000;  // 10min stale
 
 function rcGet(key) {
   const e = _responseCache.get(key);
@@ -228,7 +335,7 @@ function rcSet(key, buf) {
   _responseCache.set(key, { buf, freshUntil: now + RESP_TTL_MS, staleUntil: now + STALE_TTL_MS });
 }
 
-function sendEnriched(res, buf) {
+function sendJSON(res, buf) {
   res.writeHead(200, {
     'content-type': 'application/json',
     'content-length': buf.length,
@@ -236,6 +343,67 @@ function sendEnriched(res, buf) {
     'cache-control': 'no-store',
   });
   res.end(buf);
+}
+
+// ── Core: fetch + enrich + optional fallback ───────────────────────────────
+async function fetchAndEnrich(url, method, headers, body, rcKey) {
+  // Extract sports param for fallback
+  const urlObj = new URL('http://x' + url);
+  const sportsParam = urlObj.searchParams.get('sports') || 'all';
+
+  // 1. Try CF Worker
+  let payload = null;
+  try {
+    const r = await forwardToCF(url, method, headers, body);
+    const ct = String(r.headers?.['content-type'] || '');
+    if (ct.includes('application/json')) {
+      const parsed = JSON.parse(r.body.toString('utf8'));
+      const totalEvents = (parsed.live?.length || 0) + (parsed.pregame?.length || 0);
+      if (totalEvents > 0 && !parsed.error_code) {
+        payload = parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('[proxy] CF forward error:', err?.message);
+  }
+
+  // 2. Enrich CF Worker events OR fall back to odds-api.io
+  let live, pregame;
+
+  if (payload && ODDS_API_KEY) {
+    // CF Worker succeeded — enrich with odds-api.io
+    [live, pregame] = await Promise.all([
+      enrichList(Array.isArray(payload.live)    ? payload.live    : [], 'live'),
+      enrichList(Array.isArray(payload.pregame) ? payload.pregame : [], 'pregame'),
+    ]);
+  } else if (ODDS_API_KEY) {
+    // CF Worker failed — use odds-api.io as primary source
+    console.log('[proxy] CF Worker unavailable — using odds-api.io as primary source');
+    const result = await buildFromOddsApi(sportsParam);
+    live    = result.live;
+    pregame = result.pregame;
+  } else {
+    // No key and no CF Worker — return empty
+    return null;
+  }
+
+  // Apply Middle East filter to CF Worker events too
+  const filterME = ev => !isBlockedCountry(ev.country || '');
+  live    = live.filter(filterME);
+  pregame = pregame.filter(filterME);
+
+  const responsePayload = payload
+    ? { ...payload, live, pregame }
+    : { live, pregame };
+
+  // Only cache if we have actual events
+  if (live.length > 0 || pregame.length > 0) {
+    const buf = Buffer.from(JSON.stringify(responsePayload), 'utf8');
+    rcSet(rcKey, buf);
+    return buf;
+  }
+
+  return null;
 }
 
 // ── HTTP server ────────────────────────────────────────────────────────────
@@ -247,84 +415,47 @@ const server = http.createServer((req, res) => {
     const url = req.url || '';
     const isBySportOdds = url.includes('/by-sport') && url.includes('include=odds');
 
-    // ── Pass-through for non-enriched requests ────────────────────────────
-    if (!isBySportOdds || !ODDS_API_KEY) {
+    // Pass-through for non-enriched requests
+    if (!isBySportOdds) {
       try {
         const { status, headers, body: cfBody } = await forwardToCF(url, req.method, req.headers, reqBody);
         res.writeHead(status, { ...headers, 'access-control-allow-origin': '*' });
         res.end(cfBody);
-      } catch (err) {
+      } catch {
         res.writeHead(502, { 'content-type': 'text/plain', 'access-control-allow-origin': '*' });
         res.end('Bad Gateway');
       }
       return;
     }
 
-    // ── Enriched path: by-sport + include=odds ────────────────────────────
     const rcKey = url;
 
-    // Serve fresh cache immediately
+    // Serve from cache
     const cached = rcGet(rcKey);
-    if (cached && !cached.stale) {
-      return sendEnriched(res, cached.buf);
-    }
-    // Serve stale immediately, revalidate in background
+    if (cached && !cached.stale) return sendJSON(res, cached.buf);
     if (cached && cached.stale) {
-      sendEnriched(res, cached.buf);
+      sendJSON(res, cached.buf);
       setImmediate(() => fetchAndEnrich(url, req.method, req.headers, reqBody, rcKey).catch(() => {}));
       return;
     }
 
-    // No cache — fetch synchronously
+    // No cache — fetch now
     try {
       const buf = await fetchAndEnrich(url, req.method, req.headers, reqBody, rcKey);
-      if (buf) return sendEnriched(res, buf);
-      // CF failed and no cache — return empty (200 so frontend doesn't error-log)
-      res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
-      res.end(JSON.stringify({ live: [], pregame: [] }));
+      if (buf) return sendJSON(res, buf);
     } catch (err) {
       console.error('[proxy] error:', err?.message);
-      res.writeHead(502, { 'content-type': 'text/plain', 'access-control-allow-origin': '*' });
-      res.end('Bad Gateway');
     }
+
+    // Nothing available — return empty 200 (don't log errors in frontend)
+    res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ live: [], pregame: [] }));
   });
 });
-
-async function fetchAndEnrich(url, method, headers, body, rcKey) {
-  let cfStatus, cfHeaders, cfBody;
-  try {
-    const r = await forwardToCF(url, method, headers, body);
-    cfStatus = r.status; cfHeaders = r.headers; cfBody = r.body;
-  } catch (err) {
-    console.error('[proxy] CF forward error:', err?.message);
-    return null;
-  }
-
-  const ct = String(cfHeaders?.['content-type'] || '');
-  if (!ct.includes('application/json')) return null;
-
-  let payload;
-  try { payload = JSON.parse(cfBody.toString('utf8')); } catch { return null; }
-
-  // Detect CF error responses (1102 etc)
-  const totalEvents = (payload.live?.length || 0) + (payload.pregame?.length || 0);
-  if (totalEvents === 0 && payload.error_code) {
-    console.log('[proxy] CF returned 1102/error, totalEvents=0');
-    return null;
-  }
-
-  const [live, pregame] = await Promise.all([
-    enrichList(Array.isArray(payload.live)    ? payload.live    : [], 'live'),
-    enrichList(Array.isArray(payload.pregame) ? payload.pregame : [], 'pregame'),
-  ]);
-
-  const buf = Buffer.from(JSON.stringify({ ...payload, live, pregame }), 'utf8');
-  rcSet(rcKey, buf);
-  return buf;
-}
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[proxy] Odds enrichment proxy on http://127.0.0.1:${PORT}`);
   console.log(`[proxy] Upstream: ${CF_WORKER}`);
+  console.log(`[proxy] Fallback: odds-api.io direct when CF Worker unavailable`);
 });
 server.on('error', e => { console.error('[proxy] fatal:', e.message); process.exit(1); });
