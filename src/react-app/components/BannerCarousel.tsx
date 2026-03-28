@@ -20,6 +20,9 @@ interface BannerEvent {
   ou25Over: number | null;
   ou25Under: number | null;
   bttsYes: number | null;
+  goalsHome: number | null;
+  goalsAway: number | null;
+  elapsedMin: number;
 }
 
 const SPORT_COLORS: Record<string, { from: string; to: string; accent: string }> = {

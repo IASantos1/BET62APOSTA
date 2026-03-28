@@ -77,9 +77,15 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   team_clean_sheet: { title: 'Clean Sheet da Equipe' },
   corner_handicap: { title: 'Handicap de Escanteios' },
   total_goal_odd_even: { title: 'Total de Gols (Par/Ímpar)' },
-  half_time_full_time: { title: 'Half Time/Full Time' },
-  winning_margin: { title: 'Winning Margin' },
+  half_time_full_time: { title: 'Intervalo/Final' },
+  winning_margin: { title: 'Margem de Vitória' },
   next_goal: { title: 'Próximo Gol' },
+  first_half_h2h: { title: '1º Tempo - Resultado' },
+  second_half_h2h: { title: '2º Tempo - Resultado' },
+  first_half_totals: { title: '1º Tempo - Totais' },
+  second_half_totals: { title: '2º Tempo - Totais' },
+  anytime_goal_scorer: { title: 'Marcador a Qualquer Momento' },
+  btts_first_half: { title: 'Ambas Marcam no 1º Tempo' },
 
   // American Football
   player_touchdowns: { title: 'Touchdowns do Jogador' },
@@ -147,27 +153,27 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
 export const MARKET_GROUPS = [
   {
     title: "Mercado Raiz",
-    keys: ["h2h", "spreads", "handicap", "totals", "btts"]
+    keys: ["h2h", "totals", "btts", "handicap", "spreads"]
   },
   {
     title: "Mercados de Resultado",
-    keys: ["correct_score", "half_time_full_time", "winning_margin", "handicap", "spreads", "result_including_extra_time", "double_chance", "dnb", "draw_no_bet", "halves_h2h", "winning_margin_10+", "margin"]
+    keys: ["double_chance", "dnb", "draw_no_bet", "correct_score", "half_time_full_time", "winning_margin", "result_including_extra_time", "halves_h2h", "winning_margin_10+", "margin"]
   },
   {
     title: "Mercados de Gols",
-    keys: ["team_totals", "correct_score", "score_exact", "first_to_score", "team_to_score_first", "team_to_score_last", "race_to", "goal_range", "exact_goals", "minute_goals", "first_goal", "last_goal", "next_goal", "total_goal_odd_even", "both_teams_to_score_both_halves"]
+    keys: ["btts", "btts_first_half", "team_totals", "first_goal_scorer", "anytime_goal_scorer", "score_exact", "first_to_score", "team_to_score_first", "team_to_score_last", "goal_range", "exact_goals", "minute_goals", "first_goal", "last_goal", "next_goal", "total_goal_odd_even", "both_teams_to_score_both_halves"]
   },
   {
     title: "Mercados Temporais",
-    keys: ["halves_totals", "quarters_h2h", "quarters_totals", "sets_winner", "sets_handicap", "sets_h2h", "first_set_winner", "period_h2h", "period_totals", "inning_h2h", "inning_totals"]
+    keys: ["first_half_h2h", "second_half_h2h", "first_half_totals", "second_half_totals", "halves_totals", "quarters_h2h", "quarters_totals", "sets_winner", "sets_handicap", "sets_h2h", "first_set_winner", "period_h2h", "period_totals", "inning_h2h", "inning_totals"]
   },
   {
     title: "Mercados Estatísticos",
-    keys: ["corners_team", "corners_totals", "corners_total", "corner_handicap", "corners_h2h", "corners_btts", "cards_totals", "cards_total", "cards_h2h", "cards_handicap", "total_aces", "total_double_faults", "shots_on_goal", "total_strikes", "puck_possession", "run_line", "puck_line"]
+    keys: ["corners_total", "cards_total", "corners_team", "corners_totals", "corner_handicap", "corners_h2h", "corners_btts", "cards_totals", "cards_h2h", "cards_handicap", "total_aces", "total_double_faults", "shots_on_goal", "total_strikes", "puck_possession", "run_line", "puck_line"]
   },
   {
     title: "Mercados de Jogadores",
-    keys: ["player_goal_scorer_anytime", "player_goals", "player_points", "player_rebounds", "player_assists", "player_props", "yellow_cards_player", "red_cards_player", "first_goal_scorer", "player_touchdowns", "player_yards", "player_receptions", "player_tries", "player_games", "player_runs", "player_hits", "player_home_runs", "player_strikeouts", "player_rbi"]
+    keys: ["first_goal_scorer", "anytime_goal_scorer", "player_goal_scorer_anytime", "player_goals", "player_points", "player_rebounds", "player_assists", "player_props", "yellow_cards_player", "red_cards_player", "player_touchdowns", "player_yards", "player_receptions", "player_tries", "player_games", "player_runs", "player_hits", "player_home_runs", "player_strikeouts", "player_rbi"]
   },
   {
     title: "Mercados Especiais",

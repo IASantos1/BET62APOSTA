@@ -445,10 +445,17 @@ export function SubOddsModel({
 
   // --- Lógica de Grupos Dinâmicos (Automação) ---
   const finalGroups = useMemo(() => {
-      // 1. Check if backend provides categories (New Logic)
-      const keysWithCategory = Object.keys(eventOdds || {}).filter(k => (eventOdds as any)[k]?.category);
+      // 1. Check if backend provides categories with MULTIPLE distinct categories (rich market data)
+      const keysWithCategory = Object.keys(eventOdds || {}).filter(k => {
+          if (k === 'main' || k === '1x2' || k === 'match_winner' || k === 'spreads') return false;
+          return !!(eventOdds as any)[k]?.category;
+      });
+      const uniqueCategories = new Set(keysWithCategory.map(k => (eventOdds as any)[k].category));
       
-      if (keysWithCategory.length > 0) {
+      // Only use category-based system when multiple different categories are present
+      // (indicates rich data from API). Otherwise use static groups that include
+      // computed fallbacks (double_chance from h2h, etc.)
+      if (uniqueCategories.size >= 2) {
           const categoryMap = new Map<string, Set<string>>();
           const ORDERED_CATEGORIES = [
               "Mercado Raiz",
@@ -460,46 +467,27 @@ export function SubOddsModel({
               "Mercados Especiais"
           ];
 
-          // Group keys by category
           for (const key of keysWithCategory) {
-              // Skip aliases and duplicates
-              if (key === 'main' || key === '1x2' || key === 'match_winner') continue; 
-              
               const cat = (eventOdds as any)[key].category;
-              if (cat === 'Outros Mercados') continue; // Filter out explicitly
-              
-              if (!categoryMap.has(cat)) {
-                  categoryMap.set(cat, new Set());
-              }
+              if (cat === 'Outros Mercados') continue;
+              if (!categoryMap.has(cat)) categoryMap.set(cat, new Set());
               categoryMap.get(cat)!.add(key);
           }
 
-          // Build groups respecting order
           const groups = [];
-          
-          // Add ordered categories first
           for (const catName of ORDERED_CATEGORIES) {
               if (categoryMap.has(catName)) {
-                  groups.push({
-                      title: catName,
-                      keys: Array.from(categoryMap.get(catName)!)
-                  });
+                  groups.push({ title: catName, keys: Array.from(categoryMap.get(catName)!) });
                   categoryMap.delete(catName);
               }
           }
-
-          // Add any remaining categories
           for (const [catName, keys] of categoryMap.entries()) {
-              groups.push({
-                  title: catName,
-                  keys: Array.from(keys)
-              });
+              groups.push({ title: catName, keys: Array.from(keys) });
           }
-
           return groups;
       }
 
-      // 2. Fallback to Legacy Static Groups
+      // 2. Fallback to Legacy Static Groups (includes computed markets like double_chance)
       const s = (event?.sport || '').toLowerCase();
       const isBasketball = s.includes('basketball') || s.includes('basquete') || s.includes('nba');
       const isTennis = s.includes('tennis') || s.includes('tênis') || s.includes('atp') || s.includes('wta');
@@ -567,9 +555,9 @@ export function SubOddsModel({
   return (
     <div className={`${darkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} rounded-2xl p-2 md:p-3`}>
       
-      {/* Navigation Tabs */}
+      {/* Navigation Tabs — only show tabs that have at least one market with data */}
       <div className="flex overflow-x-auto pb-2 mb-4 gap-2 no-scrollbar">
-         {finalGroups.map((group) => (
+         {finalGroups.filter(group => group.keys.some(k => renderMarketContent(k) !== null)).map((group) => (
              <button
                 key={group.title}
                 onClick={() => setActiveTab(group.title)}

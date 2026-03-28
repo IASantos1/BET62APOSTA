@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { abbreviateTeamName } from '@/shared/helpers'
-import { Clock, Zap, ArrowUp, ArrowDown } from 'lucide-react'
+import { Clock } from 'lucide-react'
 
 // --- Types ---
 interface MatchTrackerProps {
@@ -22,159 +21,57 @@ interface GameEvent {
 
 // --- Components ---
 
-const MatchHeader = ({ league, sport, status, darkMode }: { league: string, sport: string, status: string, darkMode: boolean }) => (
-  <div className={`flex items-center justify-between px-4 py-3 border-b ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-800'}`}>
-    <div className="flex items-center gap-2">
-      <span className="text-sm font-medium uppercase tracking-wide">{sport} • {league}</span>
+const SPORT_PT: Record<string, string> = {
+  soccer: 'Futebol', football: 'Futebol', basketball: 'Basquetebol',
+  tennis: 'Ténis', volleyball: 'Voleibol', handball: 'Andebol',
+  baseball: 'Basebol', hockey: 'Hóquei', 'ice hockey': 'Hóquei no Gelo',
+  rugby: 'Rugby', mma: 'MMA', afl: 'Futebol Australiano',
+  'american football': 'Futebol Americano', 'formula 1': 'Fórmula 1',
+}
+
+const MatchHeader = ({ league, sport, status, darkMode }: { league: string, sport: string, status: string, darkMode: boolean }) => {
+  const sportPt = SPORT_PT[String(sport || '').toLowerCase()] || sport || 'Desporto'
+  return (
+    <div className={`flex items-center justify-between px-4 py-3 border-b ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-800'}`}>
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-xs font-bold uppercase tracking-wide truncate opacity-70">{sportPt}</span>
+        <span className="opacity-40 text-xs">•</span>
+        <span className="text-xs font-medium truncate">{league}</span>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+        </span>
+        <span className="text-xs font-bold uppercase text-red-500">{status}</span>
+      </div>
     </div>
-    <div className="flex items-center gap-2">
-      <span className="relative flex h-2 w-2">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-      </span>
-      <span className="text-xs font-bold uppercase text-red-500">{status}</span>
-    </div>
-  </div>
-)
+  )
+}
 
 const Scoreboard = ({ home, away, score, time, darkMode }: { home: string, away: string, score: string, time: string, darkMode: boolean }) => {
   const [homeScore, awayScore] = score.split('-').map(s => s.trim())
   
   return (
-    <div className={`py-6 px-4 ${darkMode ? 'bg-gray-800' : 'bg-gray-50'}`}>
-      <div className="flex items-center justify-between max-w-md mx-auto">
-        <div className="flex-1 text-center">
-          <h3 className={`text-lg md:text-xl font-bold mb-1 truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{home}</h3>
+    <div className={`py-5 px-4 ${darkMode ? 'bg-gray-800' : 'bg-gray-50'}`}>
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 max-w-lg mx-auto">
+        <div className="text-center">
+          <p className={`text-sm font-semibold leading-tight break-words hyphens-auto ${darkMode ? 'text-white' : 'text-gray-900'}`}>{home}</p>
         </div>
         
-        <div className="px-4 flex flex-col items-center">
-          <div className={`text-3xl md:text-4xl font-bold tracking-tight mb-1 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-            {homeScore || '0'} - {awayScore || '0'}
+        <div className="flex flex-col items-center px-3 flex-shrink-0">
+          <div className={`text-4xl font-black tracking-tight tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+            {homeScore ?? '0'} <span className="opacity-30">-</span> {awayScore ?? '0'}
           </div>
-          <div className={`flex items-center gap-1 text-sm font-mono ${darkMode ? 'text-green-400' : 'text-green-600'}`}>
-            <Clock size={14} />
+          <div className={`flex items-center gap-1 text-xs font-mono mt-1 ${darkMode ? 'text-green-400' : 'text-green-600'}`}>
+            <Clock size={12} />
             <span>{time}</span>
           </div>
         </div>
 
-        <div className="flex-1 text-center">
-          <h3 className={`text-lg md:text-xl font-bold mb-1 truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{away}</h3>
+        <div className="text-center">
+          <p className={`text-sm font-semibold leading-tight break-words hyphens-auto ${darkMode ? 'text-white' : 'text-gray-900'}`}>{away}</p>
         </div>
-      </div>
-    </div>
-  )
-}
-
-const Field2D = ({ ball, trail, attackSide, darkMode }: { ball: {x: number, y: number}, trail: {x:number, y:number}[], attackSide: 'home' | 'away' | null, darkMode: boolean }) => {
-  return (
-    <div className={`relative w-full h-48 md:h-56 bg-[#2e7d32] overflow-hidden shadow-inner border-y ${darkMode ? 'border-gray-800' : 'border-black/10'}`}>
-      {/* Field Pattern */}
-      <div className="absolute inset-0 opacity-20" 
-        style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent 0, transparent 20px, rgba(0,0,0,0.1) 20px, rgba(0,0,0,0.1) 40px)' }} 
-      />
-      
-      {/* Field Lines */}
-      <div className="absolute inset-0 pointer-events-none">
-        {/* Center Line */}
-        <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/40 -translate-x-1/2" />
-        {/* Center Circle */}
-        <div className="absolute left-1/2 top-1/2 w-24 h-24 border-2 border-white/40 rounded-full -translate-x-1/2 -translate-y-1/2" />
-        {/* Goals Areas */}
-        <div className="absolute left-0 top-1/2 w-16 h-32 border-r-2 border-t-2 border-b-2 border-white/40 -translate-y-1/2" />
-        <div className="absolute right-0 top-1/2 w-16 h-32 border-l-2 border-t-2 border-b-2 border-white/40 -translate-y-1/2" />
-      </div>
-
-      {/* Attack Indicators */}
-      {attackSide && (
-        <div className={`absolute top-4 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-black/40 backdrop-blur-sm text-white text-xs font-bold uppercase flex items-center gap-2 transition-all duration-300`}>
-          {attackSide === 'home' ? <ArrowDown size={12} className="rotate-90" /> : <ArrowUp size={12} className="rotate-90" />}
-          Ataque {attackSide === 'home' ? 'Casa' : 'Fora'}
-        </div>
-      )}
-
-      {/* Ball Trail */}
-      <svg className="absolute inset-0 w-full h-full pointer-events-none">
-        <polyline 
-          points={trail.map(p => `${p.x}%,${p.y}%`).join(' ')} 
-          fill="none" 
-          stroke="white" 
-          strokeWidth="2" 
-          strokeDasharray="4 4"
-          className="opacity-40"
-        />
-      </svg>
-
-      {/* Ball */}
-      <div 
-        className="absolute w-3 h-3 bg-white rounded-full shadow-lg transition-all duration-700 ease-out z-10"
-        style={{ left: `${ball.x}%`, top: `${ball.y}%`, transform: 'translate(-50%, -50%)' }}
-      >
-        <div className="absolute inset-0 rounded-full border border-black/10" />
-      </div>
-    </div>
-  )
-}
-
-const Court2D = ({ darkMode }: { darkMode: boolean }) => {
-  return (
-    <div className={`relative w-full h-48 md:h-56 overflow-hidden shadow-inner border-y ${darkMode ? 'border-gray-800' : 'border-black/10'}`}>
-      <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, #b45309 0%, #d97706 50%, #b45309 100%)' }} />
-      <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'repeating-linear-gradient(90deg, rgba(0,0,0,0.12) 0, rgba(0,0,0,0.12) 2px, transparent 2px, transparent 24px)' }} />
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/50 -translate-x-1/2" />
-        <div className="absolute left-1/2 top-1/2 w-24 h-24 border-2 border-white/50 rounded-full -translate-x-1/2 -translate-y-1/2" />
-        <div className="absolute left-0 top-1/2 w-20 h-32 border-r-2 border-t-2 border-b-2 border-white/50 -translate-y-1/2" />
-        <div className="absolute right-0 top-1/2 w-20 h-32 border-l-2 border-t-2 border-b-2 border-white/50 -translate-y-1/2" />
-        <div className="absolute left-4 top-1/2 w-10 h-10 border-2 border-white/50 rounded-full -translate-y-1/2" />
-        <div className="absolute right-4 top-1/2 w-10 h-10 border-2 border-white/50 rounded-full -translate-y-1/2" />
-      </div>
-    </div>
-  )
-}
-
-const Rink2D = ({ darkMode }: { darkMode: boolean }) => {
-  return (
-    <div className={`relative w-full h-48 md:h-56 overflow-hidden shadow-inner border-y ${darkMode ? 'border-gray-800' : 'border-black/10'}`}>
-      <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, #e5e7eb 0%, #f8fafc 100%)' }} />
-      <div className="absolute inset-3 border-2 border-red-500/40 rounded-[28px]" />
-      <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-red-500/40 -translate-x-1/2" />
-      <div className="absolute left-1/2 top-1/2 w-24 h-24 border-2 border-blue-500/40 rounded-full -translate-x-1/2 -translate-y-1/2" />
-      <div className={`absolute left-3 top-1/2 w-16 h-24 border-2 rounded-[20px] -translate-y-1/2 ${darkMode ? 'border-blue-500/35' : 'border-blue-500/30'}`} />
-      <div className={`absolute right-3 top-1/2 w-16 h-24 border-2 rounded-[20px] -translate-y-1/2 ${darkMode ? 'border-blue-500/35' : 'border-blue-500/30'}`} />
-    </div>
-  )
-}
-
-const MomentumBar = ({ value, darkMode }: { value: number, darkMode: boolean }) => {
-  // value 0-100 (50 is neutral, <50 home pressure, >50 away pressure)
-  return (
-    <div className={`px-4 py-4 border-b ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-      <div className="flex items-center justify-between mb-2">
-        <span className={`text-xs font-bold uppercase ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Pressão do Jogo</span>
-        <Zap size={14} className={darkMode ? 'text-yellow-400' : 'text-yellow-600'} />
-      </div>
-      <div className="h-4 bg-gray-200 rounded-full overflow-hidden flex relative">
-        {/* Center Marker */}
-        <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white z-10 opacity-50" />
-        
-        {/* Home Pressure (Left) */}
-        <div 
-          className="h-full bg-green-500 transition-all duration-1000 ease-out"
-          style={{ width: `${Math.max(0, 50 - (value - 50))}%`, marginLeft: '0' }} 
-        />
-        
-        {/* Spacer for neutral zone if needed, effectively simpler to just show split */}
-        <div className="flex-1 bg-gray-200 dark:bg-gray-700" />
-
-        {/* Away Pressure (Right) */}
-        <div 
-          className="h-full bg-blue-500 transition-all duration-1000 ease-out"
-          style={{ width: `${Math.max(0, value - 50)}%` }} 
-        />
-      </div>
-      <div className="flex justify-between mt-1 text-[10px] font-mono opacity-60">
-        <span>DOMÍNIO CASA</span>
-        <span>DOMÍNIO FORA</span>
       </div>
     </div>
   )
@@ -257,19 +154,6 @@ const MatchTimeline = ({ events, darkMode }: { events: GameEvent[], darkMode: bo
 // --- Main Component ---
 
 export default function MatchTracker({ darkMode, live, homeName, awayName, leagueName = 'Liga Portugal', sportName = 'Futebol' }: MatchTrackerProps) {
-  // --- Simulation State (Disabled) ---
-  // const [ball, setBall] = useState({ x: 50, y: 50 })
-  // const ballRef = useRef({ x: 50, y: 50 }) // Ref for animation loop stability
-  // const [trail, setTrail] = useState<{x:number, y:number}[]>([])
-  // const [attackSide, setAttackSide] = useState<'home' | 'away' | null>(null)
-  // const [pressure, setPressure] = useState(50) // 0-100 (50 neutral)
-  
-  // Use static default values instead
-  const ball = { x: 50, y: 50 };
-  const trail: {x:number, y:number}[] = [];
-  const attackSide = null;
-  const pressure = 50;
-  
   const [stats, setStats] = useState({
     possession: { home: 50, away: 50 },
     shots: { home: 0, away: 0 },
@@ -280,8 +164,6 @@ export default function MatchTracker({ darkMode, live, homeName, awayName, leagu
   const [gameEvents, setGameEvents] = useState<GameEvent[]>([])
 
   // --- Formatting ---
-  const home = useMemo(() => abbreviateTeamName(homeName || 'Casa'), [homeName])
-  const away = useMemo(() => abbreviateTeamName(awayName || 'Fora'), [awayName])
   const time = useMemo(() => {
     const timerRaw = String(live?.timer || live?.fixture?.status?.timer || '').trim()
     if (timerRaw) {
@@ -434,48 +316,29 @@ export default function MatchTracker({ darkMode, live, homeName, awayName, leagu
   }, [live, home, away, hasRealEvents, hasRealStats]) 
   */
 
-  const sportKey = String(sportName || '').toLowerCase()
-  const isBasketball = sportKey.includes('basquet') || sportKey.includes('basket')
-  const isHockey = sportKey.includes('hóquei') || sportKey.includes('hockey')
-  const isSoccer = sportKey.includes('futebol') || sportKey.includes('soccer')
+  const homePoss = stats.possession.home
+  const awayPoss = stats.possession.away
 
   return (
     <div className={`w-full max-w-2xl mx-auto overflow-hidden rounded-xl shadow-lg relative ${darkMode ? 'bg-gray-900' : 'bg-gray-100'}`}>
-      {/* Goal Overlay Removed */}
-
       <MatchHeader league={leagueName} sport={sportName} status={status} darkMode={darkMode} />
       
-      <Scoreboard home={home} away={away} score={score} time={time} darkMode={darkMode} />
-      {isBasketball ? (
-        <Court2D darkMode={darkMode} />
-      ) : isHockey ? (
-        <Rink2D darkMode={darkMode} />
-      ) : (
-        <Field2D ball={ball} trail={trail} attackSide={attackSide} darkMode={darkMode} />
-      )}
-      
-      <MomentumBar value={pressure} darkMode={darkMode} />
-      
-      {isSoccer ? (
-        <MatchStats stats={stats} darkMode={darkMode} />
-      ) : (
-        <div className={`px-4 py-4 border-b ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-          <h4 className={`text-xs font-bold uppercase mb-3 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Estatísticas</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-            <div className={`${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-              {(live?.fixture?.stats?.[0]?.statistics || []).slice(0, 8).map((s: any, i: number) => (
-                <p key={`hs-${i}`}>{String(s.type || '')}: {typeof s.value === 'number' ? s.value : String(s.value ?? '')}</p>
-              ))}
-            </div>
-            <div className={`${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-              {(live?.fixture?.stats?.[1]?.statistics || []).slice(0, 8).map((s: any, i: number) => (
-                <p key={`as-${i}`}>{String(s.type || '')}: {typeof s.value === 'number' ? s.value : String(s.value ?? '')}</p>
-              ))}
-            </div>
-          </div>
+      <Scoreboard home={homeName || 'Casa'} away={awayName || 'Fora'} score={score} time={time} darkMode={darkMode} />
+
+      {/* Possession Bar */}
+      <div className={`px-4 py-3 border-b ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+        <div className="flex justify-between text-xs font-bold mb-1">
+          <span className={darkMode ? 'text-blue-400' : 'text-blue-600'}>{homePoss}%</span>
+          <span className={`uppercase text-[10px] ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Posse de Bola</span>
+          <span className={darkMode ? 'text-orange-400' : 'text-orange-600'}>{awayPoss}%</span>
         </div>
-      )}
-      
+        <div className="h-2 rounded-full overflow-hidden flex">
+          <div className={`h-full transition-all duration-700 ${darkMode ? 'bg-blue-500' : 'bg-blue-600'}`} style={{ width: `${homePoss}%` }} />
+          <div className={`h-full transition-all duration-700 ${darkMode ? 'bg-orange-500' : 'bg-orange-600'}`} style={{ width: `${awayPoss}%` }} />
+        </div>
+      </div>
+
+      <MatchStats stats={stats} darkMode={darkMode} />
       <MatchTimeline events={gameEvents} darkMode={darkMode} />
     </div>
   )

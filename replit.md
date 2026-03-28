@@ -64,8 +64,15 @@ The `scripts/odds-proxy.mjs` proxy implements the odds-api.io enrichment:
 - `first_half_totals` / `second_half_totals` — Over/Under por Período — category: "Mercados Temporais"
 - `corners_total` / `cards_total` — Cantos/Cartões — category: "Mercados Estatísticos"
 - `correct_score` — Resultado Exato — category: "Mercados Especiais"
-- Each market tagged with `category` → SubOddsModel auto-builds 7 tabs
 - Available markets depend on bookmakers + match tier (lower leagues have fewer markets)
+
+### SubOddsModel Tab Logic
+- **Category-based system** fires ONLY when API returns markets from 2+ distinct categories
+- **Static MARKET_GROUPS fallback** used when only 1 category present (e.g., only h2h)
+  - Ensures computed fallback markets (Double Chance from h2h inverse-probability calc) always appear
+  - MARKET_GROUPS defines: Mercado Raiz, Mercados de Resultado, Mercados de Gols, Mercados Temporais, Mercados Estatísticos, Mercados de Jogadores, Mercados Especiais
+- **Tab filtering**: only tabs with actual content (≥1 market with data) are shown in the tab bar
+- `double_chance` fallback: always computed from h2h odds via inverse-probability method → shows in "Mercados de Resultado"
 
 ### Navigation
 - **DESPORTO** (`/`) → shows ONLY pregame events, max 60, sorted by date
@@ -96,7 +103,15 @@ The `scripts/odds-proxy.mjs` proxy implements the odds-api.io enrichment:
 - Avoids "Evento não encontrado" — finds event from local state instantly for both live and pregame events
 - Falls back to proxy `/api/events/{id}` → CF Worker if not in local list
 - Odds endpoint returns `{ markets: { [key]: { category, outcomes } }, suspended }`
-- SubOddsModel uses `category` field to auto-build tabs (up to 7 tabs based on available markets)
+- SubOddsModel uses static MARKET_GROUPS (+ computed fallbacks) to show multiple tabs always
+
+### Match Center (MatchTracker component)
+- Collapsible section inside EventDetails for live events
+- Shows: MatchHeader (sport name in PT + league), Scoreboard (full team names + score + time), Possession bar, Match Stats, Timeline
+- Sport names translated to Portuguese: soccer→Futebol, basketball→Basquetebol, tennis→Ténis, etc.
+- Scoreboard uses full team names (`homeName`/`awayName`) with word-wrap (no truncation)
+- Animation (animated ball field) removed — replaced with possession bar from real API-Football stats
+- Stats fetched from `/api/events/{id}/stats` → populated from API-Football live fixture data
 
 ### Proxy Event Cache
 - `_eventsById` map: populated on every `buildFromOddsApi` / `enrichList` cycle

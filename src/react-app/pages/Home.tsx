@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { useSportsEvents } from '@/react-app/hooks/useSportsEvents';
@@ -100,7 +100,7 @@ function Home({ mode = 'home' }: HomeProps) {
   // Previous: useEffect inside conditional block if (processedLive.length > 0 ...)
   // Now: useEffect always called, logic inside
   const [hasEverHadEvents, setHasEverHadEvents] = useState(false);
-  const [showIntro, setShowIntro] = useState(false);
+  const [showIntro] = useState(false);
 
   useEffect(() => {
     if ((processedLive.length > 0 || upcomingEvents.length > 0) && !hasEverHadEvents) {
