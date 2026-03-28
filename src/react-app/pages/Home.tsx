@@ -59,13 +59,14 @@ function Home({ mode = 'home' }: HomeProps) {
       });
   }, [processedLive, upcomingEvents]);
 
-  const displayedLive = processedLive;
-  const displayedUpcoming = mode === 'live' ? [] : sortedUpcoming;
+  // Strict separation: Desporto = pregame only | AO VIVO = live only
+  const displayedLive    = mode === 'live' ? processedLive : [];
+  const displayedUpcoming = mode === 'home' ? sortedUpcoming : [];
 
   const groupedLive = useGroupedEvents(displayedLive, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
 
-  const MAX_EVENTS = 120; // limite seguro for upcoming
+  const MAX_EVENTS = mode === 'live' ? 120 : 60; // live≤120, pregame≤60
 
   const limitedUpcoming = useMemo(() => {
     let remaining = MAX_EVENTS;
@@ -258,12 +259,24 @@ function Home({ mode = 'home' }: HomeProps) {
           {/* Eventos */}
           <section>
             <div className="flex items-center gap-3 mb-5">
-              <div className="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center">
-                <svg className="w-6 h-6 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z" />
-                </svg>
-              </div>
-              <h2 className="text-2xl font-bold uppercase tracking-wide">Eventos</h2>
+              {mode === 'live' ? (
+                <>
+                  <span className="relative flex h-4 w-4">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-4 w-4 bg-red-600"></span>
+                  </span>
+                  <h2 className="text-2xl font-bold uppercase tracking-wide text-red-500">Ao Vivo</h2>
+                </>
+              ) : (
+                <>
+                  <div className="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  </div>
+                  <h2 className="text-2xl font-bold uppercase tracking-wide">Pré-Jogos</h2>
+                </>
+              )}
             </div>
 
             {loading ? (
@@ -273,17 +286,9 @@ function Home({ mode = 'home' }: HomeProps) {
               </div>
             ) : (groupedLive.length > 0 || limitedUpcoming.length > 0) ? (
               <div className="space-y-12">
-                {/* LIVE SECTION */}
+                {/* LIVE SECTION — shown only in mode='live' */}
                 {groupedLive.length > 0 && (
                   <div className="space-y-6">
-                     <div className="flex items-center gap-3 px-2">
-                        <span className="relative flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
-                        </span>
-                        <h2 className="text-xl font-bold uppercase tracking-wide text-red-500">Ao Vivo</h2>
-                     </div>
-                     
                      <div className="space-y-8">
                         {groupedLive.map(([league, events]) => (
                           <div key={`live-${league}`} className="space-y-4">

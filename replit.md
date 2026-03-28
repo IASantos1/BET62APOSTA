@@ -40,11 +40,37 @@ npm run deploy:prod # Deploy CF Worker to production (requires CF auth)
 ## odds-api.io Integration
 
 The `scripts/odds-proxy.mjs` proxy implements the odds-api.io enrichment:
-- Fetches events list from `/v3/events` (per sport, cached 30s)
-- Matches CF Worker events to odds-api.io events using team name fuzzy matching (min score 58)
-- Fetches per-event odds from `/v3/odds?eventId=...&bookmakers=...` (cached 20s)
-- Bookmakers: Bet365, 1xbet, Betano, 888Sport, SportingBet
-- Results are injected as `home_odd`/`draw_odd`/`away_odd` on each event
+
+### League Filtering (Backend)
+- **Women's leagues** blocked: women, woman, feminino, damen, toppserien, etc.
+- **Youth leagues** blocked: U16–U23, under-16–23, youth, junior, juvenil, etc.
+- **Amateur leagues** blocked: amateur, amateure, amador, amatör
+- **3rd division+** blocked: regionalliga, kakkonen, gamma ethniki, esiliiga, derde divisie, etc.
+- **Friendly games** blocked: friendly, amistoso, amical, testspiel
+- **Middle East countries** blocked (no relevant leagues)
+
+### Odds Requirement
+- **All events MUST have odds** — events without `home_odd > 1` are filtered out
+- Enrichment budget: live events + top 80 pregame candidates fetched for odds
+- Limits enforced at proxy level: **live ≤ 120** events, **pregame ≤ 60** events
+
+### Markets Returned
+- `h2h` — Resultado Final (1X2)
+- `totals` — Mais/Menos Golos (Over/Under)
+- `handicap` — Handicap Europeu/Asiático
+- `btts` — Ambas Marcam
+
+### Navigation
+- **DESPORTO** (`/`) → shows ONLY pregame events, max 60, sorted by date
+- **AO VIVO** (`/live`) → shows ONLY live events, max 120
+
+### Bookmaker Auto-Reset
+- Every 12h: switches to Bet365, Betano, Unibet, Superbet, Betfair Sportsbook
+- Tracks reset time in `scripts/.last_bm_clear`
+
+### Team Logos
+- SofaScore CDN: `https://img.sofascore.com/api/v1/team/{homeId}/image` (from odds-api.io homeId)
+- Falls back to team initials if logo fails to load
 
 For the deployed CF Worker to use odds-api.io directly, set `ODDS_API_KEY` as a Cloudflare Worker secret via `wrangler secret put ODDS_API_KEY`.
 

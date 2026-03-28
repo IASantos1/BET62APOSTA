@@ -184,6 +184,23 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
 
   // Check if we have valid odds locally, even if realtime thinks it's suspended
   const hasLocalOdds = currentMarkets && currentMarkets.length > 0;
+
+  // Extra markets: totals (goals) + btts
+  const totalsMarket = currentMarkets.find((m: any) => m.key === 'totals');
+  const bttsMarket   = currentMarkets.find((m: any) => m.key === 'btts');
+  const extraMarkets: Array<{ label: string; odd: number; key: string }> = [];
+
+  if (totalsMarket?.selections?.length >= 2) {
+    const ov = totalsMarket.selections.find((s: any) => String(s.label||'').toLowerCase().includes('mais') || String(s.label||'').toLowerCase().includes('over'));
+    const un = totalsMarket.selections.find((s: any) => String(s.label||'').toLowerCase().includes('menos') || String(s.label||'').toLowerCase().includes('under'));
+    const line = totalsMarket.line || '2.5';
+    if (ov?.odd > 1) extraMarkets.push({ label: `+${line}`, odd: ov.odd, key: `totals-over` });
+    if (un?.odd > 1) extraMarkets.push({ label: `-${line}`, odd: un.odd, key: `totals-under` });
+  }
+  if (bttsMarket?.selections?.length) {
+    const yes = bttsMarket.selections.find((s: any) => String(s.label||'').toLowerCase().includes('sim') || String(s.label||'').toLowerCase() === 'yes');
+    if (yes?.odd > 1) extraMarkets.push({ label: 'Ambas', odd: yes.odd, key: 'btts-yes' });
+  }
   
   // Relaxed suspension logic: only suspend if explicitly frozen or suspended AND we don't have local odds to show
   // If we have local odds, we assume they are valid until a realtime update explicitly clears them
@@ -410,7 +427,28 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
             );
           })()}
         </div>
-      </div> 
+      </div>
+
+      {/* Extra markets strip (Goals Over/Under, BTTS) */}
+      {extraMarkets.length > 0 && (
+        <div className={`flex items-center gap-2 mt-2 pt-2 border-t flex-wrap ${darkMode ? 'border-gray-700' : 'border-gray-100'}`}>
+          <span className={`text-[10px] uppercase tracking-wider font-bold ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Mercados:</span>
+          {extraMarkets.map(m => (
+            <button
+              key={m.key}
+              onClick={(e) => {
+                e.stopPropagation();
+                const slLabel = m.key === 'btts-yes' ? 'Ambas Marcam - Sim' : (m.label.startsWith('+') ? `Mais ${m.label.slice(1)} Golos` : `Menos ${m.label.slice(1)} Golos`);
+                const id = `ev-${eventId}-${m.key}`;
+                addToBetSlip({ id, event_id: eventId, match: `${homeTeamName} vs ${awayTeamName}`, selection: slLabel, market: slLabel, odd: m.odd, stake: 0, league: typeof eventLeague === 'string' ? eventLeague : (eventLeague as any)?.name || '', sport });
+              }}
+              className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-gray-200 hover:bg-red-700 hover:border-red-500' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-red-50 hover:border-red-300 hover:text-red-700'}`}
+            >
+              {m.label} <span className="text-red-500">{m.odd.toFixed(2)}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div> 
   ); 
 }
