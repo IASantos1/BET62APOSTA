@@ -40,16 +40,17 @@ export default function EventDetails() {
 
   // --- Find event in locally loaded events (avoids CF Worker call) ---
   // Ready when the main events fetch (with odds) has completed
-  const localEventsReady = !eventsLoading && (live.length > 0 || upcomingEvents.length > 0);
+  const localEventsReady = !eventsLoading && (live.length > 0 || pregame.length > 0 || upcomingEvents.length > 0);
 
   const localFoundEvent = useMemo(() => {
     if (!id) return null;
-    const all = [...live, ...upcomingEvents];
+    // Search live first, then pregame directly (avoids race with useUpcomingCache), then upcomingEvents cache
+    const all = [...live, ...pregame, ...upcomingEvents];
     return all.find((e: any) =>
       String(e.id) === String(id) ||
       String(e.external_event_id) === String(id)
     ) || null;
-  }, [id, live, upcomingEvents]);
+  }, [id, live, pregame, upcomingEvents]);
 
   // Use local event as soon as it's available (instant load, no API call needed)
   useEffect(() => {
@@ -155,7 +156,7 @@ export default function EventDetails() {
         }
       } catch { /* silent */ }
       inflight = false;
-      timeoutId = setTimeout(tick, 15_000);
+      timeoutId = setTimeout(tick, 60_000);
     };
 
     tick();
@@ -329,8 +330,8 @@ export default function EventDetails() {
           <MemoSubOddsModel
             event={{ ...displayEvent, suspended: oddsSuspended, suspendReason: oddsSuspendedReason }}
             darkMode={darkMode}
-            markets={realtimeOdds || displayEvent.odds}
-            eventOdds={realtimeOdds || displayEvent.odds}
+            markets={realtimeOdds || (displayEvent as any).odds || null}
+            eventOdds={realtimeOdds || (displayEvent as any).odds || null}
             onSelect={onSelect}
             labelOutcome={handleLabelOutcome}
             applyMarginClamp={applyMarginClamp}

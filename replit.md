@@ -54,11 +54,18 @@ The `scripts/odds-proxy.mjs` proxy implements the odds-api.io enrichment:
 - Enrichment budget: live events + top 80 pregame candidates fetched for odds
 - Limits enforced at proxy level: **live ≤ 120** events, **pregame ≤ 60** events
 
-### Markets Returned
-- `h2h` — Resultado Final (1X2)
-- `totals` — Mais/Menos Golos (Over/Under)
-- `handicap` — Handicap Europeu/Asiático
-- `btts` — Ambas Marcam
+### Markets Returned (parseAllMarkets)
+- `h2h` — Resultado Final (1X2) — category: "Mercado Raiz"
+- `totals` / `goals_total` — Mais/Menos Golos — category: "Mercados de Gols"
+- `handicap` / `spreads` — Handicap — category: "Mercados de Resultado"
+- `btts` — Ambas Marcam — category: "Mercados de Gols"
+- `double_chance` — Dupla Hipótese — category: "Mercados de Resultado"
+- `first_half_h2h` / `second_half_h2h` — Intervalo — category: "Mercados Temporais"
+- `first_half_totals` / `second_half_totals` — Over/Under por Período — category: "Mercados Temporais"
+- `corners_total` / `cards_total` — Cantos/Cartões — category: "Mercados Estatísticos"
+- `correct_score` — Resultado Exato — category: "Mercados Especiais"
+- Each market tagged with `category` → SubOddsModel auto-builds 7 tabs
+- Available markets depend on bookmakers + match tier (lower leagues have fewer markets)
 
 ### Navigation
 - **DESPORTO** (`/`) → shows ONLY pregame events, max 60, sorted by date
@@ -83,10 +90,13 @@ The `scripts/odds-proxy.mjs` proxy implements the odds-api.io enrichment:
 - Falls back to SofaScore CDN for non-soccer or unmatched events
 
 ### EventDetails
-- **localFoundEvent**: looks up event in `live` + `upcomingEvents` from useSportsEvents hook
+- **localFoundEvent**: looks up event in `live` + `pregame` (direct) + `upcomingEvents` from useSportsEvents hook
+- Searching `pregame` directly avoids race condition with `useUpcomingCache` async state update
 - Waits for `eventsLoading: false` (main fetch complete) before trying API fallback
-- Avoids "Evento não encontrado" — finds event from local state instantly
+- Avoids "Evento não encontrado" — finds event from local state instantly for both live and pregame events
 - Falls back to proxy `/api/events/{id}` → CF Worker if not in local list
+- Odds endpoint returns `{ markets: { [key]: { category, outcomes } }, suspended }`
+- SubOddsModel uses `category` field to auto-build tabs (up to 7 tabs based on available markets)
 
 ### Proxy Event Cache
 - `_eventsById` map: populated on every `buildFromOddsApi` / `enrichList` cycle

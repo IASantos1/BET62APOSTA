@@ -188,6 +188,19 @@ async function getOddsEvents(sport, statusCsv) {
   return filtered;
 }
 
+// ── Individual event odds response cache (60s TTL) ───────────────────────────
+const _oddsRespCache = new Map();
+function oddsRespGet(key) {
+  const e = _oddsRespCache.get(key);
+  if (!e) return null;
+  if (Date.now() - e.ts < 60_000) return e.buf;
+  _oddsRespCache.delete(key);
+  return null;
+}
+function oddsRespSet(key, buf) {
+  _oddsRespCache.set(key, { buf, ts: Date.now() });
+}
+
 // ── Fetch ALL markets for a single event ─────────────────────────────────────
 async function getOddsForEventId(eventId) {
   const ck = `odds:${eventId}:${BOOKMAKERS_CSV.slice(0,20)}`;
@@ -198,16 +211,42 @@ async function getOddsForEventId(eventId) {
   const url  = `${ODDS_API_BASE}/odds?apiKey=${ODDS_API_KEY}&eventId=${encodeURIComponent(eventId)}&bookmakers=${bms}`;
   const data = await apiFetch(url);
   const result = parseAllMarkets(data);
-  cSet(ck, result, 60_000);
+  cSet(ck, result, 120_000); // 2 min TTL to save quota
   return result;
 }
+
+// ── Market category mapping ───────────────────────────────────────────────────
+const MARKET_CATEGORIES = {
+  h2h:                  'Mercado Raiz',
+  totals:               'Mercado Raiz',
+  handicap:             'Mercado Raiz',
+  spreads:              'Mercado Raiz',
+  btts:                 'Mercados de Resultado',
+  double_chance:        'Mercados de Resultado',
+  dnb:                  'Mercados de Resultado',
+  correct_score:        'Mercados de Gols',
+  first_goal_scorer:    'Mercados de Jogadores',
+  anytime_goal_scorer:  'Mercados de Jogadores',
+  first_half_h2h:       'Mercados Temporais',
+  first_half_totals:    'Mercados Temporais',
+  second_half_h2h:      'Mercados Temporais',
+  second_half_totals:   'Mercados Temporais',
+  half_time_full_time:  'Mercados Temporais',
+  corners_total:        'Mercados Estatísticos',
+  cards_total:          'Mercados Estatísticos',
+  fouls_total:          'Mercados Estatísticos',
+  penalty_scored:       'Mercados Especiais',
+  winner:               'Mercado Raiz',
+  moneyline:            'Mercado Raiz',
+};
 
 // ── Parse all markets from odds payload ──────────────────────────────────────
 function isH2hMarket(name) {
   const k = String(name || '').toLowerCase().trim();
   return k === 'ml' || k === '1x2' || k === 'h2h' || k.includes('moneyline') ||
     k.includes('match winner') || k.includes('match result') ||
-    k.includes('full time result') || k.includes('result final') || k.includes('resultado');
+    k.includes('full time result') || k.includes('result final') || k.includes('resultado') ||
+    k === 'winner' || k === '3way' || k === '3-way';
 }
 
 function extract1x2(arr) {
@@ -228,6 +267,52 @@ function extract1x2(arr) {
   return home > 1 ? { home, draw, away } : null;
 }
 
+// Identify which canonical market type a raw market belongs to
+function classifyMarket(rawKey, rawName) {
+  const k = String(rawKey || rawName || '').toLowerCase().replace(/[-_\s]+/g, ' ').trim();
+  // H2H
+  if (isH2hMarket(k)) {
+    if (k.includes('1st half') || k.includes('first half') || k.includes('halftime') || k.includes('half time result')) return null; // handled as first_half_h2h
+    if (k.includes('2nd half') || k.includes('second half')) return null;
+    return 'h2h';
+  }
+  // First half H2H
+  if ((k.includes('1st half') || k.includes('first half') || k.includes('half time result')) && !k.includes('total') && !k.includes('over') && !k.includes('under')) return 'first_half_h2h';
+  // Second half H2H
+  if ((k.includes('2nd half') || k.includes('second half')) && !k.includes('total') && !k.includes('over') && !k.includes('under')) return 'second_half_h2h';
+  // Totals / Over-Under
+  if ((k.includes('total') || k.includes('over') || k.includes('under') || k.includes(' ou') || k === 'ou') && !k.includes('corner') && !k.includes('card') && !k.includes('foul')) {
+    if (k.includes('1st half') || k.includes('first half')) return 'first_half_totals';
+    if (k.includes('2nd half') || k.includes('second half')) return 'second_half_totals';
+    return 'totals';
+  }
+  // Handicap
+  if (k.includes('handicap') || k.includes('spread') || k.includes('asian')) return 'handicap';
+  // BTTS
+  if (k.includes('btts') || k.includes('both teams to score') || k.includes('both to score') || k.includes('ambas marcam') || k.includes('gg') || k === 'gg ng') return 'btts';
+  // Double Chance
+  if (k.includes('double chance') || k.includes('dupla chance')) return 'double_chance';
+  // Draw No Bet
+  if (k.includes('draw no bet') || k.includes('dnb') || k.includes('empate anula')) return 'dnb';
+  // HTFT
+  if (k.includes('half time full time') || k.includes('ht ft') || k.includes('ht/ft') || k.includes('halftime/fulltime')) return 'half_time_full_time';
+  // Correct Score
+  if (k.includes('correct score') || k.includes('exact score') || k.includes('score exact') || k.includes('scoreline')) return 'correct_score';
+  // Corners
+  if (k.includes('corner') && (k.includes('total') || k.includes('over') || k.includes('under'))) return 'corners_total';
+  // Cards
+  if ((k.includes('card') || k.includes('yellow') || k.includes('booking')) && (k.includes('total') || k.includes('over') || k.includes('under'))) return 'cards_total';
+  // Fouls
+  if (k.includes('foul') && (k.includes('total') || k.includes('over') || k.includes('under'))) return 'fouls_total';
+  // First goal scorer
+  if (k.includes('first goalscorer') || k.includes('first goal scorer') || k.includes('first scorer')) return 'first_goal_scorer';
+  // Anytime goalscorer
+  if (k.includes('anytime') && (k.includes('score') || k.includes('goal'))) return 'anytime_goal_scorer';
+  // Penalty
+  if (k.includes('penalty') || k.includes('pênalti') || k.includes('penalti')) return 'penalty_scored';
+  return null; // unknown
+}
+
 function parseAllMarkets(payload) {
   if (!payload || typeof payload !== 'object') return null;
   let allMarkets = [];
@@ -242,100 +327,311 @@ function parseAllMarkets(payload) {
   if (Array.isArray(payload.markets)) allMarkets = [...allMarkets, ...payload.markets];
   if (!allMarkets.length) return null;
 
-  // H2H
+  // Buckets for each canonical market type
+  const buckets = {}; // canonicalKey → { outcomes: [], line: null }
+  const ouBuckets = {}; // 'totals:2.5' → { over, under }
+  const hdcBuckets = {}; // 'handicap:0' → { home, draw, away }
+  const partialBuckets = {}; // 'first_half_totals:2.5' → { over, under }
+
   let h2h = null;
-  for (const m of allMarkets) {
-    if (!isH2hMarket(m?.name || m?.key || m?.type)) continue;
-    const parsed = extract1x2(m?.odds || m?.outcomes || m?.selections || []);
-    if (parsed) { h2h = parsed; break; }
-  }
 
-  // Over/Under
-  const ouMap = {};
   for (const m of allMarkets) {
-    const key = String(m?.key || m?.name || m?.type || '').toLowerCase();
-    if (!key.includes('over') && !key.includes('under') && !key.includes('total') && !key.includes('goals') && key !== 'ou') continue;
-    const line = String(m?.line || m?.value || '').match(/(\d+\.?\d*)/)?.[1];
-    if (!line) continue;
-    const k = line.replace('.', '_');
-    if (!ouMap[k]) ouMap[k] = {};
-    for (const o of (m?.odds || m?.outcomes || m?.selections || [])) {
-      const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
-      const price = Number(o?.price ?? o?.odd ?? 0);
-      if (price <= 1) continue;
-      if (lbl.includes('over'))  ouMap[k].over  = ouMap[k].over  || price;
-      if (lbl.includes('under')) ouMap[k].under = ouMap[k].under || price;
+    const rawKey  = String(m?.key || m?.type || '');
+    const rawName = String(m?.name || '');
+    const canonical = classifyMarket(rawKey, rawName);
+    if (!canonical) continue;
+
+    const outcomes = m?.odds || m?.outcomes || m?.selections || [];
+    const line = String(m?.line || m?.value || m?.handicap || '').replace(/[^0-9.-]/g, '') || null;
+
+    // H2H — capture the 3-way odds
+    if (canonical === 'h2h') {
+      if (!h2h) {
+        const parsed = extract1x2(outcomes);
+        if (parsed) h2h = parsed;
+      }
+      continue;
+    }
+
+    // Over/Under totals (various types)
+    if (['totals', 'first_half_totals', 'second_half_totals', 'corners_total', 'cards_total', 'fouls_total'].includes(canonical)) {
+      if (!line) continue;
+      const bucketKey = `${canonical}:${line}`;
+      if (!partialBuckets[bucketKey]) partialBuckets[bucketKey] = { canonical, line, over: 0, under: 0 };
+      for (const o of outcomes) {
+        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
+        const price = Number(o?.price ?? o?.odd ?? 0);
+        if (price <= 1) continue;
+        if (lbl.includes('over') || lbl.includes('acima') || lbl.includes('mais') || lbl === 'o') partialBuckets[bucketKey].over = partialBuckets[bucketKey].over || price;
+        if (lbl.includes('under') || lbl.includes('abaixo') || lbl.includes('menos') || lbl === 'u') partialBuckets[bucketKey].under = partialBuckets[bucketKey].under || price;
+      }
+      continue;
+    }
+
+    // Handicap — group by line
+    if (canonical === 'handicap') {
+      if (!line) continue;
+      const bucketKey = `handicap:${line}`;
+      if (!hdcBuckets[bucketKey]) hdcBuckets[bucketKey] = { line, home: 0, draw: 0, away: 0 };
+      for (const o of outcomes) {
+        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
+        const price = Number(o?.price ?? o?.odd ?? 0);
+        if (price <= 1) continue;
+        if (lbl === 'home' || lbl === '1') hdcBuckets[bucketKey].home = price;
+        if (lbl === 'away' || lbl === '2') hdcBuckets[bucketKey].away = price;
+        if (lbl === 'draw' || lbl === 'x') hdcBuckets[bucketKey].draw = price;
+      }
+      continue;
+    }
+
+    // BTTS
+    if (canonical === 'btts') {
+      if (buckets.btts) continue;
+      let yes = 0, no = 0;
+      for (const o of outcomes) {
+        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
+        const price = Number(o?.price ?? o?.odd ?? 0);
+        if (price <= 1) continue;
+        if (lbl === 'yes' || lbl === 'sim' || lbl === 'gg') yes = yes || price;
+        if (lbl === 'no' || lbl === 'não' || lbl === 'nao' || lbl === 'ng') no = no || price;
+      }
+      if (yes || no) buckets.btts = { yes, no };
+      continue;
+    }
+
+    // Double Chance
+    if (canonical === 'double_chance') {
+      if (buckets.double_chance) continue;
+      let homeX = 0, awayX = 0, homeAway = 0;
+      for (const o of outcomes) {
+        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase().replace(/\s+/g,' ');
+        const price = Number(o?.price ?? o?.odd ?? 0);
+        if (price <= 1) continue;
+        if (lbl === '1x' || lbl === 'home or draw' || lbl === '1 or x') homeX = price;
+        else if (lbl === 'x2' || lbl === 'draw or away' || lbl === 'x or 2') awayX = price;
+        else if (lbl === '12' || lbl === 'home or away' || lbl === '1 or 2') homeAway = price;
+      }
+      if (homeX || awayX || homeAway) buckets.double_chance = { homeX, awayX, homeAway };
+      continue;
+    }
+
+    // DNB
+    if (canonical === 'dnb') {
+      if (buckets.dnb) continue;
+      let home = 0, away = 0;
+      for (const o of outcomes) {
+        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
+        const price = Number(o?.price ?? o?.odd ?? 0);
+        if (price <= 1) continue;
+        if (lbl === 'home' || lbl === '1') home = price;
+        if (lbl === 'away' || lbl === '2') away = price;
+      }
+      if (home || away) buckets.dnb = { home, away };
+      continue;
+    }
+
+    // Half Time Full Time
+    if (canonical === 'half_time_full_time') {
+      if (buckets.htft) continue;
+      const htftOutcomes = outcomes.map(o => ({
+        outcome: String(o?.name || o?.label || o?.outcome || '').replace(/\//g, '/'),
+        odd: Number(o?.price ?? o?.odd ?? 0),
+      })).filter(o => o.odd > 1);
+      if (htftOutcomes.length) buckets.htft = htftOutcomes;
+      continue;
+    }
+
+    // Correct Score
+    if (canonical === 'correct_score') {
+      if (buckets.correct_score) continue;
+      const csOutcomes = outcomes.map(o => ({
+        outcome: String(o?.name || o?.label || o?.outcome || ''),
+        odd: Number(o?.price ?? o?.odd ?? 0),
+      })).filter(o => o.odd > 1 && o.outcome);
+      if (csOutcomes.length) buckets.correct_score = csOutcomes;
+      continue;
+    }
+
+    // First Half / Second Half H2H
+    if (canonical === 'first_half_h2h' || canonical === 'second_half_h2h') {
+      if (buckets[canonical]) continue;
+      const parsed = extract1x2(outcomes);
+      if (parsed) buckets[canonical] = parsed;
+      continue;
+    }
+
+    // First Goal Scorer / Anytime
+    if (canonical === 'first_goal_scorer' || canonical === 'anytime_goal_scorer') {
+      if (buckets[canonical]) continue;
+      const scorerOutcomes = outcomes.map(o => ({
+        outcome: String(o?.name || o?.label || o?.outcome || ''),
+        odd: Number(o?.price ?? o?.odd ?? 0),
+      })).filter(o => o.odd > 1 && o.outcome).slice(0, 20);
+      if (scorerOutcomes.length) buckets[canonical] = scorerOutcomes;
+      continue;
+    }
+
+    // Penalty Scored
+    if (canonical === 'penalty_scored') {
+      if (buckets.penalty_scored) continue;
+      let yes = 0, no = 0;
+      for (const o of outcomes) {
+        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
+        const price = Number(o?.price ?? o?.odd ?? 0);
+        if (price <= 1) continue;
+        if (lbl === 'yes' || lbl === 'sim') yes = price;
+        if (lbl === 'no' || lbl === 'não') no = price;
+      }
+      if (yes || no) buckets.penalty_scored = { yes, no };
+      continue;
     }
   }
 
-  // Handicap
-  const hdcMap = {};
-  for (const m of allMarkets) {
-    const key = String(m?.key || m?.name || m?.type || '').toLowerCase();
-    if (!key.includes('handicap') && !key.includes('spread') && !key.includes('asian')) continue;
-    const line = String(m?.line || m?.value || m?.handicap || '').replace(/[^0-9.-]/g, '');
-    if (!line) continue;
-    if (!hdcMap[line]) hdcMap[line] = {};
-    for (const o of (m?.odds || m?.outcomes || m?.selections || [])) {
-      const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
-      const price = Number(o?.price ?? o?.odd ?? 0);
-      if (price <= 1) continue;
-      if (lbl === 'home' || lbl === '1') hdcMap[line].home = price;
-      if (lbl === 'away' || lbl === '2') hdcMap[line].away = price;
-      if (lbl === 'draw' || lbl === 'x') hdcMap[line].draw = price;
-    }
+  // ── Build normalized odds object (keyed, with category) ──────────────────
+  const oddsObj = {};
+  const marketsArr = [];
+
+  // H2H
+  if (h2h) {
+    const cat = MARKET_CATEGORIES.h2h;
+    oddsObj['h2h'] = { category: cat, outcomes: [
+      { outcome: 'Casa',   odd: h2h.home },
+      ...(h2h.draw ? [{ outcome: 'Empate', odd: h2h.draw }] : []),
+      { outcome: 'Fora',   odd: h2h.away },
+    ]};
+    marketsArr.push({ key: 'h2h', name: 'Resultado Final', selections: oddsObj['h2h'].outcomes.map(o => ({ label: o.outcome, odd: o.odd })) });
+  }
+
+  // Totals (Over/Under) — all types; aggregate all lines into 'totals' for SubOddsModel
+  const aggregated = {}; // canonical → all outcomes flat
+  for (const [bucketKey, v] of Object.entries(partialBuckets)) {
+    if (!v.over && !v.under) continue;
+    const { canonical, line } = v;
+    const lineStr = String(line).replace('_', '.');
+    const cat = MARKET_CATEGORIES[canonical] || 'Mercado Raiz';
+    const labelOver  = `Mais ${lineStr}`;
+    const labelUnder = `Menos ${lineStr}`;
+    const ocs = [
+      ...(v.over  ? [{ outcome: labelOver,  odd: v.over  }] : []),
+      ...(v.under ? [{ outcome: labelUnder, odd: v.under }] : []),
+    ];
+    // Add to canonical aggregation (flat list for SubOddsModel renderMarketContent)
+    if (!aggregated[canonical]) aggregated[canonical] = { category: cat, outcomes: [] };
+    aggregated[canonical].outcomes.push(...ocs);
+    marketsArr.push({ key: canonical, name: `Mais/Menos ${lineStr}`, line: lineStr, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+  }
+  // Store aggregated totals in oddsObj (canonical key for SubOddsModel)
+  for (const [canonical, agg] of Object.entries(aggregated)) {
+    oddsObj[canonical] = agg;
+    // Sort by line number
+    oddsObj[canonical].outcomes.sort((a, b) => {
+      const na = parseFloat(String(a.outcome).match(/[\d.]+/)?.[0] || '0');
+      const nb = parseFloat(String(b.outcome).match(/[\d.]+/)?.[0] || '0');
+      return na - nb;
+    });
+  }
+
+  // Handicap — group by line, aggregate all lines into 'handicap' for SubOddsModel
+  const hdcAggOutcomes = [];
+  for (const [, v] of Object.entries(hdcBuckets)) {
+    if (!v.home && !v.away) continue;
+    const line = v.line;
+    const ls = (String(line).startsWith('-') ? '' : '+') + line;
+    const cat = MARKET_CATEGORIES.handicap;
+    const ocs = [
+      ...(v.home ? [{ outcome: `Casa (${ls})`, odd: v.home }] : []),
+      ...(v.draw ? [{ outcome: `Empate (${ls})`, odd: v.draw }] : []),
+      ...(v.away ? [{ outcome: `Fora (${ls})`, odd: v.away }] : []),
+    ];
+    hdcAggOutcomes.push(...ocs);
+    marketsArr.push({ key: 'handicap', name: `Handicap ${ls}`, line, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+  }
+  if (hdcAggOutcomes.length > 0) {
+    oddsObj['handicap'] = { category: MARKET_CATEGORIES.handicap, outcomes: hdcAggOutcomes };
+    oddsObj['spreads']  = oddsObj['handicap']; // alias
   }
 
   // BTTS
-  let btts = null;
-  for (const m of allMarkets) {
-    const key = String(m?.key || m?.name || m?.type || '').toLowerCase();
-    if (!key.includes('btts') && !key.includes('both') && !key.includes('ambas')) continue;
-    let yes = null, no = null;
-    for (const o of (m?.odds || m?.outcomes || m?.selections || [])) {
-      const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
-      const price = Number(o?.price ?? o?.odd ?? 0);
-      if (price <= 1) continue;
-      if (lbl === 'yes' || lbl === 'sim') yes = price;
-      if (lbl === 'no'  || lbl === 'não') no  = price;
-    }
-    if (yes || no) { btts = { yes, no }; break; }
+  if (buckets.btts) {
+    const { yes, no } = buckets.btts;
+    const ocs = [
+      ...(yes ? [{ outcome: 'Sim', odd: yes }] : []),
+      ...(no  ? [{ outcome: 'Não', odd: no  }] : []),
+    ];
+    oddsObj['btts'] = { category: MARKET_CATEGORIES.btts, outcomes: ocs };
+    marketsArr.push({ key: 'btts', name: 'Ambas Marcam', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
   }
 
-  // Build markets array (keys match marketConfig)
-  const marketsArr = [];
-  if (h2h) {
-    marketsArr.push({ key: 'h2h', name: 'Resultado Final', selections: [
-      { label: 'Casa',   odd: h2h.home },
-      ...(h2h.draw ? [{ label: 'Empate', odd: h2h.draw }] : []),
-      { label: 'Fora',   odd: h2h.away },
-    ]});
-  }
-  for (const [k, v] of Object.entries(ouMap)) {
-    if (!v.over && !v.under) continue;
-    const lineStr = k.replace('_', '.');
-    marketsArr.push({ key: 'totals', name: `Mais/Menos ${lineStr} Golos`, line: lineStr, selections: [
-      ...(v.over  ? [{ label: `Mais ${lineStr}`,  odd: v.over  }] : []),
-      ...(v.under ? [{ label: `Menos ${lineStr}`, odd: v.under }] : []),
-    ]});
-  }
-  for (const [k, v] of Object.entries(hdcMap)) {
-    if (!v.home && !v.away) continue;
-    const ls = k.startsWith('-') ? k : `+${k}`;
-    marketsArr.push({ key: 'handicap', name: `Handicap ${ls}`, line: k, selections: [
-      ...(v.home ? [{ label: `Casa (${ls})`, odd: v.home }] : []),
-      ...(v.draw ? [{ label: `Empate (${ls})`, odd: v.draw }] : []),
-      ...(v.away ? [{ label: `Fora (${ls})`, odd: v.away }] : []),
-    ]});
-  }
-  if (btts) {
-    marketsArr.push({ key: 'btts', name: 'Ambas Marcam', selections: [
-      ...(btts.yes ? [{ label: 'Sim', odd: btts.yes }] : []),
-      ...(btts.no  ? [{ label: 'Não', odd: btts.no  }] : []),
-    ]});
+  // Double Chance
+  if (buckets.double_chance) {
+    const { homeX, awayX, homeAway } = buckets.double_chance;
+    const ocs = [
+      ...(homeX    ? [{ outcome: '1X', odd: homeX    }] : []),
+      ...(awayX    ? [{ outcome: 'X2', odd: awayX    }] : []),
+      ...(homeAway ? [{ outcome: '12', odd: homeAway }] : []),
+    ];
+    oddsObj['double_chance'] = { category: MARKET_CATEGORIES.double_chance, outcomes: ocs };
+    marketsArr.push({ key: 'double_chance', name: 'Dupla Chance', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
   }
 
-  return { h2h, markets: marketsArr };
+  // DNB
+  if (buckets.dnb) {
+    const ocs = [
+      ...(buckets.dnb.home ? [{ outcome: 'Casa', odd: buckets.dnb.home }] : []),
+      ...(buckets.dnb.away ? [{ outcome: 'Fora', odd: buckets.dnb.away }] : []),
+    ];
+    oddsObj['dnb'] = { category: MARKET_CATEGORIES.dnb, outcomes: ocs };
+    marketsArr.push({ key: 'dnb', name: 'Empate Anula Aposta', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+  }
+
+  // Half Time / Full Time
+  if (buckets.htft && buckets.htft.length > 0) {
+    const ocs = buckets.htft.map(o => ({ outcome: o.outcome, odd: o.odd }));
+    oddsObj['half_time_full_time'] = { category: MARKET_CATEGORIES.half_time_full_time, outcomes: ocs };
+    marketsArr.push({ key: 'half_time_full_time', name: 'Intervalo/Final', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+  }
+
+  // Correct Score
+  if (buckets.correct_score && buckets.correct_score.length > 0) {
+    const ocs = buckets.correct_score.map(o => ({ outcome: o.outcome, odd: o.odd }));
+    oddsObj['correct_score'] = { category: MARKET_CATEGORIES.correct_score, outcomes: ocs };
+    marketsArr.push({ key: 'correct_score', name: 'Marcador Correto', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+  }
+
+  // First Half / Second Half H2H
+  for (const canonical of ['first_half_h2h', 'second_half_h2h']) {
+    const v = buckets[canonical];
+    if (!v) continue;
+    const ocs = [
+      { outcome: 'Casa',  odd: v.home },
+      ...(v.draw ? [{ outcome: 'Empate', odd: v.draw }] : []),
+      { outcome: 'Fora',  odd: v.away },
+    ];
+    const name = canonical === 'first_half_h2h' ? '1º Tempo - Resultado' : '2º Tempo - Resultado';
+    oddsObj[canonical] = { category: MARKET_CATEGORIES[canonical] || 'Mercados Temporais', outcomes: ocs };
+    marketsArr.push({ key: canonical, name, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+  }
+
+  // Goal Scorers
+  for (const canonical of ['first_goal_scorer', 'anytime_goal_scorer']) {
+    const v = buckets[canonical];
+    if (!v || !v.length) continue;
+    const ocs = v.map(o => ({ outcome: o.outcome, odd: o.odd }));
+    oddsObj[canonical] = { category: MARKET_CATEGORIES[canonical], outcomes: ocs };
+    marketsArr.push({ key: canonical, name: canonical === 'first_goal_scorer' ? 'Primeiro Marcador' : 'Marca a Qualquer Momento', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+  }
+
+  // Penalty Scored
+  if (buckets.penalty_scored) {
+    const ocs = [
+      ...(buckets.penalty_scored.yes ? [{ outcome: 'Sim', odd: buckets.penalty_scored.yes }] : []),
+      ...(buckets.penalty_scored.no  ? [{ outcome: 'Não', odd: buckets.penalty_scored.no  }] : []),
+    ];
+    oddsObj['penalty_scored'] = { category: MARKET_CATEGORIES.penalty_scored, outcomes: ocs };
+    marketsArr.push({ key: 'penalty_scored', name: 'Pênalti Marcado', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+  }
+
+  return { h2h, markets: marketsArr, odds: oddsObj };
 }
 
 // ── API-Football live cache ────────────────────────────────────────────────────
@@ -419,6 +715,7 @@ function oddsApiToNormalized(oe, sport, oddsById, afbFixture) {
   const oddsResult = oddsById ? oddsById.get(String(oe.id)) : null;
   const h2h        = oddsResult?.h2h || null;
   const marketsArr = oddsResult?.markets || [];
+  const oddsObj    = oddsResult?.odds || null;
 
   // REQUIRE ODDS — skip events without odds
   if (!h2h) return null;
@@ -463,6 +760,7 @@ function oddsApiToNormalized(oe, sport, oddsById, afbFixture) {
     score:     JSON.stringify({ home: scoreHome, away: scoreAway }),
     goals:     { home: scoreHome ?? 0, away: scoreAway ?? 0 },
     markets:   marketsArr,
+    odds:      oddsObj,
     country,
     home_team_logo: homeLogo,
     away_team_logo: awayLogo,
@@ -579,6 +877,7 @@ async function enrichList(events, type) {
       draw_odd: h2h.draw || ev.draw_odd,
       away_odd: h2h.away || ev.away_odd,
       markets: oddsResult.markets?.length ? oddsResult.markets : (ev.markets || []),
+      odds:    oddsResult.odds || ev.odds || null,
       home_team_logo: ev.home_team_logo || sofascoreLogo(best.homeId),
       away_team_logo: ev.away_team_logo || sofascoreLogo(best.awayId),
     };
@@ -746,6 +1045,44 @@ const server = http.createServer((req, res) => {
           res.writeHead(404, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
           res.end(JSON.stringify({ error: 'Event not found' }));
         }
+      }
+      return;
+    }
+
+    // ── Cache individual event odds (/api/events/{id}/odds) ──────────────────
+    const oddsEndpointMatch = url.match(/^\/api\/events\/([^/]+)\/odds/);
+    if (oddsEndpointMatch) {
+      const evId = oddsEndpointMatch[1];
+      const cacheKey = `ev_odds:${evId}`;
+      // Try proxy event cache first (from last buildFromOddsApi or enrichList cycle)
+      const cachedEv = _eventsById.get(evId);
+      if (cachedEv?.odds && Object.keys(cachedEv.odds).length > 0) {
+        const oddsPayload = {
+          markets: cachedEv.odds,
+          suspended: false,
+          suspended_reason: '',
+        };
+        const buf = Buffer.from(JSON.stringify(oddsPayload), 'utf8');
+        res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
+        res.end(buf);
+        return;
+      }
+      // Check response cache (60s TTL)
+      const respCached = oddsRespGet(cacheKey);
+      if (respCached) {
+        res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
+        res.end(respCached);
+        return;
+      }
+      // Forward to CF Worker and cache the response
+      try {
+        const { status, headers, body: cfBody } = await forwardToCF(url, req.method, req.headers, reqBody);
+        res.writeHead(status, { ...headers, 'access-control-allow-origin': '*' });
+        res.end(cfBody);
+        if (status === 200) oddsRespSet(cacheKey, cfBody);
+      } catch {
+        res.writeHead(502, { 'content-type': 'text/plain', 'access-control-allow-origin': '*' });
+        res.end('Bad Gateway');
       }
       return;
     }

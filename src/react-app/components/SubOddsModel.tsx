@@ -74,7 +74,7 @@ const MarketButtonGroup = memo(({ items, gridClass, onSelect, suspendedReason }:
 
   return (
     <div className="flex flex-col gap-2">
-      <div className={gridClass || 'grid grid-cols-1 gap-1 md:grid-cols-3 md:gap-2'}>
+      <div className={gridClass || 'grid grid-cols-3 gap-1 md:gap-2'}>
         {displayItems.map((it, idx) => (
           <MemoizedSubOddButton
             key={`${it.label}-${idx}`}
@@ -438,7 +438,7 @@ export function SubOddsModel({
       return (
          <div key={key}>
            <div className={`text-sm md:text-base font-semibold mb-1 md:mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{title}</div>
-           {renderButtons(items, key, config.grid || "grid grid-cols-1 gap-0.5")}
+           {renderButtons(items, key, config.grid || "grid grid-cols-3 gap-1")}
          </div>
       )
   }
