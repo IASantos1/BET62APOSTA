@@ -7,30 +7,74 @@
  *   2. If CF Worker fails/empty → build events DIRECTLY from odds-api.io
  *   3. Enrich all events with real odds from odds-api.io
  *
- * Budget: ~500 req/hour (5000 limit on free tier)
+ * Bookmakers: auto-resets every 12h to preferred list
  */
 
 import http  from 'http';
 import https from 'https';
+import fs    from 'fs';
+import path  from 'path';
+import { fileURLToPath } from 'url';
 
-const CF_WORKER      = 'https://bet62apostasesportivas.bet62.workers.dev';
-const PORT           = 8080;
-const ODDS_API_KEY   = process.env.ODDS_API_KEY   || '';
-const BOOKMAKERS_CSV = process.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet';
-const ODDS_API_BASE  = 'https://api.odds-api.io/v3';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CLEAR_TS_FILE = path.join(__dirname, '.last_bm_clear');
+
+const CF_WORKER    = 'https://bet62apostasesportivas.bet62.workers.dev';
+const PORT         = 8080;
+const ODDS_API_KEY = process.env.ODDS_API_KEY || '';
+const ODDS_API_BASE = 'https://api.odds-api.io/v3';
+
+// Preferred bookmakers (after clear)
+const PREFERRED_BM  = 'Bet365,Betano,Unibet,Superbet,Betfair Sportsbook';
+// Fallback bookmakers (currently registered — used until next clear succeeds)
+let BOOKMAKERS_CSV  = process.env.ODDS_API_BOOKMAKERS || PREFERRED_BM;
 
 if (!ODDS_API_KEY) console.warn('[proxy] WARNING: ODDS_API_KEY not set');
-else console.log(`[proxy] ODDS_API_KEY: ✓ set | Bookmakers: ${BOOKMAKERS_CSV}`);
+else console.log(`[proxy] ODDS_API_KEY: ✓ set`);
 
-// ── Verify bookmaker selection on startup ──────────────────────────────────
-(async () => {
+// ── Bookmaker auto-reset (once per 12h) ────────────────────────────────────
+async function tryResetBookmakers() {
   if (!ODDS_API_KEY) return;
   try {
-    const r = await fetch(`${ODDS_API_BASE}/bookmakers/selected?apiKey=${ODDS_API_KEY}`, { signal: AbortSignal.timeout(8000) });
+    // Read last clear timestamp from file
+    let lastClear = 0;
+    try { lastClear = parseInt(fs.readFileSync(CLEAR_TS_FILE, 'utf8').trim()) || 0; } catch {}
+    const twelveHours = 12 * 3600_000;
+    if (Date.now() - lastClear < twelveHours) {
+      const remaining = Math.ceil((twelveHours - (Date.now() - lastClear)) / 60_000);
+      console.log(`[proxy] Bookmakers reset available in ${remaining}m — using current selection`);
+      // Check what's currently selected
+      const r = await fetch(`${ODDS_API_BASE}/bookmakers/selected?apiKey=${ODDS_API_KEY}`, { signal: AbortSignal.timeout(6000) });
+      const j = await r.json().catch(() => ({}));
+      const current = Array.isArray(j?.bookmakers) ? j.bookmakers.join(',') : PREFERRED_BM;
+      BOOKMAKERS_CSV = current;
+      console.log(`[proxy] Active bookmakers: ${BOOKMAKERS_CSV}`);
+      return;
+    }
+    // Try to clear
+    const r = await fetch(`${ODDS_API_BASE}/bookmakers/selected/clear?apiKey=${ODDS_API_KEY}`, { method: 'PUT', signal: AbortSignal.timeout(8000) });
     const j = await r.json().catch(() => ({}));
-    console.log('[proxy] Current bookmaker selection:', JSON.stringify(j?.bookmakers || j));
-  } catch (e) { console.warn('[proxy] Bookmakers check failed:', e?.message); }
-})();
+    if (r.ok) {
+      fs.writeFileSync(CLEAR_TS_FILE, String(Date.now()));
+      BOOKMAKERS_CSV = PREFERRED_BM;
+      console.log(`[proxy] Bookmakers reset ✓ → ${BOOKMAKERS_CSV}`);
+    } else {
+      // Rate limited — read current selection
+      console.warn(`[proxy] Bookmakers reset blocked: ${j?.error?.slice(0,100)}`);
+      const r2 = await fetch(`${ODDS_API_BASE}/bookmakers/selected?apiKey=${ODDS_API_KEY}`, { signal: AbortSignal.timeout(6000) });
+      const j2 = await r2.json().catch(() => ({}));
+      const current = Array.isArray(j2?.bookmakers) ? j2.bookmakers.join(',') : PREFERRED_BM;
+      BOOKMAKERS_CSV = current;
+      // Write the rate limit timestamp so we don't try again for 12h
+      if (j?.timeRemaining) {
+        const resetAt = Date.now() - (12 * 3600_000 - j.timeRemaining * 1000);
+        fs.writeFileSync(CLEAR_TS_FILE, String(resetAt));
+      }
+    }
+  } catch (e) { console.warn('[proxy] Bookmakers setup failed:', e?.message); }
+}
+
+tryResetBookmakers();
 
 // ── Simple in-memory cache ─────────────────────────────────────────────────
 const _cache = new Map();
@@ -55,7 +99,6 @@ const BLOCKED_ME = new Set([
   'bahrain', 'oman', 'jordan', 'iraq', 'syria', 'lebanon', 'palestine',
   'palestinian territory', 'yemen', 'iran', 'israel',
 ]);
-
 function isBlockedCountry(country) {
   return BLOCKED_ME.has(String(country || '').toLowerCase().trim());
 }
@@ -109,7 +152,7 @@ async function getOddsEvents(sport, statusCsv) {
   return list;
 }
 
-// ── odds-api.io: fetch odds for a single event ────────────────────────────
+// ── odds-api.io: fetch ALL markets for a single event ────────────────────
 async function getOddsForEventId(eventId) {
   const ck = `odds:${eventId}`;
   const cached = cGet(ck);
@@ -117,12 +160,12 @@ async function getOddsForEventId(eventId) {
   const bms = encodeURIComponent(BOOKMAKERS_CSV);
   const url = `${ODDS_API_BASE}/odds?apiKey=${ODDS_API_KEY}&eventId=${encodeURIComponent(eventId)}&bookmakers=${bms}`;
   const data = await apiFetch(url);
-  const result = parseH2h(data);
+  const result = parseAllMarkets(data);
   cSet(ck, result, 90_000);
   return result;
 }
 
-// ── Odds parsing ───────────────────────────────────────────────────────────
+// ── Parse ALL markets from odds payload ────────────────────────────────────
 function isH2hMarket(name) {
   const k = String(name || '').toLowerCase().trim();
   return k === 'ml' || k === '1x2' || k === 'h2h' || k.includes('moneyline') ||
@@ -130,28 +173,152 @@ function isH2hMarket(name) {
     k.includes('full time result') || k.includes('result final') || k.includes('resultado');
 }
 
-function parseH2h(payload) {
+function parseAllMarkets(payload) {
   if (!payload || typeof payload !== 'object') return null;
+
+  let allMarkets = [];
+
+  // Collect markets from all bookmakers
   const bms = payload.bookmakers;
   if (bms && typeof bms === 'object') {
     const entries = Array.isArray(bms) ? bms : Object.values(bms);
     for (const bm of entries) {
       const markets = Array.isArray(bm) ? bm : (bm?.markets || []);
       for (const m of markets) {
-        if (!isH2hMarket(m?.name || m?.key || m?.type)) continue;
-        const h = extract1x2(m?.odds || m?.outcomes || []);
-        if (h) return h;
+        if (m) allMarkets.push(m);
       }
     }
   }
   if (Array.isArray(payload.markets)) {
-    for (const m of payload.markets) {
-      if (!isH2hMarket(m?.name || m?.key)) continue;
-      const h = extract1x2(m?.odds || m?.outcomes || m?.selections || []);
-      if (h) return h;
+    allMarkets = [...allMarkets, ...payload.markets];
+  }
+
+  if (!allMarkets.length) return null;
+
+  // Parse H2H (1X2)
+  let h2h = null;
+  for (const m of allMarkets) {
+    if (!isH2hMarket(m?.name || m?.key || m?.type)) continue;
+    const odds = m?.odds || m?.outcomes || m?.selections || [];
+    const parsed = extract1x2(odds);
+    if (parsed) { h2h = parsed; break; }
+  }
+
+  // Parse Over/Under markets
+  const ouMarkets = {};
+  for (const m of allMarkets) {
+    const key = String(m?.key || m?.name || m?.type || '').toLowerCase();
+    const isOU = key.includes('over') || key.includes('under') || key.includes('total') || key.includes('goals') || key === 'ou';
+    if (!isOU) continue;
+    const odds = m?.odds || m?.outcomes || m?.selections || [];
+    for (const o of (Array.isArray(odds) ? odds : [])) {
+      const label = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
+      const val = String(m?.line || m?.value || '').match(/(\d+\.?\d*)/);
+      const line = val ? val[1] : null;
+      const price = Number(o?.price ?? o?.odd ?? 0);
+      if (price <= 1 || !line) continue;
+      const lineKey = line.replace('.', '_');
+      if (!ouMarkets[lineKey]) ouMarkets[lineKey] = {};
+      if (label.includes('over') || label === 'over') ouMarkets[lineKey].over = ouMarkets[lineKey].over || price;
+      if (label.includes('under') || label === 'under') ouMarkets[lineKey].under = ouMarkets[lineKey].under || price;
     }
   }
-  return null;
+
+  // Parse Handicap markets
+  const handicapMarkets = {};
+  for (const m of allMarkets) {
+    const key = String(m?.key || m?.name || m?.type || '').toLowerCase();
+    if (!key.includes('handicap') && !key.includes('spread') && !key.includes('asian')) continue;
+    const odds = m?.odds || m?.outcomes || m?.selections || [];
+    const line = String(m?.line || m?.value || m?.handicap || '');
+    if (!line) continue;
+    const lineKey = line.replace(/[^0-9.-]/g, '');
+    if (!handicapMarkets[lineKey]) handicapMarkets[lineKey] = {};
+    for (const o of (Array.isArray(odds) ? odds : [])) {
+      const label = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
+      const price = Number(o?.price ?? o?.odd ?? 0);
+      if (price <= 1) continue;
+      if (label === 'home' || label === '1' || label.includes('home')) handicapMarkets[lineKey].home = price;
+      if (label === 'away' || label === '2' || label.includes('away')) handicapMarkets[lineKey].away = price;
+      if (label === 'draw' || label === 'x') handicapMarkets[lineKey].draw = price;
+    }
+  }
+
+  // Parse BTTS (Both Teams To Score)
+  let btts = null;
+  for (const m of allMarkets) {
+    const key = String(m?.key || m?.name || m?.type || '').toLowerCase();
+    if (!key.includes('btts') && !key.includes('both') && !key.includes('ambas')) continue;
+    const odds = m?.odds || m?.outcomes || m?.selections || [];
+    let yes = null, no = null;
+    for (const o of (Array.isArray(odds) ? odds : [])) {
+      const label = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
+      const price = Number(o?.price ?? o?.odd ?? 0);
+      if (price <= 1) continue;
+      if (label === 'yes' || label === 'sim' || label === 'ambas marcam') yes = price;
+      if (label === 'no' || label === 'não' || label === 'não marcam') no = price;
+    }
+    if (yes || no) { btts = { yes, no }; break; }
+  }
+
+  // Build markets array for frontend (keys match SubOddsModel/marketConfig)
+  const marketsArr = [];
+
+  // 1X2 market
+  if (h2h) {
+    marketsArr.push({
+      key: 'h2h', name: 'Resultado Final',
+      selections: [
+        { label: 'Casa',   odd: h2h.home },
+        ...(h2h.draw ? [{ label: 'Empate', odd: h2h.draw }] : []),
+        { label: 'Fora',   odd: h2h.away },
+      ],
+    });
+  }
+
+  // Over/Under markets — key: 'totals' with line field
+  for (const [line, vals] of Object.entries(ouMarkets)) {
+    const lineStr = line.replace('_', '.');
+    if (vals.over || vals.under) {
+      marketsArr.push({
+        key: 'totals', name: `Mais/Menos ${lineStr} Golos`,
+        line: lineStr,
+        selections: [
+          ...(vals.over  ? [{ label: `Mais ${lineStr}`,  odd: vals.over  }] : []),
+          ...(vals.under ? [{ label: `Menos ${lineStr}`, odd: vals.under }] : []),
+        ],
+      });
+    }
+  }
+
+  // Handicap markets — key: 'handicap' with line field
+  for (const [line, vals] of Object.entries(handicapMarkets)) {
+    if (vals.home || vals.away) {
+      const lineStr = line.startsWith('-') ? line : `+${line}`;
+      marketsArr.push({
+        key: 'handicap', name: `Handicap ${lineStr}`,
+        line,
+        selections: [
+          ...(vals.home  ? [{ label: `Casa (${lineStr})`, odd: vals.home  }] : []),
+          ...(vals.draw  ? [{ label: `Empate (${lineStr})`, odd: vals.draw  }] : []),
+          ...(vals.away  ? [{ label: `Fora (${lineStr})`, odd: vals.away  }] : []),
+        ],
+      });
+    }
+  }
+
+  // BTTS market — key: 'btts'
+  if (btts) {
+    marketsArr.push({
+      key: 'btts', name: 'Ambas Marcam',
+      selections: [
+        ...(btts.yes ? [{ label: 'Sim', odd: btts.yes }] : []),
+        ...(btts.no  ? [{ label: 'Não', odd: btts.no  }] : []),
+      ],
+    });
+  }
+
+  return { h2h, markets: marketsArr };
 }
 
 function extract1x2(arr) {
@@ -172,6 +339,12 @@ function extract1x2(arr) {
   return home > 1 ? { home, draw, away } : null;
 }
 
+// ── Logo URL from SofaScore CDN (uses homeId/awayId from odds-api.io) ─────
+function sofascoreLogo(teamId) {
+  if (!teamId) return '';
+  return `https://img.sofascore.com/api/v1/team/${teamId}/image`;
+}
+
 // ── Convert odds-api.io event → frontend NormalizedEvent ──────────────────
 function oddsApiToNormalized(oe, sport, oddsById) {
   const homeName = oe.home_team || oe.home || '';
@@ -186,16 +359,19 @@ function oddsApiToNormalized(oe, sport, oddsById) {
 
   const statusRaw = String(oe.status || '').toLowerCase();
   const isLive = statusRaw === 'live' || statusRaw === 'in_progress' || statusRaw === 'inprogress';
-  const h2h = oddsById ? oddsById.get(String(oe.id)) : null;
+  const oddsResult = oddsById ? oddsById.get(String(oe.id)) : null;
+
+  const h2h = oddsResult?.h2h || null;
+  const marketsArr = oddsResult?.markets || [];
 
   const scoreHome = oe.score?.home ?? oe.scores?.home ?? null;
   const scoreAway = oe.score?.away ?? oe.scores?.away ?? null;
 
-  // Use odds-api.io sport slug → app sport name
   const sportSlug = oe.sport?.slug || 'football';
   const appSport = API_TO_SPORT[sportSlug] || sport || 'soccer';
 
   return {
+    id: String(oe.id),
     external_event_id: `${appSport}_oa_${oe.id}`,
     sport: appSport,
     league: leagueName,
@@ -211,41 +387,46 @@ function oddsApiToNormalized(oe, sport, oddsById) {
     elapsed: oe.elapsed || 0,
     timer: String(oe.timer || oe.elapsed || '').trim(),
     score: JSON.stringify({ home: scoreHome, away: scoreAway }),
-    markets: '{}',
+    markets: marketsArr,
     country,
-    home_team_logo: oe.home_logo || oe.home_image || oe.homeImage || '',
-    away_team_logo: oe.away_logo || oe.away_image || oe.awayImage || '',
+    home_team_logo: sofascoreLogo(oe.homeId),
+    away_team_logo: sofascoreLogo(oe.awayId),
   };
 }
 
 // ── Build full event list from odds-api.io (fallback when CF Worker is down)─
 async function buildFromOddsApi(sports) {
   const sportsToFetch = (sports === 'all' || !sports)
-    ? ['soccer']  // Start with soccer (most events), add more as needed
+    ? ['soccer', 'basketball', 'handball', 'volleyball']
     : String(sports).split(',').map(s => s.trim()).filter(Boolean);
 
   const allLive = [];
   const allPregame = [];
 
   await Promise.all(sportsToFetch.map(async sport => {
+    const apiSlug = SLUG_TO_API[sport] || sport;
+    if (!SLUG_TO_API[sport] && !['football','basketball','handball','volleyball','tennis','icehockey','americanfootball','baseball','rugbyleague'].includes(apiSlug)) return;
     const [liveEvs, pregameEvs] = await Promise.all([
       getOddsEvents(sport, 'live'),
       getOddsEvents(sport, 'pending'),
     ]);
-    allLive.push(...liveEvs);
-    allPregame.push(...pregameEvs);
+    allLive.push(...liveEvs.map(e => ({ ...e, _sport: sport })));
+    allPregame.push(...pregameEvs.map(e => ({ ...e, _sport: sport })));
   }));
 
-  // Fetch odds for all live events + top pregame by date
-  const liveTop = allLive.slice(0, 15);
-  const pregameTop = allPregame
+  // Filter blocked countries and sort
+  const filteredLive = allLive.filter(e => !isBlockedCountry(e.league?.country || e.country || ''));
+  const filteredPregame = allPregame
     .filter(e => !isBlockedCountry(e.league?.country || e.country || ''))
-    .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0))
-    .slice(0, 60);
+    .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
 
-  // Odds budget: all live (≤15) + up to 20 pregame = max 35 events (~1400 req/hour)
-  const liveOddsIds = liveTop.map(e => String(e.id));
-  const pregameOddsIds = pregameTop.map(e => String(e.id)).slice(0, 20);
+  // Fetch odds for top live + top pregame
+  const liveTop    = filteredLive.slice(0, 20);
+  const pregameTop = filteredPregame.slice(0, 200);
+
+  // Odds budget: 20 live + 30 pregame = 50 requests per cycle
+  const liveOddsIds    = liveTop.map(e => String(e.id));
+  const pregameOddsIds = pregameTop.map(e => String(e.id)).slice(0, 30);
   const uniqueIds = [...new Set([...liveOddsIds, ...pregameOddsIds])];
 
   const oddsById = new Map();
@@ -253,14 +434,16 @@ async function buildFromOddsApi(sports) {
     oddsById.set(id, await getOddsForEventId(id));
   }));
 
-  const live = liveTop
-    .map(oe => oddsApiToNormalized(oe, 'soccer', oddsById))
+  const live = filteredLive
+    .map(oe => oddsApiToNormalized(oe, oe._sport || 'soccer', oddsById))
     .filter(Boolean);
   const pregame = pregameTop
-    .map(oe => oddsApiToNormalized(oe, 'soccer', oddsById))
+    .map(oe => oddsApiToNormalized(oe, oe._sport || 'soccer', oddsById))
     .filter(Boolean);
 
-  console.log(`[proxy] odds-api.io fallback: ${live.length} live, ${pregame.length} pregame`);
+  const liveEnriched    = live.filter(e => e.home_odd > 0).length;
+  const pregameEnriched = pregame.filter(e => e.home_odd > 0).length;
+  console.log(`[proxy] odds-api.io: ${live.length} live (${liveEnriched} w/odds), ${pregame.length} pregame (${pregameEnriched} w/odds)`);
   return { live, pregame };
 }
 
@@ -293,10 +476,20 @@ async function enrichList(events, type) {
   let enriched = 0;
   const result = matchedPairs.map(({ ev, best, bestSc }) => {
     if (!best) return ev;
-    const h2h = oddsById.get(String(best.id));
+    const oddsResult = oddsById.get(String(best.id));
+    if (!oddsResult) return ev;
+    const h2h = oddsResult.h2h;
     if (!h2h) return ev;
     enriched++;
-    return { ...ev, home_odd: h2h.home, draw_odd: h2h.draw, away_odd: h2h.away };
+    return {
+      ...ev,
+      home_odd: h2h.home,
+      draw_odd: h2h.draw,
+      away_odd: h2h.away,
+      markets: oddsResult.markets || ev.markets || [],
+      home_team_logo: ev.home_team_logo || sofascoreLogo(best.homeId),
+      away_team_logo: ev.away_team_logo || sofascoreLogo(best.awayId),
+    };
   });
   if (enriched) console.log(`[proxy] enriched ${enriched}/${events.length} ${type}`);
   return result;
@@ -330,8 +523,8 @@ function forwardToCF(reqUrl, method, headers, body) {
 
 // ── Response cache (stale-while-revalidate) ────────────────────────────────
 const _responseCache = new Map();
-const RESP_TTL_MS  = 45_000;   // 45s fresh
-const STALE_TTL_MS = 600_000;  // 10min stale
+const RESP_TTL_MS  = 45_000;
+const STALE_TTL_MS = 600_000;
 
 function rcGet(key) {
   const e = _responseCache.get(key);
@@ -357,11 +550,9 @@ function sendJSON(res, buf) {
 
 // ── Core: fetch + enrich + optional fallback ───────────────────────────────
 async function fetchAndEnrich(url, method, headers, body, rcKey) {
-  // Extract sports param for fallback
   const urlObj = new URL('http://x' + url);
   const sportsParam = urlObj.searchParams.get('sports') || 'all';
 
-  // 1. Try CF Worker
   let payload = null;
   try {
     const r = await forwardToCF(url, method, headers, body);
@@ -377,27 +568,22 @@ async function fetchAndEnrich(url, method, headers, body, rcKey) {
     console.warn('[proxy] CF forward error:', err?.message);
   }
 
-  // 2. Enrich CF Worker events OR fall back to odds-api.io
   let live, pregame;
 
   if (payload && ODDS_API_KEY) {
-    // CF Worker succeeded — enrich with odds-api.io
     [live, pregame] = await Promise.all([
       enrichList(Array.isArray(payload.live)    ? payload.live    : [], 'live'),
       enrichList(Array.isArray(payload.pregame) ? payload.pregame : [], 'pregame'),
     ]);
   } else if (ODDS_API_KEY) {
-    // CF Worker failed — use odds-api.io as primary source
     console.log('[proxy] CF Worker unavailable — using odds-api.io as primary source');
     const result = await buildFromOddsApi(sportsParam);
     live    = result.live;
     pregame = result.pregame;
   } else {
-    // No key and no CF Worker — return empty
     return null;
   }
 
-  // Apply Middle East filter to CF Worker events too
   const filterME = ev => !isBlockedCountry(ev.country || '');
   live    = live.filter(filterME);
   pregame = pregame.filter(filterME);
@@ -406,7 +592,6 @@ async function fetchAndEnrich(url, method, headers, body, rcKey) {
     ? { ...payload, live, pregame }
     : { live, pregame };
 
-  // Only cache if we have actual events
   if (live.length > 0 || pregame.length > 0) {
     const buf = Buffer.from(JSON.stringify(responsePayload), 'utf8');
     rcSet(rcKey, buf);
@@ -425,7 +610,6 @@ const server = http.createServer((req, res) => {
     const url = req.url || '';
     const isBySportOdds = url.includes('/by-sport') && url.includes('include=odds');
 
-    // Pass-through for non-enriched requests
     if (!isBySportOdds) {
       try {
         const { status, headers, body: cfBody } = await forwardToCF(url, req.method, req.headers, reqBody);
@@ -439,8 +623,6 @@ const server = http.createServer((req, res) => {
     }
 
     const rcKey = url;
-
-    // Serve from cache
     const cached = rcGet(rcKey);
     if (cached && !cached.stale) return sendJSON(res, cached.buf);
     if (cached && cached.stale) {
@@ -449,7 +631,6 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    // No cache — fetch now
     try {
       const buf = await fetchAndEnrich(url, req.method, req.headers, reqBody, rcKey);
       if (buf) return sendJSON(res, buf);
@@ -457,7 +638,6 @@ const server = http.createServer((req, res) => {
       console.error('[proxy] error:', err?.message);
     }
 
-    // Nothing available — return empty 200 (don't log errors in frontend)
     res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
     res.end(JSON.stringify({ live: [], pregame: [] }));
   });
@@ -466,6 +646,6 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[proxy] Odds enrichment proxy on http://127.0.0.1:${PORT}`);
   console.log(`[proxy] Upstream: ${CF_WORKER}`);
-  console.log(`[proxy] Fallback: odds-api.io direct when CF Worker unavailable`);
+  console.log(`[proxy] Preferred bookmakers: ${PREFERRED_BM}`);
 });
 server.on('error', e => { console.error('[proxy] fatal:', e.message); process.exit(1); });
