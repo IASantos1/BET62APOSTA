@@ -68,9 +68,30 @@ The `scripts/odds-proxy.mjs` proxy implements the odds-api.io enrichment:
 - Every 12h: switches to Bet365, Betano, Unibet, Superbet, Betfair Sportsbook
 - Tracks reset time in `scripts/.last_bm_clear`
 
+### Live Scores & Clock
+- API-Football (`/v3/fixtures?live=all`) fetched every 60s with `API_SPORTS_KEY`
+- 337+ live fixtures matched to events by team name → `elapsed` (minutes) + `goals` (score)
+- `goals: {home, away}` returned on every live event
+- `elapsed: N` returned (match minute, from API-Football)
+- `timer: "N"` returned as string for EventCard/EventDetails display
+- BannerCarousel shows `N – M · elapsed'` for live events
+
 ### Team Logos
-- SofaScore CDN: `https://img.sofascore.com/api/v1/team/{homeId}/image` (from odds-api.io homeId)
-- Falls back to team initials if logo fails to load
+- API-Football logos proxied via `/api/events/media?url=...` (server-side, bypasses 403)
+- Proxy fetches image with browser User-Agent + Referer header
+- Logos cached 24h (`cache-control: public, max-age=86400`)
+- Falls back to SofaScore CDN for non-soccer or unmatched events
+
+### EventDetails
+- **localFoundEvent**: looks up event in `live` + `upcomingEvents` from useSportsEvents hook
+- Waits for `eventsLoading: false` (main fetch complete) before trying API fallback
+- Avoids "Evento não encontrado" — finds event from local state instantly
+- Falls back to proxy `/api/events/{id}` → CF Worker if not in local list
+
+### Proxy Event Cache
+- `_eventsById` map: populated on every `buildFromOddsApi` / `enrichList` cycle
+- Numeric IDs (odds-api.io): matched by regex `/api/events/(\d+)/`
+- CF Worker IDs (`soccer_XXXXXXX`): forwarded to CF Worker directly
 
 For the deployed CF Worker to use odds-api.io directly, set `ODDS_API_KEY` as a Cloudflare Worker secret via `wrangler secret put ODDS_API_KEY`.
 

@@ -18,10 +18,12 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLEAR_TS_FILE = path.join(__dirname, '.last_bm_clear');
 
-const CF_WORKER     = 'https://bet62apostasesportivas.bet62.workers.dev';
-const PORT          = 8080;
-const ODDS_API_KEY  = process.env.ODDS_API_KEY || '';
-const ODDS_API_BASE = 'https://api.odds-api.io/v3';
+const CF_WORKER        = 'https://bet62apostasesportivas.bet62.workers.dev';
+const PORT             = 8080;
+const ODDS_API_KEY     = process.env.ODDS_API_KEY     || '';
+const ODDS_API_BASE    = 'https://api.odds-api.io/v3';
+const API_SPORTS_KEY   = process.env.API_SPORTS_KEY   || '';
+const APIFB_BASE       = 'https://v3.football.api-sports.io';
 
 // Target bookmakers
 const PREFERRED_BM  = 'Bet365,Betano,Unibet,Superbet,Betfair Sportsbook';
@@ -336,14 +338,71 @@ function parseAllMarkets(payload) {
   return { h2h, markets: marketsArr };
 }
 
-// ── Logo from SofaScore CDN (via homeId from odds-api.io) ─────────────────────
+// ── API-Football live cache ────────────────────────────────────────────────────
+let _afbCache = null;       // { ts, byName: Map<normalizedName, fixture> }
+let _afbFetching = false;
+
+async function fetchApiFootballLive() {
+  if (!API_SPORTS_KEY) return null;
+  if (_afbFetching) return _afbCache;
+  const now = Date.now();
+  if (_afbCache && now - _afbCache.ts < 60_000) return _afbCache;
+  _afbFetching = true;
+  try {
+    const r = await fetch(`${APIFB_BASE}/fixtures?live=all`, {
+      headers: { 'x-apisports-key': API_SPORTS_KEY },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!r.ok) { _afbFetching = false; return _afbCache; }
+    const j = await r.json();
+    const fixtures = Array.isArray(j.response) ? j.response : [];
+    const byName = new Map();
+    for (const f of fixtures) {
+      const home = String(f.teams?.home?.name || '').toLowerCase().trim();
+      const away = String(f.teams?.away?.name || '').toLowerCase().trim();
+      if (home) byName.set(home, f);
+      if (away) byName.set(away, f);
+    }
+    _afbCache = { ts: now, byName, fixtures };
+    console.log(`[proxy] API-Football: ${fixtures.length} live fixtures cached`);
+  } catch (e) {
+    console.warn('[proxy] API-Football fetch failed:', e?.message);
+  }
+  _afbFetching = false;
+  return _afbCache;
+}
+
+function matchApiFootball(homeName, awayName, afbCache) {
+  if (!afbCache) return null;
+  const norm = s => String(s || '').toLowerCase().replace(/\s+(fc|sc|cf|cd|ac|bc|bsc|afc|sfc|utd|united|city|town)$/i,'').trim();
+  const hn = norm(homeName);
+  const an = norm(awayName);
+  // Try direct match
+  let f = afbCache.byName.get(hn) || afbCache.byName.get(an);
+  if (f) return f;
+  // Try partial match  
+  for (const [k, fx] of afbCache.byName) {
+    if (k.includes(hn) || hn.includes(k) || k.includes(an) || an.includes(k)) return fx;
+  }
+  return null;
+}
+
+// ── Event ID cache (for EventDetails lookup) ──────────────────────────────────
+let _eventsById = new Map();   // id → event
+
+function cacheEvents(live, pregame) {
+  for (const e of [...(live || []), ...(pregame || [])]) {
+    if (e?.id) _eventsById.set(String(e.id), e);
+  }
+}
+
 function sofascoreLogo(teamId) {
   if (!teamId) return '';
   return `https://img.sofascore.com/api/v1/team/${teamId}/image`;
 }
 
 // ── Convert odds-api.io event → normalized ────────────────────────────────────
-function oddsApiToNormalized(oe, sport, oddsById) {
+function oddsApiToNormalized(oe, sport, oddsById, afbFixture) {
   const homeName = oe.home_team || oe.home || '';
   const awayName = oe.away_team || oe.away || '';
   if (!homeName || !awayName) return null;
@@ -364,16 +423,32 @@ function oddsApiToNormalized(oe, sport, oddsById) {
   // REQUIRE ODDS — skip events without odds
   if (!h2h) return null;
 
-  const scoreHome = oe.score?.home ?? oe.scores?.home ?? null;
-  const scoreAway = oe.score?.away ?? oe.scores?.away ?? null;
   const sportSlug  = oe.sport?.slug || 'football';
   const appSport   = API_TO_SPORT[sportSlug] || sport || 'soccer';
+
+  // Scores: prefer API-Football (more accurate), fall back to odds-api.io
+  const afbGoals   = afbFixture?.goals;
+  const scoreHome  = afbGoals?.home ?? oe.score?.home ?? oe.scores?.home ?? null;
+  const scoreAway  = afbGoals?.away ?? oe.score?.away ?? oe.scores?.away ?? null;
+
+  // Elapsed time: from API-Football fixture status
+  const elapsed    = afbFixture?.fixture?.status?.elapsed ?? oe.elapsed ?? null;
+  const timerStr   = elapsed != null ? String(elapsed) : (oe.timer ? String(oe.timer) : '');
+
+  // Logos: from API-Football (proxied), fall back to SofaScore
+  const homeLogo   = afbFixture?.teams?.home?.logo
+    ? `/api/events/media?url=${encodeURIComponent(afbFixture.teams.home.logo)}`
+    : sofascoreLogo(oe.homeId);
+  const awayLogo   = afbFixture?.teams?.away?.logo
+    ? `/api/events/media?url=${encodeURIComponent(afbFixture.teams.away.logo)}`
+    : sofascoreLogo(oe.awayId);
 
   return {
     id: String(oe.id),
     external_event_id: `${appSport}_oa_${oe.id}`,
     sport: appSport,
     league: leagueName,
+    league_name: leagueName,
     home_team: homeName,
     away_team: awayName,
     team_match: `${homeName} vs ${awayName}`,
@@ -383,13 +458,14 @@ function oddsApiToNormalized(oe, sport, oddsById) {
     home_odd:  h2h.home,
     draw_odd:  h2h.draw || 0,
     away_odd:  h2h.away,
-    elapsed: oe.elapsed || 0,
-    timer: String(oe.timer || oe.elapsed || '').trim(),
-    score: JSON.stringify({ home: scoreHome, away: scoreAway }),
-    markets: marketsArr,
+    elapsed:   elapsed ?? 0,
+    timer:     timerStr,
+    score:     JSON.stringify({ home: scoreHome, away: scoreAway }),
+    goals:     { home: scoreHome ?? 0, away: scoreAway ?? 0 },
+    markets:   marketsArr,
     country,
-    home_team_logo: sofascoreLogo(oe.homeId),
-    away_team_logo: sofascoreLogo(oe.awayId),
+    home_team_logo: homeLogo,
+    away_team_logo: awayLogo,
   };
 }
 
@@ -429,9 +505,19 @@ async function buildFromOddsApi(sports) {
     }));
   }
 
+  // Fetch API-Football live fixtures (for elapsed time, accurate scores, logos)
+  const afbCache = await fetchApiFootballLive();
+
   // Build events — only those with odds (oddsApiToNormalized returns null without odds)
-  const live    = sortedLive.map(oe => oddsApiToNormalized(oe, oe._sport || 'soccer', oddsById)).filter(Boolean).slice(0, 120);
-  const pregame = sortedPregame.map(oe => oddsApiToNormalized(oe, oe._sport || 'soccer', oddsById)).filter(Boolean).slice(0, 60);
+  const live    = sortedLive.map(oe => {
+    const afbFixture = oe._sport === 'soccer' ? matchApiFootball(oe.home_team || oe.home, oe.away_team || oe.away, afbCache) : null;
+    return oddsApiToNormalized(oe, oe._sport || 'soccer', oddsById, afbFixture);
+  }).filter(Boolean).slice(0, 120);
+
+  const pregame = sortedPregame.map(oe => oddsApiToNormalized(oe, oe._sport || 'soccer', oddsById, null)).filter(Boolean).slice(0, 60);
+
+  // Cache events by ID for EventDetails lookup
+  cacheEvents(live, pregame);
 
   console.log(`[proxy] odds-api.io: ${live.length} live, ${pregame.length} pregame (all with odds)`);
   return { live, pregame };
@@ -584,6 +670,7 @@ async function fetchAndEnrich(url, method, headers, body, rcKey) {
       enrichList(Array.isArray(payload.live)    ? payload.live    : [], 'live'),
       enrichList(Array.isArray(payload.pregame) ? payload.pregame : [], 'pregame'),
     ]);
+    cacheEvents(live, pregame);
   } else if (ODDS_API_KEY) {
     console.log('[proxy] CF Worker unavailable — using odds-api.io direct');
     const result = await buildFromOddsApi(sportsParam);
@@ -610,6 +697,58 @@ const server = http.createServer((req, res) => {
     const reqBody = chunks.length ? Buffer.concat(chunks) : null;
     const url     = req.url || '';
     const isBySportOdds = url.includes('/by-sport') && url.includes('include=odds');
+
+    // ── Image proxy: /api/events/media?url=... ─────────────────────────────────
+    if (url.startsWith('/api/events/media')) {
+      const urlObj  = new URL('http://x' + url);
+      const target  = urlObj.searchParams.get('url');
+      if (!target) { res.writeHead(400); res.end('Missing url'); return; }
+      try {
+        const r = await fetch(target, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
+            'Referer': 'https://www.api-football.com/',
+            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+        const buf = Buffer.from(await r.arrayBuffer());
+        const ct  = r.headers.get('content-type') || 'image/png';
+        res.writeHead(r.ok ? 200 : r.status, {
+          'content-type': ct,
+          'content-length': buf.length,
+          'cache-control': 'public, max-age=86400',
+          'access-control-allow-origin': '*',
+        });
+        res.end(buf);
+      } catch {
+        res.writeHead(502); res.end('Image fetch failed');
+      }
+      return;
+    }
+
+    // ── Event by ID: /api/events/:id (lookup from local cache) ─────────────────
+    const evByIdMatch = url.match(/^\/api\/events\/(\d+)(?:\?.*)?$/);
+    if (evByIdMatch && !url.includes('/odds') && !url.includes('/stats') && !url.includes('/roster') && !url.includes('/media')) {
+      const evId = evByIdMatch[1];
+      const cached = _eventsById.get(evId);
+      if (cached) {
+        const buf = Buffer.from(JSON.stringify(cached), 'utf8');
+        res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
+        res.end(buf);
+      } else {
+        // Fall through to CF Worker (will likely 404, but try)
+        try {
+          const { status, headers, body: cfBody } = await forwardToCF(url, req.method, req.headers, reqBody);
+          res.writeHead(status, { ...headers, 'access-control-allow-origin': '*' });
+          res.end(cfBody);
+        } catch {
+          res.writeHead(404, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
+          res.end(JSON.stringify({ error: 'Event not found' }));
+        }
+      }
+      return;
+    }
 
     if (!isBySportOdds) {
       try {

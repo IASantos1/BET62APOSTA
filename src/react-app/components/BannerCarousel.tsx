@@ -196,6 +196,10 @@ export function BannerCarousel() {
               ).toUpperCase()
             : '';
 
+          const goalsHome = e.goals?.home ?? null;
+          const goalsAway = e.goals?.away ?? null;
+          const elapsedMin = Number(e.elapsed ?? e.fixture?.status?.elapsed ?? 0) || 0;
+
           mapped.push({
             id: String(e.id || e.external_event_id || `${home}-${away}`),
             home, away,
@@ -210,6 +214,9 @@ export function BannerCarousel() {
             drawOdd:  Number(e.draw_odd) || 0,
             awayOdd:  Number(e.away_odd) || 0,
             ou25Over, ou25Under, bttsYes,
+            goalsHome,
+            goalsAway,
+            elapsedMin,
           });
 
           if (mapped.length >= 6) break;
@@ -291,10 +298,25 @@ export function BannerCarousel() {
               <span className="text-white font-bold text-sm text-center leading-tight max-w-[100px] line-clamp-2">{ev.home}</span>
             </div>
 
-            {/* VS */}
+            {/* Score / VS */}
             <div className="flex flex-col items-center gap-1 shrink-0">
-              <span className="text-white/40 text-xs font-bold tracking-widest">VS</span>
-              {ev.isLive && <span className="text-red-400 text-xs font-bold">●</span>}
+              {ev.isLive && ev.goalsHome !== null && ev.goalsAway !== null ? (
+                <>
+                  <span className="text-white text-2xl font-black tabular-nums">{ev.goalsHome} – {ev.goalsAway}</span>
+                  {ev.elapsedMin > 0 && (
+                    <span className="text-red-400 text-xs font-bold bg-black/30 px-2 py-0.5 rounded">{ev.elapsedMin}'</span>
+                  )}
+                  <span className="flex h-2 w-2 relative mt-0.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-white/40 text-xs font-bold tracking-widest">VS</span>
+                  {ev.isLive && <span className="text-red-400 text-xs font-bold animate-pulse">● AO VIVO</span>}
+                </>
+              )}
             </div>
 
             {/* Away team */}

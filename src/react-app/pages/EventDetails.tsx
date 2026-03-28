@@ -28,7 +28,7 @@ export default function EventDetails() {
   const [liveStats, setLiveStats] = useState<{ stats: any[]; events: any[] }>({ stats: [], events: [] })
   
   // Data for Sidebar
-  const { live, pregame } = useSportsEvents(selectedCategory || null);
+  const { live, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || null);
   const { upcomingEvents } = useUpcomingCache(pregame);
 
   // WebSocket Live Feed (Fetch all for consistent Sidebar)
@@ -38,8 +38,29 @@ export default function EventDetails() {
   const mergedSidebarLive = useMergedEvents(live, wsLiveEvents);
   const activeTopLeagues = useTopLeagues(mergedSidebarLive, upcomingEvents);
 
+  // --- Find event in locally loaded events (avoids CF Worker call) ---
+  // Ready when the main events fetch (with odds) has completed
+  const localEventsReady = !eventsLoading && (live.length > 0 || upcomingEvents.length > 0);
+
+  const localFoundEvent = useMemo(() => {
+    if (!id) return null;
+    const all = [...live, ...upcomingEvents];
+    return all.find((e: any) =>
+      String(e.id) === String(id) ||
+      String(e.external_event_id) === String(id)
+    ) || null;
+  }, [id, live, upcomingEvents]);
+
+  // Use local event as soon as it's available (instant load, no API call needed)
+  useEffect(() => {
+    if (localFoundEvent) {
+      setEvent(localFoundEvent);
+      setLoading(false);
+      setError(null);
+    }
+  }, [localFoundEvent]);
+
   // --- Merge HTTP + WS + Placeholder Odds (Current Event) ---
-  // We use useMergedEvents to ensure consistent logic (placeholder odds, etc)
   const mergedEventList = useMergedEvents(event ? [event] : [], wsLiveEvents);
   
   const displayEvent = useMemo(() => {
@@ -81,9 +102,15 @@ export default function EventDetails() {
   const [oddsSuspended, setOddsSuspended] = useState(false);
   const [oddsSuspendedReason, setOddsSuspendedReason] = useState<string>('');
 
-  // --- Fetch Event ---
+  // --- Fetch Event (fallback: only when local events are ready but event not found) ---
   useEffect(() => {
     if (!id) return;
+    // Already found locally → no API call needed
+    if (localFoundEvent) return;
+    // Local events not loaded yet → stay loading, wait for local resolution
+    if (!localEventsReady) return;
+    
+    // Local events are loaded and event not found → try API (proxy cache / CF Worker)
     const ac = new AbortController();
     
     const fetchEvent = async () => {
@@ -91,8 +118,12 @@ export default function EventDetails() {
       setError(null);
       try {
         const data = await apiFetch<any>(`/api/events/${id}`, { signal: ac.signal });
-        setEvent(data);
-        if (data.roster) setRoster(data.roster);
+        if (data && (data.id || data.home_team)) {
+          setEvent(data);
+          if (data.roster) setRoster(data.roster);
+        } else {
+          setError('Evento não encontrado ou indisponível.');
+        }
       } catch (err: any) {
         if (err.name !== 'AbortError') setError('Evento não encontrado ou indisponível.');
       } finally { setLoading(false); }
@@ -100,7 +131,7 @@ export default function EventDetails() {
 
     fetchEvent();
     return () => ac.abort();
-  }, [id]);
+  }, [id, localFoundEvent, localEventsReady]);
 
   useEffect(() => {
     if (!id) return;
