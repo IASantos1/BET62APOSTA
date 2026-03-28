@@ -178,19 +178,35 @@ export default function MatchTracker({ darkMode, live, homeName, awayName, leagu
     if (minute != null && minute !== '') return `${minute}'`
     const elapsed = live?.elapsed ?? live?.fixture?.status?.elapsed
     if (typeof elapsed === 'number' && elapsed > 0) return `${elapsed}'`
-    return '—'
+    return 'AO VIVO'
   }, [live])
   const score = useMemo(() => {
     if (!live) return '0-0';
-    if (typeof live.score === 'string') return live.score;
-    
-    const formatVal = (v: any) => {
-        if (typeof v === 'object' && v !== null) return v.total ?? v.score ?? v.current ?? 0;
-        return v;
+
+    const extractNum = (v: any): number => {
+      if (v == null) return 0;
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string') { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+      if (typeof v === 'object') return v.total ?? v.score ?? v.current ?? v.home ?? 0;
+      return 0;
     };
-    
-    const h = formatVal(live.goals?.home ?? live.score?.home ?? 0);
-    const a = formatVal(live.goals?.away ?? live.score?.away ?? 0);
+
+    if (typeof live.score === 'string') {
+      const s = live.score.trim();
+      if (s.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(s);
+          if (parsed && (parsed.home !== undefined || parsed.away !== undefined)) {
+            return `${extractNum(parsed.home)}-${extractNum(parsed.away)}`;
+          }
+        } catch { /* fall through */ }
+      }
+      if (/^\d+[-:]\d+$/.test(s)) return s.replace(':', '-');
+      return s;
+    }
+
+    const h = extractNum(live.goals?.home ?? live.score?.home);
+    const a = extractNum(live.goals?.away ?? live.score?.away);
     return `${h}-${a}`;
   }, [live])
   

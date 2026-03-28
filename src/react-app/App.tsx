@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, useLocation } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Bet62Intro } from './components/Bet62Intro';
 
 const queryClient = new QueryClient();
 import { AuthProvider } from '@/react-app/contexts/AuthContext';
@@ -40,6 +41,18 @@ import { DashboardSidebar } from './components/DashboardSidebar';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 export default function App() {
+  const [showIntro, setShowIntro] = useState(() => {
+    try { return !sessionStorage.getItem('bet62_intro_shown'); } catch { return true; }
+  });
+
+  useEffect(() => {
+    if (showIntro) {
+      try { sessionStorage.setItem('bet62_intro_shown', '1'); } catch { /* empty */ }
+      const t = setTimeout(() => setShowIntro(false), 3200);
+      return () => clearTimeout(t);
+    }
+  }, [showIntro]);
+
   useEffect(() => {
     try {
       const keys = Object.keys(localStorage || {});
@@ -58,8 +71,10 @@ export default function App() {
       try { if (navigator?.serviceWorker?.controller) navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' }); } catch { /* empty */ }
     } catch { /* empty */ }
   }, []);
+
   return (
     <ErrorBoundary>
+      {showIntro && <Bet62Intro />}
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <AppProvider>

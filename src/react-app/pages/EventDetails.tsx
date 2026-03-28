@@ -95,8 +95,25 @@ export default function EventDetails() {
   const applyMarginClamp = useCallback((_mk: string, v: number) => v, [])
   const cleanTeam = (name: string) => String(name || '').replace(/\sU\d+$/, '').trim()
   const formatScore = (val: any) => {
+    if (val == null) return 0;
     if (typeof val === 'number') return val;
+    if (typeof val === 'string') {
+      if (val.startsWith('{')) {
+        try { const p = JSON.parse(val); return p.home ?? p.total ?? p.score ?? 0; } catch {}
+      }
+      const n = parseFloat(val);
+      return isNaN(n) ? 0 : n;
+    }
     return val?.total ?? val?.score ?? val?.current ?? 0;
+  };
+
+  const parseGoals = (goals: any) => {
+    if (!goals) return { home: 0, away: 0 };
+    if (typeof goals === 'string') {
+      try { const p = JSON.parse(goals); return { home: p.home ?? 0, away: p.away ?? 0 }; } catch {}
+      return { home: 0, away: 0 };
+    }
+    return { home: formatScore(goals.home), away: formatScore(goals.away) };
   };
 
   const [realtimeOdds, setRealtimeOdds] = useState<any | null>(null);
@@ -277,14 +294,14 @@ export default function EventDetails() {
                 <div className="text-center mx-4">
                    <div className={`text-4xl md:text-6xl font-black text-white transition-all duration-300 ${displayEvent.lastGoal ? 'scale-125 text-green-400' : ''}`}>
                      {isLive 
-                       ? `${formatScore(displayEvent.goals?.home)} - ${formatScore(displayEvent.goals?.away)}` 
+                       ? (() => { const g = parseGoals(displayEvent.goals); return `${g.home} - ${g.away}`; })()
                        : 'VS'} 
                    </div> 
                    {isLive && ( 
                      <div className="text-sm md:text-lg text-white/90 mt-1 flex items-center justify-center gap-2"> 
                        <span className="font-din font-bold bg-black/30 px-2 py-0.5 rounded">{statusShort || displayEvent.fixture?.status?.short}</span>
                        <span className="font-din font-bold bg-red-600 px-2 py-0.5 rounded">
-                         {liveTimer || (liveElapsed > 0 ? `${liveElapsed}'` : '')}
+                         {liveTimer || (liveElapsed > 0 ? `${liveElapsed}'` : 'AO VIVO')}
                        </span> 
                        {isLive && <span className="ml-1 flex h-2 w-2 relative" title="A receber actualizações">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>

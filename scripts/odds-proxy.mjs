@@ -306,8 +306,14 @@ function classifyMarket(rawKey, rawName) {
   if (k.includes('foul') && (k.includes('total') || k.includes('over') || k.includes('under'))) return 'fouls_total';
   // First goal scorer
   if (k.includes('first goalscorer') || k.includes('first goal scorer') || k.includes('first scorer')) return 'first_goal_scorer';
+  // Last goal scorer
+  if (k.includes('last goalscorer') || k.includes('last goal scorer') || k.includes('last scorer')) return 'last_goal_scorer';
   // Anytime goalscorer
   if (k.includes('anytime') && (k.includes('score') || k.includes('goal'))) return 'anytime_goal_scorer';
+  // Shots on target / total shots
+  if ((k.includes('shot') || k.includes('chute')) && (k.includes('total') || k.includes('target') || k.includes('goal') || k.includes('on goal'))) return 'shots_total';
+  // Team totals (e.g. "team total goals")
+  if (k.includes('team total') || k.includes('total goals home') || k.includes('total goals away')) return 'team_totals';
   // Penalty
   if (k.includes('penalty') || k.includes('pênalti') || k.includes('penalti')) return 'penalty_scored';
   return null; // unknown
@@ -460,14 +466,31 @@ function parseAllMarkets(payload) {
       continue;
     }
 
-    // First Goal Scorer / Anytime
-    if (canonical === 'first_goal_scorer' || canonical === 'anytime_goal_scorer') {
+    // First Goal Scorer / Anytime / Last Goal Scorer
+    if (canonical === 'first_goal_scorer' || canonical === 'anytime_goal_scorer' || canonical === 'last_goal_scorer') {
       if (buckets[canonical]) continue;
       const scorerOutcomes = outcomes.map(o => ({
         outcome: String(o?.name || o?.label || o?.outcome || ''),
         odd: Number(o?.price ?? o?.odd ?? 0),
       })).filter(o => o.odd > 1 && o.outcome).slice(0, 20);
       if (scorerOutcomes.length) buckets[canonical] = scorerOutcomes;
+      continue;
+    }
+
+    // Shots Total / Team Totals (over/under style)
+    if (canonical === 'shots_total' || canonical === 'team_totals') {
+      if (!buckets[canonical]) buckets[canonical] = [];
+      const line = outcomes[0]?.handicap ?? outcomes[0]?.line ?? null;
+      for (const o of outcomes) {
+        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
+        const price = Number(o?.price ?? o?.odd ?? 0);
+        if (price <= 1) continue;
+        const isOver = lbl.includes('over') || lbl.includes('mais');
+        const isUnder = lbl.includes('under') || lbl.includes('menos');
+        if (isOver || isUnder) {
+          buckets[canonical].push({ outcome: isOver ? `Mais ${line ?? ''}`.trim() : `Menos ${line ?? ''}`.trim(), odd: price });
+        }
+      }
       continue;
     }
 
@@ -613,12 +636,29 @@ function parseAllMarkets(payload) {
   }
 
   // Goal Scorers
-  for (const canonical of ['first_goal_scorer', 'anytime_goal_scorer']) {
+  for (const [canonical, name] of [
+    ['first_goal_scorer', 'Primeiro Marcador'],
+    ['last_goal_scorer', 'Último Marcador'],
+    ['anytime_goal_scorer', 'Marca a Qualquer Momento'],
+  ]) {
     const v = buckets[canonical];
     if (!v || !v.length) continue;
     const ocs = v.map(o => ({ outcome: o.outcome, odd: o.odd }));
-    oddsObj[canonical] = { category: MARKET_CATEGORIES[canonical], outcomes: ocs };
-    marketsArr.push({ key: canonical, name: canonical === 'first_goal_scorer' ? 'Primeiro Marcador' : 'Marca a Qualquer Momento', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+    oddsObj[canonical] = { category: MARKET_CATEGORIES[canonical] || 'Mercados de Jogadores', outcomes: ocs };
+    marketsArr.push({ key: canonical, name, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+  }
+
+  // Shots Total / Team Totals
+  for (const [canonical, name] of [
+    ['shots_total', 'Chutes a Gol'],
+    ['team_totals', 'Total por Equipe'],
+  ]) {
+    const v = buckets[canonical];
+    if (!v || !v.length) continue;
+    const ocs = v.filter(o => o.odd > 1).map(o => ({ outcome: o.outcome, odd: o.odd }));
+    if (!ocs.length) continue;
+    oddsObj[canonical] = { category: 'Mercados Estatísticos', outcomes: ocs };
+    marketsArr.push({ key: canonical, name, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
   }
 
   // Penalty Scored
