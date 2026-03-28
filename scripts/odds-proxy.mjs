@@ -22,6 +22,16 @@ const ODDS_API_BASE  = 'https://api.odds-api.io/v3';
 if (!ODDS_API_KEY) console.warn('[proxy] WARNING: ODDS_API_KEY not set');
 else console.log(`[proxy] ODDS_API_KEY: ✓ set | Bookmakers: ${BOOKMAKERS_CSV}`);
 
+// ── Verify bookmaker selection on startup ──────────────────────────────────
+(async () => {
+  if (!ODDS_API_KEY) return;
+  try {
+    const r = await fetch(`${ODDS_API_BASE}/bookmakers/selected?apiKey=${ODDS_API_KEY}`, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json().catch(() => ({}));
+    console.log('[proxy] Current bookmaker selection:', JSON.stringify(j?.bookmakers || j));
+  } catch (e) { console.warn('[proxy] Bookmakers check failed:', e?.message); }
+})();
+
 // ── Simple in-memory cache ─────────────────────────────────────────────────
 const _cache = new Map();
 const cGet = (k) => { const e = _cache.get(k); return e && e.exp > Date.now() ? e.data : null; };

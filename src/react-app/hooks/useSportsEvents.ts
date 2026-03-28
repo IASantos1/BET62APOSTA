@@ -296,7 +296,6 @@ export function useSportsEvents(category: string | null) {
           const preferOdds = (arr: Event[], max: number) => {
             const withOdds = arr.filter(hasPrimaryOdds);
             const withoutOdds = arr.filter((e) => !hasPrimaryOdds(e));
-            if (withOdds.length >= Math.min(20, Math.floor(max / 2))) return withOdds.slice(0, max);
             return [...withOdds, ...withoutOdds].slice(0, max);
           };
           
@@ -352,7 +351,6 @@ export function useSportsEvents(category: string | null) {
             const preferOdds = (arr: Event[], max: number) => {
               const withOdds = arr.filter(hasPrimaryOdds);
               const withoutOdds = arr.filter((e) => !hasPrimaryOdds(e));
-              if (withOdds.length >= Math.min(20, Math.floor(max / 2))) return withOdds.slice(0, max);
               return [...withOdds, ...withoutOdds].slice(0, max);
             };
 
