@@ -352,15 +352,6 @@ const ProfilePage: React.FC = () => {
                 </p>
               </div>
             )}
-            <div className={`p-4 rounded-lg border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <div className="flex items-center justify-center gap-3 mb-4">
-                <button onClick={() => window.open('/wallet', '_blank')} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md font-semibold">Levantamento</button>
-                <button onClick={() => window.open('/deposit', '_blank')} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-semibold">Depósito</button>
-              </div>
-              <div className={`${darkMode ? 'text-gray-300' : 'text-gray-700'} text-sm`}>Use os botões acima para abrir Levantamento (Carteira) e Depósito numa nova aba.</div>
-            </div>
-            
-
             {selectedItem === 'A minha conta' && (
               <div className={`p-4 rounded-lg border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
                 <h2 className={`text-xl font-semibold mb-3 ${darkMode ? 'text-white' : 'text-gray-900'}`}>A minha conta</h2>
@@ -535,7 +526,7 @@ const ProfilePage: React.FC = () => {
                                 <h3 className="font-bold">Pagamentos Seguros</h3>
                             </div>
                             <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                                Todas as transações são processadas por entidades de pagamentos autorizadas e seguras (PayPal, Revolut).
+                                Todas as transações são processadas por entidades de pagamentos autorizadas e seguras (Stripe).
                             </p>
                         </div>
 
@@ -943,7 +934,7 @@ const ProfilePage: React.FC = () => {
                   <div>
                     <h3 className={`${darkMode ? 'text-white' : 'text-gray-900'} font-bold mb-2 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'} pb-1`}>Pagamentos e Tempos</h3>
                     <ul className={`space-y-1 ${darkMode ? 'text-gray-300' : 'text-gray-700'} text-sm`}>
-                      <li>Métodos suportados: PayPal</li>
+                      <li>Métodos suportados: Stripe</li>
                       <li>Levantamentos por IBAN exigem dados completos e validação</li>
                       <li>Tempos de processamento variam por método e verificação</li>
                     </ul>

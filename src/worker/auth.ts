@@ -402,11 +402,6 @@ authRouter.get('/me', async (c) => {
         
         if (!user) return c.json({ success: true, user: null });
 
-        const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development';
-        if (isDev) {
-            user.is_operator = 1;
-        }
-
         return c.json({
             success: true,
             user: {

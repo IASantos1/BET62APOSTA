@@ -115,9 +115,9 @@ const parseLiveEvent = (item: any) => {
         away_team: teams.away.name,
         league: item.league?.name || item.league || '',
         league_name: item.league?.name || item.league || '',
-        home_odd: 0,
-        draw_odd: 0,
-        away_odd: 0,
+        home_odd: Number(h || 0),
+        draw_odd: Number(d || 0),
+        away_odd: Number(a || 0),
         fixture: {
             ...fixture,
             status: fixture?.status || { short: 'LIVE', elapsed: 0, timer: '' }
@@ -137,7 +137,7 @@ export function useLiveFeed(sport?: string) {
   // Poll function
   const fetchLiveEvents = useCallback(async () => {
       try {
-          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1`;
+          const url = `/api/events/by-sport?sports=${sport || 'all'}&include=odds&realtime=1`;
           const data = await apiFetch<any>(url, { cache: 'no-store' });
           
           if (data && Array.isArray(data.live)) {

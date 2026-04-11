@@ -22,6 +22,7 @@ import sports from './sports';
 import { MARKET_CONFIG, MARKET_GROUPS } from './config/marketConfig';
 import { processWithdrawals } from './jobs';
 import { processSettlements } from './services/settlement';
+import { fetchOddsApiMarketsForFixture } from './services/oddsApi';
 
 console.log('[Worker] Starting up...');
 
@@ -351,6 +352,108 @@ app.get('/api/debug/env-check', async (c) => {
 
 // ── WebSocket live feed ───────────────────────────────────────────────
 app.get('/api/live/ws', upgradeWebSocket((_c) => {
+  const c = _c as any;
+  let subscribedOddsId = '';
+  let subscribedOddsRealtime = false;
+  let lastOddsHash = '';
+  let lastFetchAt = 0;
+
+  const normalizeKey = (k: string) => {
+    const s = String(k || '').toLowerCase();
+    if (s.includes('match winner') || s.includes('full time result') || s.includes('1x2') || s.includes('home/away')) return 'h2h';
+    if (s.includes('double chance')) return 'double_chance';
+    if (s.includes('draw no bet')) return 'dnb';
+    if (s.includes('both teams') && s.includes('score')) return 'btts';
+    if (s.includes('asian handicap') || s.includes('handicap') || s.includes('spread')) return 'handicap';
+    if (s.includes('goals over/under') || s.includes('over/under') || s.includes('total goals')) return 'totals';
+    return 'specials';
+  };
+
+  const fetchSoccerOddsApiSports = async (fixtureId: number, apiKey: string) => {
+    const qp = new URLSearchParams();
+    qp.set('fixture', String(fixtureId));
+    const url = `https://v3.football.api-sports.io/odds?${qp.toString()}`;
+    const res = await fetch(url, { headers: { 'x-apisports-key': String(apiKey) }, signal: AbortSignal.timeout(9000) });
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    const response = Array.isArray(data?.response) ? data.response : [];
+    const bestByMarket = new Map<string, Map<string, { label: string; odd: number }>>();
+    for (const item of response) {
+      const bookmakers = Array.isArray(item?.bookmakers) ? item.bookmakers : [];
+      for (const bm of bookmakers) {
+        const bets = Array.isArray(bm?.bets) ? bm.bets : [];
+        for (const bet of bets) {
+          const key = normalizeKey(bet?.name || bet?.id);
+          if (!bestByMarket.has(key)) bestByMarket.set(key, new Map());
+          const best = bestByMarket.get(key)!;
+          const values = Array.isArray(bet?.values) ? bet.values : [];
+          for (const v of values) {
+            const labelRaw = String(v?.value ?? v?.label ?? v?.name ?? '').trim();
+            const odd = Number(v?.odd ?? v?.price ?? 0);
+            if (!labelRaw || !(odd > 1)) continue;
+            const lk = labelRaw.toLowerCase();
+            const prev = best.get(lk);
+            if (!prev || odd > prev.odd) best.set(lk, { label: labelRaw, odd });
+          }
+        }
+      }
+    }
+    const markets: Record<string, any[]> = {};
+    for (const [key, map] of bestByMarket) {
+      const arr = Array.from(map.values()).map((x) => ({ name: x.label, label: x.label, price: x.odd, odd: x.odd }));
+      if (arr.length > 0) markets[key] = arr;
+    }
+    const pick = (lbl: string) => (markets.h2h || []).find((s: any) => String(s?.label || s?.name || '').toLowerCase() === lbl)?.odd || 0;
+    const home_odd = pick('home') || pick('1') || pick('casa') || 0;
+    const draw_odd = pick('draw') || pick('x') || pick('empate') || 0;
+    const away_odd = pick('away') || pick('2') || pick('fora') || 0;
+    return { home_odd, draw_odd, away_odd, markets, updated_at: new Date().toISOString(), provider: 'api-sports' as const };
+  };
+
+  const fetchOddsSnapshot = async () => {
+    const id = subscribedOddsId;
+    if (!id) return null;
+    const row = await c.env.DB
+      .prepare('SELECT sport, league, home_team, away_team, event_date, home_odd, draw_odd, away_odd FROM events WHERE external_event_id = ? OR CAST(id AS TEXT) = ? LIMIT 1')
+      .bind(id, id)
+      .first();
+    if (!row) return null;
+
+    const r: any = row as any;
+    const oddsKey = getOddsApiKey(c.env);
+    const apiKey = getApiSportsKey(c.env);
+    const parts = String(id).includes('_') ? String(id).split('_') : [];
+    const sportPrefix = parts.length >= 2 ? parts[0] : String(r.sport || 'soccer');
+    const rawIdFromParam = parts.length >= 2 ? parts.slice(1).join('_') : String(id);
+
+    if (subscribedOddsRealtime && oddsKey) {
+      const out = await fetchOddsApiMarketsForFixture(
+        oddsKey,
+        { league: String(r.league || ''), home: String(r.home_team || ''), away: String(r.away_team || ''), kickoff: String(r.event_date || ''), sport: String(sportPrefix || 'soccer') },
+        c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
+        'live',
+      );
+      if (out && typeof out === 'object' && (out.home_odd || out.away_odd || Object.keys(out.markets || {}).length > 0)) return out;
+    }
+
+    if (subscribedOddsRealtime && String(sportPrefix || '').toLowerCase() === 'soccer' && apiKey) {
+      const fixtureId = Number(rawIdFromParam);
+      if (Number.isFinite(fixtureId) && fixtureId > 0) {
+        const out = await fetchSoccerOddsApiSports(fixtureId, apiKey).catch(() => null);
+        if (out) return out;
+      }
+    }
+
+    return {
+      home_odd: Number(r.home_odd || 0) || 0,
+      draw_odd: Number(r.draw_odd || 0) || 0,
+      away_odd: Number(r.away_odd || 0) || 0,
+      markets: {},
+      updated_at: new Date().toISOString(),
+      provider: 'db' as const,
+    };
+  };
+
   return {
     onOpen(_evt: unknown, ws: { send: (d: string) => void }) {
       ws.send(JSON.stringify({ type: 'connected', ts: Date.now() }));
@@ -359,6 +462,28 @@ app.get('/api/live/ws', upgradeWebSocket((_c) => {
       try {
         const msg = JSON.parse(evt.data as string);
         if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
+        if (msg.type === 'subscribe_odds') {
+          subscribedOddsId = String(msg.id || '').trim();
+          subscribedOddsRealtime = String(msg.realtime || '0') === '1' || Number(msg.realtime || 0) === 1;
+          lastOddsHash = '';
+          lastFetchAt = 0;
+          ws.send(JSON.stringify({ type: 'subscribed', id: subscribedOddsId, ts: Date.now() }));
+        }
+        if (msg.type === 'tick') {
+          const now = Date.now();
+          if (!subscribedOddsId) return;
+          if (now - lastFetchAt < 900) return;
+          lastFetchAt = now;
+          fetchOddsSnapshot()
+            .then((out: any) => {
+              if (!out) return;
+              const hash = JSON.stringify([out.home_odd, out.draw_odd, out.away_odd, out.provider, Object.keys(out.markets || {}).length]);
+              if (hash === lastOddsHash) return;
+              lastOddsHash = hash;
+              ws.send(JSON.stringify({ type: 'odds', id: subscribedOddsId, ...out, ts: Date.now() }));
+            })
+            .catch(() => void 0);
+        }
       } catch { /* ignore */ }
     },
     onClose() { /* noop */ },

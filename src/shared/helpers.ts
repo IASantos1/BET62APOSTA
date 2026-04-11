@@ -899,6 +899,7 @@ export const getSportIcon = (sport: string) => {
     const map: Record<string, string> = {
         'soccer': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/26bd.svg',
         'basketball': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c0.svg',
+        'nba': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c0.svg',
         'american-football': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c8.svg',
         'american football': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c8.svg',
         'ice-hockey': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3d2.svg',
@@ -919,6 +920,7 @@ export const getSportIcon = (sport: string) => {
     
     // Fuzzy match if direct lookup fails
     if (map[s]) return map[s];
+    if (s.includes('nba')) return map['basketball'];
     if (s.includes('rugby')) return map['rugby'];
     if (s.includes('hockey')) return map['ice-hockey'];
     if (s.includes('football') && s.includes('american')) return map['american-football'];
@@ -940,7 +942,7 @@ export const translateSelection = (selection: string) => {
     return selection;
 };
 
-export const labelOutcome = (market: string, name: string, homeTeam?: string, awayTeam?: string) => {
+export const labelOutcome = (market: string, name: string, homeTeam?: string, awayTeam?: string): string => {
     const safeName = String(name || '');
     const m = String(market || '').toLowerCase();
     const n = safeName.toLowerCase();
@@ -1021,6 +1023,33 @@ export const labelOutcome = (market: string, name: string, homeTeam?: string, aw
     if (m.includes('correct_score') || m.includes('correct score') || m.includes('placar_exato')) {
        // Just ensure formatting is nice if needed, usually it's just "1:0"
        return safeName.replace(/\s+/g, '');
+    }
+
+    if (m.includes('result_btts') || m.includes('resultado_btts') || (m.includes('btts') && m.includes('result'))) {
+      const raw = safeName.replace(/\s+/g, '');
+      const parts = raw.split('/');
+      if (parts.length === 2) {
+        const a: string = labelOutcome('h2h', parts[0], homeTeam, awayTeam);
+        const b: string = labelOutcome('btts', parts[1], homeTeam, awayTeam);
+        return `${a}/${b}`;
+      }
+      return safeName
+        .replace(/home/gi, 'Casa')
+        .replace(/away/gi, 'Fora')
+        .replace(/draw/gi, 'Empate')
+        .replace(/yes/gi, 'Sim')
+        .replace(/no/gi, 'Não');
+    }
+
+    if (m.includes('totals_btts') || (m.includes('btts') && m.includes('total'))) {
+      const raw = safeName.replace(/\s+/g, '');
+      const parts = raw.split('/');
+      if (parts.length === 2) {
+        const t: string = labelOutcome('totals', parts[0], homeTeam, awayTeam).replace('Acima de', 'Acima').replace('Abaixo de', 'Abaixo');
+        const b: string = labelOutcome('btts', parts[1], homeTeam, awayTeam);
+        return `${t}/${b}`;
+      }
+      return safeName;
     }
 
     // Fallback cleanup

@@ -23,6 +23,7 @@ import EventDetails from "./pages/EventDetails";
 import Promotions from "./pages/Promotions";
 import ProfilePage from "./pages/ProfilePage";
 import MyBetsPage from "./pages/MyBetsPage";
+import DepositSuccessPage from "./pages/DepositSuccessPage";
 import { AdminRoute } from './routes/AdminRoute';
 import AdminKycPage from "./pages/AdminKycPage";
 import AdminWithdrawalsPage from "./pages/AdminWithdrawalsPage";
@@ -133,7 +134,7 @@ function AppContent() {
         <Route path="/my-bets" element={<MyBetsPage />} />
         <Route path="/register" element={<HomePage />} />
         <Route path="/login" element={<HomePage />} />
-        <Route path="/deposit-success" element={<h2>Depósito efetuado com sucesso!</h2>} />
+        <Route path="/deposit-success" element={<DepositSuccessPage />} />
         <Route path="/promotions" element={<Promotions />} />
         <Route path="/admin/payouts" element={
           <AdminRoute>

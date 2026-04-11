@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="0.5" stop-color="#111827"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="75%" cy="35%" r="70%">
+      <stop offset="0" stop-color="#1d4ed8" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#1d4ed8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ef4444" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#ef4444" stop-opacity="0.08"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="420" fill="url(#bg)"/>
+  <rect width="1200" height="420" fill="url(#glow)"/>
+  <path d="M0 310 C 220 260, 440 420, 760 320 C 980 250, 1100 280, 1200 220 L1200 420 L0 420 Z" fill="url(#band)"/>
+  <path d="M0 250 C 260 190, 440 330, 760 240 C 980 180, 1100 210, 1200 160" fill="none" stroke="#60a5fa" stroke-width="10" opacity="0.10"/>
+  <g opacity="0.14" stroke="#e5e7eb" stroke-width="4" fill="none">
+    <rect x="720" y="90" width="420" height="240" rx="26"/>
+    <path d="M930 90 V330"/>
+    <path d="M720 210 H1140"/>
+    <circle cx="930" cy="210" r="60"/>
+  </g>
+  <g opacity="0.92">
+    <text x="70" y="185" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="54" font-weight="800" fill="#f8fafc">BARCELONA</text>
+    <text x="70" y="235" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="22" font-weight="600" fill="#e5e7eb" opacity="0.85">Banner</text>
+  </g>
+</svg>

@@ -21,8 +21,6 @@ const topCompetitions: SidebarSection = {
     'Itália - Serie A',
     'Brasil - Série A',
     'Ténis',
-    'Seleções Amigáveis',
-    'Copa do Mundo',
   ],
 };
 
@@ -45,7 +43,7 @@ const sports: SidebarSection = {
 }; 
 
 export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event)[] }) {
-  const { darkMode, selectedCategory, setSelectedCategory, isOperator, showAdminPanel, setShowAdminPanel } = useApp();
+  const { darkMode, selectedCategory, setSelectedCategory } = useApp();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['Top Competições', 'Desportos'])
   );
@@ -366,7 +364,7 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
                       )}
                       <span>
                         {hasFormat 
-                          ? <span>{country} {league ? '-' : ''} {league}</span> 
+                          ? <span>{league || (itemLabel.includes(' - ') ? itemLabel.split(' - ').slice(-1)[0] : itemLabel)}</span>
                           : itemLabel
                         }
                       </span>
@@ -477,104 +475,44 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
                           </div>
                         );
                       })}
-                      {sportName === 'Futebol' && (() => {
-                        const fifaExpanded = expandedSports.has('FIFA');
-                        const uefaExpanded = expandedSports.has('UEFA');
-                        const fifaList: Array<{ label: string; token: string }> = [
-                          { label: 'Copa do Mundo FIFA', token: 'world-cup' },
-                          { label: 'Copa do Mundo Feminina', token: 'womens-world-cup' },
-                          { label: 'FIFA Club World Cup', token: 'club-world-cup' },
-                          { label: 'FIFA Club World Cup 2025', token: 'club-world-cup-2025' },
-                          { label: 'FIFA Intercontinental Cup', token: 'intercontinental-cup' },
-                          { label: 'FIFA Futsal World Cup', token: 'fifa-futsal-world-cup' },
-                          { label: 'FIFA Beach Soccer World Cup', token: 'beach-soccer-world-cup' },
-                        ];
-                        const uefaList: Array<{ label: string; token: string }> = [
-                          { label: 'UEFA Euro', token: 'uefa-euro' },
-                          { label: 'UEFA Nations League', token: 'uefa-nations' },
-                          { label: 'UEFA Champions League', token: 'uefa-champions' },
-                          { label: 'UEFA Europa League', token: 'uefa-europa' },
-                          { label: 'UEFA Europa Conference League', token: 'uefa-conference' },
-                          { label: 'UEFA Super Cup', token: 'uefa-super-cup' },
-                          { label: 'UEFA Youth League', token: 'uefa-youth-league' },
-                          { label: 'UEFA Women’s Euro', token: 'womens-euro' },
-                          { label: 'UEFA Women’s Champions League', token: 'womens-champions-league' },
-                          { label: 'UEFA Futsal Champions League', token: 'uefa-futsal-champions-league' },
-                          { label: 'UEFA Futsal Euro', token: 'uefa-futsal-euro' },
-                        ];
-                        return (
-                          <div className="mt-2 space-y-2">
-                            <div>
-                              <button
-                                onClick={() => {
-                                  setExpandedSports(prev => {
-                                    const s = new Set(prev);
-                                    if (s.has('FIFA')) s.delete('FIFA'); else s.add('FIFA');
-                                    return s;
-                                  });
-                                }}
-                                className={`w-full text-left px-4 py-2 rounded-lg text-sm transition-colors ${
-                                  darkMode
-                                    ? `${fifaExpanded ? 'bg-red-600 text-white' : 'hover:bg-gray-800 text-gray-300 hover:text-white'}`
-                                    : `${fifaExpanded ? 'bg-red-600 text-white' : 'hover:bg-gray-100 text-gray-700 hover:text-gray-900'}`
-                                } ${fifaExpanded ? 'border-l-4 border-red-600' : 'border-l-4 border-transparent'}`}
-                              >
-                                <span className="inline-flex items-center gap-3">
-                                  <svg width={18} height={18} viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#0EA5E9"/><path d="M2 12h20M12 2v20" stroke="#fff" strokeWidth="2"/></svg>
-                                  <span>FIFA</span>
-                                </span>
-                              </button>
-                              {fifaExpanded && (
-                                <div className="pl-3 space-y-1">
-                                  {fifaList.map((it) => (
-                                    <button
-                                      key={it.token}
-                                      onClick={() => setSelectedCategory(it.token)}
-                                      className={`w-full text-left px-3 py-1 rounded-lg text-xs ${darkMode ? 'hover:bg-gray-800 text-gray-300 hover:text-white' : 'hover:bg-gray-100 text-gray-700 hover:text-gray-900'}`}
-                                    >
-                                      {it.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                            <div>
-                              <button
-                                onClick={() => {
-                                  setExpandedSports(prev => {
-                                    const s = new Set(prev);
-                                    if (s.has('UEFA')) s.delete('UEFA'); else s.add('UEFA');
-                                    return s;
-                                  });
-                                }}
-                                className={`w-full text-left px-4 py-2 rounded-lg text-sm transition-colors ${
-                                  darkMode
-                                    ? `${uefaExpanded ? 'bg-red-600 text-white' : 'hover:bg-gray-800 text-gray-300 hover:text-white'}`
-                                    : `${uefaExpanded ? 'bg-red-600 text-white' : 'hover:bg-gray-100 text-gray-700 hover:text-gray-900'}`
-                                } ${uefaExpanded ? 'border-l-4 border-red-600' : 'border-l-4 border-transparent'}`}
-                              >
-                                <span className="inline-flex items-center gap-3">
-                                  <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f1ea-1f1fa.svg" alt="" width={20} height={20} style={{ display: 'inline-block', verticalAlign: 'middle' }} />
-                                  <span>UEFA</span>
-                                </span>
-                              </button>
-                              {uefaExpanded && (
-                                <div className="pl-3 space-y-1">
-                                  {uefaList.map((it) => (
-                                    <button
-                                      key={it.token}
-                                      onClick={() => setSelectedCategory(it.token)}
-                                      className={`w-full text-left px-3 py-1 rounded-lg text-xs ${darkMode ? 'hover:bg-gray-800 text-gray-300 hover:text-white' : 'hover:bg-gray-100 text-gray-700 hover:text-gray-900'}`}
-                                    >
-                                      {it.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
+                      {sportName === 'Futebol' && (
+                        <div className="mt-3">
+                          <div className={`px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-gray-300 bg-gray-800/60' : 'text-gray-600 bg-gray-100'}`}>
+                            Competições Internacionais
                           </div>
-                        );
-                      })()}
+                          <div className="mt-2 space-y-1">
+                            {[
+                              { label: 'UEFA Champions League', league: 'uefa champions league' },
+                              { label: 'UEFA Europa League', league: 'uefa europa league' },
+                              { label: 'UEFA Europa Conference League', league: 'uefa europa conference league' },
+                              { label: 'UEFA Euro', league: 'uefa euro' },
+                              { label: 'UEFA Nations League', league: 'uefa nations league' },
+                              { label: 'Copa do Mundo FIFA', league: 'world cup' },
+                              { label: 'FIFA Intercontinental Cup', league: 'intercontinental cup' },
+                              { label: 'CONMEBOL Libertadores', league: 'libertadores' },
+                              { label: 'CONMEBOL Sudamericana', league: 'sudamericana' },
+                              { label: 'CONMEBOL Recopa', league: 'recopa' },
+                              { label: 'Supercopa', league: 'supercopa' },
+                            ].map((it) => {
+                              const token = `soccer|world|${it.league}`;
+                              const isActiveL = selectedCategory === token;
+                              return (
+                                <button
+                                  key={token}
+                                  onClick={() => setSelectedCategory(token)}
+                                  className={`w-full text-left px-3 py-1 rounded-lg text-xs ${
+                                    darkMode
+                                      ? `${isActiveL ? 'text-red-400 font-bold' : 'hover:bg-gray-800 text-gray-300 hover:text-white'}`
+                                      : `${isActiveL ? 'text-red-600 font-bold' : 'hover:bg-gray-100 text-gray-700 hover:text-gray-900'}`
+                                  }`}
+                                >
+                                  {it.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -611,28 +549,7 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
         {/* removed odds status badge */}
         {renderSection(topCompetitions)} 
         {renderSection(sports)} 
-        {isOperator && (
-          <div className="mt-5 space-y-2">
-            <button
-              onClick={() => setShowAdminPanel(!showAdminPanel)}
-              className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors ${
-                darkMode
-                  ? 'bg-gray-800 hover:bg-gray-750 text-white'
-                  : 'bg-gray-100 hover:bg-gray-200 text-gray-900'
-              }`}
-            >
-              <span className="font-semibold text-sm flex items-center gap-2">
-                <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/2699.svg" alt="" aria-hidden={true} width={20} height={20} style={{ display: 'inline-block', verticalAlign: 'middle' }} />
-                Admin
-              </span>
-              {showAdminPanel ? (
-                <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f53d.svg" alt="" aria-hidden={true} width={20} height={20} style={{ display: 'inline-block', verticalAlign: 'middle' }} />
-              ) : (
-                <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/25b6.svg" alt="" aria-hidden={true} width={20} height={20} style={{ display: 'inline-block', verticalAlign: 'middle' }} />
-              )}
-            </button>
-          </div>
-        )}
+        
       </div>
 
       {/* Download App Button */}

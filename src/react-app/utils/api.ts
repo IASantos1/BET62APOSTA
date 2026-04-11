@@ -14,7 +14,7 @@ function resolveApiBase() {
       return LOCAL_FALLBACK_BASE;
     }
     if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
-    return REMOTE_FALLBACK_BASE;
+    return window.location.origin;
   }
   if (raw && raw.trim() !== '') return raw.replace(/\/$/, '');
   return REMOTE_FALLBACK_BASE;
@@ -22,6 +22,12 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 console.log('[API] Base resolved to:', API_BASE); // DEBUG
+export const WS_BASE = (() => {
+  const b = String(API_BASE || '').trim();
+  if (b.startsWith('https://')) return 'wss://' + b.slice('https://'.length);
+  if (b.startsWith('http://')) return 'ws://' + b.slice('http://'.length);
+  return b;
+})();
 const __api_cache = new Map<string, any>();
 const __api_cache_ts = new Map<string, number>();
 const __api_inflight = new Map<string, Promise<any>>();
@@ -166,7 +172,9 @@ export async function apiFetch<T = any>(
     // Improved Network Error Regex
     const isConn = /ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|NetworkError|ERR_ABORTED|Failed to fetch/i.test(msg);
     
-    const allowRemoteFallback = String(import.meta.env.VITE_REMOTE_FALLBACK ?? '1') === '1';
+    const allowRemoteFallback =
+      (typeof window === 'undefined' ? false : (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) &&
+      String(import.meta.env.VITE_REMOTE_FALLBACK ?? '0') === '1';
     if (isConn && allowRemoteFallback && typeof input === 'string' && input.startsWith('/')) {
       try {
         const fallbackUrl = `${REMOTE_FALLBACK_BASE}${input}`;

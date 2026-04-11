@@ -1,4 +1,4 @@
-const CACHE_STATIC = 'betarena-static-v1'
+const CACHE_STATIC = 'betarena-static-v3'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -19,11 +19,12 @@ const isAsset = (url) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request
   const url = new URL(req.url)
-  if (req.method !== 'GET') return
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(fetch(req))
     return
   }
+  if (req.method !== 'GET') return
+  if (url.origin !== self.location.origin) return
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).catch(async () => {

@@ -43,6 +43,14 @@ coverage/
 logs/
 *.log
 
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.Python
+venv/
+.venv/
+
 # Database
 *.sqlite
 *.db
@@ -51,3 +59,4 @@ tmp_*
 temp_*
 worker_output.txt
 support.status
+.vercel

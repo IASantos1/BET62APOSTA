@@ -49,6 +49,7 @@ export function BannerCarousel() {
   const { addToBetSlip, addNotification } = useApp();
   const [banners, setBanners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeIndex, setActiveIndex] = useState(0);
   const fallbackBanners = useMemo(() => ([
     {
       id: 'promo-1',
@@ -94,15 +95,30 @@ export function BannerCarousel() {
   const getBgSvg = (sport: string) => {
     const s = String(sport || '').toLowerCase();
     if (s.includes('basket')) {
-      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#0b0f1a"/><g opacity="0.22" stroke="#9ca3af" stroke-width="6" fill="none"><rect x="80" y="60" width="1040" height="480" rx="20"/><line x1="600" y1="60" x2="600" y2="540"/><circle cx="600" cy="300" r="90"/><rect x="80" y="190" width="180" height="220" rx="12"/><rect x="940" y="190" width="180" height="220" rx="12"/><circle cx="170" cy="300" r="55"/><circle cx="1030" cy="300" r="55"/></g><g opacity="0.10" fill="#ffd700"><circle cx="180" cy="100" r="4"/><circle cx="1020" cy="520" r="3"/><circle cx="980" cy="110" r="2"/></g></svg>`;
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#c9803a"/><g opacity="0.26" stroke="#fef3c7" stroke-width="6" fill="none"><rect x="80" y="60" width="1040" height="480" rx="20"/><line x1="600" y1="60" x2="600" y2="540"/><circle cx="600" cy="300" r="90"/><rect x="80" y="190" width="180" height="220" rx="12"/><rect x="940" y="190" width="180" height="220" rx="12"/><circle cx="170" cy="300" r="55"/><circle cx="1030" cy="300" r="55"/></g><g opacity="0.10" fill="#111827"><circle cx="180" cy="100" r="4"/><circle cx="1020" cy="520" r="3"/><circle cx="980" cy="110" r="2"/></g></svg>`;
     }
     if (s.includes('tennis')) {
-      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#0b0f1a"/><g opacity="0.22" stroke="#9ca3af" stroke-width="6" fill="none"><rect x="120" y="80" width="960" height="440" rx="20"/><line x1="600" y1="80" x2="600" y2="520"/><line x1="120" y1="300" x2="1080" y2="300"/><rect x="220" y="150" width="760" height="300" rx="16"/><line x1="600" y1="150" x2="600" y2="450"/></g><g opacity="0.10" fill="#ffd700"><circle cx="220" cy="110" r="4"/><circle cx="980" cy="500" r="3"/><circle cx="930" cy="120" r="2"/></g></svg>`;
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#043b4a"/><g opacity="0.26" stroke="#a7f3d0" stroke-width="6" fill="none"><rect x="120" y="80" width="960" height="440" rx="20"/><line x1="600" y1="80" x2="600" y2="520"/><line x1="120" y1="300" x2="1080" y2="300"/><rect x="220" y="150" width="760" height="300" rx="16"/><line x1="600" y1="150" x2="600" y2="450"/></g><g opacity="0.10" fill="#fff"><circle cx="220" cy="110" r="4"/><circle cx="980" cy="500" r="3"/><circle cx="930" cy="120" r="2"/></g></svg>`;
     }
-    if (s.includes('soccer') || s.includes('football')) {
-      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#0b0f1a"/><g opacity="0.22" stroke="#9ca3af" stroke-width="6" fill="none"><rect x="70" y="70" width="1060" height="460" rx="20"/><line x1="600" y1="70" x2="600" y2="530"/><circle cx="600" cy="300" r="85"/><rect x="70" y="200" width="160" height="200" rx="12"/><rect x="970" y="200" width="160" height="200" rx="12"/><rect x="70" y="240" width="70" height="120" rx="10"/><rect x="1060" y="240" width="70" height="120" rx="10"/></g><g opacity="0.10" fill="#ffd700"><circle cx="140" cy="120" r="4"/><circle cx="1050" cy="480" r="3"/><circle cx="980" cy="120" r="2"/></g></svg>`;
+    if (s.includes('ice') && s.includes('hockey')) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#e0f2fe"/><g opacity="0.26" stroke="#60a5fa" stroke-width="6" fill="none"><rect x="90" y="70" width="1020" height="460" rx="120"/><line x1="600" y1="70" x2="600" y2="530"/><circle cx="360" cy="300" r="70"/><circle cx="840" cy="300" r="70"/><line x1="260" y1="70" x2="260" y2="530"/><line x1="940" y1="70" x2="940" y2="530"/></g><g opacity="0.10" fill="#1d4ed8"><circle cx="180" cy="100" r="4"/><circle cx="1020" cy="520" r="3"/><circle cx="980" cy="110" r="2"/></g></svg>`;
     }
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#0b0f1a"/><g opacity="0.18" stroke="#9ca3af" stroke-width="6" fill="none"><rect x="90" y="90" width="1020" height="420" rx="22"/><line x1="90" y1="300" x2="1110" y2="300"/><line x1="600" y1="90" x2="600" y2="510"/></g><g opacity="0.10" fill="#ffd700"><circle cx="220" cy="130" r="4"/><circle cx="980" cy="470" r="3"/><circle cx="940" cy="140" r="2"/></g></svg>`;
+    if (s.includes('american') && s.includes('football')) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#052e16"/><g opacity="0.20" stroke="#bbf7d0" stroke-width="6" fill="none"><rect x="70" y="90" width="1060" height="420" rx="22"/><line x1="170" y1="90" x2="170" y2="510"/><line x1="270" y1="90" x2="270" y2="510"/><line x1="370" y1="90" x2="370" y2="510"/><line x1="470" y1="90" x2="470" y2="510"/><line x1="570" y1="90" x2="570" y2="510"/><line x1="670" y1="90" x2="670" y2="510"/><line x1="770" y1="90" x2="770" y2="510"/><line x1="870" y1="90" x2="870" y2="510"/><line x1="970" y1="90" x2="970" y2="510"/><line x1="1070" y1="90" x2="1070" y2="510"/></g><g opacity="0.10" fill="#fff"><circle cx="220" cy="130" r="4"/><circle cx="980" cy="470" r="3"/><circle cx="940" cy="140" r="2"/></g></svg>`;
+    }
+    if (s.includes('baseball')) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#0f172a"/><g opacity="0.24" stroke="#fca5a5" stroke-width="6" fill="none"><path d="M600 120 L920 300 L600 480 L280 300 Z"/><circle cx="600" cy="300" r="120"/><rect x="560" y="260" width="80" height="80" rx="10"/></g><g opacity="0.10" fill="#fff"><circle cx="220" cy="130" r="4"/><circle cx="980" cy="470" r="3"/><circle cx="940" cy="140" r="2"/></g></svg>`;
+    }
+    if (s.includes('volley')) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#1a0b2b"/><g opacity="0.24" stroke="#c4b5fd" stroke-width="6" fill="none"><rect x="110" y="90" width="980" height="420" rx="22"/><line x1="600" y1="90" x2="600" y2="510"/><line x1="600" y1="150" x2="600" y2="450"/><line x1="110" y1="300" x2="1090" y2="300"/></g><g opacity="0.10" fill="#fff"><circle cx="220" cy="130" r="4"/><circle cx="980" cy="470" r="3"/><circle cx="940" cy="140" r="2"/></g></svg>`;
+    }
+    if (s.includes('mma') || s.includes('ufc')) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#140b0b"/><g opacity="0.24" stroke="#fecaca" stroke-width="6" fill="none"><path d="M400 110 L800 110 L1020 300 L800 490 L400 490 L180 300 Z"/><circle cx="600" cy="300" r="90"/></g><g opacity="0.10" fill="#fff"><circle cx="220" cy="130" r="4"/><circle cx="980" cy="470" r="3"/><circle cx="940" cy="140" r="2"/></g></svg>`;
+    }
+    if (s.includes('soccer') || (s.includes('football') && !s.includes('american'))) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#0a8a2a"/><g opacity="0.22" stroke="#ffffff" stroke-width="6" fill="none"><rect x="70" y="70" width="1060" height="460" rx="20"/><line x1="600" y1="70" x2="600" y2="530"/><circle cx="600" cy="300" r="85"/><rect x="70" y="200" width="160" height="200" rx="12"/><rect x="970" y="200" width="160" height="200" rx="12"/><rect x="70" y="240" width="70" height="120" rx="10"/><rect x="1060" y="240" width="70" height="120" rx="10"/></g><g opacity="0.10" fill="#14532d"><circle cx="140" cy="120" r="4"/><circle cx="1050" cy="480" r="3"/><circle cx="980" cy="120" r="2"/></g></svg>`;
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#0b0f1a"/><g opacity="0.18" stroke="#9ca3af" stroke-width="6" fill="none"><rect x="90" y="90" width="1020" height="420" rx="22"/><line x1="90" y1="300" x2="1110" y2="300"/><line x1="600" y1="90" x2="600" y2="510"/></g><g opacity="0.10" fill="#fff"><circle cx="220" cy="130" r="4"/><circle cx="980" cy="470" r="3"/><circle cx="940" cy="140" r="2"/></g></svg>`;
   };
 
   // FETCH DATA
@@ -110,14 +126,17 @@ export function BannerCarousel() {
     const loadBanners = async () => {
       try {
         const bySport = await apiFetch<any>('/api/events/by-sport?sports=all&include=odds&realtime=0', { cache: 'no-store' });
-        const pre = Array.isArray(bySport?.pregame) ? bySport.pregame : [];
         const live = Array.isArray(bySport?.live) ? bySport.live : [];
-        const data = pre.length > 0 ? pre : (Array.isArray(live) ? live : []);
+        const pre = Array.isArray(bySport?.pregame) ? bySport.pregame : [];
+        const usingLive = live.length > 0;
+        const data = usingLive ? live : pre;
 
         if (Array.isArray(data) && data.length > 0) {
           const validData = data.filter((evt: any) => {
-            const status = evt.status || evt.fixture?.status?.short;
-            if (['FT', 'AET', 'PEN', 'Finished'].includes(status)) return false;
+            const st = evt.status;
+            const status = typeof st === 'string' ? st : (st?.short || st?.code || '');
+            const statusShort = String(status || evt.fixture?.status?.short || '').trim();
+            if (['FT', 'AET', 'PEN', 'Finished'].includes(statusShort)) return false;
 
             const rawDate = evt.event_date || evt.fixture?.date;
             if (!rawDate) return false;
@@ -133,10 +152,10 @@ export function BannerCarousel() {
             }
 
             const eventTime = dAdj.getTime();
-            const isLive = status === 'live' || ['1H','2H','HT','ET','P','LIVE'].includes(status) || evt.is_live === 1;
-            if (pre.length > 0 && isLive) return false;
+            const isLive = statusShort === 'live' || ['1H','2H','HT','ET','P','LIVE'].includes(statusShort) || evt.is_live === 1;
+            if (!usingLive && isLive) return false;
 
-            if (pre.length > 0 && eventTime <= now.getTime()) return false;
+            if (!usingLive && eventTime <= now.getTime()) return false;
 
             const endWindow = now.getTime() + 7 * 24 * 60 * 60 * 1000;
             if (eventTime > endWindow) return false;
@@ -157,14 +176,22 @@ export function BannerCarousel() {
               eventDate = new Date(baseDate);
               eventDate.setFullYear(now.getFullYear());
             }
-            const timeStr = `${eventDate.toLocaleDateString('pt-PT', { weekday: 'short' }).toUpperCase()} • ${eventDate.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}`;
+            const elapsed = Number(evt.elapsed || (evt?.status as any)?.elapsed || 0);
+            const timer = String(evt.timer || evt?.fixture?.status?.timer || '').trim();
+            const isLive = Number(evt.is_live || 0) === 1;
+            const timeStr = isLive
+              ? `AO VIVO${timer ? ` • ${timer}` : (elapsed > 0 ? ` • ${elapsed}'` : '')}`
+              : `${eventDate.toLocaleDateString('pt-PT', { weekday: 'short' }).toUpperCase()} • ${eventDate.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}`;
+
+            const hs = (evt?.goals?.home ?? evt?.score?.home ?? 0);
+            const as = (evt?.goals?.away ?? evt?.score?.away ?? 0);
+            const score = isLive ? `${typeof hs === 'object' ? (hs?.total ?? hs?.score ?? hs?.current ?? 0) : hs}-${typeof as === 'object' ? (as?.total ?? as?.score ?? as?.current ?? 0) : as}` : '';
 
             const homeOdd = evt.home_odd || evt.odds?.home_odd || 0;
             const drawOdd = evt.draw_odd || evt.odds?.draw_odd || 0;
             const awayOdd = evt.away_odd || evt.odds?.away_odd || 0;
 
-            const hasBoost = evt.odd_boost || (Math.random() > 0.8);
-            const homeOld = hasBoost ? (parseFloat(homeOdd) * 0.9).toFixed(2) : null;
+            const homeOld = null;
 
             const homeLogo =
               evt.home_team_logo ||
@@ -184,12 +211,17 @@ export function BannerCarousel() {
               home: evt.home_team,
               away: evt.away_team,
               time: timeStr,
-              live: Number(evt.is_live || 0) === 1,
+              live: isLive,
+              timer,
+              score,
               odds: {
                 homeOld: homeOld,
                 home: homeOdd,
                 draw: drawOdd,
-                away: awayOdd
+                away: awayOdd,
+                homeBook: String(evt.home_odd_bookmaker || ''),
+                drawBook: String(evt.draw_odd_bookmaker || ''),
+                awayBook: String(evt.away_odd_bookmaker || ''),
               },
               league: evt.league || 'Destaque',
               homeLogo,
@@ -197,7 +229,9 @@ export function BannerCarousel() {
               sport,
             };
           });
-          setBanners(mapped.slice(0, 3));
+          const onlyLive = mapped.filter((m: any) => m.live);
+          const top = onlyLive.length > 0 ? onlyLive.slice(0, 6) : mapped.slice(0, 6);
+          setBanners(top);
         }
       } catch (err) {
         // console.error("Failed to load featured games", err);
@@ -210,8 +244,16 @@ export function BannerCarousel() {
     loadBanners();
   }, []);
 
-  if (loading) return null;
   const viewBanners = banners.length > 0 ? banners : fallbackBanners;
+  const displayBanners = viewBanners.length > 0 ? [viewBanners[activeIndex % viewBanners.length]] : viewBanners;
+
+  useEffect(() => {
+    if (viewBanners.length <= 1) return;
+    const t = setInterval(() => setActiveIndex((i) => (i + 1) % viewBanners.length), 6000);
+    return () => clearInterval(t);
+  }, [viewBanners.length]);
+
+  if (loading) return null;
 
   const handleBet = (banner: any, selection: string, odd: string) => {
     const price = parseFloat(odd);
@@ -225,413 +267,95 @@ export function BannerCarousel() {
       odd: price,
       stake: 0,
       league: banner.league,
-      sport: "soccer"
+      sport: banner.sport || "soccer"
     });
     
     addNotification({ type: 'success', message: 'Adicionado ao boletim!' });
   };
 
+  const featured = displayBanners[0];
+  const hasDraw = featured ? Number(featured?.odds?.draw || 0) > 0 : false;
+  const scoreText = featured?.live && featured?.score ? String(featured.score) : '';
+
   return (
     <>
-      <style>{`
-        .carousel { 
-          position: relative; 
-          width: 100%;
-          max-width: 1200px; 
-          margin: auto; 
-          padding: 5px 0; 
-          text-align: center; 
-        } 
-        
-        .carousel-track {
-          display: flex;
-          gap: 10px;
-          justify-content: center;
-          width: 100%;
-        }
-
-        /* BANNER */ 
-        .banner { 
-          position: relative;
-          overflow: hidden;
-          flex: 1;
-          background: linear-gradient(135deg, #0b0f1a 40%, #1f2937 100%); 
-          border: 1px solid rgba(156, 163, 175, 0.35); 
-          color: #fff; 
-          padding: 16px 12px; 
-          border-radius: 6px; 
-          min-height: 180px; 
-          box-shadow: 
-            0 0 15px rgba(148, 163, 184, 0.14), 
-            0 10px 30px rgba(0, 0, 0, 0.8); 
-          transition: all 0.5s ease;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
-        } 
-
-        .banner-bg {
-          position: absolute;
-          inset: 0;
-          opacity: 0.55;
-          background-size: cover;
-          background-position: center;
-          filter: blur(0px);
-          pointer-events: none;
-        }
-
-        .banner-watermark {
-          position: absolute;
-          inset: 0;
-          display: flex;
-          align-items: center;
-          justify-content: flex-start;
-          padding-left: 14px;
-          opacity: 0.08;
-          pointer-events: none;
-        }
-
-        .banner-watermark img {
-          width: 140px;
-          height: 140px;
-          object-fit: contain;
-        }
-
-        /* EFEITO DE RAIO (SHINE) */
-        .banner::after {
-          content: "";
-          position: absolute;
-          top: 0;
-          left: -150%;
-          width: 100%;
-          height: 100%;
-          background: linear-gradient(
-            90deg, 
-            transparent, 
-            rgba(255, 255, 255, 0.2), 
-            transparent
-          );
-          transform: skewX(-20deg);
-          animation: ray-anim 3s infinite;
-          pointer-events: none;
-        }
-
-        @keyframes ray-anim {
-          0% { left: -150%; }
-          50% { left: 150%; }
-          100% { left: 150%; }
-        } 
-        
-        /* BADGES */ 
-        .badges { 
-          display: flex; 
-          gap: 6px; 
-          justify-content: center; 
-          margin-bottom: 4px; 
-        } 
-        
-        .live-blink { 
-          background: #dc2626; 
-          padding: 2px 8px; 
-          border-radius: 999px; 
-          font-weight: 800; 
-          font-size: 9px;
-          animation: blink 1.2s infinite; 
-        } 
-        
-        @keyframes blink { 
-          0% { box-shadow: 0 0 0 rgba(220,38,38,.8); } 
-          50% { box-shadow: 0 0 10px rgba(220,38,38,.8); } 
-          100% { box-shadow: 0 0 0 rgba(220,38,38,.8); } 
-        } 
-        
-        .boost { 
-          background: linear-gradient(90deg, #22c55e, #16a34a); 
-          color: #020617; 
-          padding: 2px 8px; 
-          border-radius: 999px; 
-          font-weight: 800; 
-          font-size: 9px;
-          box-shadow: 0 0 10px rgba(34,197,94,.8); 
-        } 
-        
-        /* TÍTULO */ 
-        .banner h2 { 
-          font-size: 17px; 
-          font-weight: 800; 
-          margin: 6px 0 4px; 
-          text-transform: uppercase; 
-          line-height: 1.1;
-        } 
-        
-        .banner p { 
-          color: #9ca3af; 
-          font-size: 10px;
-        } 
-
-        .team-logos {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 10px;
-          margin-top: 4px;
-        }
-
-        .team-logo {
-          width: 34px;
-          height: 34px;
-          border-radius: 999px;
-          background: rgba(15,23,42,0.9);
-          padding: 3px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 0 10px rgba(15,23,42,0.8);
-        }
-
-        .team-logo img {
-          width: 100%;
-          height: 100%;
-          object-fit: contain;
-        }
-
-        .team-vs {
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 0.06em;
-          color: #e5e7eb;
-        }
-        
-        /* ODDS */ 
-        .odds { 
-          display: flex; 
-          gap: 6px; 
-          margin: 10px 0 0; 
-        } 
-        
-        .odd-btn { 
-          flex: 1; 
-          background: rgba(2, 6, 23, 0.7); 
-          border: 1px solid rgba(156, 163, 175, 0.35); 
-          padding: 8px 6px; 
-          border-radius: 4px; 
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          transition: all 0.2s;
-          min-height: 48px; /* Standardize height */
-        }  
-
-        .odd-btn:hover {
-          background: rgba(148, 163, 184, 0.10);
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(148, 163, 184, 0.15);
-        }
-
-        .odd-btn:active {
-          transform: translateY(0);
-        }
-        
-        .odd-btn span { 
-          font-size: 9px; 
-          color: #9ca3af; 
-          margin-bottom: 1px;
-        } 
-
-        .odds-row {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-        }
-        
-        .old-odd { 
-          display: block; 
-          font-size: 9px; 
-          text-decoration: line-through; 
-          color: #9ca3af; 
-          margin-bottom: 0;
-        } 
-        
-        .odd-btn b { 
-          display: block; 
-          font-size: 13px; 
-        } 
-        
-        .boosted { 
-          color: #22c55e; 
-          font-size: 14px !important; 
-          text-shadow: 0 0 8px rgba(34,197,94,.9); 
-          animation: glow 1.5s infinite; 
-        } 
-        
-        @keyframes glow { 
-          0% { text-shadow: 0 0 4px rgba(34,197,94,.6); } 
-          50% { text-shadow: 0 0 12px rgba(34,197,94,1); } 
-          100% { text-shadow: 0 0 4px rgba(34,197,94,.6); } 
-        } 
-        
-        /* MOBILE */ 
-        @media (max-width: 768px) { 
-          .carousel-track {
-            display: flex;
-            flex-direction: row;
-            overflow-x: auto;
-            scroll-snap-type: x mandatory;
-            justify-content: flex-start; /* Alinha à esquerda */
-            padding-bottom: 0;
-            -webkit-overflow-scrolling: touch;
-            gap: 2%; /* Espaçamento pequeno */
-          }
-          
-          /* Hide Scrollbar */
-          .carousel-track::-webkit-scrollbar {
-            display: none;
-          }
-          .carousel-track {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-          }
-
-          .banner { 
-            flex: 0 0 32%; /* 3 banners visíveis (32% * 3 + gaps ~= 100%) */
-            scroll-snap-align: start; /* Alinha no início */
-            min-width: 0; /* Permite encolher abaixo do conteúdo */
-            margin-right: 0;
-            padding: 8px 4px; 
-            min-height: 140px;
-          } 
-        
-          .banner h2 { 
-            font-size: 9px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            margin: 4px 0 2px;
-          }
-
-          .banner p {
-            font-size: 8px;
-            margin-bottom: 4px;
-          }
-
-          .team-logo {
-            width: 24px;
-            height: 24px;
-            padding: 1px;
-          }
-
-          .team-vs {
-            font-size: 8px;
-          }
-          
-          .badges {
-            gap: 2px;
-            margin-bottom: 2px;
-          }
-          
-          .live-blink, .boost {
-            font-size: 7px;
-            padding: 1px 4px;
-          }
-
-          .odds {
-            gap: 2px;
-            margin-top: 4px;
-          }
-
-          .odd-btn {
-            padding: 4px 1px;
-            min-height: 32px;
-            border-radius: 3px;
-          }
-
-          .odd-btn span {
-            font-size: 7px;
-          }
-
-          .odd-btn b {
-            font-size: 9px;
-          }
-          
-          .old-odd {
-            font-size: 7px;
-          }
-          
-          .boosted {
-            font-size: 10px !important;
-          }
-        } 
-      `}</style>
-
-      <section 
-        className="carousel select-none" 
-      > 
-        {/* BANNERS TRACK */}
-        <div className="carousel-track">
-          {viewBanners.map((banner, i) => (
-            <div key={banner.id ?? i} className="banner"> 
-              <div className="banner-bg" style={{ backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(getBgSvg(banner.sport))}")` }} />
-              {banner.homeLogo && (
-                <div className="banner-watermark">
-                  <img src={banner.homeLogo} alt="" />
-                </div>
-              )}
-              <div className="badges"> 
-                {banner.live && <span className="live-blink">AO VIVO</span>} 
-                {banner.odds.homeOld && <span className="boost">ODD BOOST</span>} 
-              </div> 
-
-              {(banner.homeLogo || banner.awayLogo) && (
-                <div className="team-logos">
-                  {banner.homeLogo && (
-                    <div className="team-logo">
-                      <img src={banner.homeLogo} alt={banner.home || 'Equipa da casa'} />
-                    </div>
-                  )}
-                  <span className="team-vs">VS</span>
-                  {banner.awayLogo && (
-                    <div className="team-logo">
-                      <img src={banner.awayLogo} alt={banner.away || 'Equipa de fora'} />
-                    </div>
-                  )}
-                </div>
-              )}
-    
-              <h2>{banner.title}</h2> 
-              <p>{banner.time}</p> 
-    
-              <div className="odds"> 
-                <div className="odd-btn" onClick={() => handleBet(banner, '1', banner.odds.home)}> 
-                  <span>1</span> 
-                  <div className="odds-row">
-                    {banner.odds.homeOld && ( 
-                      <small className="old-odd">{banner.odds.homeOld}</small> 
-                    )} 
-                    <b className={banner.odds.homeOld ? "boosted" : ""}> 
-                      {Number(banner.odds.home) > 0 ? banner.odds.home : '—'} 
-                    </b> 
-                  </div>
-                </div> 
-    
-                {Number(banner.odds.draw) > 0 && (
-                  <div className="odd-btn" onClick={() => handleBet(banner, 'X', banner.odds.draw)}> 
-                    <span>X</span> 
-                    <b>{banner.odds.draw}</b> 
-                  </div> 
+      <section className="w-full max-w-6xl mx-auto px-3 sm:px-4 select-none">
+        <div className="relative overflow-hidden rounded-2xl border border-gray-700/50 bg-gradient-to-br from-gray-950 via-slate-900 to-gray-900 shadow-2xl">
+          <div
+            className="absolute inset-0 opacity-30"
+            style={{ backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(getBgSvg(featured?.sport || ''))}")`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+          />
+          <div className="relative p-4 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="text-xs font-bold uppercase tracking-wider text-gray-300 truncate">{featured?.league || 'Destaque'}</div>
+                {featured?.live && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white">
+                    AO VIVO
+                    {featured?.timer ? <span className="opacity-90">{String(featured.timer)}</span> : null}
+                  </span>
                 )}
-    
-                <div className="odd-btn" onClick={() => handleBet(banner, '2', banner.odds.away)}> 
-                  <span>2</span> 
-                  <b>{Number(banner.odds.away) > 0 ? banner.odds.away : '—'}</b> 
-                </div> 
-              </div> 
-            </div> 
-          ))}
+              </div>
+              <div className="text-xs text-gray-300 font-semibold">{featured?.time}</div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-12 h-12 rounded-full bg-black/30 border border-white/10 flex items-center justify-center overflow-hidden">
+                  {featured?.homeLogo ? <img src={featured.homeLogo} alt={featured.home} className="w-10 h-10 object-contain" /> : null}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-base sm:text-lg font-black text-white truncate">{featured?.home}</div>
+                  <div className="text-xs text-gray-300 truncate">{featured?.away}</div>
+                </div>
+              </div>
+
+              <div className="text-center shrink-0">
+                <div className="text-2xl sm:text-4xl font-black text-white tabular-nums">
+                  {featured?.live ? (scoreText || '0-0') : 'VS'}
+                </div>
+                <div className="text-xs text-gray-300 font-semibold">{featured?.sport ? String(featured.sport).toUpperCase() : ''}</div>
+              </div>
+
+              <div className="flex items-center gap-3 min-w-0 justify-end">
+                <div className="min-w-0 text-right">
+                  <div className="text-base sm:text-lg font-black text-white truncate">{featured?.away}</div>
+                  <div className="text-xs text-gray-300 truncate">{featured?.home}</div>
+                </div>
+                <div className="w-12 h-12 rounded-full bg-black/30 border border-white/10 flex items-center justify-center overflow-hidden">
+                  {featured?.awayLogo ? <img src={featured.awayLogo} alt={featured.away} className="w-10 h-10 object-contain" /> : null}
+                </div>
+              </div>
+            </div>
+
+            <div className={`mt-4 grid gap-2 ${hasDraw ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              <button
+                className="rounded-xl bg-black/40 border border-white/10 hover:bg-black/55 transition-colors p-3 text-left"
+                onClick={() => handleBet(featured, '1', featured?.odds?.home)}
+              >
+                <div className="text-[10px] text-gray-300 font-bold uppercase">1</div>
+                <div className="text-lg font-black text-white">{Number(featured?.odds?.home || 0) > 0 ? featured.odds.home : '—'}</div>
+              </button>
+              {hasDraw && (
+                <button
+                  className="rounded-xl bg-black/40 border border-white/10 hover:bg-black/55 transition-colors p-3 text-left"
+                  onClick={() => handleBet(featured, 'X', featured?.odds?.draw)}
+                >
+                  <div className="text-[10px] text-gray-300 font-bold uppercase">X</div>
+                  <div className="text-lg font-black text-white">{Number(featured?.odds?.draw || 0) > 0 ? featured.odds.draw : '—'}</div>
+                </button>
+              )}
+              <button
+                className="rounded-xl bg-black/40 border border-white/10 hover:bg-black/55 transition-colors p-3 text-left"
+                onClick={() => handleBet(featured, '2', featured?.odds?.away)}
+              >
+                <div className="text-[10px] text-gray-300 font-bold uppercase">2</div>
+                <div className="text-lg font-black text-white">{Number(featured?.odds?.away || 0) > 0 ? featured.odds.away : '—'}</div>
+              </button>
+            </div>
+          </div>
         </div>
-      </section> 
+      </section>
     </>
   );
 }

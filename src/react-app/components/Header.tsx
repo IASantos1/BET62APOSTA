@@ -2,7 +2,7 @@ import { useApp } from '@/react-app/contexts/AppContext';
 import { apiFetch } from '@/react-app/utils/api';
 import { Link, NavLink } from "react-router-dom";
 import { useEffect, useState, useMemo } from 'react';
-import { NotepadText } from 'lucide-react';
+import { NotepadText, Plus, User } from 'lucide-react';
 
 export function Header() {
   const { darkMode, user, selfExclude, selfExcludeUntil, isOperator, showMobileSidebar, setShowMobileSidebar, openAuthModal, setSelectedCategory, showDashboard, setShowDashboard } = useApp();
@@ -30,7 +30,12 @@ export function Header() {
       }
     };
     loadBalance();
-    return () => { alive = false; };
+    const onRefresh = () => { void loadBalance(); };
+    try { window.addEventListener('wallet:refresh', onRefresh as any); } catch { void 0; }
+    return () => {
+      alive = false;
+      try { window.removeEventListener('wallet:refresh', onRefresh as any); } catch { void 0; }
+    };
   }, [user]);
 
   useEffect(() => {
@@ -144,20 +149,24 @@ export function Header() {
                     <div className={`px-2 py-1 md:px-3 md:py-2 rounded-md border text-xs md:text-sm ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-gray-900'}`}>
                       €{eurBalance !== null ? eurBalance.toFixed(2) : '0.00'}
                     </div>
-                    <div className={`px-2 py-1 md:px-3 md:py-2 rounded-md border text-xs md:text-sm ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-gray-900'}`}>
-                      <span className={`${darkMode ? 'bg-red-700 text-white' : 'bg-red-600 text-white'} inline-flex items-center justify-center w-4 h-4 md:w-5 md:h-5 rounded-full text-[10px] md:text-xs font-bold mr-2`}>F</span>
-                      €{freebets !== null ? freebets.toFixed(2) : '0.00'}
+                    <div className={`px-2 py-1 md:px-3 md:py-2 rounded-md border text-xs md:text-sm ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-gray-900'} flex items-center gap-2 whitespace-nowrap`}>
+                      <span className={`${darkMode ? 'bg-red-700 text-white' : 'bg-red-600 text-white'} inline-flex items-center justify-center w-4 h-4 md:w-5 md:h-5 rounded-full text-[10px] md:text-xs font-bold`}>F</span>
+                      <span>€{freebets !== null ? freebets.toFixed(2) : '0.00'}</span>
                     </div>
                     
-
-                    <Link to="/deposit" className="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-2 md:py-2 md:px-4 rounded text-xs md:text-sm">
-                      Depósito
+                    <Link
+                      to="/deposit"
+                      className="w-9 h-9 md:w-10 md:h-10 rounded-md bg-green-600 hover:bg-green-700 text-white flex items-center justify-center font-bold"
+                      title="Depositar"
+                    >
+                      <Plus size={18} />
                     </Link>
                     <Link
                       to="/profile"
-                      className={`py-1 px-2 md:py-2 md:px-4 rounded font-bold text-xs md:text-sm ${darkMode ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-800'}`}
+                      className={`w-9 h-9 md:w-10 md:h-10 rounded-md font-bold flex items-center justify-center ${darkMode ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-800'}`}
+                      title={firstName}
                     >
-                      {firstName}
+                      <User size={18} />
                     </Link>
                   </div>
                 </>

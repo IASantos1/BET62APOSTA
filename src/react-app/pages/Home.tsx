@@ -12,6 +12,7 @@ import { useEventSearch } from '../hooks/useEventSearch';
 import { useUpcomingCache } from '../hooks/useUpcomingCache';
 import { useGroupedEvents } from '../hooks/useGroupedEvents';
 import { useTopLeagues } from '../hooks/useTopLeagues';
+import { useLiveSSEUpdates } from '../hooks/useLiveSSEUpdates';
 import type { Event } from '../../shared/types';
 
 interface HomeProps {
@@ -27,16 +28,35 @@ function Home({ mode = 'home' }: HomeProps) {
   const loading = eventsLoading;
   const showBanner = true;
   
-  const processedLive = httpLive;
+  const { updatesById } = useLiveSSEUpdates(selectedCategory || 'all', mode === 'live');
+  const processedLive = useMemo(() => {
+    if (!updatesById || updatesById.size === 0) return httpLive;
+    return httpLive.map((e: any) => {
+      const id = String(e?.id || e?.external_event_id || '');
+      const u = id ? updatesById.get(id) : null;
+      if (!u) return e;
+      return {
+        ...e,
+        ...u,
+        goals: u.goals ?? e.goals,
+        score: u.score ?? e.score,
+        status: u.status ?? e.status,
+        elapsed: u.elapsed ?? e.elapsed,
+        timer: u.timer ?? (e as any).timer,
+        home_odd: Number(u.home_odd || 0) > 1 ? u.home_odd : e.home_odd,
+        draw_odd: Number(u.draw_odd || 0) > 1 ? u.draw_odd : e.draw_odd,
+        away_odd: Number(u.away_odd || 0) > 1 ? u.away_odd : e.away_odd,
+      };
+    });
+  }, [httpLive, updatesById]);
 
   const { upcomingEvents } = useUpcomingCache(pregame);
+  const activeTopLeagues = useTopLeagues(processedLive as any, upcomingEvents as any);
 
   // Busca
   const { query, setQuery } = useEventSearch();
 
   // Agrupamento
-  const activeTopLeagues = useTopLeagues(processedLive, upcomingEvents);
-
   // Separate Lists for Live and Upcoming
   const sortedUpcoming = useMemo(() => {
     const liveIds = new Set(processedLive.map(e => e.id));
@@ -60,9 +80,10 @@ function Home({ mode = 'home' }: HomeProps) {
   }, [processedLive, upcomingEvents]);
 
   const displayedLive = processedLive;
+  const displayedLiveFinal = mode === 'live' ? displayedLive : [];
   const displayedUpcoming = mode === 'live' ? [] : sortedUpcoming;
 
-  const groupedLive = useGroupedEvents(displayedLive, query);
+  const groupedLive = useGroupedEvents(displayedLiveFinal, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
 
   const MAX_EVENTS = 120; // limite seguro for upcoming
@@ -234,10 +255,8 @@ function Home({ mode = 'home' }: HomeProps) {
  )}
 
       <div className="flex items-start gap-4 w-full px-2 py-6">
-        {/* Sidebar */}
         <aside className={`hidden lg:block w-72 shrink-0 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} border-r`}>
           <div className="p-4 space-y-5">
-            {/* Busca */}
             <input
               type="text"
               placeholder="Buscar jogos, ligas..."
@@ -249,7 +268,6 @@ function Home({ mode = 'home' }: HomeProps) {
           </div>
         </aside>
 
-        {/* Mobile Sidebar */}
         {showMobileSidebar && createPortal(
           <div className="fixed inset-0 z-50 lg:hidden">
             <div className="absolute inset-0 bg-black/60" onClick={() => setShowMobileSidebar(false)} />
@@ -260,7 +278,7 @@ function Home({ mode = 'home' }: HomeProps) {
                   placeholder="Buscar jogos..."
                   value={query}
                   onChange={e => setQuery(e.target.value)}
-                  className={`w-full px-4 py-3 rounded-xl border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-300'}`}
+                  className={`w-full px-4 py-3 rounded-xl border ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-gray-100 border-gray-300 placeholder-gray-500'}`}
                 />
                 <Sidebar dynamicTopItems={activeTopLeagues} />
               </div>
@@ -269,7 +287,6 @@ function Home({ mode = 'home' }: HomeProps) {
           document.body
         )}
 
-        {/* Conteúdo principal */}
         <main className="flex-1 min-w-0 space-y-8">
           {/* Banner Carousel */}
           <BannerCarousel />
@@ -292,8 +309,8 @@ function Home({ mode = 'home' }: HomeProps) {
               </div>
             ) : (groupedLive.length > 0 || limitedUpcoming.length > 0) ? (
               <div className="space-y-12">
-                {/* LIVE SECTION */}
-                {groupedLive.length > 0 && (
+                {/* LIVE SECTION (somente na aba Ao Vivo) */}
+                {mode === 'live' && groupedLive.length > 0 && (
                   <div className="space-y-6">
                      <div className="flex items-center gap-3 px-2">
                         <span className="relative flex h-3 w-3">
@@ -345,11 +362,9 @@ function Home({ mode = 'home' }: HomeProps) {
                 {/* UPCOMING SECTION */}
                 {limitedUpcoming.length > 0 && (
                   <div className="space-y-6">
-                     {groupedLive.length > 0 && (
-                        <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
-                           <h2 className="text-xl font-bold uppercase tracking-wide">Próximos Jogos</h2>
-                        </div>
-                     )}
+                     <div className="flex items-center gap-3 px-2">
+                        <h2 className="text-xl font-bold uppercase tracking-wide">Próximos Jogos</h2>
+                     </div>
                      
                      <div className="space-y-8">
                         {limitedUpcoming.map(([league, events]) => (
@@ -404,7 +419,6 @@ function Home({ mode = 'home' }: HomeProps) {
           </section>
         </main>
 
-        {/* BetSlip lateral */}
         <aside className={`hidden xl:block w-96 shrink-0 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} border-l`}>
           <div className="p-5">
             <BetSlip />

@@ -53,7 +53,7 @@ const MemoizedSubOddButton = memo(({ item, onSelect, suspended }: { item: Market
             label={item.label}
             price={val}
             onClick={() => onSelect(item.label, val)}
-            className="px-3 md:px-5 py-1 md:py-2 rounded-md md:rounded-lg bg-red-600 text-white hover:bg-red-500 flex items-center justify-between gap-2 w-full"
+            className="px-2.5 md:px-4 py-1.5 md:py-2 rounded-md md:rounded-lg bg-red-600 text-white hover:bg-red-500 flex items-center justify-between gap-2 w-full"
             suspended={suspended}
             trend={trend}
         />
@@ -71,10 +71,14 @@ const MarketButtonGroup = memo(({ items, gridClass, onSelect, suspendedReason }:
   const LIMIT = 5
   const isLongList = items.length > LIMIT + 3
   const displayItems = isLongList && !showAll ? items.slice(0, LIMIT) : items
+  const defaultGrid =
+    items.length <= 3
+      ? 'grid grid-cols-3 gap-2'
+      : 'grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 md:gap-2';
 
   return (
     <div className="flex flex-col gap-2">
-      <div className={gridClass || 'grid grid-cols-1 gap-1 md:grid-cols-3 md:gap-2'}>
+      <div className={gridClass || defaultGrid}>
         {displayItems.map((it, idx) => (
           <MemoizedSubOddButton
             key={`${it.label}-${idx}`}
@@ -105,6 +109,8 @@ export function SubOddsModel({
   labelOutcome,
   applyMarginClamp,
   suspendedMarkets,
+  liveMetrics,
+  oddsLockUntil,
 }: {
   event: any
   darkMode: boolean
@@ -114,10 +120,19 @@ export function SubOddsModel({
   labelOutcome: (market: string, name: string) => string
   applyMarginClamp: (mk: string, v: number) => number
   suspendedMarkets?: { eventId: number; marketId: string; reason: string }[]
+  liveMetrics?: { goals?: number; corners?: number; cards?: number }
+  oddsLockUntil?: number
 }) {
   const home = useMemo(() => String(event?.home_team || (event?.match || '').split(' vs ')[0] || ''), [event])
   const away = useMemo(() => String(event?.away_team || (event?.match || '').split(' vs ')[1] || ''), [event])
-  const isGlobalSuspended = (event as any)?.oddsFrozen || (event as any)?.suspended || false;
+  const [nowTs, setNowTs] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!oddsLockUntil || oddsLockUntil <= Date.now()) return;
+    const t = setInterval(() => setNowTs(Date.now()), 500);
+    return () => clearInterval(t);
+  }, [oddsLockUntil]);
+  const isCriticalLocked = Boolean(oddsLockUntil && oddsLockUntil > nowTs);
+  const isGlobalSuspended = Boolean((event as any)?.oddsFrozen || (event as any)?.suspended || isCriticalLocked);
 
   const suspendedMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -130,13 +145,42 @@ export function SubOddsModel({
   }, [suspendedMarkets]);
 
   // --- Helpers ---
+  const limitByLabel = (arr: MarketItem[], perLabel = 6) => {
+    const buckets = new Map<string, MarketItem[]>();
+    const labelOf = (s: string) => {
+      const t = String(s || '').toLowerCase();
+      if (t.startsWith('casa') || t.startsWith('home')) return 'Casa';
+      if (t.startsWith('fora') || t.startsWith('away')) return 'Fora';
+      if (t.startsWith('empate') || t === 'x') return 'Empate';
+      if (t.startsWith('over') || t.startsWith('acima') || t.startsWith('mais')) return 'Over';
+      if (t.startsWith('under') || t.startsWith('abaixo') || t.startsWith('menos')) return 'Under';
+      if (t === 'sim' || t === 'yes') return 'Sim';
+      if (t === 'não' || t === 'nao' || t === 'no') return 'Não';
+      return s;
+    };
+    for (const it of arr) {
+      const k = labelOf(it.label);
+      const list = buckets.get(k) || [];
+      list.push(it);
+      buckets.set(k, list);
+    }
+    const allUnique = Array.from(buckets.values()).every((l) => l.length <= 1);
+    if (allUnique) return arr;
+    const out: MarketItem[] = [];
+    for (const [, list] of buckets) {
+      out.push(...list.slice(0, perLabel));
+    }
+    return out;
+  };
+
   const renderButtons = (items: MarketItem[], marketKey?: string, gridClass?: string) => {
     if (!items || items.length === 0) return null
+    const capped = limitByLabel(items, 6)
     const marketReason = marketKey ? suspendedMap.get(marketKey) : undefined
-    const finalReason = isGlobalSuspended ? 'EVENT_FROZEN' : marketReason
+    const finalReason = isGlobalSuspended ? (isCriticalLocked ? 'MOMENTO_CRITICO' : 'EVENT_FROZEN') : marketReason
     return (
       <MarketButtonGroup
-        items={items}
+        items={capped}
         gridClass={gridClass}
         onSelect={onSelect}
         suspendedReason={finalReason}
@@ -176,16 +220,18 @@ export function SubOddsModel({
   }, [eventOdds, applyMarginClamp, labelOutcome])
 
   const resultadoRegulamentar = useMemo(() => {
-     if (h2hInternalItems.length > 0) return h2hInternalItems;
      const h0 = Number(event?.home_odd || 0)
      const d0 = Number(event?.draw_odd || 0)
      const a0 = Number(event?.away_odd || 0)
-     const items = []
-     // Fallback only if no market data found
-     if(h0 > 0) items.push({ label: 'Casa', odd: h0 })
-     if(d0 > 0) items.push({ label: 'Empate', odd: d0 })
-     if(a0 > 0) items.push({ label: 'Fora', odd: a0 })
-     return items as MarketItem[]
+     const fromEvent: MarketItem[] = []
+     if(h0 > 0) fromEvent.push({ label: 'Casa', odd: h0 })
+     if(d0 > 0) fromEvent.push({ label: 'Empate', odd: d0 })
+     if(a0 > 0) fromEvent.push({ label: 'Fora', odd: a0 })
+
+     const isLive = Number(event?.is_live || 0) === 1;
+     if (isLive && fromEvent.length >= 2) return fromEvent;
+     if (h2hInternalItems.length > 0) return h2hInternalItems;
+     return fromEvent
   }, [event, h2hInternalItems])
 
   const doubleChanceItems = useMemo(() => {
@@ -222,21 +268,25 @@ export function SubOddsModel({
   // --- Função Genérica de Extração ---
   const getMarketItems = (key: string, labelKey?: string) => {
       // Prioridade: markets prop (pré-processado) -> eventOdds (raw)
-      // Alias handling: spreads ↔ handicap
       if (markets) {
-        if (markets[key] && markets[key]!.length > 0) return markets[key]!;
-        if (key === 'spreads' && (markets as any)['handicap'] && (markets as any)['handicap']!.length > 0) {
-          return (markets as any)['handicap']!;
+        if (markets[key] && markets[key]!.length > 0) {
+          const list = markets[key]!;
+          const n = (s: any) => {
+            if (s === null || s === undefined) return NaN
+            const x = String(s).trim().replace(',', '.')
+            const v = parseFloat(x)
+            return Number.isFinite(v) ? v : NaN
+          }
+          return [...list].sort((a: MarketItem, b: MarketItem) => {
+            const ap = n(a.handicap)
+            const bp = n(b.handicap)
+            if (Number.isFinite(ap) && Number.isFinite(bp) && ap !== bp) return ap - bp
+            return Number(a.odd) - Number(b.odd)
+          });
         }
       }
 
-      let raw = (eventOdds && (eventOdds as any)[key]);
-      if ((!raw || (Array.isArray(raw) && raw.length === 0)) && key === 'spreads') {
-        raw = (eventOdds && (eventOdds as any)['handicap']);
-      }
-      if ((!raw || (Array.isArray(raw) && raw.length === 0)) && key === 'handicap') {
-        raw = (eventOdds && (eventOdds as any)['spreads']);
-      }
+      const raw = (eventOdds && (eventOdds as any)[key]);
       const list = Array.isArray(raw) ? raw : (raw?.outcomes || raw?.values || []);
       const isSuspended = raw?.suspended === true || raw?.status === 'suspended';
 
@@ -247,7 +297,7 @@ export function SubOddsModel({
         const hcRaw = o?.point ?? o?.handicap ?? o?.line ?? o?.total ?? o?.spread ?? null
         const hc = hcRaw === null || hcRaw === undefined ? undefined : String(hcRaw)
         return { label: lbl, odd: v, name: o?.outcome || o?.name, handicap: hc } as MarketItem
-      }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd > 1.01 && x.odd < 25))
+      }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd >= 1.01 && x.odd < 1000))
       const n = (s: any) => {
         if (s === null || s === undefined) return NaN
         const x = String(s).trim().replace(',', '.')
@@ -317,8 +367,8 @@ export function SubOddsModel({
       }
 
       // 3. Spreads/Handicap (Asian Handicap)
-      if (key === 'spreads' || key === 'handicap') {
-          const baseItems = key === 'handicap' ? getMarketItems('handicap') : spreadsItems
+      if (key === 'spreads') {
+          const baseItems = spreadsItems
           if (baseItems.length === 0) return null;
           const title = getMarketTitle(key, event?.sport);
           
@@ -352,80 +402,310 @@ export function SubOddsModel({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <div className={`rounded-xl border p-3 ${darkMode ? 'bg-gray-900/40 border-gray-700' : 'bg-gray-100 border-gray-200'}`}>
                   <div className={`text-[11px] md:text-xs font-extrabold uppercase tracking-wider mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>{home || 'Casa'}</div>
-                  {renderButtons(homeItems, key, "grid grid-cols-1 gap-1")}
+                  {renderButtons(homeItems, key, "grid grid-cols-2 gap-1 sm:grid-cols-3")}
                 </div>
                 <div className={`rounded-xl border p-3 ${darkMode ? 'bg-gray-900/40 border-gray-700' : 'bg-gray-100 border-gray-200'}`}>
                   <div className={`text-[11px] md:text-xs font-extrabold uppercase tracking-wider mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>{away || 'Fora'}</div>
-                  {renderButtons(awayItems, key, "grid grid-cols-1 gap-1")}
+                  {renderButtons(awayItems, key, "grid grid-cols-2 gap-1 sm:grid-cols-3")}
                 </div>
               </div>
             </div>
           )
       }
 
-      // 4. Totals (Generic Ladder for Totals, Corners, Cards)
-      if (key === 'totals' || key === 'corners_total' || key === 'cards_total' || key === 'goals_total' || key === 'team_totals') {
-          if (totalsItems.length === 0 && (key !== 'totals' ? getMarketItems(key).length === 0 : true)) return null;
-          
+      // 4. Totals (Goals / Corners / Cards) em linhas lado-a-lado (Over x Under)
+      if (key === 'totals' || key === 'corners_totals' || key === 'cards_totals' || key === 'team_totals') {
           const targetItems = key === 'totals' ? totalsItems : getMarketItems(key);
-          
-          const formatTotalNumber = (label: string) => {
-            const m = /([0-9]+(?:\.[0-9]+)?|[0-9]+(?:,[0-9]+)?)/.exec(String(label || ''))
-            if (!m) return ''
-            return String(m[1]).replace(',', '.')
-          }
-          const maxLine = key === 'totals' ? 5.5 : 999;
-          const okLine = (lbl: string) => {
-            const n = Number(lbl);
-            if (!Number.isFinite(n)) return false;
-            if (n < 0) return false;
-            if (n > maxLine) return false;
-            return true;
-          };
-
-          const over = targetItems
-            .filter((x: MarketItem) => /acima|over|mais/i.test(String(x.label)))
-            .map((x: MarketItem) => ({ ...x, label: formatTotalNumber(x.label) }))
-            .filter((x: MarketItem) => okLine(String(x.label)) && Number(x.odd) > 1.01 && Number(x.odd) < 25)
-            .sort((a: MarketItem, b: MarketItem) => Number(a.label) - Number(b.label));
-
-          const under = targetItems
-            .filter((x: MarketItem) => /abaixo|under|menos/i.test(String(x.label)))
-            .map((x: MarketItem) => ({ ...x, label: formatTotalNumber(x.label) }))
-            .filter((x: MarketItem) => okLine(String(x.label)) && Number(x.odd) > 1.01 && Number(x.odd) < 25)
-            .sort((a: MarketItem, b: MarketItem) => Number(a.label) - Number(b.label));
-             
-          if (over.length === 0 && under.length === 0) return null;
+          if (!targetItems || targetItems.length === 0) return null;
 
           const title = getMarketTitle(key, event?.sport);
+
+          const goalsHome = Number((event as any)?.goals?.home ?? (event as any)?.score?.home ?? (event as any)?.goals_home ?? 0);
+          const goalsAway = Number((event as any)?.goals?.away ?? (event as any)?.score?.away ?? (event as any)?.goals_away ?? 0);
+          const totalGoals = (Number.isFinite(goalsHome) ? goalsHome : 0) + (Number.isFinite(goalsAway) ? goalsAway : 0);
+          const statusShort = String((event as any)?.fixture?.status?.short || '').toUpperCase();
+          const isLive = Boolean((event as any)?.is_live) || (statusShort && statusShort !== 'NS' && statusShort !== 'TBD' && statusShort !== 'PST');
+
+          const parsePoint = (it: MarketItem) => {
+            const hc = it.handicap ? String(it.handicap).trim().replace(',', '.') : '';
+            if (hc && Number.isFinite(Number(hc))) return Number(hc);
+            const m = /([0-9]+(?:\.[0-9]+)?|[0-9]+(?:,[0-9]+)?)/.exec(String(it.label || ''));
+            if (!m) return NaN;
+            const v = Number(String(m[1]).replace(',', '.'));
+            return Number.isFinite(v) ? v : NaN;
+          };
+
+          const isOverLabel = (s: string) => /(^|\b)(over|acima|mais)\b/i.test(s);
+          const isUnderLabel = (s: string) => /(^|\b)(under|abaixo|menos)\b/i.test(s);
+
+          const byPoint = new Map<number, { over?: MarketItem; under?: MarketItem }>();
+          for (const it of targetItems) {
+            const p = parsePoint(it);
+            if (!Number.isFinite(p)) continue;
+            const lbl = String(it.label || '');
+            const slot = byPoint.get(p) || {};
+            if (isOverLabel(lbl)) {
+              if (!slot.over || Number(it.odd) > Number(slot.over.odd)) slot.over = it;
+            } else if (isUnderLabel(lbl)) {
+              if (!slot.under || Number(it.odd) > Number(slot.under.odd)) slot.under = it;
+            }
+            byPoint.set(p, slot);
+          }
+
+          let points = Array.from(byPoint.keys()).sort((a, b) => a - b);
+
+          if (key === 'totals' && /soccer|futebol/i.test(String(event?.sport || ''))) {
+            const baseMax = 4.5;
+            const maxPoint = isLive ? Math.max(baseMax, totalGoals + 1.5) : baseMax;
+            points = points
+              .filter((p) => p >= 0.5 && p <= maxPoint + 1e-9)
+              .filter((p) => {
+                const x2 = Math.round(p * 2);
+                return Math.abs(p * 2 - x2) < 1e-9 && (x2 % 2 === 1);
+              });
+            if (isLive) points = points.filter((p) => p > totalGoals + 1e-9);
+          }
+          if (key === 'totals' && /basketball|basquete|nba/i.test(String(event?.sport || ''))) {
+            points = points.filter((p) => p >= 100);
+          }
+          if (key === 'corners_totals') {
+            const liveCorners = Number(liveMetrics?.corners || 0);
+            const baseMax = 11.5;
+            const maxPoint = isLive ? Math.max(baseMax, liveCorners + 1.5) : baseMax;
+            points = points
+              .filter((p) => p >= 5.5 && p <= maxPoint + 1e-9)
+              .filter((p) => {
+                const x2 = Math.round(p * 2);
+                return Math.abs(p * 2 - x2) < 1e-9 && (x2 % 2 === 1);
+              });
+          }
+          if (key === 'cards_totals') {
+            const liveCards = Number(liveMetrics?.cards || 0);
+            const baseMax = 5.5;
+            const maxPoint = isLive ? Math.max(baseMax, liveCards + 1.5) : baseMax;
+            points = points
+              .filter((p) => p >= 1.5 && p <= maxPoint + 1e-9)
+              .filter((p) => {
+                const x2 = Math.round(p * 2);
+                return Math.abs(p * 2 - x2) < 1e-9 && (x2 % 2 === 1);
+              });
+          }
+
+          const hasAny = points.some((p) => {
+            const slot = byPoint.get(p);
+            return Boolean(slot?.over || slot?.under);
+          });
+          if (!hasAny) return null;
 
           return (
             <div>
               <div className={`text-sm md:text-base font-semibold mb-1 md:mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{title}</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-1 md:gap-2">
-                <div>
-                  <div className={`text-[11px] md:text-xs font-medium mb-1 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Acima</div>
-                  {renderButtons(over, key, "grid grid-cols-1 gap-0.5")}
-                </div>
-                <div>
-                  <div className={`text-[11px] md:text-xs font-medium mb-1 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Abaixo</div>
-                  {renderButtons(under, key, "grid grid-cols-1 gap-0.5")}
-                </div>
+              <div className="grid grid-cols-1 gap-1.5">
+                {points.map((p) => {
+                  const slot = byPoint.get(p) || {};
+                  return (
+                    <div key={String(p)} className="grid grid-cols-2 gap-2">
+                      <div>{slot.over ? renderButtons([slot.over], key, "grid grid-cols-1 gap-0.5") : <div />}</div>
+                      <div>{slot.under ? renderButtons([slot.under], key, "grid grid-cols-1 gap-0.5") : <div />}</div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          )
+          );
       }
 
       // 5. BTTS
       if (key === 'btts') {
           if (bttsItems.length === 0) return null;
+          const s = String(event?.sport || '').toLowerCase();
+          const isSoccer = s.includes('soccer') || s.includes('futebol') || s.includes('football');
+          const isLive = Number(event?.is_live || 0) === 1;
+          if (isSoccer && isLive) {
+            const gh = Number(event?.goals?.home ?? (event?.score?.home ?? 0));
+            const ga = Number(event?.goals?.away ?? (event?.score?.away ?? 0));
+            if (Number.isFinite(gh) && Number.isFinite(ga) && gh > 0 && ga > 0) return null;
+          }
           const title = getMarketTitle('btts', event?.sport);
+          const norm = (s: string) => String(s || '').toLowerCase().trim();
+          const pick = (want: string) => bttsItems.find((x: MarketItem) => norm(x.label) === norm(want)) || null;
+          const ordered = (['Não', 'Sim'] as const).map((l) => pick(l)).filter(Boolean) as MarketItem[];
           return (
             <div>
               <div className={`text-sm md:text-base font-semibold mb-1 md:mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{title}</div>
-              {renderButtons(bttsItems, 'btts', "grid grid-cols-2 gap-2")}
+              {renderButtons(ordered.length ? ordered : bttsItems, 'btts', "grid grid-cols-2 gap-2")}
             </div>
           )
+      }
+
+      // 6. Resultado & Ambas Marcam (lado a lado, PT)
+      if (key === 'result_btts') {
+          const items = getMarketItems('result_btts', 'result_btts');
+          if (!items || items.length === 0) return null;
+          const norm = (s: string) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+          const pick = (want: string) => items.find((x: MarketItem) => norm(x.label) === norm(want)) || null;
+          const yesRow = ['Casa/Sim', 'Empate/Sim', 'Fora/Sim'].map((l) => pick(l)).filter(Boolean) as MarketItem[];
+          const noRow = ['Casa/Não', 'Empate/Não', 'Fora/Não'].map((l) => pick(l)).filter(Boolean) as MarketItem[];
+          const title = getMarketTitle('result_btts', event?.sport);
+          const any = yesRow.length + noRow.length > 0;
+          if (!any) return null;
+          return (
+            <div>
+              <div className={`text-sm md:text-base font-semibold mb-1 md:mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{title}</div>
+              <div className="grid grid-cols-1 gap-2">
+                {yesRow.length > 0 && (
+                  <div>
+                    <div className={`text-[11px] md:text-xs font-extrabold uppercase tracking-wider mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>Sim</div>
+                    {renderButtons(yesRow, 'result_btts', "grid grid-cols-3 gap-2")}
+                  </div>
+                )}
+                {noRow.length > 0 && (
+                  <div>
+                    <div className={`text-[11px] md:text-xs font-extrabold uppercase tracking-wider mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>Não</div>
+                    {renderButtons(noRow, 'result_btts', "grid grid-cols-3 gap-2")}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+      }
+
+      // 7. Mais/Menos & Ambas Marcam (filtro inteligente por linha, PT)
+      if (key === 'totals_btts') {
+          const base = getMarketItems('totals_btts', 'totals_btts');
+          if (!base || base.length === 0) return null;
+          const goalsHome = Number((event as any)?.goals?.home ?? (event as any)?.score?.home ?? (event as any)?.goals_home ?? 0);
+          const goalsAway = Number((event as any)?.goals?.away ?? (event as any)?.score?.away ?? (event as any)?.goals_away ?? 0);
+          const totalGoals = (Number.isFinite(goalsHome) ? goalsHome : 0) + (Number.isFinite(goalsAway) ? goalsAway : 0);
+          const statusShort = String((event as any)?.fixture?.status?.short || '').toUpperCase();
+          const isLive = Boolean((event as any)?.is_live) || (statusShort && statusShort !== 'NS' && statusShort !== 'TBD' && statusShort !== 'PST');
+          const parsePoint = (lbl: string) => {
+            const m = /([0-9]+(?:\.[0-9]+)?|[0-9]+(?:,[0-9]+)?)/.exec(String(lbl || ''));
+            if (!m) return NaN;
+            const v = Number(String(m[1]).replace(',', '.'));
+            return Number.isFinite(v) ? v : NaN;
+          };
+          const groups = new Map<number, MarketItem[]>();
+          for (const it of base) {
+            const p = parsePoint(it.label);
+            if (!Number.isFinite(p)) continue;
+            const list = groups.get(p) || [];
+            list.push(it);
+            groups.set(p, list);
+          }
+          const points = Array.from(groups.keys()).sort((a, b) => a - b);
+          if (points.length === 0) return null;
+          const basePoint = 2.5;
+          const pickPoint = () => {
+            if (!/soccer|futebol/i.test(String(event?.sport || ''))) return points[0];
+            if (!isLive) return points.includes(basePoint) ? basePoint : points[0];
+            const maxPoint = Math.max(basePoint, Math.min(4.5, totalGoals + 0.5));
+            const allowed = points.filter((p) => p >= basePoint && p <= maxPoint + 1e-9);
+            return allowed.includes(basePoint) ? basePoint : (allowed[0] ?? points[0]);
+          };
+          const p0 = pickPoint();
+          const list = groups.get(p0) || [];
+          const title = getMarketTitle('totals_btts', event?.sport);
+          return (
+            <div>
+              <div className={`text-sm md:text-base font-semibold mb-1 md:mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{title} {String(p0).replace('.', ',')}</div>
+              {renderButtons(list, 'totals_btts', "grid grid-cols-2 gap-2 sm:grid-cols-4")}
+            </div>
+          );
+      }
+
+      // 6. Correct Score (Placar Exato) separado por Casa/Empate/Fora + "Outros"
+      if (key === 'correct_score' || key === 'score_exact') {
+          const raw = (eventOdds && (eventOdds as any)[key]);
+          const list = Array.isArray(raw) ? raw : (raw?.outcomes || raw?.values || []);
+          if (!Array.isArray(list) || list.length === 0) return null;
+          const scoreHome = Number((event as any)?.goals?.home ?? (event as any)?.score?.home ?? (event as any)?.goals_home ?? 0);
+          const scoreAway = Number((event as any)?.goals?.away ?? (event as any)?.score?.away ?? (event as any)?.goals_away ?? 0);
+          const statusShort = String((event as any)?.fixture?.status?.short || '').toUpperCase();
+          const isLive = Boolean((event as any)?.is_live) || (statusShort && statusShort !== 'NS' && statusShort !== 'TBD' && statusShort !== 'PST');
+          const isSoccer = /soccer|futebol/i.test(String(event?.sport || ''));
+
+          const parseOdd = (v: any) => {
+            if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+            const s0 = String(v ?? '').trim();
+            if (!s0) return 0;
+            const s = s0.replace(/\./g, '').replace(',', '.');
+            const n = parseFloat(s);
+            return Number.isFinite(n) ? n : 0;
+          };
+
+          const parseScore = (label: string) => {
+            const m = String(label || '').match(/(\d+)\s*[:-]\s*(\d+)/);
+            if (!m) return null;
+            const hg = Number(m[1]);
+            const ag = Number(m[2]);
+            if (!Number.isFinite(hg) || !Number.isFinite(ag)) return null;
+            return { hg, ag, key: `${hg}:${ag}` };
+          };
+
+          const scored = new Map<string, { label: string; odd: number; hg: number; ag: number }>();
+          for (const o of list) {
+            const label = String(o?.outcome || o?.name || o?.label || '');
+            const sc = parseScore(label);
+            if (!sc) continue;
+            const odd = parseOdd(o?.odd ?? o?.price ?? o?.value);
+            if (!(odd > 1.01 && odd < 2000)) continue;
+            const prev = scored.get(sc.key);
+            if (!prev || odd > prev.odd) scored.set(sc.key, { label: sc.key, odd, hg: sc.hg, ag: sc.ag });
+          }
+          const all = Array.from(scored.values());
+          if (all.length === 0) return null;
+
+          const usable = (isSoccer && isLive)
+            ? all.filter((x) => x.hg >= scoreHome && x.ag >= scoreAway)
+            : all;
+
+          const homeWins = usable.filter((x) => x.hg > x.ag).sort((a, b) => a.odd - b.odd);
+          const draws = usable.filter((x) => x.hg === x.ag).sort((a, b) => a.odd - b.odd);
+          const awayWins = usable.filter((x) => x.hg < x.ag).sort((a, b) => a.odd - b.odd);
+
+          const top = (arr: any[]) => arr.slice(0, 6).map((x) => ({ label: x.label, odd: x.odd } as MarketItem));
+          const restProb = (arr: any[]) => arr.slice(6).reduce((sum, x) => sum + (x.odd > 1.01 ? (1 / x.odd) : 0), 0);
+          const oddFromProb = (p: number) => (p > 0 ? (1 / p) : 0);
+
+          const otherItems: MarketItem[] = [];
+          const pHome = restProb(homeWins);
+          const pDraw = restProb(draws);
+          const pAway = restProb(awayWins);
+          const oHome = oddFromProb(pHome);
+          const oDraw = oddFromProb(pDraw);
+          const oAway = oddFromProb(pAway);
+          if (oHome > 1.01) otherItems.push({ label: 'Outro Casa', odd: oHome });
+          if (oDraw > 1.01) otherItems.push({ label: 'Outro Empate', odd: oDraw });
+          if (oAway > 1.01) otherItems.push({ label: 'Outro Fora', odd: oAway });
+
+          const title = getMarketTitle('correct_score', event?.sport) || 'Placar Exato';
+
+          return (
+            <div>
+              <div className={`text-sm md:text-base font-semibold mb-1 md:mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{title}</div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className={`rounded-xl border p-3 ${darkMode ? 'bg-gray-900/40 border-gray-700' : 'bg-gray-100 border-gray-200'}`}>
+                  <div className={`text-[11px] md:text-xs font-extrabold uppercase tracking-wider mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>Casa</div>
+                  {renderButtons(top(homeWins), 'correct_score', "grid grid-cols-1 gap-1")}
+                </div>
+                <div className={`rounded-xl border p-3 ${darkMode ? 'bg-gray-900/40 border-gray-700' : 'bg-gray-100 border-gray-200'}`}>
+                  <div className={`text-[11px] md:text-xs font-extrabold uppercase tracking-wider mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>Empate</div>
+                  {renderButtons(top(draws), 'correct_score', "grid grid-cols-1 gap-1")}
+                </div>
+                <div className={`rounded-xl border p-3 ${darkMode ? 'bg-gray-900/40 border-gray-700' : 'bg-gray-100 border-gray-200'}`}>
+                  <div className={`text-[11px] md:text-xs font-extrabold uppercase tracking-wider mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>Fora</div>
+                  {renderButtons(top(awayWins), 'correct_score', "grid grid-cols-1 gap-1")}
+                </div>
+              </div>
+              {otherItems.length > 0 && (
+                <div className={`mt-2 rounded-xl border p-3 ${darkMode ? 'bg-gray-900/30 border-gray-700' : 'bg-white border-gray-200'}`}>
+                  <div className={`text-[11px] md:text-xs font-extrabold uppercase tracking-wider mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>Outros Resultados</div>
+                  {renderButtons(otherItems, 'correct_score', "grid grid-cols-2 gap-2 sm:grid-cols-3")}
+                </div>
+              )}
+            </div>
+          );
       }
 
       // Generic extraction
@@ -434,21 +714,44 @@ export function SubOddsModel({
 
       const title = getMarketTitle(key, event?.sport);
       const config = MARKET_CONFIG[key] || {};
+      const cfgGrid = config.grid
+        ? (config.grid.includes('grid') ? config.grid : `grid ${config.grid}`)
+        : null;
       
       return (
          <div key={key}>
            <div className={`text-sm md:text-base font-semibold mb-1 md:mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{title}</div>
-           {renderButtons(items, key, config.grid || "grid grid-cols-1 gap-0.5")}
+           {renderButtons(items, key, cfgGrid || "grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4")}
          </div>
       )
   }
 
   // --- Lógica de Grupos Dinâmicos (Automação) ---
   const finalGroups = useMemo(() => {
+      const hasMarketData = (k: string) => {
+          const m = markets ? (markets as any)[k] : null;
+          if (Array.isArray(m)) return m.length > 0;
+          const raw = (eventOdds && (eventOdds as any)[k]);
+          const list = Array.isArray(raw) ? raw : (raw?.outcomes || raw?.values || []);
+          return Array.isArray(list) && list.length > 0;
+      };
+
       // 1. Check if backend provides categories (New Logic)
       const keysWithCategory = Object.keys(eventOdds || {}).filter(k => (eventOdds as any)[k]?.category);
       
       if (keysWithCategory.length > 0) {
+          const normCat = (raw: string) => {
+              const c = String(raw || '').toLowerCase().trim();
+              if (!c) return '';
+              if (c === 'mercado raiz') return 'Mercado Raiz';
+              if (c === 'resultado' || c === 'mercados de resultado') return 'Mercados de Resultado';
+              if (c.startsWith('golos') || c.startsWith('gols') || c.includes('totais') || c === 'ambas marcam' || c === 'mercados de gols') return 'Mercados de Gols';
+              if (c === 'estatísticas' || c === 'estatisticas' || c === 'mercados estatísticos' || c === 'mercados estatisticos') return 'Mercados Estatísticos';
+              if (c === 'jogadores' || c === 'mercados de jogadores') return 'Mercados de Jogadores';
+              if (c === 'especiais' || c === 'mercados especiais') return 'Mercados Especiais';
+              if (c === 'mercados temporais' || c === 'temporais') return 'Mercados Temporais';
+              return raw;
+          };
           const categoryMap = new Map<string, Set<string>>();
           const ORDERED_CATEGORIES = [
               "Mercado Raiz",
@@ -464,9 +767,11 @@ export function SubOddsModel({
           for (const key of keysWithCategory) {
               // Skip aliases and duplicates
               if (key === 'main' || key === '1x2' || key === 'match_winner') continue; 
+              if (!hasMarketData(key)) continue;
               
-              const cat = (eventOdds as any)[key].category;
+              const cat = normCat((eventOdds as any)[key].category);
               if (cat === 'Outros Mercados') continue; // Filter out explicitly
+              if (!cat) continue;
               
               if (!categoryMap.has(cat)) {
                   categoryMap.set(cat, new Set());
@@ -527,7 +832,7 @@ export function SubOddsModel({
       else if (isRugby) BASE_GROUPS = RUGBY_GROUPS;
 
       return BASE_GROUPS;
-  }, [event?.sport]);
+  }, [event?.sport, markets, eventOdds]);
 
   // State for active tab
   const [activeTab, setActiveTab] = useState(() => {
@@ -589,12 +894,14 @@ export function SubOddsModel({
         {finalGroups.map((group, idx) => {
             if (group.title !== activeTab) return null;
 
-            const content = group.keys.map(k => ({ key: k, node: renderMarketContent(k) })).filter(x => x.node !== null);
+            const content = (group.keys as string[])
+              .map((k: string) => ({ key: k, node: renderMarketContent(k) }))
+              .filter((x: { key: string; node: any }) => x.node !== null);
             
             if (content.length === 0) {
                  return (
                      <div key={idx} className={`text-center py-8 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                         Nenhum mercado disponível nesta categoria.
+                         A carregar mercados...
                      </div>
                  );
             }
@@ -602,7 +909,7 @@ export function SubOddsModel({
             return (
                 <div key={idx} className="market-group animate-fadeIn">
                     <div className="space-y-4">
-                        {content.map(c => <div key={c.key}>{c.node}</div>)}
+                        {content.map((c: { key: string; node: any }) => <div key={c.key}>{c.node}</div>)}
                     </div>
                 </div>
             )

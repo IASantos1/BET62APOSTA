@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { Env } from '../shared/types';
 import { verifyAuth } from './middleware/jwtAuth';
+import { adminAuth } from './middleware/adminAuth';
 import Stripe from 'stripe';
 import { LedgerService } from './services/ledger';
 import { AuditService } from './services/audit';
@@ -28,36 +29,97 @@ wallet.post('/webhook/stripe', async (c) => {
     const stripe = new Stripe(c.env.STRIPE_SECRET_KEY, { apiVersion: '2025-10-29.clover' });
     const event = stripe.webhooks.constructEvent(body, sig, c.env.STRIPE_WEBHOOK_SECRET);
 
+    const alreadyCredited = async (reference: string) => {
+      const hit = await c.env.DB.prepare('SELECT id FROM ledger_transactions WHERE reference = ? LIMIT 1').bind(reference).first();
+      return Boolean(hit);
+    };
+
+    const creditUser = async (userId: string, amount: number, reference: string) => {
+      if (!userId || !(amount > 0) || !reference) return;
+      if (await alreadyCredited(reference)) return;
+      const w = await c.env.DB.prepare('SELECT id FROM wallets WHERE user_id = ?').bind(userId).first();
+      if (!w) return;
+      const audit = new AuditService(c.env.DB);
+      const ledger = new LedgerService(c.env.DB, audit);
+      await ledger.addTransaction(
+        (w as any).id,
+        'credit',
+        amount,
+        reference,
+        'Stripe Deposit',
+        { actorId: userId, ip: 'stripe-webhook', userAgent: 'Stripe/Webhook' }
+      );
+    };
+
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
       const userId = session.metadata?.userId;
       const amount = (session.amount_total || 0) / 100;
 
       if (userId && amount > 0) {
-        const w = await c.env.DB.prepare('SELECT id FROM wallets WHERE user_id = ?').bind(userId).first();
-        if (w) {
-            // Optional: Check if user is blocked/suspended before crediting?
-            // Since payment is already captured, we should probably credit it to avoid inconsistencies,
-            // but the user won't be able to use it if suspended.
-            const audit = new AuditService(c.env.DB);
-            const ledger = new LedgerService(c.env.DB, audit);
-            
-            // Tier-1: Credit Deposit via Ledger
-            await ledger.addTransaction(
-                (w as any).id,
-                'credit',
-                amount,
-                `DEPOSIT:stripe:${session.payment_intent || session.id}`,
-                'Stripe Deposit',
-                { actorId: userId, ip: 'stripe-webhook', userAgent: 'Stripe/Webhook' }
-            );
-        }
+        await creditUser(userId, amount, `DEPOSIT:stripe:${session.payment_intent || session.id}`);
+      }
+    }
+    if (event.type === 'payment_intent.succeeded') {
+      const pi = event.data.object as Stripe.PaymentIntent;
+      const userId = String(pi.metadata?.userId || '').trim();
+      const purpose = String(pi.metadata?.purpose || '').trim();
+      const amount = (pi.amount_received || pi.amount || 0) / 100;
+      if (purpose === 'deposit' && userId && amount > 0) {
+        await creditUser(userId, amount, `DEPOSIT:stripe:${pi.id}`);
       }
     }
 
     return c.json({ received: true });
   } catch (err: any) {
     return c.json({ error: err.message }, 400);
+  }
+});
+
+wallet.post('/admin/credit', adminAuth, async (c) => {
+  try {
+    const body = await c.req.json();
+    const userId = String(body?.userId || '').trim();
+    const amount = Number(body?.amount || 0);
+    const reference = String(body?.reference || '').trim();
+    const description = String(body?.description || 'Stripe Deposit').trim();
+    const methodRaw = String(body?.method || '').trim().toLowerCase();
+    if (!userId || !(amount > 0) || !reference) return c.json({ error: 'invalid_payload' }, 400);
+
+    const hit = await c.env.DB.prepare('SELECT id FROM ledger_transactions WHERE reference = ? LIMIT 1').bind(reference).first();
+    if (hit) return c.json({ ok: true, skipped: true });
+
+    const w = await c.env.DB.prepare('SELECT id FROM wallets WHERE user_id = ?').bind(userId).first();
+    if (!w) return c.json({ error: 'wallet_not_found' }, 404);
+
+    const audit = new AuditService(c.env.DB);
+    const ledger = new LedgerService(c.env.DB, audit);
+    await ledger.addTransaction(
+      (w as any).id,
+      'credit',
+      amount,
+      reference,
+      description,
+      { actorId: userId, ip: 'admin-credit', userAgent: 'Admin/Credit' }
+    );
+
+    const depHit = await c.env.DB.prepare('SELECT id FROM deposits WHERE provider_ref = ? LIMIT 1').bind(reference).first();
+    if (!depHit) {
+      const depId = crypto.randomUUID();
+      const method =
+        methodRaw === 'mb_way' || methodRaw === 'mbway'
+          ? 'MBWAY'
+          : methodRaw === 'multibanco'
+            ? 'MULTIBANCO'
+            : null;
+      await c.env.DB.prepare(
+        `INSERT INTO deposits (id, user_id, amount_eur, method, status, provider_ref)
+         VALUES (?, ?, ?, ?, 'PAID', ?)`
+      ).bind(depId, userId, amount, method, reference).run();
+    }
+    return c.json({ ok: true });
+  } catch (e: any) {
+    return c.json({ error: e?.message || 'credit_failed' }, 500);
   }
 });
 
@@ -166,6 +228,83 @@ wallet.post('/withdraw', async (c) => {
   } catch (e: any) {
     console.error('Withdraw error:', e);
     return c.json({ error: e.message }, 400);
+  }
+});
+
+wallet.post('/payment-intent', async (c) => {
+  const userId = c.get('user').userId;
+
+  const stateService = new AccountStateService(c.env.DB);
+  const canDeposit = await stateService.canDeposit(userId);
+  if (!canDeposit) {
+    return c.json({ error: 'Deposit not allowed: Account blocked or restricted' }, 403);
+  }
+
+  try {
+    const { amount, method } = await c.req.json();
+    if (!amount || amount <= 0) return c.json({ error: 'Montante inválido' }, 400);
+    const m = String(method || '').trim();
+    const allowed = new Set(['card', 'mb_way', 'multibanco']);
+    if (!allowed.has(m)) return c.json({ error: 'Método inválido' }, 400);
+
+    const stripe = new Stripe(c.env.STRIPE_SECRET_KEY, { apiVersion: '2025-10-29.clover' });
+    const pi = await stripe.paymentIntents.create({
+      amount: Math.round(Number(amount) * 100),
+      currency: 'eur',
+      payment_method_types: [m] as any,
+      metadata: { userId, purpose: 'deposit' },
+    });
+
+    return c.json({ clientSecret: pi.client_secret });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+wallet.post('/confirm-deposit', async (c) => {
+  const userId = c.get('user').userId;
+  try {
+    const body = await c.req.json().catch(() => null) as any;
+    const paymentIntentId = String(body?.paymentIntentId || body?.payment_intent_id || '').trim();
+    if (!paymentIntentId) return c.json({ error: 'Missing paymentIntentId' }, 400);
+
+    const stripe = new Stripe(c.env.STRIPE_SECRET_KEY, { apiVersion: '2025-10-29.clover' });
+    const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+    const piUserId = String((pi as any)?.metadata?.userId || '').trim();
+    const purpose = String((pi as any)?.metadata?.purpose || '').trim();
+    if (!piUserId || piUserId !== userId) return c.json({ error: 'Unauthorized payment intent' }, 403);
+    if (purpose !== 'deposit') return c.json({ error: 'Invalid purpose' }, 400);
+
+    const status = String((pi as any)?.status || '');
+    const amount = Number(((pi as any)?.amount_received ?? (pi as any)?.amount ?? 0) / 100);
+    const reference = `DEPOSIT:stripe:${String((pi as any)?.id || '')}`;
+    if (!reference || reference === 'DEPOSIT:stripe:') return c.json({ error: 'Invalid reference' }, 400);
+
+    if (status !== 'succeeded') {
+      return c.json({ ok: true, credited: false, status, amount });
+    }
+    if (!(amount > 0)) return c.json({ ok: true, credited: false, status, amount });
+
+    const hit = await c.env.DB.prepare('SELECT id FROM ledger_transactions WHERE reference = ? LIMIT 1').bind(reference).first();
+    if (hit) return c.json({ ok: true, credited: true, status, amount, skipped: true });
+
+    const w = await c.env.DB.prepare('SELECT id FROM wallets WHERE user_id = ?').bind(userId).first();
+    if (!w) return c.json({ error: 'wallet_not_found' }, 404);
+
+    const audit = new AuditService(c.env.DB);
+    const ledger = new LedgerService(c.env.DB, audit);
+    await ledger.addTransaction(
+      (w as any).id,
+      'credit',
+      amount,
+      reference,
+      'Stripe Deposit',
+      { actorId: userId, ip: c.req.header('CF-Connecting-IP') || 'unknown', userAgent: c.req.header('User-Agent') || 'unknown' }
+    );
+
+    return c.json({ ok: true, credited: true, status, amount });
+  } catch (e: any) {
+    return c.json({ error: e?.message || 'confirm_failed' }, 500);
   }
 });
 

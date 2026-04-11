@@ -176,7 +176,9 @@ export function useSportsEvents(category: string | null) {
             rawSport.includes('americano') || rawSport.includes('american') 
               ? 'american-football' 
               : 'soccer'; 
-        } else if (rawSport.includes('basquete') || rawSport.includes('basketball') || rawSport.includes('nba')) { 
+        } else if (rawSport.includes('nba')) { 
+          sportParam = 'nba'; 
+        } else if (rawSport.includes('basquete') || rawSport.includes('basketball')) { 
           sportParam = 'basketball'; 
         } else if (rawSport.includes('ténis') || rawSport.includes('tenis') || rawSport.includes('tennis')) { 
           sportParam = 'tennis'; 
