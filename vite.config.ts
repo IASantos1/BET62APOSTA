@@ -10,15 +10,17 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5174,
+    port: 5000,
+    host: '0.0.0.0',
+    allowedHosts: true,
     proxy: {
       '/api/live/ws': {
-        target: 'ws://127.0.0.1:8788',
+        target: 'wss://bet62apostasesportivas.bet62.workers.dev',
         ws: true,
         changeOrigin: true,
       },
       '/api': {
-        target: 'http://127.0.0.1:8788',
+        target: 'https://bet62apostasesportivas.bet62.workers.dev',
         changeOrigin: true,
         secure: false,
       },

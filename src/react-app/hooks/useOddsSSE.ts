@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { startSse } from '../utils/sse';
 
 type OddsStreamMessage =
   | { type: 'hello'; id: string }
@@ -79,7 +80,6 @@ export function useOddsSSE(eventId: string, enabled: boolean) {
   const [primaryOdds, setPrimaryOdds] = useState<{ home_odd?: number; draw_odd?: number; away_odd?: number; provider?: string; updated_at?: string } | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(0);
-  const [nonce, setNonce] = useState(0);
 
   const url = useMemo(() => {
     const id = String(eventId || '').trim();
@@ -90,54 +90,37 @@ export function useOddsSSE(eventId: string, enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     if (!url) return;
-    if (typeof window === 'undefined' || !('EventSource' in window)) return;
+    if (typeof window === 'undefined') return;
 
-    let alive = true;
-    const es = new EventSource(url);
     setIsConnected(true);
-
-    es.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(String(ev.data || '{}')) as OddsStreamMessage;
-        if (!msg || typeof msg !== 'object') return;
-        if (msg.type === 'odds') {
-          if (msg.markets && typeof msg.markets === 'object') {
-            setMarkets(msg.markets);
-            setEventOdds(decorateMarkets(msg.markets));
-          }
-          if (typeof msg.home_odd === 'number' || typeof msg.draw_odd === 'number' || typeof msg.away_odd === 'number') {
-            setPrimaryOdds({
-              home_odd: typeof msg.home_odd === 'number' ? msg.home_odd : undefined,
-              draw_odd: typeof msg.draw_odd === 'number' ? msg.draw_odd : undefined,
-              away_odd: typeof msg.away_odd === 'number' ? msg.away_odd : undefined,
-              provider: msg.provider,
-              updated_at: msg.updated_at,
-            });
-          }
-          setLastUpdatedAt(Date.now());
+    const stop = startSse<OddsStreamMessage>(url, (msg) => {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'odds') {
+        if (msg.markets && typeof msg.markets === 'object') {
+          setMarkets(msg.markets);
+          setEventOdds(decorateMarkets(msg.markets));
         }
-        if (msg.type === 'bye') {
-          setIsConnected(false);
-          try { es.close(); } catch { void 0; }
-          setTimeout(() => { if (alive) setNonce((n) => n + 1); }, 150);
+        if (typeof msg.home_odd === 'number' || typeof msg.draw_odd === 'number' || typeof msg.away_odd === 'number') {
+          setPrimaryOdds({
+            home_odd: typeof msg.home_odd === 'number' ? msg.home_odd : undefined,
+            draw_odd: typeof msg.draw_odd === 'number' ? msg.draw_odd : undefined,
+            away_odd: typeof msg.away_odd === 'number' ? msg.away_odd : undefined,
+            provider: msg.provider,
+            updated_at: msg.updated_at,
+          });
         }
-        if (msg.type === 'error') {
-          setIsConnected(false);
-        }
-      } catch { void 0; }
-    };
-
-    es.onerror = () => {
-      setIsConnected(false);
-      try { es.close(); } catch { void 0; }
-      setTimeout(() => { if (alive) setNonce((n) => n + 1); }, 500);
-    };
+        setLastUpdatedAt(Date.now());
+      }
+      if (msg.type === 'error' || msg.type === 'bye') {
+        setIsConnected(false);
+      }
+    });
 
     return () => {
-      alive = false;
-      try { es.close(); } catch { void 0; }
+      stop();
+      setIsConnected(false);
     };
-  }, [enabled, url, nonce]);
+  }, [enabled, url]);
 
   return { markets, eventOdds, primaryOdds, isConnected, lastUpdatedAt };
 }

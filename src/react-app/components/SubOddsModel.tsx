@@ -198,14 +198,13 @@ export function SubOddsModel({
       (eventOdds && (eventOdds as any)['1x2']) ||
       (eventOdds && (eventOdds as any)['match_winner']);
     const list = Array.isArray(raw) ? raw : (raw?.outcomes || raw?.values || []);
-    const isSuspended = raw?.suspended === true || raw?.status === 'suspended';
     
     const mapped = list.map((o: any) => {
-      const v0 = Number(o?.value || o?.odd || 0)
+      const v0 = Number(o?.odd || o?.value || o?.price || 0)
       const v = applyMarginClamp('h2h', v0)
-      const lbl = labelOutcome('h2h', String(o?.outcome || o?.name || ''))
+      const lbl = labelOutcome('h2h', String(o?.label || o?.outcome || o?.name || ''))
       return { label: lbl, odd: v } as MarketItem
-    }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd > 0))
+    }).filter((x: MarketItem) => x.label && x.odd > 0)
     
     const order = new Map<string, number>([['Casa',0],['Empate',1],['Fora',2]])
     // Deduplication logic embedded
@@ -237,14 +236,13 @@ export function SubOddsModel({
   const doubleChanceItems = useMemo(() => {
     const raw = (eventOdds && (eventOdds as any)['double_chance']);
     const list = Array.isArray(raw) ? raw : (raw?.outcomes || raw?.values || []);
-    const isSuspended = raw?.suspended === true || raw?.status === 'suspended';
 
     const mapped = list.map((o: any) => {
-      const v0 = Number(o?.value || o?.odd || 0)
+      const v0 = Number(o?.odd || o?.value || o?.price || 0)
       const v = applyMarginClamp('double_chance', v0)
-      const lbl = labelOutcome('double_chance', String(o?.outcome || o?.name || ''))
+      const lbl = labelOutcome('double_chance', String(o?.label || o?.outcome || o?.name || ''))
       return { label: lbl, odd: v } as MarketItem
-    }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd > 0))
+    }).filter((x: MarketItem) => x.label && x.odd > 0)
     if (mapped.length > 0) return mapped
     
     // Fallback calc
@@ -288,16 +286,15 @@ export function SubOddsModel({
 
       const raw = (eventOdds && (eventOdds as any)[key]);
       const list = Array.isArray(raw) ? raw : (raw?.outcomes || raw?.values || []);
-      const isSuspended = raw?.suspended === true || raw?.status === 'suspended';
 
       const mapped = list.map((o: any) => {
-        const v0 = Number(o?.value || o?.odd || 0)
+        const v0 = Number(o?.odd || o?.price || 0) || Number(o?.value || 0)
         const v = applyMarginClamp(key, v0)
-        const lbl = labelOutcome(labelKey || key, String(o?.outcome || o?.name || ''))
+        const lbl = labelOutcome(labelKey || key, String(o?.label || o?.outcome || o?.name || ''))
         const hcRaw = o?.point ?? o?.handicap ?? o?.line ?? o?.total ?? o?.spread ?? null
         const hc = hcRaw === null || hcRaw === undefined ? undefined : String(hcRaw)
-        return { label: lbl, odd: v, name: o?.outcome || o?.name, handicap: hc } as MarketItem
-      }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd >= 1.01 && x.odd < 1000))
+        return { label: lbl, odd: v, name: o?.label || o?.outcome || o?.name, handicap: hc } as MarketItem
+      }).filter((x: MarketItem) => x.label && x.odd >= 1.01 && x.odd < 1000)
       const n = (s: any) => {
         if (s === null || s === undefined) return NaN
         const x = String(s).trim().replace(',', '.')
@@ -324,6 +321,25 @@ export function SubOddsModel({
           if (s.includes('basketball') || s.includes('basquete')) return 'Vencedor';
           if (s.includes('mma') || s.includes('ufc') || s.includes('mixed martial arts') || s.includes('luta')) return 'Vencedor da Luta';
           return MARKET_CONFIG['h2h']?.title || 'Resultado Final';
+      }
+      // Format special_* keys with readable Portuguese titles
+      if (key.startsWith('special_')) {
+        const slug = key.replace(/^special_/, '').replace(/_/g, ' ');
+        const titles: Record<string, string> = {
+          'anytimegoalscorer': 'Marcador em Qualquer Momento',
+          'teamgoalscorer': 'Marcador da Equipa',
+          'specials': 'Especiais',
+          'goalmethod': 'Método do Golo',
+          'playershots': 'Remates do Jogador',
+          'playershots ontarget': 'Remates à Baliza',
+          'playercards': 'Cartões do Jogador',
+          'playertoscoreorassist': 'Marcar ou Assistir',
+          'multiscorers': 'Múltiplos Marcadores',
+          'numberofgoalsinmatch': 'Total de Golos',
+          'totalcorners': 'Total de Cantos',
+          'first10minutes': '1ª Hora',
+        };
+        return titles[slug] || slug.replace(/\b\w/g, l => l.toUpperCase());
       }
       return MARKET_CONFIG[key]?.title || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
@@ -438,6 +454,74 @@ export function SubOddsModel({
           const isOverLabel = (s: string) => /(^|\b)(over|acima|mais)\b/i.test(s);
           const isUnderLabel = (s: string) => /(^|\b)(under|abaixo|menos)\b/i.test(s);
 
+          // ── Team Totals: separate by Casa/Fora (soccer only) ───────────────── 
+          if (key === 'team_totals') { 
+            const isSoccerEvent = /soccer|futebol/i.test(String(event?.sport || '')); 
+            const teamLabel = (lbl: string) => { 
+              const l = lbl.toLowerCase(); 
+              if (l.startsWith('casa') || l.includes('home')) return 'casa'; 
+              if (l.startsWith('fora') || l.includes('away')) return 'fora'; 
+              return 'other'; 
+            }; 
+            const buildTeamMap = (items: MarketItem[]) => { 
+              const byP = new Map<number, { over?: MarketItem; under?: MarketItem }>(); 
+              for (const it of items) { 
+                const p = parsePoint(it); 
+                if (!Number.isFinite(p)) continue; 
+                const lbl = String(it.label || ''); 
+                const slot = byP.get(p) || {}; 
+                if (isOverLabel(lbl)) { if (!slot.over || Number(it.odd) > Number(slot.over.odd)) slot.over = it; } 
+                else if (isUnderLabel(lbl)) { if (!slot.under || Number(it.odd) > Number(slot.under.odd)) slot.under = it; } 
+                byP.set(p, slot); 
+              } 
+              return byP; 
+            }; 
+            const casaItems = isSoccerEvent ? (targetItems as MarketItem[]).filter((it: MarketItem) => teamLabel(it.label) === 'casa') : []; 
+            const foraItems = isSoccerEvent ? (targetItems as MarketItem[]).filter((it: MarketItem) => teamLabel(it.label) === 'fora') : []; 
+            const otherItems = (targetItems as MarketItem[]).filter((it: MarketItem) => !isSoccerEvent || teamLabel(it.label) === 'other'); 
+            const renderTeamBlock = (label: string, items: MarketItem[]) => { 
+              if (!items.length) return null; 
+              const byP = buildTeamMap(items); 
+              let pts = Array.from(byP.keys()).sort((a, b) => a - b); 
+              // Soccer: restrict to half-integer lines 0.5–4.5 
+              if (isSoccerEvent) { 
+                pts = pts.filter(p => { 
+                  const x2 = Math.round(p * 2); 
+                  return Math.abs(p * 2 - x2) < 1e-9 && (x2 % 2 === 1) && p >= 0.5 && p <= 4.5; 
+                }); 
+              } 
+              if (!pts.some(p => { const s = byP.get(p); return s?.over || s?.under; })) return null; 
+              return ( 
+                <div className="mb-2"> 
+                  <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{label}</div> 
+                  <div className="grid grid-cols-1 gap-1.5"> 
+                    {pts.map((p) => { 
+                      const slot = byP.get(p) || {}; 
+                      return ( 
+                        <div key={String(p)} className="grid grid-cols-2 gap-2"> 
+                          <div>{slot.over ? renderButtons([slot.over], key, "grid grid-cols-1 gap-0.5") : <div />}</div> 
+                          <div>{slot.under ? renderButtons([slot.under], key, "grid grid-cols-1 gap-0.5") : <div />}</div> 
+                        </div> 
+                      ); 
+                    })} 
+                  </div> 
+                </div> 
+              ); 
+            }; 
+            const casaBlock = renderTeamBlock(home, casaItems); 
+            const foraBlock = renderTeamBlock(away, foraItems); 
+            const otherBlock = renderTeamBlock('', otherItems); 
+            if (!casaBlock && !foraBlock && !otherBlock) return null; 
+            return ( 
+              <div> 
+                <div className={`text-sm md:text-base font-semibold mb-1 md:mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{title}</div> 
+                {casaBlock} 
+                {foraBlock} 
+                {otherBlock} 
+              </div> 
+            ); 
+          }
+
           const byPoint = new Map<number, { over?: MarketItem; under?: MarketItem }>();
           for (const it of targetItems) {
             const p = parsePoint(it);
@@ -472,8 +556,10 @@ export function SubOddsModel({
             const liveCorners = Number(liveMetrics?.corners || 0);
             const baseMax = 11.5;
             const maxPoint = isLive ? Math.max(baseMax, liveCorners + 1.5) : baseMax;
+            const minPoint = isLive && liveCorners > 0 ? liveCorners : 5.5;
             points = points
-              .filter((p) => p >= 5.5 && p <= maxPoint + 1e-9)
+              .filter((p) => p >= Math.max(5.5, minPoint) && p <= maxPoint + 1e-9)
+              .filter((p) => isLive ? p > liveCorners + 1e-9 : true)
               .filter((p) => {
                 const x2 = Math.round(p * 2);
                 return Math.abs(p * 2 - x2) < 1e-9 && (x2 % 2 === 1);
@@ -526,12 +612,12 @@ export function SubOddsModel({
             const ga = Number(event?.goals?.away ?? (event?.score?.away ?? 0));
             if (Number.isFinite(gh) && Number.isFinite(ga) && gh > 0 && ga > 0) return null;
           }
-          const title = getMarketTitle('btts', event?.sport);
-          const norm = (s: string) => String(s || '').toLowerCase().trim();
-          const pick = (want: string) => bttsItems.find((x: MarketItem) => norm(x.label) === norm(want)) || null;
-          const ordered = (['Não', 'Sim'] as const).map((l) => pick(l)).filter(Boolean) as MarketItem[];
-          return (
-            <div>
+          const title = getMarketTitle('btts', event?.sport); 
+          const norm = (s: string) => String(s || '').toLowerCase().trim(); 
+          const pick = (want: string) => bttsItems.find((x: MarketItem) => norm(x.label) === norm(want)) || null; 
+          const ordered = (['Sim', 'Não'] as const).map((l) => pick(l)).filter(Boolean) as MarketItem[]; 
+          return ( 
+            <div> 
               <div className={`text-sm md:text-base font-semibold mb-1 md:mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{title}</div>
               {renderButtons(ordered.length ? ordered : bttsItems, 'btts', "grid grid-cols-2 gap-2")}
             </div>
@@ -708,6 +794,25 @@ export function SubOddsModel({
           );
       }
 
+      // Special markets (player scorers, specials, etc.)
+      if (key.startsWith('special_')) {
+        const rawSpecial = markets ? (markets as any)[key] : null;
+        const specialList: MarketItem[] = Array.isArray(rawSpecial)
+          ? rawSpecial
+              .map((o: any) => ({ label: String(o?.label || o?.name || ''), odd: Number(o?.odd || o?.price || 0) }))
+              .filter((x: MarketItem) => x.label && x.odd >= 1.01 && x.odd < 1000)
+              .sort((a: MarketItem, b: MarketItem) => a.odd - b.odd)
+          : [];
+        if (!specialList.length) return null;
+        const title = getMarketTitle(key, event?.sport);
+        return (
+          <div>
+            <div className={`text-sm md:text-base font-semibold mb-1 md:mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{title}</div>
+            {renderButtons(specialList, key, "grid grid-cols-2 gap-2 sm:grid-cols-3")}
+          </div>
+        );
+      }
+
       // Generic extraction
       const items = getMarketItems(key);
       if (!items || items.length === 0) return null;
@@ -830,8 +935,29 @@ export function SubOddsModel({
       else if (isIceHockey) BASE_GROUPS = ICE_HOCKEY_GROUPS;
       else if (isMMA) BASE_GROUPS = MMA_GROUPS;
       else if (isRugby) BASE_GROUPS = RUGBY_GROUPS;
-
-      return BASE_GROUPS;
+      
+      // Global dedup: each market key should appear in at most ONE group (first wins)
+      const seenKeys = new Set<string>();
+      const staticGroups = BASE_GROUPS.map(g => ({
+        ...g,
+        keys: (g.keys as string[]).filter((k: string) => {
+          if (seenKeys.has(k)) return false;
+          seenKeys.add(k);
+          return true;
+        })
+      })).filter(g => g.keys.length > 0);
+      // Detect special_* keys from markets and add to Especiais tab
+      const specialKeys = Object.keys(markets || {}).filter(k => k.startsWith('special_') && !seenKeys.has(k) && hasMarketData(k));
+      if (specialKeys.length > 0) {
+        specialKeys.forEach(k => seenKeys.add(k));
+        const especiaisGroup = staticGroups.find(g => g.title === 'Especiais' || g.title === 'Mercados Especiais');
+        if (especiaisGroup) {
+          (especiaisGroup.keys as string[]).push(...specialKeys);
+        } else {
+          staticGroups.push({ title: 'Especiais', keys: specialKeys });
+        }
+      }
+      return staticGroups;
   }, [event?.sport, markets, eventOdds]);
 
   // State for active tab

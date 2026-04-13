@@ -1,14 +1,13 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "npm install",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/router?path=$1"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/"
-    }
+  "crons": [
+    { "path": "/api/cron/live-refresh", "schedule": "*/1 * * * *" },
+    { "path": "/api/cron/sports-sync", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/sports-sync-full", "schedule": "0 */6 * * *" },
+    { "path": "/api/cron/refresh-token-cleanup", "schedule": "0 3 * * *" }
   ]
 }

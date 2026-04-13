@@ -52,6 +52,22 @@ export function BannerCarousel() {
   const [activeIndex, setActiveIndex] = useState(0);
   const fallbackBanners = useMemo(() => ([
     {
+      id: 'promo-photo-barca',
+      title: 'La Liga · Destaque',
+      home: 'Barcelona',
+      away: 'Real Madrid',
+      time: 'EM BREVE',
+      live: false,
+      odds: { homeOld: null, home: '0', draw: '0', away: '0' },
+      league: 'La Liga',
+      homeLogo: null,
+      awayLogo: null,
+      sport: 'soccer',
+      photoBg: '/team-banner-barcelona.jpg',
+      promoLabel: 'DESTAQUE DA SEMANA',
+      promoText: 'O clássico que para o mundo',
+    },
+    {
       id: 'promo-1',
       title: 'Bónus de Boas‑Vindas',
       home: 'Depósito',
@@ -244,7 +260,10 @@ export function BannerCarousel() {
     loadBanners();
   }, []);
 
-  const viewBanners = banners.length > 0 ? banners : fallbackBanners;
+  // Always show static photo promo banners at the start of the carousel
+  const photoBanners = fallbackBanners.filter((b: any) => b.photoBg);
+  const eventBanners = banners.length > 0 ? banners : fallbackBanners.filter((b: any) => !b.photoBg);
+  const viewBanners = [...photoBanners, ...eventBanners];
   const displayBanners = viewBanners.length > 0 ? [viewBanners[activeIndex % viewBanners.length]] : viewBanners;
 
   useEffect(() => {
@@ -276,83 +295,151 @@ export function BannerCarousel() {
   const featured = displayBanners[0];
   const hasDraw = featured ? Number(featured?.odds?.draw || 0) > 0 : false;
   const scoreText = featured?.live && featured?.score ? String(featured.score) : '';
+  const isPhotoBanner = !!featured?.photoBg;
 
   return (
     <>
       <section className="w-full max-w-6xl mx-auto px-3 sm:px-4 select-none">
-        <div className="relative overflow-hidden rounded-2xl border border-gray-700/50 bg-gradient-to-br from-gray-950 via-slate-900 to-gray-900 shadow-2xl">
-          <div
-            className="absolute inset-0 opacity-30"
-            style={{ backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(getBgSvg(featured?.sport || ''))}")`, backgroundSize: 'cover', backgroundPosition: 'center' }}
-          />
+        <div className="relative overflow-hidden rounded-2xl border border-gray-700/50 bg-gradient-to-br from-gray-950 via-slate-900 to-gray-900 shadow-2xl" style={{ minHeight: isPhotoBanner ? 220 : undefined }}>
+          {isPhotoBanner ? (
+            <>
+              <img
+                src={featured.photoBg}
+                alt=""
+                className="absolute inset-0 w-full h-full object-cover object-center"
+                draggable={false}
+              />
+              <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/60 to-black/30" />
+            </>
+          ) : (
+            <div
+              className="absolute inset-0 opacity-30"
+              style={{ backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(getBgSvg(featured?.sport || ''))}")`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+            />
+          )}
           <div className="relative p-4 sm:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="text-xs font-bold uppercase tracking-wider text-gray-300 truncate">{featured?.league || 'Destaque'}</div>
-                {featured?.live && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white">
-                    AO VIVO
-                    {featured?.timer ? <span className="opacity-90">{String(featured.timer)}</span> : null}
-                  </span>
+            {isPhotoBanner ? (
+              <div className="flex flex-col justify-between h-full gap-3">
+                <div className="flex items-center gap-2">
+                  {featured?.promoLabel && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-black uppercase tracking-wider">
+                      {featured.promoLabel}
+                    </span>
+                  )}
+                  <span className="text-xs font-bold uppercase tracking-wider text-white/80">{featured?.league}</span>
+                </div>
+                <div className="mt-2">
+                  <div className="text-2xl sm:text-3xl font-black text-white leading-tight drop-shadow-lg">
+                    {featured?.home}
+                    <span className="text-amber-400 mx-2">vs</span>
+                    {featured?.away}
+                  </div>
+                  {featured?.promoText && (
+                    <div className="text-sm text-white/70 mt-1 font-medium">{featured.promoText}</div>
+                  )}
+                  <div className="text-xs text-white/50 mt-1 font-semibold uppercase tracking-wider">{featured?.time}</div>
+                </div>
+                {hasDraw ? (
+                  <div className="mt-3 grid grid-cols-3 gap-2" style={{ maxWidth: 320 }}>
+                    <button
+                      className="rounded-xl bg-black/50 border border-white/20 hover:bg-black/70 transition-colors p-2.5 text-left backdrop-blur-sm"
+                      onClick={() => handleBet(featured, '1', featured?.odds?.home)}
+                    >
+                      <div className="text-[10px] text-gray-300 font-bold uppercase">1</div>
+                      <div className="text-base font-black text-white">{Number(featured?.odds?.home || 0) > 0 ? featured.odds.home : '—'}</div>
+                    </button>
+                    <button
+                      className="rounded-xl bg-black/50 border border-white/20 hover:bg-black/70 transition-colors p-2.5 text-left backdrop-blur-sm"
+                      onClick={() => handleBet(featured, 'X', featured?.odds?.draw)}
+                    >
+                      <div className="text-[10px] text-gray-300 font-bold uppercase">X</div>
+                      <div className="text-base font-black text-white">{Number(featured?.odds?.draw || 0) > 0 ? featured.odds.draw : '—'}</div>
+                    </button>
+                    <button
+                      className="rounded-xl bg-black/50 border border-white/20 hover:bg-black/70 transition-colors p-2.5 text-left backdrop-blur-sm"
+                      onClick={() => handleBet(featured, '2', featured?.odds?.away)}
+                    >
+                      <div className="text-[10px] text-gray-300 font-bold uppercase">2</div>
+                      <div className="text-base font-black text-white">{Number(featured?.odds?.away || 0) > 0 ? featured.odds.away : '—'}</div>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 text-sm font-bold uppercase tracking-wider">
+                    Ver Evento
+                  </div>
                 )}
               </div>
-              <div className="text-xs text-gray-300 font-semibold">{featured?.time}</div>
-            </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="text-xs font-bold uppercase tracking-wider text-gray-300 truncate">{featured?.league || 'Destaque'}</div>
+                    {featured?.live && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white">
+                        AO VIVO
+                        {featured?.timer ? <span className="opacity-90">{String(featured.timer)}</span> : null}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-300 font-semibold">{featured?.time}</div>
+                </div>
 
-            <div className="mt-4 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-12 h-12 rounded-full bg-black/30 border border-white/10 flex items-center justify-center overflow-hidden">
-                  {featured?.homeLogo ? <img src={featured.homeLogo} alt={featured.home} className="w-10 h-10 object-contain" /> : null}
-                </div>
-                <div className="min-w-0">
-                  <div className="text-base sm:text-lg font-black text-white truncate">{featured?.home}</div>
-                  <div className="text-xs text-gray-300 truncate">{featured?.away}</div>
-                </div>
-              </div>
+                <div className="mt-4 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-12 h-12 rounded-full bg-black/30 border border-white/10 flex items-center justify-center overflow-hidden">
+                      {featured?.homeLogo ? <img src={featured.homeLogo} alt={featured.home} className="w-10 h-10 object-contain" /> : null}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-base sm:text-lg font-black text-white truncate">{featured?.home}</div>
+                      <div className="text-xs text-gray-300 truncate">{featured?.away}</div>
+                    </div>
+                  </div>
 
-              <div className="text-center shrink-0">
-                <div className="text-2xl sm:text-4xl font-black text-white tabular-nums">
-                  {featured?.live ? (scoreText || '0-0') : 'VS'}
-                </div>
-                <div className="text-xs text-gray-300 font-semibold">{featured?.sport ? String(featured.sport).toUpperCase() : ''}</div>
-              </div>
+                  <div className="text-center shrink-0">
+                    <div className="text-2xl sm:text-4xl font-black text-white tabular-nums">
+                      {featured?.live ? (scoreText || '0-0') : 'VS'}
+                    </div>
+                    <div className="text-xs text-gray-300 font-semibold">{featured?.sport ? String(featured.sport).toUpperCase() : ''}</div>
+                  </div>
 
-              <div className="flex items-center gap-3 min-w-0 justify-end">
-                <div className="min-w-0 text-right">
-                  <div className="text-base sm:text-lg font-black text-white truncate">{featured?.away}</div>
-                  <div className="text-xs text-gray-300 truncate">{featured?.home}</div>
+                  <div className="flex items-center gap-3 min-w-0 justify-end">
+                    <div className="min-w-0 text-right">
+                      <div className="text-base sm:text-lg font-black text-white truncate">{featured?.away}</div>
+                      <div className="text-xs text-gray-300 truncate">{featured?.home}</div>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-black/30 border border-white/10 flex items-center justify-center overflow-hidden">
+                      {featured?.awayLogo ? <img src={featured.awayLogo} alt={featured.away} className="w-10 h-10 object-contain" /> : null}
+                    </div>
+                  </div>
                 </div>
-                <div className="w-12 h-12 rounded-full bg-black/30 border border-white/10 flex items-center justify-center overflow-hidden">
-                  {featured?.awayLogo ? <img src={featured.awayLogo} alt={featured.away} className="w-10 h-10 object-contain" /> : null}
-                </div>
-              </div>
-            </div>
 
-            <div className={`mt-4 grid gap-2 ${hasDraw ? 'grid-cols-3' : 'grid-cols-2'}`}>
-              <button
-                className="rounded-xl bg-black/40 border border-white/10 hover:bg-black/55 transition-colors p-3 text-left"
-                onClick={() => handleBet(featured, '1', featured?.odds?.home)}
-              >
-                <div className="text-[10px] text-gray-300 font-bold uppercase">1</div>
-                <div className="text-lg font-black text-white">{Number(featured?.odds?.home || 0) > 0 ? featured.odds.home : '—'}</div>
-              </button>
-              {hasDraw && (
-                <button
-                  className="rounded-xl bg-black/40 border border-white/10 hover:bg-black/55 transition-colors p-3 text-left"
-                  onClick={() => handleBet(featured, 'X', featured?.odds?.draw)}
-                >
-                  <div className="text-[10px] text-gray-300 font-bold uppercase">X</div>
-                  <div className="text-lg font-black text-white">{Number(featured?.odds?.draw || 0) > 0 ? featured.odds.draw : '—'}</div>
-                </button>
-              )}
-              <button
-                className="rounded-xl bg-black/40 border border-white/10 hover:bg-black/55 transition-colors p-3 text-left"
-                onClick={() => handleBet(featured, '2', featured?.odds?.away)}
-              >
-                <div className="text-[10px] text-gray-300 font-bold uppercase">2</div>
-                <div className="text-lg font-black text-white">{Number(featured?.odds?.away || 0) > 0 ? featured.odds.away : '—'}</div>
-              </button>
-            </div>
+                <div className={`mt-4 grid gap-2 ${hasDraw ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                  <button
+                    className="rounded-xl bg-black/40 border border-white/10 hover:bg-black/55 transition-colors p-3 text-left"
+                    onClick={() => handleBet(featured, '1', featured?.odds?.home)}
+                  >
+                    <div className="text-[10px] text-gray-300 font-bold uppercase">1</div>
+                    <div className="text-lg font-black text-white">{Number(featured?.odds?.home || 0) > 0 ? featured.odds.home : '—'}</div>
+                  </button>
+                  {hasDraw && (
+                    <button
+                      className="rounded-xl bg-black/40 border border-white/10 hover:bg-black/55 transition-colors p-3 text-left"
+                      onClick={() => handleBet(featured, 'X', featured?.odds?.draw)}
+                    >
+                      <div className="text-[10px] text-gray-300 font-bold uppercase">X</div>
+                      <div className="text-lg font-black text-white">{Number(featured?.odds?.draw || 0) > 0 ? featured.odds.draw : '—'}</div>
+                    </button>
+                  )}
+                  <button
+                    className="rounded-xl bg-black/40 border border-white/10 hover:bg-black/55 transition-colors p-3 text-left"
+                    onClick={() => handleBet(featured, '2', featured?.odds?.away)}
+                  >
+                    <div className="text-[10px] text-gray-300 font-bold uppercase">2</div>
+                    <div className="text-lg font-black text-white">{Number(featured?.odds?.away || 0) > 0 ? featured.odds.away : '—'}</div>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </section>

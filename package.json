@@ -3,8 +3,12 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 5000 --host 0.0.0.0",
+    "server": "node backend/src/index.js",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
@@ -19,6 +23,7 @@
     "generate:countries": "node scripts/generateCountries.js"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.4",
     "@lucia-auth/adapter-sqlite": "^2.0.0",
     "@paypal/checkout-server-sdk": "^1.0.3",
     "@paypal/react-paypal-js": "^8.9.2",
@@ -49,6 +54,7 @@
     "react-router-dom": "^6.23.1",
     "react-window": "^2.2.3",
     "recharts": "^3.8.0",
+    "postgres": "^3.4.7",
     "stripe": "^19.3.1",
     "tailwind-merge": "^3.5.0",
     "winston": "^3.19.0",

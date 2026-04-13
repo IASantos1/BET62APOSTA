@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { startSse } from '../utils/sse';
 
 type LiveStreamMessage =
   | { type: 'hello' }
@@ -10,7 +11,6 @@ type LiveStreamMessage =
 export function useLiveSSEUpdates(sport: string, enabled: boolean) {
   const [updatesById, setUpdatesById] = useState<Map<string, any>>(new Map());
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(0);
-  const [nonce, setNonce] = useState(0);
 
   const url = useMemo(() => {
     const s = String(sport || 'all').trim();
@@ -19,44 +19,27 @@ export function useLiveSSEUpdates(sport: string, enabled: boolean) {
 
   useEffect(() => {
     if (!enabled) return;
-    if (typeof window === 'undefined' || !('EventSource' in window)) return;
+    if (typeof window === 'undefined') return;
 
-    let alive = true;
-    const es = new EventSource(url);
-    es.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(String(ev.data || '{}')) as LiveStreamMessage;
-        if (!msg || typeof msg !== 'object') return;
-        if (msg.type === 'live' && Array.isArray((msg as any).updates)) {
-          const arr = (msg as any).updates as any[];
-          setUpdatesById((prev) => {
-            const next = new Map(prev);
-            for (const u of arr) {
-              const id = String(u?.id || u?.external_event_id || '');
-              if (!id) continue;
-              next.set(id, u);
-            }
-            return next;
-          });
-          setLastUpdatedAt(Date.now());
-        }
-        if (msg.type === 'bye') {
-          try { es.close(); } catch { void 0; }
-          setTimeout(() => { if (alive) setNonce((n) => n + 1); }, 150);
-        }
-      } catch { void 0; }
-    };
+    const stop = startSse<LiveStreamMessage>(url, (msg) => {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'live' && Array.isArray((msg as any).updates)) {
+        const arr = (msg as any).updates as any[];
+        setUpdatesById((prev) => {
+          const next = new Map(prev);
+          for (const u of arr) {
+            const id = String(u?.id || u?.external_event_id || '');
+            if (!id) continue;
+            next.set(id, u);
+          }
+          return next;
+        });
+        setLastUpdatedAt(Date.now());
+      }
+    });
 
-    es.onerror = () => {
-      try { es.close(); } catch { void 0; }
-      setTimeout(() => { if (alive) setNonce((n) => n + 1); }, 700);
-    };
-
-    return () => {
-      alive = false;
-      try { es.close(); } catch { void 0; }
-    };
-  }, [enabled, url, nonce]);
+    return () => stop();
+  }, [enabled, url]);
 
   return { updatesById, lastUpdatedAt };
 }

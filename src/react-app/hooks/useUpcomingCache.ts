@@ -38,9 +38,12 @@ export function useUpcomingCache(pregame: Event[]) {
                      targetTime = dYearAdj.getTime();
                 }
 
-                // If live/finished, stricter check
-                // But typically cache is pregame. 
-                // Let's use the same 2.5h rule for pregame
+                // Filter out events that already started (likely live now)
+                if (targetTime < now - 5 * 60 * 1000) {
+                    return false;
+                }
+
+                // Also remove events more than 2.5h past start
                 if (targetTime < now - 2.5 * 60 * 60 * 1000) {
                     return false;
                 }
@@ -62,9 +65,27 @@ export function useUpcomingCache(pregame: Event[]) {
     const str = JSON.stringify(pregame);
     if (pregameLastRef.current !== str) {
       pregameLastRef.current = str;
-      setUpcomingEvents(pregame);
+      const LIVE_LIKE = new Set([
+        '1H','2H','ET','P','BT','HT','LIVE','IN_PLAY','inprogress','live','INPROGRESS',
+        'Q1','Q2','Q3','Q4','OT','P1','P2','P3','PO',
+        'S1','S2','S3','S4','S5','H1','H2',
+        'IN PLAY','IN-PLAY','PLAYING','STARTED',
+      ]);
+      const now = Date.now();
+      const fresh = pregame.filter(evt => {
+        const st = String((evt as any).status || '').trim();
+        if (LIVE_LIKE.has(st) || LIVE_LIKE.has(st.toUpperCase())) return false;
+        if (Number((evt as any).is_live) === 1) return false;
+        const dstr = evt.event_date || (evt as any).fixture?.date;
+        if (dstr) {
+          const d = new Date(dstr);
+          if (!Number.isNaN(d.getTime()) && d.getTime() < now - 5 * 60 * 1000) return false;
+        }
+        return true;
+      });
+      setUpcomingEvents(fresh);
       try {
-        localStorage.setItem(CACHE_KEY, str);
+        localStorage.setItem(CACHE_KEY, JSON.stringify(fresh));
       } catch { /* no-op */ }
     }
   }, [pregame]);

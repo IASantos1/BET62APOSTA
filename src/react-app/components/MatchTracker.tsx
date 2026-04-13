@@ -25,7 +25,7 @@ interface GameEvent {
 const MatchHeader = ({ league, sport, status, darkMode }: { league: string, sport: string, status: string, darkMode: boolean }) => (
   <div className={`flex items-center justify-between px-4 py-3 border-b ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-800'}`}>
     <div className="flex items-center gap-2">
-      <span className="text-sm font-medium uppercase tracking-wide">{sport} • {league}</span>
+      <span className="text-sm font-medium uppercase tracking-wide">{sport}{league ? ` • ${league}` : ''}</span>
     </div>
     <div className="flex items-center gap-2">
       <span className="relative flex h-2 w-2">
@@ -256,7 +256,21 @@ const MatchTimeline = ({ events, darkMode }: { events: GameEvent[], darkMode: bo
 
 // --- Main Component ---
 
-export default function MatchTracker({ darkMode, live, homeName, awayName, leagueName = 'Liga Portugal', sportName = 'Futebol' }: MatchTrackerProps) {
+const sportLabel = (s: string) => {
+  const k = String(s || '').toLowerCase()
+  if (k.includes('soccer') || k.includes('football') || k.includes('futebol')) return 'Futebol'
+  if (k.includes('basket')) return 'Basquetebol'
+  if (k.includes('hockey') || k.includes('hóquei')) return 'Hóquei no Gelo'
+  if (k.includes('handball') || k.includes('andebol')) return 'Andebol'
+  if (k.includes('volleyball') || k.includes('voleibol')) return 'Voleibol'
+  if (k.includes('tennis') || k.includes('ténis')) return 'Ténis'
+  if (k.includes('baseball')) return 'Baseball'
+  if (k.includes('rugby')) return 'Rugby'
+  if (k.includes('mma') || k.includes('ufc')) return 'MMA'
+  return s || 'Desporto'
+}
+
+export default function MatchTracker({ darkMode, live, homeName, awayName, leagueName = '', sportName = 'soccer' }: MatchTrackerProps) {
   // --- Simulation State (Disabled) ---
   // const [ball, setBall] = useState({ x: 50, y: 50 })
   // const ballRef = useRef({ x: 50, y: 50 }) // Ref for animation loop stability
@@ -443,7 +457,7 @@ export default function MatchTracker({ darkMode, live, homeName, awayName, leagu
     <div className={`w-full max-w-2xl mx-auto overflow-hidden rounded-xl shadow-lg relative ${darkMode ? 'bg-gray-900' : 'bg-gray-100'}`}>
       {/* Goal Overlay Removed */}
 
-      <MatchHeader league={leagueName} sport={sportName} status={status} darkMode={darkMode} />
+      <MatchHeader league={leagueName || ''} sport={sportLabel(sportName)} status={status} darkMode={darkMode} />
       
       <Scoreboard home={home} away={away} score={score} time={time} darkMode={darkMode} />
       {isBasketball ? (

@@ -8,6 +8,7 @@ import type { LiveScore, SuspendedMarket } from '@/shared/types';
 // import { normalizeOdds } from '@/react-app/services/oddsNormalizer'; // Removed
 import { useTrend } from '@/react-app/hooks/useTrend';
 import { getEventBannerUrl } from '@/react-app/utils/eventBanners';
+import { useTeamBanner } from '@/react-app/hooks/useTeamBanner';
 import { sanitizeMediaUrl } from '@/react-app/utils/media';
 
 const normalizeSport = (s: string) => {
@@ -254,13 +255,20 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     ? 'MOMENTO_CRITICO'
     : (suspension?.reason || (event as any).suspendReason || ((event as any).oddsFrozen ? 'EVENT_FROZEN' : 'SUSPENSO'));
 
-  const bannerUrl = useMemo(() => {
+  const gradientBannerUrl = useMemo(() => {
     return getEventBannerUrl({
       eventId: eventId,
       homeTeam: homeTeamName,
       awayTeam: awayTeamName,
+      sport: eventSport || sport,
     });
-  }, [eventId, homeTeamName, awayTeamName]);
+  }, [eventId, homeTeamName, awayTeamName, eventSport, sport]);
+  const { bannerUrl: photoBannerUrl } = useTeamBanner(
+    homeTeamName,
+    awayTeamName,
+    !isLiveEvent,
+  );
+  const bannerUrl = photoBannerUrl || gradientBannerUrl;
 
   return (
     <div 
@@ -271,13 +279,41 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
       onMouseLeave={() => setIsHovered(false)} 
       onClick={() => onOpenEvent(event)}
     > 
-      {bannerUrl && (
-        <div className="relative -mx-3 -mt-3 mb-3 overflow-hidden rounded-t-lg h-16 sm:h-20">
+      {bannerUrl && !isLiveEvent && (
+        <div className="relative -mx-3 -mt-3 mb-3 overflow-hidden rounded-t-lg" style={{ height: 96 }}>
           <div
             className="absolute inset-0 bg-center bg-cover"
             style={{ backgroundImage: `url(${bannerUrl})` }}
           />
           <div className={`absolute inset-0 ${darkMode ? 'bg-gradient-to-r from-gray-900/85 via-gray-900/55 to-gray-900/15' : 'bg-gradient-to-r from-white/75 via-white/45 to-white/10'}`} />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/50 to-black/75" />
+          <div className="relative h-full flex items-center justify-between px-4">
+            <div className="flex items-center gap-2 min-w-0">
+              {homeLogoOk && homeTeamLogo ? (
+                <img src={homeTeamLogo} alt={homeTeamName} className="w-10 h-10 object-contain drop-shadow-lg" onError={() => setHomeLogoOk(false)} />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-xs font-bold text-white">{initials(homeTeamName)}</div>
+              )}
+              <span className="text-white font-black text-sm sm:text-base truncate max-w-[100px] drop-shadow">{cleanTeam(homeTeamName)}</span>
+            </div>
+            <div className="flex flex-col items-center gap-0.5 shrink-0">
+              <div className="text-xs font-black text-white/80 uppercase tracking-widest leading-none">VS</div>
+              {eventTime && (
+                <div className="text-[11px] font-bold text-amber-300 leading-none mt-1">{eventTime}</div>
+              )}
+              {eventDayMonth && (
+                <div className="text-[10px] text-white/50 leading-none mt-0.5">{eventDayMonth}</div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 min-w-0 flex-row-reverse">
+              {awayLogoOk && awayTeamLogo ? (
+                <img src={awayTeamLogo} alt={awayTeamName} className="w-10 h-10 object-contain drop-shadow-lg" onError={() => setAwayLogoOk(false)} />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-xs font-bold text-white">{initials(awayTeamName)}</div>
+              )}
+              <span className="text-white font-black text-sm sm:text-base truncate max-w-[100px] drop-shadow text-right">{cleanTeam(awayTeamName)}</span>
+            </div>
+          </div>
         </div>
       )}
       <div className="flex flex-col sm:flex-row justify-between items-start"> 
@@ -320,9 +356,23 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 8v5h4M12 2a10 10 0 100 20 10 10 0 000-20z"/>
             </svg>
-            {String((event as any)?.timer || '').trim()
-              ? String((event as any).timer).trim()
-              : (typeof event?.elapsed === 'number' && event.elapsed > 0 ? `${event.elapsed}'` : 'AO VIVO')}
+            {(() => {
+              const t = String((event as any)?.timer || '').trim();
+              if (t) return t;
+              const st = String((event as any)?.status?.short || (event as any)?.status || '').trim().toUpperCase();
+              const el = typeof event?.elapsed === 'number' ? event.elapsed : 0;
+              if ((st === '1H' || st === '2H') && el > 0) return `${el}'`;
+              if (st === '1H') return '1ª Parte';
+              if (st === '2H') return '2ª Parte';
+              if (st === 'HT' || st === 'BT') return 'Intervalo';
+              if (st === 'ET') return 'Prolongamento';
+              const periodStatuses = new Set(['Q1','Q2','Q3','Q4','OT','P1','P2','P3','S1','S2','S3','S4','S5']);
+              if (st && periodStatuses.has(st)) {
+                const elStr = el > 0 ? ` ${el}'` : '';
+                return `${st}${elStr}`;
+              }
+              return el > 0 ? `${el}'` : 'AO VIVO';
+            })()}
           </span>
         </div>
       )}
@@ -349,11 +399,32 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                 )
               )}
               <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(homeTeamName)}</span>
+              {isLiveEvent && Number((event as any).red_cards_home || 0) > 0 && ( 
+                <span title="Cartão vermelho" className="relative inline-flex items-center justify-center shrink-0 ml-0.5"> 
+                  <span className="block w-2.5 h-3.5 bg-red-600 rounded-[2px]" /> 
+                  {Number((event as any).red_cards_home) > 1 && ( 
+                    <span className="absolute -top-1 -right-1.5 flex items-center justify-center w-3 h-3 rounded-full bg-red-800 text-white text-[7px] font-bold leading-none"> 
+                      {Number((event as any).red_cards_home)} 
+                    </span> 
+                  )} 
+                </span> 
+              )} 
             </div>
 
             {(() => {
-              const rawHome = (event as any).goals?.home ?? (event as any).golsCasa ?? (event as any).score_home;
-              const rawAway = (event as any).goals?.away ?? (event as any).golsFora ?? (event as any).score_away;
+              const parsedScore = (() => {
+                try {
+                  const s = (event as any).goals || (() => {
+                    const raw = (event as any).score;
+                    if (!raw) return null;
+                    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+                  })();
+                  return s && typeof s === 'object' ? s : null;
+                } catch { return null; }
+              })();
+              const knownHome = parsedScore?.home !== null && parsedScore?.home !== undefined ? parsedScore.home : undefined;
+              const knownAway = parsedScore?.away !== null && parsedScore?.away !== undefined ? parsedScore.away : undefined;
+              const hasScore = knownHome !== undefined && knownAway !== undefined;
 
               const formatScore = (val: any) => {
                 if (val === null || val === undefined) return undefined;
@@ -361,12 +432,11 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                 return val;
               };
 
-              let homeScore = formatScore(rawHome);
-              let awayScore = formatScore(rawAway);
-
-              if (isLiveEvent) {
-                if (homeScore === undefined) homeScore = 0;
-                if (awayScore === undefined) awayScore = 0;
+              let homeScore = hasScore ? formatScore(knownHome) : undefined;
+              let awayScore = hasScore ? formatScore(knownAway) : undefined;
+              if (isLiveEvent && !hasScore && (event as any).sport === 'soccer') {
+                homeScore = 0;
+                awayScore = 0;
               }
 
               let scoreStr = '';
@@ -400,7 +470,17 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
               );
             })()}
            
-            <div className="flex items-center gap-2 min-w-0 max-w-[46%]">
+            <div className="flex items-center gap-2 min-w-0 max-w-[46%] justify-end ml-auto">
+              {isLiveEvent && Number((event as any).red_cards_away || 0) > 0 && ( 
+                <span title="Cartão vermelho" className="relative inline-flex items-center justify-center shrink-0 mr-0.5"> 
+                  <span className="block w-2.5 h-3.5 bg-red-600 rounded-[2px]" /> 
+                  {Number((event as any).red_cards_away) > 1 && ( 
+                    <span className="absolute -top-1 -right-1.5 flex items-center justify-center w-3 h-3 rounded-full bg-red-800 text-white text-[7px] font-bold leading-none"> 
+                      {Number((event as any).red_cards_away)} 
+                    </span> 
+                  )} 
+                </span> 
+              )} 
               <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(awayTeamName)}</span>
               {!isTennis && (
                 awayTeamLogo && awayLogoOk ? (
@@ -430,6 +510,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
           const showDraw = !isTwoWaySport && dd > 0;
           const gridCols = showDraw ? 'grid-cols-3' : 'grid-cols-2';
           const anyLow = [hh, (showDraw ? dd : 0), aa].some((x) => x > 0 && x <= 1.01 + 1e-9);
+          const liveOneSided = isLiveEvent && isTwoWaySport && hasPrimary && ((hh > 0) !== (aa > 0)) && !showDraw;
           
           if (!hasPrimary) {
               return (
@@ -467,7 +548,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
             );
           }
 
-          if (anyLow) {
+          if (anyLow || liveOneSided) {
             return (
               <div className="w-full sm:w-[320px] lg:w-[400px]">
                 <button

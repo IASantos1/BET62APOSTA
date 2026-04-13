@@ -59,10 +59,15 @@ function Home({ mode = 'home' }: HomeProps) {
   // Agrupamento
   // Separate Lists for Live and Upcoming
   const sortedUpcoming = useMemo(() => {
-    const liveIds = new Set(processedLive.map(e => e.id));
+    const liveIds = new Set<string>();
+    for (const e of processedLive) {
+      if (e.id) liveIds.add(String(e.id));
+      if ((e as any).external_event_id) liveIds.add(String((e as any).external_event_id));
+    }
     return upcomingEvents
       .filter(e => {
-        if (liveIds.has(e.id)) return false;
+        if (liveIds.has(String(e.id))) return false;
+        if ((e as any).external_event_id && liveIds.has(String((e as any).external_event_id))) return false;
 
         // Strict validity check
         const h = (e.home_team || '').trim();

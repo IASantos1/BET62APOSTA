@@ -253,6 +253,45 @@ export default function EventDetails() {
     });
   }, [displayEvent, addToBetSlip]);
 
+  // ── Red card detection (must be before early returns – Rules of Hooks) ──────── 
+  const redCards = useMemo(() => { 
+    let home = Number((displayEvent as any)?.red_cards_home || 0); 
+    let away = Number((displayEvent as any)?.red_cards_away || 0); 
+    const evs = Array.isArray(liveStats?.events) ? liveStats.events : []; 
+    const homeId = (displayEvent as any)?.teams?.home?.id ?? (displayEvent as any)?.fixture?.teams?.home?.id; 
+    const awayId = (displayEvent as any)?.teams?.away?.id ?? (displayEvent as any)?.fixture?.teams?.away?.id; 
+    if (evs.length > 0) { 
+      let liveHome = 0, liveAway = 0; 
+      for (const ev of evs) { 
+        if (String(ev?.type || '').toLowerCase() === 'card' && 
+            String(ev?.detail || '').toLowerCase().includes('red')) { 
+          const teamId = ev?.team?.id; 
+          if (teamId && homeId && teamId === homeId) liveHome++; 
+          else if (teamId && awayId && teamId === awayId) liveAway++; 
+        } 
+      } 
+      if (liveHome > 0 || liveAway > 0) { home = liveHome; away = liveAway; } 
+    } 
+    return { home, away }; 
+  }, [displayEvent, liveStats]); 
+
+  // ── Convert backend suspended_markets → SubOddsModel format ────────────────── 
+  const suspendedMarketsConverted = useMemo(() => { 
+    const raw = (displayEvent as any)?.suspended_markets; 
+    if (!raw || typeof raw !== 'object') return []; 
+    const eventId = Number((displayEvent as any)?.id || 0); 
+    const result: { eventId: number; marketId: string; reason: string }[] = []; 
+    if (Array.isArray(raw.correct_score_blocked) && raw.correct_score_blocked.length > 0) { 
+      result.push({ eventId, marketId: 'correct_score', reason: 'GOAL' }); 
+    } 
+    if (typeof raw.totals_blocked_below === 'number' && raw.totals_blocked_below > 0) { 
+      result.push({ eventId, marketId: 'totals', reason: 'GOAL' }); 
+      result.push({ eventId, marketId: 'corners_totals', reason: 'GOAL' }); 
+      result.push({ eventId, marketId: 'cards_totals', reason: 'GOAL' }); 
+    } 
+    return result; 
+  }, [displayEvent]); 
+
   if (loading) return <div className="p-8 text-center"><div className="animate-spin h-8 w-8 border-4 border-red-600 border-t-transparent rounded-full mx-auto"></div></div>;
   if (error || !displayEvent) return <div className="p-8 text-center text-red-600">{error || 'Evento não encontrado'}</div>;
 
@@ -267,6 +306,8 @@ export default function EventDetails() {
     'IN_PROGRESS',
   ]);
   const isLive = displayEvent.is_live === 1 || liveStatuses.has(statusKey);
+  const eventSport = String((displayEvent as any)?.sport || '').toLowerCase();
+  const isSoccerEvent = eventSport.includes('soccer') || eventSport.includes('football') || eventSport.includes('futebol') || eventSport === '';
   const liveTimerRaw = String((displayEvent as any)?.timer || displayEvent?.fixture?.status?.timer || '').trim();
   const liveTimer = liveTimerRaw
     ? (liveTimerRaw.includes(':')
@@ -320,7 +361,19 @@ export default function EventDetails() {
               <div className="flex items-center justify-between w-full max-w-3xl px-4 md:px-12">
                 <div className="flex flex-col items-center gap-2">
                     <img src={homeTeamLogo} alt={displayEvent.home_team} className="w-16 h-16 md:w-24 md:h-24 object-contain drop-shadow-lg bg-white/10 rounded-full p-2" onError={(e) => e.currentTarget.style.display = 'none'} />
-                    <span className="text-lg md:text-2xl font-bold text-white text-center">{cleanTeam(displayEvent.home_team)}</span>
+                    <div className="flex items-center gap-1.5"> 
+                      <span className="text-lg md:text-2xl font-bold text-white text-center">{cleanTeam(displayEvent.home_team)}</span> 
+                      {isLive && redCards.home > 0 && ( 
+                        <span title={`${redCards.home} cartão(s) vermelho(s)`} className="relative inline-block"> 
+                          <span className="inline-block w-3.5 h-5 bg-red-600 rounded-[2px] shadow-md border border-red-800" /> 
+                          {redCards.home > 1 && ( 
+                            <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-0.5 rounded-full bg-white text-red-600 text-[9px] font-extrabold flex items-center justify-center leading-none border border-red-600"> 
+                              {redCards.home} 
+                            </span> 
+                          )} 
+                        </span> 
+                      )} 
+                    </div> 
                 </div>
                 
                 <div className="text-center mx-4">
@@ -348,7 +401,19 @@ export default function EventDetails() {
 
                 <div className="flex flex-col items-center gap-2">
                     <img src={awayTeamLogo} alt={displayEvent.away_team} className="w-16 h-16 md:w-24 md:h-24 object-contain drop-shadow-lg bg-white/10 rounded-full p-2" onError={(e) => e.currentTarget.style.display = 'none'} />
-                    <span className="text-lg md:text-2xl font-bold text-white text-center">{cleanTeam(displayEvent.away_team)}</span>
+                    <div className="flex items-center gap-1.5"> 
+                      {isLive && redCards.away > 0 && ( 
+                        <span title={`${redCards.away} cartão(s) vermelho(s)`} className="relative inline-block"> 
+                          <span className="inline-block w-3.5 h-5 bg-red-600 rounded-[2px] shadow-md border border-red-800" /> 
+                          {redCards.away > 1 && ( 
+                            <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-0.5 rounded-full bg-white text-red-600 text-[9px] font-extrabold flex items-center justify-center leading-none border border-red-600"> 
+                              {redCards.away} 
+                            </span> 
+                          )} 
+                        </span> 
+                      )} 
+                      <span className="text-lg md:text-2xl font-bold text-white text-center">{cleanTeam(displayEvent.away_team)}</span> 
+                    </div> 
                 </div>
               </div>
             </div>
@@ -383,18 +448,22 @@ export default function EventDetails() {
                       >
                         Estatísticas
                       </button>
-                      <button
-                        onClick={() => setMatchCenterTab('lineups')}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold border ${matchCenterTab === 'lineups' ? (darkMode ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-100 border-gray-300 text-gray-900') : (darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-800')}`}
-                      >
-                        Escalação
-                      </button>
-                      <button
-                        onClick={() => setMatchCenterTab('standings')}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold border ${matchCenterTab === 'standings' ? (darkMode ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-100 border-gray-300 text-gray-900') : (darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-800')}`}
-                      >
-                        Classificação
-                      </button>
+                      {isSoccerEvent && (
+                        <button
+                          onClick={() => setMatchCenterTab('lineups')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold border ${matchCenterTab === 'lineups' ? (darkMode ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-100 border-gray-300 text-gray-900') : (darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-800')}`}
+                        >
+                          Escalação
+                        </button>
+                      )}
+                      {isSoccerEvent && (
+                        <button
+                          onClick={() => setMatchCenterTab('standings')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold border ${matchCenterTab === 'standings' ? (darkMode ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-100 border-gray-300 text-gray-900') : (darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-800')}`}
+                        >
+                          Classificação
+                        </button>
+                      )}
                     </div>
                   )}
                   {matchCenterTab === 'center' && (
@@ -828,7 +897,7 @@ export default function EventDetails() {
             onSelect={onSelect}
             labelOutcome={handleLabelOutcome}
             applyMarginClamp={applyMarginClamp}
-            suspendedMarkets={[]}
+            suspendedMarkets={suspendedMarketsConverted}
           />
         </main>
 

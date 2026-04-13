@@ -19,6 +19,11 @@ export default function DepositSuccessPage() {
     const fireRefresh = () => {
       try { window.dispatchEvent(new Event('wallet:refresh')); } catch { void 0; }
     };
+    const reconcile = async () => {
+      try {
+        await apiFetch('/api/wallet/reconcile-stripe', { method: 'POST', cache: 'no-store' });
+      } catch { void 0; }
+    };
     const load = async () => {
       if (!user) { setStatus('done'); return; }
       try {
@@ -30,11 +35,13 @@ export default function DepositSuccessPage() {
     };
 
     const run = async () => {
+      await reconcile();
       fireRefresh();
       await load();
       const started = Date.now();
       while (!stopped && Date.now() - started < 30_000) {
         await new Promise((r) => setTimeout(r, 3000));
+        await reconcile();
         fireRefresh();
         await load();
       }
@@ -79,4 +86,3 @@ export default function DepositSuccessPage() {
     </div>
   );
 }
-
