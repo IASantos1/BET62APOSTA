@@ -74,12 +74,41 @@ function normalizeSportKey(key: string): string {
   return s;
 }
 
+function isLiveStatus(statusShort: string): boolean {
+  const s = String(statusShort || '').toUpperCase().trim();
+  if (!s) return false;
+  const live = new Set([
+    '1H','2H','ET','P','BT','HT','LIVE','IN_PLAY','INPROGRESS','IN PROGRESS','IN-PLAY','IN PLAY','PLAYING','STARTED',
+    'Q1','Q2','Q3','Q4','OT',
+    'P1','P2','P3','PO',
+    'S1','S2','S3','S4','S5',
+    'H1','H2',
+  ]);
+  return live.has(s);
+}
+
 function formatKickoffTime(dateStr: string): string {
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return '--:--';
   const h = String(d.getHours()).padStart(2, '0');
   const m = String(d.getMinutes()).padStart(2, '0');
   return `${h}:${m}`;
+}
+
+function proxyMediaUrl(url: string): string {
+  const u = String(url || '').trim();
+  if (!u) return '';
+  if (!/^https?:\/\//i.test(u)) return u;
+  try {
+    const host = new URL(u).hostname;
+    const allowed = ['media.api-sports.io','api-sports.io','media.api-football.com','media.api-basketball.com'];
+    if (allowed.some(d => host.endsWith(d))) {
+      return `/api/events/media?url=${encodeURIComponent(u)}`;
+    }
+  } catch (e) {
+    return u;
+  }
+  return u;
 }
 
 function toMatch(ev: any): Match | null {
@@ -89,8 +118,9 @@ function toMatch(ev: any): Match | null {
   const awayTeam = String(ev?.away_team || '');
   if (!homeTeam || !awayTeam) return null;
 
-  const isLive = Boolean(Number(ev?.is_live || 0) === 1);
+  const sportKey = normalizeSportKey(String(ev?.sport || 'soccer'));
   const statusShort = String(ev?.fixture?.status?.short || ev?.status || '');
+  const isLive = Boolean(Number(ev?.is_live || 0) === 1) || isLiveStatus(statusShort) || statusShort.toLowerCase().includes('live');
   const elapsed = typeof ev?.elapsed === 'number' ? ev.elapsed : Number(ev?.fixture?.status?.elapsed || 0) || 0;
   const timer = String(ev?.timer || ev?.fixture?.status?.timer || '').trim();
 
@@ -102,8 +132,6 @@ function toMatch(ev: any): Match | null {
   const homeOdd = Number(ev?.home_odd || 0);
   const awayOdd = Number(ev?.away_odd || 0);
   const drawOdd = Number(ev?.draw_odd || 0);
-  const hasOdds = homeOdd > 1.01 && awayOdd > 1.01;
-  if (!hasOdds && !isLive) return null;
 
   const startTime = String(ev?.event_date || ev?.fixture?.date || '');
   const time = isLive
@@ -117,7 +145,8 @@ function toMatch(ev: any): Match | null {
       const n = parseInt(raw, 10);
       return Number.isFinite(n) ? n : undefined;
     })(),
-    sport: sportToDisplay(String(ev?.sport || 'soccer')),
+    sport: sportKey,
+    sportLabel: sportToDisplay(sportKey),
     league: String(ev?.league || ''),
     country: String(ev?.country || ''),
     homeTeam,
@@ -131,8 +160,9 @@ function toMatch(ev: any): Match | null {
     elapsed: elapsed || undefined,
     period: statusShort || undefined,
     isLive,
-    homeTeamLogo: String(ev?.home_team_logo || ''),
-    awayTeamLogo: String(ev?.away_team_logo || ''),
+    homeTeamLogo: proxyMediaUrl(String(ev?.home_team_logo || '')),
+    awayTeamLogo: proxyMediaUrl(String(ev?.away_team_logo || '')),
+    markets: (ev?.markets && typeof ev.markets === 'object') ? ev.markets : (ev?.odds && typeof ev.odds === 'object' ? ev.odds : undefined),
     odds: {
       home: homeOdd,
       draw: drawOdd > 1.01 ? drawOdd : 0,
@@ -149,13 +179,12 @@ export async function getLiveMatches(sportKey?: string): Promise<Match[]> {
 
   try {
     const sportParam = normalizeSportKey(sportKey || 'all');
-    const url = `/api/events/by-sport?sports=${encodeURIComponent(sportParam)}&include=odds&realtime=1`;
+    const url = `/api/events/by-sport?sports=${encodeURIComponent(sportParam)}&include=odds&scope=live&realtime=0`;
     const res = await fetch(url, { cache: 'no-store' });
     const data: any = await res.json().catch(() => null);
     const live = Array.isArray(data?.live) ? data.live : [];
 
     const normalized = live
-      .filter((m: any) => !isLeagueBlocked(String(m?.league || '')))
       .map(toMatch)
       .filter(Boolean) as Match[];
 
@@ -175,13 +204,12 @@ export async function getUpcomingMatches(sportKey?: string): Promise<Match[]> {
 
   try {
     const sportParam = normalizeSportKey(sportKey || 'all');
-    const url = `/api/events/by-sport?sports=${encodeURIComponent(sportParam)}&include=odds`;
+    const url = `/api/events/by-sport?sports=${encodeURIComponent(sportParam)}&include=odds&scope=pregame&realtime=0`;
     const res = await fetch(url, { cache: 'no-store' });
     const data: any = await res.json().catch(() => null);
     const pre = Array.isArray(data?.pregame) ? data.pregame : [];
 
     const normalized = pre
-      .filter((m: any) => !isLeagueBlocked(String(m?.league || '')))
       .map(toMatch)
       .filter(Boolean) as Match[];
 

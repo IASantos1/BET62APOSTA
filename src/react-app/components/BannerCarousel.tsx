@@ -141,7 +141,7 @@ export function BannerCarousel() {
   useEffect(() => {
     const loadBanners = async () => {
       try {
-        const bySport = await apiFetch<any>('/api/events/by-sport?sports=all&include=odds&realtime=0', { cache: 'no-store' });
+        const bySport = await apiFetch<any>('/api/events/by-sport?sports=all&include=odds&scope=all&realtime=0', { cache: 'no-store' });
         const live = Array.isArray(bySport?.live) ? bySport.live : [];
         const pre = Array.isArray(bySport?.pregame) ? bySport.pregame : [];
         const usingLive = live.length > 0;

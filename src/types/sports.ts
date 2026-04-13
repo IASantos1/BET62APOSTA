@@ -601,6 +601,7 @@ export interface NormalizedMatch {
   id: string;
   fixtureId?: number;
   sport: string;
+  sportLabel?: string;
   league: string;
   country?: string;
   homeTeam: string;
@@ -620,6 +621,7 @@ export interface NormalizedMatch {
   leagueLogo?: string;
   countryFlag?: string;
   venue?: string;
+  markets?: Record<string, any>;
   odds?: NormalizedOdds;
 }
 

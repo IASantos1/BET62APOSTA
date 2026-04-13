@@ -6,21 +6,17 @@
   "outputDirectory": "dist",
   "functions": {
     "api/server.js": {
-      "includeFiles": [
-        "backend/src/**",
-        "node_modules/bcryptjs/**"
-      ]
+      "includeFiles": "backend/src/**"
     }
   },
   "rewrites": [
-    { "source": "/x", "destination": "/api/server?path=debug/env" },
     { "source": "/api/server", "destination": "/api/server" },
     { "source": "/api/:path*", "destination": "/api/server?path=:path*" }
   ],
   "crons": [
-    { "path": "/api/cron/live-refresh", "schedule": "*/1 * * * *" },
-    { "path": "/api/cron/sports-sync", "schedule": "*/5 * * * *" },
-    { "path": "/api/cron/sports-sync-full", "schedule": "0 */6 * * *" },
+    { "path": "/api/cron/live-refresh", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/sports-sync", "schedule": "5 0 * * *" },
+    { "path": "/api/cron/sports-sync-full", "schedule": "10 0 * * *" },
     { "path": "/api/cron/refresh-token-cleanup", "schedule": "0 3 * * *" }
   ]
 }

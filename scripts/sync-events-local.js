@@ -207,9 +207,13 @@ function toMarketKey(name) {
   if (n.includes('correct score') || n.includes('exact score')) return 'correct_score';
   if (n.includes('next goal')) return 'next_goal';
   if (n.includes('team to score first') || n.includes('first team to score') || n.includes('first to score')) return 'team_to_score_first';
-  if (n.includes('corners') && (n.includes('over/under') || n.includes('totals'))) return 'corners_total';
   if (n.includes('corner') && n.includes('handicap')) return 'corner_handicap';
-  if (n.includes('cards') && (n.includes('over/under') || n.includes('totals'))) return 'cards_total';
+  if (n.includes('corner') && (n.includes('total') || n.includes('over') || n.includes('under') || n.includes('ou'))) return 'corners_totals';
+  if (n === 'corners' || n === 'total corners' || n === 'corners total') return 'corners_totals';
+  if (n.includes('corners') && (n.includes('over/under') || n.includes('totals'))) return 'corners_totals';
+  if (n.includes('card') && (n.includes('total') || n.includes('over') || n.includes('under') || n.includes('ou')) && !n.includes('handicap')) return 'cards_totals';
+  if (n.includes('cards') && (n.includes('over/under') || n.includes('totals'))) return 'cards_totals';
+  if (n.includes('card') && n.includes('handicap')) return 'cards_handicap';
   if (n.includes('run line')) return 'run_line';
   if (n.includes('puck line')) return 'puck_line';
   return `special_${normKey(n).slice(0, 32) || 'misc'}`;

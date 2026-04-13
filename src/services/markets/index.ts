@@ -60,8 +60,8 @@ export const MARKETS_BY_SPORT = {
     'total_goals_even_odd',
     'first_goal_scorer',
     'anytime_goal_scorer',
-    'corners_total',
-    'cards_total',
+    'corners_totals',
+    'cards_totals',
     'penalties'
   ],
   basketball: [

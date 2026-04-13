@@ -3,8 +3,6 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { useLiveOddsEngine } from '../../../hooks/useLiveOddsEngine';
 import { useMatchIncidents } from '../../../hooks/useMatchIncidents';
 import OddsBlockedOverlay from '../../../components/feature/OddsBlockedOverlay';
-import { fetchEventOdds } from '../../../services/apiFootballService';
-import { fetchLiveOdds as fetchLiveOddsList } from '../../../services/oddsService';
 type SportType =
   | 'football'
   | 'basketball'
@@ -12,6 +10,10 @@ type SportType =
   | 'baseball'
   | 'rugby'
   | 'handball'
+  | 'volleyball'
+  | 'mma'
+  | 'nfl'
+  | 'formula1'
   | 'afl';
 import type { LiveOddsSnapshot } from '../../../services/engine/liveOddsMarketEngine';
 
@@ -92,6 +94,7 @@ export default function MatchMarkets({
     'Mais/Menos',
   ]);
   const [apiOdds, setApiOdds] = useState<any>(null);
+  const [apiMarkets, setApiMarkets] = useState<Record<string, any[]> | null>(null);
   const [_loadingOdds, setLoadingOdds] = useState(false);
   const [dataSource, setDataSource] = useState<'api' | 'local' | 'fallback'>('local');
   
@@ -103,9 +106,25 @@ export default function MatchMarkets({
   const blockTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const previousApiOddsRef = useRef<{ home: number; draw?: number; away: number } | null>(null);
 
-  const sportType: SportType = 'football';
+  const sportType: SportType = useMemo(() => {
+    const raw = String(match.sport || 'football').toLowerCase().trim();
+    if (raw === 'soccer' || raw === 'football' || raw === 'futebol') return 'football';
+    if (raw === 'ice-hockey' || raw === 'icehockey') return 'hockey';
+    if (raw === 'american-football' || raw === 'americanfootball') return 'nfl';
+    if (raw === 'formula-1' || raw === 'f1' || raw === 'formula1') return 'formula1';
+    if (raw === 'handball') return 'handball';
+    if (raw === 'basketball') return 'basketball';
+    if (raw === 'baseball') return 'baseball';
+    if (raw === 'hockey') return 'hockey';
+    if (raw === 'rugby') return 'rugby';
+    if (raw === 'volleyball') return 'volleyball';
+    if (raw === 'mma') return 'mma';
+    if (raw === 'afl') return 'afl';
+    if (raw === 'nfl') return 'nfl';
+    return 'football';
+  }, [match.sport]);
 
-  const isSoccer = true;
+  const isSoccer = sportType === 'football';
 
   const isLiveMatch = useMemo(() => {
     const liveStatuses = ['1H', '2H', 'HT', 'ET', 'P', 'BT', 'LIVE', 'Q1', 'Q2', 'Q3', 'Q4', 'OT'];
@@ -168,59 +187,31 @@ export default function MatchMarkets({
       isLiveMatch,
     });
 
-    const rawId = match.id || match.fixtureId;
-    const gameId = Number(rawId);
-    if (!gameId || Number.isNaN(gameId)) {
-      console.warn('⚠️ ID inválido para buscar odds da API', { rawId, gameId });
+    const eventId = String(match.id || '').trim();
+    if (!eventId) {
+      console.warn('⚠️ ID inválido para buscar odds da API', { eventId });
       return;
     }
 
     setLoadingOdds(true);
     try {
-      console.log(`📡 Buscando odds da API: ${sportType} (ID: ${gameId}) - Intervalo: ${refreshInterval/1000}s`);
-      let odds: null | { home: number; draw?: number; away: number } = null;
+      console.log(`📡 Buscando odds da API: ${sportType} (ID: ${eventId}) - Intervalo: ${refreshInterval/1000}s`);
+      const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/odds?realtime=1`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload: any = await res.json().catch(() => null);
 
-      if (isLiveMatch) {
-        // Buscar lista de odds ao vivo do backend e filtrar pelo fixture
-        const list = await fetchLiveOddsList();
-        const item = list.find(i => String(i.matchId) === String(gameId));
-        if (item) {
-          odds = { home: item.odds.home, draw: item.odds.draw, away: item.odds.away };
-        }
+      const markets = payload?.markets && typeof payload.markets === 'object' ? payload.markets : null;
+      const odds = {
+        home: Number(payload?.home_odd || 0),
+        draw: Number(payload?.draw_odd || 0),
+        away: Number(payload?.away_odd || 0),
+      };
+
+      if (markets && Object.keys(markets).length > 0) {
+        setApiMarkets(markets);
       }
-      
-      if (!odds) {
-        // Fallback: odds pré‑jogo da API‑Football (bet id 1: Match Winner)
-        const preData: any[] = await fetchEventOdds('football', String(gameId));
-        if (Array.isArray(preData) && preData.length > 0) {
-          const fixture = preData[0];
-          const bookmakers = Array.isArray(fixture?.bookmakers) ? fixture.bookmakers : [];
-          const mainBookmaker = bookmakers[0];
-          const bets = Array.isArray(mainBookmaker?.bets) ? mainBookmaker.bets : [];
-          const matchWinner = bets.find((b: any) => {
-            const n = String(b?.name || '').toLowerCase();
-            return n.includes('match winner') || n.includes('1x2') || b?.id === 1;
-          });
-          if (matchWinner && Array.isArray(matchWinner.values)) {
-            let home: number | null = null;
-            let draw: number | null = null;
-            let away: number | null = null;
-            for (const v of matchWinner.values) {
-              const label = String(v?.value || '').toLowerCase();
-              const odd = v?.odd != null ? Number(v.odd) : NaN;
-              if (!Number.isFinite(odd)) continue;
-              if ((label === 'home' || label === '1') && home == null) home = odd;
-              if ((label === 'draw' || label === 'x') && draw == null) draw = odd;
-              if ((label === 'away' || label === '2') && away == null) away = odd;
-            }
-            if (home != null && away != null) {
-              odds = { home, draw: draw ?? undefined, away };
-            }
-          }
-        }
-      }
-      
-      if (odds && (odds.home > 0 || odds.away > 0)) {
+
+      if ((odds.home > 0 || odds.away > 0)) {
         console.log(`✅ Odds da API carregadas:`, odds);
         const previousApiOdds = previousApiOddsRef.current;
         if (previousApiOdds) {
@@ -229,7 +220,7 @@ export default function MatchMarkets({
           if (odds.home !== previousApiOdds.home && previousApiOdds.home > 0) {
             newFlashing.set('home', odds.home > previousApiOdds.home ? 'up' : 'down');
           }
-          if (odds.draw !== previousApiOdds.draw && previousApiOdds.draw > 0) {
+          if (odds.draw != null && previousApiOdds.draw != null && previousApiOdds.draw > 0 && odds.draw !== previousApiOdds.draw) {
             newFlashing.set('draw', odds.draw > previousApiOdds.draw ? 'up' : 'down');
           }
           if (odds.away !== previousApiOdds.away && previousApiOdds.away > 0) {
@@ -247,7 +238,7 @@ export default function MatchMarkets({
         setDataSource('api');
       } else {
         console.warn('⚠️ API não retornou odds válidas → mantendo mercados locais');
-        setDataSource('local');
+        setDataSource(markets && Object.keys(markets).length > 0 ? 'api' : 'local');
       }
     } catch (err) {
       console.error('❌ Erro ao buscar odds:', err);
@@ -579,6 +570,112 @@ export default function MatchMarkets({
 
   // ✅ CRIAR MERCADOS BASEADOS NO DESPORTO - EXPANDIDO PARA TODOS OS DESPORTOS
   const markets: Market[] = useMemo(() => {
+    const legacyMarkets = apiMarkets || (match as any)?.markets;
+    const hasLegacyMarkets = legacyMarkets && typeof legacyMarkets === 'object' && Object.keys(legacyMarkets).length > 0;
+    if (hasLegacyMarkets) {
+      const map1x2Label = (label: string) => {
+        const l = String(label || '').toLowerCase().trim();
+        if (l === 'casa' || l === 'home' || l === '1') return match.homeTeam;
+        if (l === 'fora' || l === 'away' || l === '2') return match.awayTeam;
+        if (l === 'empate' || l === 'draw' || l === 'x') return 'Empate';
+        return label;
+      };
+
+      const toOptions = (arr: any[], mapper?: (label: string) => string): MarketOption[] => {
+        if (!Array.isArray(arr)) return [];
+        const opts: MarketOption[] = [];
+        for (const s of arr) {
+          const rawLabel = String(s?.label || s?.name || '').trim();
+          const odd = Number(s?.odd ?? s?.price ?? 0);
+          if (!rawLabel || !(odd > 1.01)) continue;
+          const label = mapper ? mapper(rawLabel) : rawLabel;
+          opts.push({ label, selection: label, odd });
+        }
+        return opts;
+      };
+
+      const keyTitle: Record<string, { name: string; icon: string; columns: number }> = {
+        h2h: { name: 'Resultado Final', icon: 'ri-trophy-line', columns: 3 },
+        double_chance: { name: 'Dupla Hipótese', icon: 'ri-scales-3-line', columns: 3 },
+        totals: { name: isSoccer ? 'Mais/Menos Golos' : 'Mais/Menos', icon: 'ri-bar-chart-line', columns: 2 },
+        totals_ht: { name: isSoccer ? 'Mais/Menos (1ª Parte)' : 'Mais/Menos (1º Período)', icon: 'ri-bar-chart-line', columns: 2 },
+        btts: { name: 'Ambas Marcam', icon: 'ri-football-line', columns: 2 },
+        handicap: { name: 'Handicap', icon: 'ri-scales-3-line', columns: 2 },
+        spreads: { name: 'Handicap', icon: 'ri-scales-3-line', columns: 2 },
+        corners_totals: { name: 'Escanteios', icon: 'ri-corner-up-left-line', columns: 2 },
+        cards_totals: { name: 'Cartões', icon: 'ri-file-warning-line', columns: 2 },
+        team_totals: { name: 'Total por Equipa', icon: 'ri-bar-chart-line', columns: 2 },
+      };
+
+      const orderedKeys = ['h2h', 'double_chance', 'totals', 'btts', 'handicap', 'spreads', 'corners_totals', 'cards_totals', 'totals_ht'];
+      const keys = [
+        ...orderedKeys.filter(k => Object.prototype.hasOwnProperty.call(legacyMarkets, k)),
+        ...Object.keys(legacyMarkets).filter(k => !orderedKeys.includes(k)),
+      ];
+
+      const out: Market[] = [];
+      for (const k of keys) {
+        const meta = keyTitle[k] || { name: k, icon: 'ri-bar-chart-line', columns: 2 };
+        const opts =
+          k === 'h2h'
+            ? toOptions(legacyMarkets[k], map1x2Label)
+            : toOptions(legacyMarkets[k]);
+        if (!opts.length) continue;
+        out.push({
+          id: `legacy-${k}`,
+          name: meta.name,
+          icon: meta.icon,
+          type: k,
+          isLive: isLiveMatch,
+          options: opts,
+          columns: meta.columns,
+        });
+      }
+
+      const hasDoubleChance = out.some((m) => String(m.type) === 'double_chance');
+      if (!hasDoubleChance && Array.isArray(legacyMarkets.h2h)) {
+        const h2h = legacyMarkets.h2h as any[];
+        const pick = (pred: (l: string) => boolean) => {
+          const it = h2h.find((x) => pred(String(x?.label || x?.name || '').toLowerCase().trim()));
+          const odd = Number(it?.odd ?? it?.price ?? 0);
+          return odd > 1.01 ? odd : 0;
+        };
+        const homeOdd = pick((l) => l === 'casa' || l === 'home' || l === '1');
+        const drawOdd = pick((l) => l === 'empate' || l === 'draw' || l === 'x');
+        const awayOdd = pick((l) => l === 'fora' || l === 'away' || l === '2');
+        if (homeOdd > 1.01 && awayOdd > 1.01 && (drawOdd > 1.01 || isSoccer)) {
+          const pH = 1 / homeOdd;
+          const pD = drawOdd > 1.01 ? 1 / drawOdd : 0;
+          const pA = 1 / awayOdd;
+          const sum = pH + pD + pA;
+          const nH = sum > 0 ? pH / sum : 0.33;
+          const nD = sum > 0 ? pD / sum : 0.34;
+          const nA = sum > 0 ? pA / sum : 0.33;
+          const k = 1.06;
+          const o1x = nH + nD > 0.01 ? Math.round((1 / ((nH + nD) * k)) * 100) / 100 : 0;
+          const ox2 = nD + nA > 0.01 ? Math.round((1 / ((nD + nA) * k)) * 100) / 100 : 0;
+          const o12 = nH + nA > 0.01 ? Math.round((1 / ((nH + nA) * k)) * 100) / 100 : 0;
+          const opts: MarketOption[] = [];
+          if (o1x > 1.01) opts.push({ label: '1X', selection: '1X', odd: o1x });
+          if (ox2 > 1.01) opts.push({ label: 'X2', selection: 'X2', odd: ox2 });
+          if (o12 > 1.01) opts.push({ label: '12', selection: '12', odd: o12 });
+          if (opts.length) {
+            out.splice(1, 0, {
+              id: 'legacy-double-chance-derived',
+              name: 'Dupla Hipótese',
+              icon: 'ri-scales-3-line',
+              type: 'double_chance',
+              isLive: isLiveMatch,
+              options: opts,
+              columns: 3,
+            });
+          }
+        }
+      }
+
+      if (out.length) return out;
+    }
+
     const baseOdds =
       apiOdds ||
       match.odds ||

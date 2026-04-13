@@ -15,6 +15,7 @@
  */
 
 import { Match } from '../../types/sports';
+import { getLiveMatches } from '../sportsDataHub';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TIPOS E INTERFACES
@@ -246,92 +247,84 @@ class LiveScoresWebSocket {
    * Usa os dados dos jogos ao vivo do cache
    */
   private simulateUpdates(): void {
-    const matches = Array.from(this.liveMatches.values());
-    
-    if (matches.length === 0) return;
+    getLiveMatches()
+      .then((matches) => {
+        const next = new Map<string, Match>();
+        for (const m of matches) next.set(String(m.id), m);
 
-    // Selecionar 1-3 jogos aleatórios para atualizar
-    const numUpdates = Math.min(matches.length, Math.floor(Math.random() * 3) + 1);
-    const shuffled = [...matches].sort(() => Math.random() - 0.5);
-    const toUpdate = shuffled.slice(0, numUpdates);
+        const hadAny = this.liveMatches.size > 0;
+        const hasAny = next.size > 0;
 
-    toUpdate.forEach(match => {
-      const matchId = String(match.id);
-      const lastScore = this.lastScores.get(matchId) || { 
-        home: match.homeScore || 0, 
-        away: match.awayScore || 0 
-      };
-
-      // 5% de chance de golo
-      const goalChance = Math.random();
-      let newHomeScore = lastScore.home;
-      let newAwayScore = lastScore.away;
-      let incident: LiveIncident | null = null;
-
-      if (goalChance < 0.05) {
-        // Golo!
-        const isHomeGoal = Math.random() > 0.5;
-        if (isHomeGoal) {
-          newHomeScore++;
-          incident = {
-            matchId,
-            type: 'goal',
-            team: 'home',
-            player: 'Jogador',
-            minute: match.elapsed || Math.floor(Math.random() * 90),
-            timestamp: Date.now(),
-          };
-        } else {
-          newAwayScore++;
-          incident = {
-            matchId,
-            type: 'goal',
-            team: 'away',
-            player: 'Jogador',
-            minute: match.elapsed || Math.floor(Math.random() * 90),
-            timestamp: Date.now(),
-          };
+        if (!hadAny && hasAny) {
+          this.emit('initial_data', matches);
         }
-      }
 
-      // Atualizar minuto (incrementar 1)
-      const currentMinute = match.elapsed || 0;
-      const newMinute = Math.min(currentMinute + 1, 90);
+        for (const [id, m] of next.entries()) {
+          const prev = this.liveMatches.get(id);
 
-      // Emitir atualização de placar
-      const scoreUpdate: LiveScoreUpdate = {
-        matchId,
-        homeScore: newHomeScore,
-        awayScore: newAwayScore,
-        minute: newMinute,
-        period: this.getPeriodFromMinute(newMinute),
-        statusShort: this.getStatusFromMinute(newMinute),
-        timestamp: Date.now(),
-      };
+          const prevHome = Number(prev?.homeScore ?? 0);
+          const prevAway = Number(prev?.awayScore ?? 0);
+          const nextHome = Number(m?.homeScore ?? 0);
+          const nextAway = Number(m?.awayScore ?? 0);
 
-      this.lastScores.set(matchId, { home: newHomeScore, away: newAwayScore });
-      this.emit('score_update', scoreUpdate);
+          const prevMin = Number(prev?.elapsed ?? 0);
+          const nextMin = Number(m?.elapsed ?? 0);
 
-      // Emitir incidente se houver golo
-      if (incident) {
-        this.emit('incident', incident);
-      }
+          if (!prev || prevHome !== nextHome || prevAway !== nextAway || prevMin !== nextMin) {
+            const minute = Number.isFinite(nextMin) ? nextMin : 0;
+            this.lastScores.set(id, { home: nextHome, away: nextAway });
+            this.emit('score_update', {
+              matchId: id,
+              homeScore: nextHome,
+              awayScore: nextAway,
+              minute,
+              period: this.getPeriodFromMinute(minute),
+              statusShort: String(m.statusShort || (m.isLive ? 'LIVE' : '')).toUpperCase(),
+              timestamp: Date.now(),
+            });
+          }
 
-      // 20% de chance de atualizar odds
-      if (Math.random() < 0.2) {
-        if (!match.odds) return;
-        const oddsUpdate: LiveOddsUpdate = {
-          matchId,
-          odds: {
-            home: this.randomOddsChange(match.odds.home),
-            draw: this.randomOddsChange(match.odds.draw),
-            away: this.randomOddsChange(match.odds.away),
-          },
-          timestamp: Date.now(),
-        };
-        this.emit('odds_update', oddsUpdate);
-      }
-    });
+          const prevOdds = prev?.odds;
+          const nextOdds = m?.odds;
+          const hasNextOdds =
+            nextOdds &&
+            typeof nextOdds.home === 'number' &&
+            typeof nextOdds.away === 'number' &&
+            nextOdds.home > 1.01 &&
+            nextOdds.away > 1.01;
+
+          if (hasNextOdds) {
+            const changed =
+              !prevOdds ||
+              prevOdds.home !== nextOdds.home ||
+              prevOdds.draw !== nextOdds.draw ||
+              prevOdds.away !== nextOdds.away;
+
+            if (changed) {
+              this.emit('odds_update', {
+                matchId: id,
+                odds: {
+                  home: Number(nextOdds.home),
+                  draw: Number(nextOdds.draw || 0),
+                  away: Number(nextOdds.away),
+                },
+                timestamp: Date.now(),
+              });
+            }
+          }
+        }
+
+        for (const id of this.liveMatches.keys()) {
+          if (!next.has(id)) {
+            this.emit('match_end', { matchId: id });
+          }
+        }
+
+        this.liveMatches = next;
+      })
+      .catch(() => {
+        return;
+      });
   }
 
   private getPeriodFromMinute(minute: number): string {
@@ -349,9 +342,7 @@ class LiveScoresWebSocket {
   }
 
   private randomOddsChange(currentOdd: number): number {
-    const change = (Math.random() - 0.5) * 0.1; // -0.05 a +0.05
-    const newOdd = currentOdd + change;
-    return Math.max(1.01, Math.round(newOdd * 100) / 100);
+    return Math.max(1.01, Math.round(Number(currentOdd || 1.01) * 100) / 100);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

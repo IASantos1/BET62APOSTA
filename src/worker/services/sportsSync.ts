@@ -31,6 +31,25 @@ const FINISHED_STATUSES = [
 // Controlo de ciclos para full sync (a cada 6 ciclos = 30 min)
 let syncCycle = 0;
 
+function needsMarketsFill(marketsRaw: unknown, sport: string): boolean {
+  const s = String((marketsRaw as any) ?? '').trim();
+  if (!s || s === '{}' || s === 'null' || s === 'undefined') return true;
+  try {
+    const obj = typeof marketsRaw === 'string' ? JSON.parse(marketsRaw) : marketsRaw;
+    if (!obj || typeof obj !== 'object') return true;
+    const keys = Object.keys(obj as any);
+    if (keys.length === 0) return true;
+    if (sport === 'soccer') {
+      const want = ['totals', 'btts', 'spreads', 'handicap', 'corners_totals', 'cards_totals', 'correct_score'];
+      return !want.some((k) => k in (obj as any));
+    }
+    const want = ['totals', 'spreads', 'handicap', 'team_totals'];
+    return !want.some((k) => k in (obj as any));
+  } catch {
+    return true;
+  }
+}
+
 export async function runSportsSync(
   env: Env,
   opts?: { forceFull?: boolean },
@@ -187,25 +206,31 @@ async function syncSoccer(env: Env, isFullSync: boolean): Promise<number> {
         return String(a.event_date || '').localeCompare(String(b.event_date || ''));
       });
 
-      const books = env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet';
+      const books = env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,Betclic,Superbet';
+      const marketsCsv = 'h2h,totals,btts,handicap,double_chance,h2h_ht,totals_ht,dnb,correct_score,spreads,corners_totals,cards_totals,team_totals,half_time_full_time,next_goal';
       const limit = Math.min(160, ordered.length);
       let filled = 0;
 
       for (let i = 0; i < limit; i++) {
         const ev = ordered[i];
-        if (Number(ev.home_odd || 0) > 1) continue;
+        if (!needsMarketsFill((ev as any).markets, 'soccer')) continue;
         const out = await fetchOddsApiMarketsForFixture(
           oddsKey,
           { league: ev.league, home: ev.home_team, away: ev.away_team, kickoff: ev.event_date, sport: 'soccer' },
           books,
+          marketsCsv,
           'pending,live',
         );
-        if (!out || Number(out.home_odd || 0) <= 1) continue;
-        ev.home_odd = out.home_odd;
-        ev.draw_odd = out.draw_odd;
-        ev.away_odd = out.away_odd;
-        ev.markets = JSON.stringify(out.markets || {});
-        filled++;
+        if (!out) continue;
+        if (out.markets && typeof out.markets === 'object' && Object.keys(out.markets).length > 0) {
+          ev.markets = JSON.stringify(out.markets);
+          filled++;
+        }
+        if (Number(out.home_odd || 0) > 1) {
+          ev.home_odd = out.home_odd;
+          ev.draw_odd = out.draw_odd;
+          ev.away_odd = out.away_odd;
+        }
       }
 
       console.log(`[SportsSync] soccer: odds-api.io filled ${filled}/${limit}`);
@@ -255,24 +280,44 @@ async function syncOtherSport(env: Env, sport: string): Promise<number> {
         return String(a.event_date || '').localeCompare(String(b.event_date || ''));
       });
 
-      const books = env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet';
+      const books = env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,Betclic,Superbet';
+      const marketsBySport: Record<string, string> = {
+        basketball: 'h2h,totals,spreads,team_totals',
+        tennis: 'h2h,totals,spreads',
+        'ice-hockey': 'h2h,totals,spreads,team_totals',
+        'american-football': 'h2h,totals,spreads,team_totals',
+        handball: 'h2h,totals,handicap,team_totals',
+        volleyball: 'h2h,totals,spreads,team_totals',
+        rugby: 'h2h,totals,spreads,team_totals',
+        mma: 'h2h',
+        boxing: 'h2h,totals',
+        afl: 'h2h,totals,spreads',
+        formula1: 'h2h',
+      };
+      const marketsCsv = marketsBySport[String(sport)] || 'h2h,totals,spreads';
       const limit = Math.min(180, ordered.length);
       let filled = 0;
 
       for (let i = 0; i < limit; i++) {
         const ev = ordered[i];
+        if (!needsMarketsFill((ev as any).markets, String(sport))) continue;
         const out = await fetchOddsApiMarketsForFixture(
           oddsKey,
           { league: ev.league, home: ev.home_team, away: ev.away_team, kickoff: ev.event_date, sport },
           books,
+          marketsCsv,
           'pending,live',
         );
-        if (!out || Number(out.home_odd || 0) <= 1) continue;
-        ev.home_odd = out.home_odd;
-        ev.draw_odd = out.draw_odd;
-        ev.away_odd = out.away_odd;
-        ev.markets = JSON.stringify(out.markets || {});
-        filled++;
+        if (!out) continue;
+        if (out.markets && typeof out.markets === 'object' && Object.keys(out.markets).length > 0) {
+          ev.markets = JSON.stringify(out.markets);
+          filled++;
+        }
+        if (Number(out.home_odd || 0) > 1) {
+          ev.home_odd = out.home_odd;
+          ev.draw_odd = out.draw_odd;
+          ev.away_odd = out.away_odd;
+        }
       }
 
       console.log(`[SportsSync] ${sport}: odds-api.io filled ${filled}/${limit}`);
@@ -292,7 +337,7 @@ async function syncOddsApiOnlySport(env: Env, sport: string): Promise<number> {
     oddsKey,
     sport,
     3,
-    env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
+    env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,Betclic,Superbet',
     'pending,live',
     120,
     3,
@@ -393,7 +438,7 @@ async function upsertBatch(env: Env, events: NormalizedEvent[]): Promise<void> {
       away_odd        = CASE WHEN excluded.away_odd > 0   THEN excluded.away_odd   ELSE events.away_odd END,
       elapsed         = excluded.elapsed,
       score           = CASE WHEN excluded.score    != '{"home":null,"away":null}' THEN excluded.score    ELSE events.score    END,
-      markets         = CASE WHEN excluded.markets  != '{}' THEN excluded.markets  ELSE events.markets  END,
+      markets         = CASE WHEN excluded.markets IS NOT NULL AND excluded.markets != '' AND excluded.markets != '{}' THEN excluded.markets ELSE events.markets END,
       home_team_logo  = CASE WHEN excluded.home_team_logo != '' THEN excluded.home_team_logo ELSE events.home_team_logo END,
       away_team_logo  = CASE WHEN excluded.away_team_logo != '' THEN excluded.away_team_logo ELSE events.away_team_logo END,
       country         = CASE WHEN excluded.country != '' THEN excluded.country ELSE events.country END,

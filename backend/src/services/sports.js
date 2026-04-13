@@ -248,7 +248,9 @@ async function searchSportsDb(teamName) {
     if (!resp.ok) return null;
     const data = await resp.json();
     const t = Array.isArray(data?.teams) ? data.teams[0] : null;
-    return t?.strFanart4 || t?.strFanart3 || t?.strFanart2 || t?.strFanart1 || t?.strBanner || null;
+    const url = t?.strFanart4 || t?.strFanart3 || t?.strFanart2 || t?.strFanart1 || t?.strBanner || null;
+    if (!url) return null;
+    return String(url).replace(/\/preview\b/i, '').replace(/^http:\/\//i, 'https://');
   } catch {
     return null;
   } finally {

@@ -427,10 +427,14 @@ app.get('/api/live/ws', upgradeWebSocket((_c) => {
     const rawIdFromParam = parts.length >= 2 ? parts.slice(1).join('_') : String(id);
 
     if (subscribedOddsRealtime && oddsKey) {
+      const marketsCsv = String(sportPrefix).toLowerCase() === 'soccer'
+        ? 'h2h,totals,btts,handicap,double_chance,h2h_ht,totals_ht,dnb,correct_score,spreads,corners_totals,cards_totals,team_totals,half_time_full_time,next_goal'
+        : undefined;
       const out = await fetchOddsApiMarketsForFixture(
         oddsKey,
         { league: String(r.league || ''), home: String(r.home_team || ''), away: String(r.away_team || ''), kickoff: String(r.event_date || ''), sport: String(sportPrefix || 'soccer') },
-        c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
+        c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,Betclic,Superbet',
+        marketsCsv,
         'live',
       );
       if (out && typeof out === 'object' && (out.home_odd || out.away_odd || Object.keys(out.markets || {}).length > 0)) return out;

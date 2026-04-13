@@ -281,9 +281,13 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     > 
       {bannerUrl && !isLiveEvent && (
         <div className="relative -mx-3 -mt-3 mb-3 overflow-hidden rounded-t-lg" style={{ height: 96 }}>
-          <div
-            className="absolute inset-0 bg-center bg-cover"
-            style={{ backgroundImage: `url(${bannerUrl})` }}
+          <img
+            src={bannerUrl}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full object-cover transform-gpu"
+            decoding="async"
+            loading="lazy"
           />
           <div className={`absolute inset-0 ${darkMode ? 'bg-gradient-to-r from-gray-900/85 via-gray-900/55 to-gray-900/15' : 'bg-gradient-to-r from-white/75 via-white/45 to-white/10'}`} />
           <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/50 to-black/75" />
@@ -470,7 +474,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
               );
             })()}
            
-            <div className="flex items-center gap-2 min-w-0 max-w-[46%] justify-end ml-auto">
+            <div className="flex items-center gap-2 min-w-0 max-w-[46%] justify-start">
               {isLiveEvent && Number((event as any).red_cards_away || 0) > 0 && ( 
                 <span title="Cartão vermelho" className="relative inline-flex items-center justify-center shrink-0 mr-0.5"> 
                   <span className="block w-2.5 h-3.5 bg-red-600 rounded-[2px]" /> 

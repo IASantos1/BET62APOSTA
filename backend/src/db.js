@@ -5,13 +5,13 @@ let _schemaReady;
 
 function getSql() {
   if (sql) return sql;
-  const url = String(process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING || process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL || '').trim();
+  const url = String(process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL || '').trim();
   if (!url) throw new Error('missing_postgres_url');
   sql = postgres(url, {
     ssl: 'require',
-    max: 5,
+    max: 1,
     idle_timeout: 20,
-    connect_timeout: 10,
+    connect_timeout: 30,
   });
   return sql;
 }
@@ -327,6 +327,10 @@ async function ensureSchema() {
         verified INTEGER DEFAULT 0,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+    `);
+
+    await s.unsafe(`
+      ALTER TABLE events ADD COLUMN IF NOT EXISTS market_status TEXT DEFAULT 'active';
     `);
   })();
   return _schemaReady;

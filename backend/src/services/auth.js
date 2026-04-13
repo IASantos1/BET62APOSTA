@@ -4,7 +4,7 @@ import { getDb } from '../db.js';
 import { randomBytes, scrypt as _scrypt, timingSafeEqual } from 'crypto';
 import { promisify } from 'util';
 
-const JWT_SECRET = process.env.JWT_SECRET || '7f8a9b1c-2d3e-4f5g-6h7i-8j9k0l1m2n3o-secret-key-2025';
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-jwt-secret';
 const ACCESS_EXPIRES = '15m';
 const REFRESH_EXPIRES_DAYS = 30;
 const scrypt = promisify(_scrypt);

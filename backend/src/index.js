@@ -43,10 +43,101 @@ function isAdmin(c) {
 }
 
 function requireCron(c) {
+  const vercelCron = String(c.req.header('x-vercel-cron') || '').trim();
+  if (vercelCron === '1') return true;
   const secret = String(process.env.CRON_SECRET || '').trim();
   if (!secret) return false;
   const header = String(c.req.header('Authorization') || '');
   return header === `Bearer ${secret}`;
+}
+
+let lastLiveOddsRefreshAt = 0;
+let liveOddsRefreshInFlight = null;
+let lastSportsSyncAt = 0;
+let sportsSyncInFlight = null;
+
+async function maybeRefreshLiveOdds() {
+  const now = Date.now();
+  if (now - lastLiveOddsRefreshAt < 45000) return;
+  if (liveOddsRefreshInFlight) {
+    await Promise.race([liveOddsRefreshInFlight, new Promise(r => setTimeout(r, 8000))]);
+    return;
+  }
+  lastLiveOddsRefreshAt = now;
+  liveOddsRefreshInFlight = (async () => {
+    try { await runLiveOddsRefresh(); } catch { /* empty */ }
+  })().finally(() => { liveOddsRefreshInFlight = null; });
+  await Promise.race([liveOddsRefreshInFlight, new Promise(r => setTimeout(r, 8000))]);
+}
+
+async function maybeRunSportsSync() {
+  const now = Date.now();
+  if (now - lastSportsSyncAt < 4 * 60 * 1000) return;
+  if (sportsSyncInFlight) {
+    await Promise.race([sportsSyncInFlight, new Promise(r => setTimeout(r, 8000))]);
+    return;
+  }
+  lastSportsSyncAt = now;
+  sportsSyncInFlight = (async () => {
+    try { await runSportsSync(false); } catch { /* empty */ }
+  })().finally(() => { sportsSyncInFlight = null; });
+  await Promise.race([sportsSyncInFlight, new Promise(r => setTimeout(r, 8000))]);
+}
+
+function clamp(n, lo, hi) {
+  n = Number(n);
+  if (!Number.isFinite(n)) return lo;
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function toDecimalOdd(p, margin = 0.07) {
+  const prob = clamp(p, 0.01, 0.95);
+  const m = 1 + clamp(margin, 0, 0.25);
+  const odd = 1 / (prob * m);
+  return Math.round(odd * 100) / 100;
+}
+
+function deriveLiveH2H(sport, score, elapsed) {
+  const s = normalizeSport(sport || 'soccer');
+  const e = Number(elapsed || 0);
+  const home = Number(score?.home ?? 0);
+  const away = Number(score?.away ?? 0);
+  const diff = home - away;
+
+  if (s === 'soccer') {
+    let pH = 0.33;
+    let pD = 0.34;
+    let pA = 0.33;
+    const goalAdj = clamp(diff, -3, 3) * 0.18;
+    pH += goalAdj;
+    pA -= goalAdj;
+    pD -= Math.abs(goalAdj) * 0.3;
+    const timeAdj = clamp((e - 45) / 90, -0.35, 0.35) * 0.08;
+    pD -= Math.abs(timeAdj);
+    pH += timeAdj * (diff >= 0 ? 1 : -0.6);
+    pA -= timeAdj * (diff <= 0 ? 1 : -0.6);
+    pH = clamp(pH, 0.06, 0.88);
+    pA = clamp(pA, 0.06, 0.88);
+    pD = clamp(pD, 0.06, 0.55);
+    const sum = pH + pD + pA;
+    pH /= sum; pD /= sum; pA /= sum;
+    const oH = toDecimalOdd(pH, 0.09);
+    const oD = toDecimalOdd(pD, 0.09);
+    const oA = toDecimalOdd(pA, 0.09);
+    return { home: oH, draw: oD, away: oA };
+  }
+
+  let pH = 0.5;
+  let pA = 0.5;
+  const scoreAdj = clamp(diff, -30, 30) * 0.012;
+  pH += scoreAdj;
+  pA -= scoreAdj;
+  const sum = pH + pA;
+  pH = clamp(pH / sum, 0.05, 0.95);
+  pA = clamp(pA / sum, 0.05, 0.95);
+  const oH = toDecimalOdd(pH, 0.08);
+  const oA = toDecimalOdd(pA, 0.08);
+  return { home: oH, draw: 0, away: oA };
 }
 
 const app = new Hono();
@@ -114,6 +205,130 @@ app.get('/api/sports', async (c) => {
     return json(c, 200, []); 
   } 
 }); 
+
+function apiSportsBaseFor(sport) {
+  const s = String(sport || '').toLowerCase().trim();
+  if (!s) return 'https://v3.football.api-sports.io';
+  if (s === 'football' || s === 'soccer') return 'https://v3.football.api-sports.io';
+  if (s === 'basketball') return 'https://v1.basketball.api-sports.io';
+  if (s === 'hockey' || s === 'ice-hockey' || s === 'icehockey') return 'https://v1.hockey.api-sports.io';
+  if (s === 'baseball') return 'https://v1.baseball.api-sports.io';
+  if (s === 'handball') return 'https://v1.handball.api-sports.io';
+  if (s === 'volleyball') return 'https://v1.volleyball.api-sports.io';
+  if (s === 'rugby') return 'https://v1.rugby.api-sports.io';
+  if (s === 'american-football' || s === 'americanfootball' || s === 'nfl') return 'https://v1.american-football.api-sports.io';
+  return 'https://v3.football.api-sports.io';
+}
+
+app.get('/api/sports/api-football-proxy', async (c) => {
+  const apiKey = String(process.env.API_SPORTS_KEY || '').trim();
+  if (!apiKey) return json(c, 200, { response: [], errors: { apiKey: 'missing' } });
+
+  const sport = String(c.req.query('sport') || 'football').trim();
+  const endpoint = String(c.req.query('endpoint') || '').trim();
+  if (!endpoint.startsWith('/')) return json(c, 200, { response: [], errors: { endpoint: 'invalid' } });
+  if (endpoint.includes('http://') || endpoint.includes('https://')) return json(c, 200, { response: [], errors: { endpoint: 'invalid' } });
+
+  const base = apiSportsBaseFor(sport);
+  const url = `${base}${endpoint}`;
+  try {
+    const upstream = await fetch(url, { headers: { 'x-apisports-key': apiKey } });
+    const text = await upstream.text().catch(() => '');
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { response: [] }; }
+    if (!upstream.ok) return json(c, 200, data || { response: [] });
+    return json(c, 200, data || { response: [] });
+  } catch {
+    return json(c, 200, { response: [] });
+  }
+});
+
+function normalizeOddsSportKey(raw) {
+  const s = String(raw || '').toLowerCase().trim();
+  if (s === 'football' || s === 'soccer') return 'soccer';
+  if (s === 'hockey' || s === 'icehockey') return 'ice-hockey';
+  return s || 'soccer';
+}
+
+function parseFixtureIdFromExternal(externalId) {
+  const s = String(externalId || '').trim();
+  const m = s.match(/_(\d+)$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+app.get('/api/:sport/odds/live', async (c) => {
+  const sport = normalizeOddsSportKey(c.req.param('sport'));
+  const d = getDb();
+  try {
+    const rows = await d.prepare(`
+      SELECT external_event_id, sport, is_live, status, elapsed, score, home_odd, draw_odd, away_odd, markets
+      FROM events
+      WHERE (is_live = 1 OR COALESCE(status,'') != '')
+        AND sport = ?
+        AND datetime(event_date) > datetime('now', '-6 hours')
+      ORDER BY event_date ASC
+      LIMIT 200
+    `).all(sport);
+
+    const parseScore = (r) => {
+      try { return typeof r.score === 'string' ? JSON.parse(r.score) : (r.score || { home: 0, away: 0 }); } catch { return { home: 0, away: 0 }; }
+    };
+    const isLiveRow = (r) => Number(r.is_live) === 1 || LIVE_STATUSES.has(String(r.status || '').toUpperCase());
+    const out = [];
+    for (const r of rows) {
+      if (!isLiveRow(r)) continue;
+      const fixtureId = parseFixtureIdFromExternal(r.external_event_id);
+      if (!fixtureId) continue;
+      let h = Number(r.home_odd || 0);
+      let dO = Number(r.draw_odd || 0);
+      let a = Number(r.away_odd || 0);
+      if (!(h > 1.01 && a > 1.01)) {
+        const derived = deriveLiveH2H(r.sport, parseScore(r), Number(r.elapsed || 0));
+        if (derived) {
+          h = derived.home;
+          dO = derived.draw || 0;
+          a = derived.away;
+        }
+      }
+      if (!(h > 1.01 && a > 1.01)) continue;
+      out.push({ matchId: String(fixtureId), odds: { home: h, draw: dO > 1.01 ? dO : 0, away: a } });
+    }
+    return json(c, 200, out);
+  } catch {
+    return json(c, 200, []);
+  }
+});
+
+app.get('/api/:sport/odds/upcoming', async (c) => {
+  const sport = normalizeOddsSportKey(c.req.param('sport'));
+  const d = getDb();
+  try {
+    const rows = await d.prepare(`
+      SELECT external_event_id, sport, is_live, status, home_odd, draw_odd, away_odd, event_date
+      FROM events
+      WHERE sport = ?
+        AND is_live = 0
+        AND datetime(event_date) BETWEEN datetime('now', '-1 hours') AND datetime('now', '+7 days')
+      ORDER BY event_date ASC
+      LIMIT 200
+    `).all(sport);
+    const out = [];
+    for (const r of rows) {
+      const fixtureId = parseFixtureIdFromExternal(r.external_event_id);
+      if (!fixtureId) continue;
+      const h = Number(r.home_odd || 0);
+      const dO = Number(r.draw_odd || 0);
+      const a = Number(r.away_odd || 0);
+      if (!(h > 1.01 && a > 1.01)) continue;
+      out.push({ matchId: String(fixtureId), odds: { home: h, draw: dO > 1.01 ? dO : 0, away: a } });
+    }
+    return json(c, 200, out);
+  } catch {
+    return json(c, 200, []);
+  }
+});
 
 // ── Pricing config ──────────────────────────────────────────────────────── 
 app.get('/api/pricing/config', async (c) => { 
@@ -308,7 +523,7 @@ app.post('/api/auth/logout', async (c) => {
 app.get('/api/auth/me', async (c) => {
   try {
     const auth = requireAuth(c);
-    if (!auth) return json(c, 401, { error: 'Não autenticado' });
+    if (!auth) return json(c, 200, { user: null });
 
     const d = getDb();
     const user = await d.prepare('SELECT id, username, role, twofa_enabled FROM users WHERE id = ?').get(auth.userId);
@@ -318,6 +533,12 @@ app.get('/api/auth/me', async (c) => {
     const wallet = await d.prepare('SELECT id FROM wallets WHERE user_id = ?').get(auth.userId);
 
     return json(c, 200, {
+      user: {
+        userId: user.id,
+        username: user.username,
+        is_operator: Number(profile?.is_operator || 0),
+        kyc_status: profile?.kyc_status || profile?.kycStatus || undefined,
+      },
       id: user.id,
       username: user.username,
       role: user.role || profile?.is_operator ? 'admin' : 'user',
@@ -327,6 +548,23 @@ app.get('/api/auth/me', async (c) => {
     });
   } catch (err) {
     return json(c, 500, { error: 'Erro interno' });
+  }
+});
+
+app.get('/api/auth/me:', async (c) => {
+  return app.fetch(new Request(new URL('/api/auth/me', c.req.url), { headers: c.req.raw.headers, method: c.req.method }));
+});
+
+app.get('/api/auth/session', async (c) => {
+  try {
+    const auth = requireAuth(c);
+    if (!auth) return json(c, 200, { user: null });
+    const d = getDb();
+    const user = await d.prepare('SELECT id, username, role FROM users WHERE id = ?').get(auth.userId);
+    if (!user) return json(c, 200, { user: null });
+    return json(c, 200, { user: { id: user.id, email: user.username, role: user.role || 'user', name: user.username } });
+  } catch {
+    return json(c, 200, { user: null });
   }
 });
 
@@ -634,8 +872,73 @@ app.get('/api/events/:id/odds', async (c) => {
     const id = c.req.param('id'); 
     const event = await db.prepare('SELECT * FROM events WHERE external_event_id = ? OR CAST(id AS TEXT) = ? LIMIT 1').get(id, id); 
     if (!event) return json(c, 404, { error: 'Evento não encontrado' }); 
-    const markets = (() => { try { return typeof event.markets === 'string' ? JSON.parse(event.markets) : (event.markets || {}); } catch { return {}; } })(); 
-    return json(c, 200, { markets, home_odd: event.home_odd, draw_odd: event.draw_odd, away_odd: event.away_odd }); 
+    const realtime = String(c.req.query('realtime') || '').trim() === '1';
+    const oddsKey = String(process.env.ODDS_API_KEY || '').trim();
+    const apiMarkets = (() => { try { return typeof event.markets === 'string' ? JSON.parse(event.markets) : (event.markets || {}); } catch { return {}; } })();
+
+    if (realtime && oddsKey) {
+      try {
+        const sport = normalizeSport(String(event.sport || 'soccer'));
+        const bookmakers = getOddsApiBookmakers();
+        const marketsCsv = SPORT_MARKETS?.[sport] || DEFAULT_MARKETS;
+
+        const slugs = getOddsApiSlugsForSport(sport, 2);
+        const lists = await Promise.all(slugs.map((slug) => fetchOddsApiEventsList(oddsKey, slug, 2, 'pending,live')));
+        const oddsEvents = lists.flat();
+
+        const matched = matchOddsEvent(
+          {
+            league: event.league || '',
+            home_team: event.home_team || '',
+            away_team: event.away_team || '',
+            event_date: event.event_date || null,
+          },
+          oddsEvents,
+          70
+        );
+
+        if (matched?.id) {
+          const result = await fetchOddsApiOddsForEvent(oddsKey, matched.id, marketsCsv, bookmakers);
+          if (result) {
+            const mktsObj = result.markets || {};
+            const primary = result.primary || {};
+            const primaryHome = Number(primary.home || 0);
+            const primaryDraw = Number(primary.draw || 0);
+            const primaryAway = Number(primary.away || 0);
+            const marketsJson = JSON.stringify(mktsObj || {});
+
+            const now = new Date().toISOString();
+            await db.prepare(`
+              UPDATE events
+              SET
+                home_odd = CASE WHEN ? > 0 THEN ? ELSE home_odd END,
+                draw_odd = CASE WHEN ? > 0 THEN ? ELSE draw_odd END,
+                away_odd = CASE WHEN ? > 0 THEN ? ELSE away_odd END,
+                markets  = CASE WHEN ? IS NOT NULL AND ? != '' AND ? != '{}' THEN ? ELSE markets END,
+                updated_at = ?
+              WHERE id = ?
+            `).run(
+              primaryHome, primaryHome,
+              primaryDraw, primaryDraw,
+              primaryAway, primaryAway,
+              marketsJson, marketsJson, marketsJson, marketsJson,
+              now,
+              event.id
+            );
+
+            return json(c, 200, {
+              markets: mktsObj,
+              home_odd: primaryHome > 0 ? primaryHome : event.home_odd,
+              draw_odd: primaryDraw > 0 ? primaryDraw : event.draw_odd,
+              away_odd: primaryAway > 0 ? primaryAway : event.away_odd,
+            });
+          }
+        }
+      } catch {
+      }
+    }
+
+    return json(c, 200, { markets: apiMarkets, home_odd: event.home_odd, draw_odd: event.draw_odd, away_odd: event.away_odd }); 
   } catch (err) { 
     return json(c, 500, { error: 'Erro ao obter odds' }); 
   } 
@@ -728,6 +1031,14 @@ app.get('/api/events/by-sport', async (c) => {
     const rawSport = c.req.query('sports') || c.req.query('sport') || 'all';
     const sport = normalizeSport(rawSport.split(',')[0]);
     const isAll = sport === 'all';
+    const rawScope = String(c.req.query('scope') || c.req.query('only') || 'all').toLowerCase().trim();
+    const scope =
+      rawScope === 'live' ? 'live' :
+      rawScope === 'pregame' ? 'pregame' :
+      'all';
+    const includeRaw = String(c.req.query('include') || '').toLowerCase().trim();
+    const include = new Set(includeRaw.split(',').map((s) => s.trim()).filter(Boolean));
+    const wantsMarketsFull = include.has('markets') || include.has('all');
 
     const rows = await d.prepare(`
       SELECT * FROM events
@@ -736,7 +1047,7 @@ app.get('/api/events/by-sport', async (c) => {
         OR datetime(event_date) BETWEEN datetime('now', '-3 hours') AND datetime('now', '+7 days')
       )
       AND COALESCE(status, 'NS') NOT IN ('FT','AET','PEN','AWD','WO','ABD','FIN','FINAL','Finished','Match Finished','Final','Ended','AOT','AP','POST','FT_PEN','NS_CANC')
-      AND market_status != 'suspended'
+      AND COALESCE(market_status, 'active') != 'suspended'
       ${isAll ? '' : "AND sport = ?"}
       ORDER BY
         is_live DESC,
@@ -757,7 +1068,9 @@ app.get('/api/events/by-sport', async (c) => {
     let filtered = rows.filter(r => {
       if (isBlocked(r.league)) return false;
       const evSport = normalizeSport(r.sport || 'soccer');
+      const isLiveRow = Number(r.is_live) === 1 || LIVE_STATUSES.has(String(r.status || '').toUpperCase());
       if (evSport === 'soccer') {
+        if (isLiveRow) return true;
         return isLeagueAllowed(r.league, r.country);
       }
       return true;
@@ -766,32 +1079,66 @@ app.get('/api/events/by-sport', async (c) => {
     const live    = filtered.filter(r => Number(r.is_live) === 1 || LIVE_STATUSES.has(String(r.status || '').toUpperCase()));
     const pregame = filtered.filter(r => Number(r.is_live) !== 1 && !LIVE_STATUSES.has(String(r.status || '').toUpperCase()));
 
-    const parseMarkets = (r) => {
-      try { return typeof r.markets === 'string' ? JSON.parse(r.markets) : (r.markets || {}); } catch { return {}; }
-    };
     const parseScore = (r) => {
       try { return typeof r.score === 'string' ? JSON.parse(r.score) : (r.score || { home: null, away: null }); } catch { return { home: null, away: null }; }
     };
 
     const format = (r) => {
-      const markets = parseMarkets(r);
-      const hO = Number(r.home_odd || 0);
-      const dO = Number(r.draw_odd || 0);
-      const aO = Number(r.away_odd || 0);
-
-      if (normalizeSport(r.sport || 'soccer') === 'soccer' && !Number(r.is_live) && dO > 1.01) {
-        const bttsArr = Array.isArray(markets.btts) ? markets.btts : null;
-        const simOdd = bttsArr?.find(x => (x.label||'').toLowerCase().includes('sim') || (x.label||'').toLowerCase().includes('yes'));
-        const apiSimOdd = Number(simOdd?.odd || simOdd?.price || 0);
-        if (!bttsArr || bttsArr.length === 0 || apiSimOdd <= 0 || apiSimOdd > 2.60) {
-          const derived = derivedBtts(hO, dO, aO);
-          if (derived) markets.btts = derived;
+      const minimalMarkets = {};
+      let hO = Number(r.home_odd || 0);
+      let dO = Number(r.draw_odd || 0);
+      let aO = Number(r.away_odd || 0);
+      const isLiveRow = Number(r.is_live) === 1 || LIVE_STATUSES.has(String(r.status || '').toUpperCase());
+      if (isLiveRow && !(hO > 1.01 && aO > 1.01)) {
+        const derived = deriveLiveH2H(r.sport || 'soccer', parseScore(r), Number(r.elapsed || 0));
+        if (derived && derived.home > 1.01 && derived.away > 1.01) {
+          hO = derived.home;
+          dO = derived.draw || 0;
+          aO = derived.away;
+          minimalMarkets.h2h = [
+            { label: 'Casa', odd: hO, derived: true },
+            ...(dO > 1.01 ? [{ label: 'Empate', odd: dO, derived: true }] : []),
+            { label: 'Fora', odd: aO, derived: true },
+          ];
         }
+      }
+
+      let markets = minimalMarkets;
+      if (wantsMarketsFull) {
+        try {
+          markets = typeof r.markets === 'string' ? JSON.parse(r.markets) : (r.markets || {});
+        } catch {
+          markets = {};
+        }
+        if (minimalMarkets.h2h && !Array.isArray(markets.h2h)) {
+          markets.h2h = minimalMarkets.h2h;
+        }
+
+        if (normalizeSport(r.sport || 'soccer') === 'soccer' && !Number(r.is_live) && dO > 1.01) {
+          const bttsArr = Array.isArray(markets.btts) ? markets.btts : null;
+          const simOdd = bttsArr?.find(x => (x.label||'').toLowerCase().includes('sim') || (x.label||'').toLowerCase().includes('yes'));
+          const apiSimOdd = Number(simOdd?.odd || simOdd?.price || 0);
+          if (!bttsArr || bttsArr.length === 0 || apiSimOdd <= 0 || apiSimOdd > 2.60) {
+            const derived = derivedBtts(hO, dO, aO);
+            if (derived) markets.btts = derived;
+          }
+        }
+      } else if (!(hO > 1.01 && aO > 1.01)) {
+        markets = {};
+      } else if (!Array.isArray(minimalMarkets.h2h)) {
+        markets = {
+          h2h: [
+            { label: 'Casa', odd: hO },
+            ...(dO > 1.01 ? [{ label: 'Empate', odd: dO }] : []),
+            { label: 'Fora', odd: aO },
+          ],
+        };
       }
 
       return {
         ...r,
         markets,
+        odds: markets,
         score: parseScore(r),
         goals: parseScore(r),
         is_live: Number(r.is_live),
@@ -845,6 +1192,8 @@ app.get('/api/events/by-sport', async (c) => {
       ...otherPregame,
     ].map(format);
 
+    if (scope === 'live') return json(c, 200, { live: finalLive, pregame: [] });
+    if (scope === 'pregame') return json(c, 200, { live: [], pregame: finalPregame });
     return json(c, 200, { live: finalLive, pregame: finalPregame });
   } catch (err) {
     console.error('[Sports] by-sport error:', err);
@@ -885,6 +1234,79 @@ app.get('/api/events/:id/stats', async (c) => {
   } catch (err) {
     console.error('[Sports] stats error:', err.message);
     return json(c, 200, { statistics: [] });
+  }
+});
+
+app.get('/api/matches/:id/incidents', async (c) => {
+  try {
+    const apiKey = String(process.env.API_SPORTS_KEY || '').trim();
+    if (!apiKey) return json(c, 200, { incidents: [] });
+    const fixtureId = String(c.req.param('id') || '').trim();
+    if (!fixtureId || isNaN(Number(fixtureId))) return json(c, 200, { incidents: [] });
+
+    const d = getDb();
+    const row = await d.prepare("SELECT home_team, away_team FROM events WHERE external_event_id LIKE ? LIMIT 1").get(`%_${fixtureId}`);
+    const homeName = String(row?.home_team || '').trim();
+    const awayName = String(row?.away_team || '').trim();
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    const resp = await fetch(`https://v3.football.api-sports.io/fixtures/events?fixture=${encodeURIComponent(fixtureId)}`, {
+      headers: { 'x-apisports-key': apiKey },
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+    if (!resp.ok) return json(c, 200, { incidents: [] });
+    const data = await resp.json().catch(() => null);
+    const events = Array.isArray(data?.response) ? data.response : [];
+
+    const toTeam = (teamObj) => {
+      const nm = String(teamObj?.name || '').trim();
+      if (homeName && nm && nm.toLowerCase() === homeName.toLowerCase()) return 'home';
+      if (awayName && nm && nm.toLowerCase() === awayName.toLowerCase()) return 'away';
+      return 'home';
+    };
+
+    const toType = (ev) => {
+      const t = String(ev?.type || '').toLowerCase();
+      const detail = String(ev?.detail || '').toLowerCase();
+      if (t.includes('var') || detail.includes('var')) return 'VAR';
+      if (t.includes('card') || detail.includes('card')) {
+        if (detail.includes('red')) return 'red_card';
+        if (detail.includes('yellow')) return 'yellow_card';
+        return 'yellow_card';
+      }
+      if (t.includes('goal') || detail.includes('goal')) {
+        if (detail.includes('penalty')) return 'penalty';
+        return 'goal';
+      }
+      if (t.includes('subst')) return 'substitution';
+      if (detail.includes('penalty')) return 'penalty';
+      return t || 'unknown';
+    };
+
+    const incidents = events
+      .map((ev, idx) => {
+        const time = Number(ev?.time?.elapsed ?? ev?.time ?? ev?.minute ?? 0) || 0;
+        const team = toTeam(ev?.team);
+        const type = toType(ev);
+        const player = String(ev?.player?.name || ev?.player || '').trim() || undefined;
+        const assist = String(ev?.assist?.name || ev?.assist || '').trim();
+        const descBase = String(ev?.detail || ev?.comments || ev?.comment || ev?.type || '').trim();
+        const description = assist ? `${descBase} (${assist})` : descBase;
+        return {
+          id: String(ev?.id || `${fixtureId}-${time}-${type}-${idx}`),
+          time,
+          type,
+          team,
+          player,
+          description,
+        };
+      })
+      .filter((x) => x.type && x.type !== 'unknown');
+
+    return json(c, 200, { incidents });
+  } catch {
+    return json(c, 200, { incidents: [] });
   }
 });
 
@@ -1546,7 +1968,7 @@ app.get('/api/debug/env', async (c) => {
   return json(c, 200, { has_jwt_secret: hasJwt, has_admin_token: hasAdmin, has_cron_secret: hasCron, has_cors_origins: hasCors, date: todayIso() });
 });
 
-import { runSportsSync, runLiveOddsRefresh } from './jobs/sportsSync.js';
+import { runSportsSync, runLiveOddsRefresh, fetchOddsApiEventsList, fetchOddsApiOddsForEvent, getOddsApiSlugsForSport, getOddsApiBookmakers, SPORT_MARKETS, DEFAULT_MARKETS, matchOddsEvent } from './jobs/sportsSync.js';
 
 function cleanupRefreshTokens() {
   const db = getDb();
@@ -1614,7 +2036,7 @@ export default app;
 (async () => { 
   try { 
     const db = getDb(); 
-    const existing = db.prepare("SELECT id FROM users WHERE username = 'admin'").get(); 
+    const existing = await db.prepare("SELECT id FROM users WHERE username = 'admin'").get(); 
     if (!existing) { 
       const seedPassword = String(process.env.ADMIN_SEED_PASSWORD || '').trim();
       if (!seedPassword) {
@@ -1623,18 +2045,18 @@ export default app;
       }
       const id = randomUUID(); 
       const hash = await hashPassword(seedPassword); 
-      db.prepare("INSERT INTO users (id, username, role) VALUES (?, 'admin', 'admin')").run(id); 
-      db.prepare("INSERT INTO user_credentials (id, user_id, hashed_password) VALUES (?, ?, ?)").run(randomUUID(), id, hash); 
-      db.prepare("INSERT INTO user_profile (user_id, email, first_name, last_name, full_name, is_operator) VALUES (?, 'admin@bet62.pt', 'Admin', 'Bet62', 'Admin Bet62', 1)").run(id); 
-      db.prepare("INSERT INTO wallets (user_id, currency) VALUES (?, 'EUR')").run(id); 
+      await db.prepare("INSERT INTO users (id, username, role) VALUES (?, 'admin', 'admin')").run(id); 
+      await db.prepare("INSERT INTO user_credentials (id, user_id, hashed_password) VALUES (?, ?, ?)").run(randomUUID(), id, hash); 
+      await db.prepare("INSERT INTO user_profile (user_id, email, first_name, last_name, full_name, is_operator) VALUES (?, 'admin@bet62.pt', 'Admin', 'Bet62', 'Admin Bet62', 1)").run(id); 
+      await db.prepare("INSERT INTO wallets (user_id, currency) VALUES (?, 'EUR')").run(id); 
       console.log('[Server] Admin user created: username=admin'); 
     } else { 
-      db.prepare("UPDATE users SET role='admin' WHERE username='admin'").run(); 
-      db.prepare("UPDATE user_profile SET is_operator=1 WHERE user_id=?").run(existing.id); 
+      await db.prepare("UPDATE users SET role='admin' WHERE username='admin'").run(); 
+      await db.prepare("UPDATE user_profile SET is_operator=1 WHERE user_id=?").run(existing.id); 
     } 
     // Normalize existing Brazilian league names in DB (one-time migration) 
-    db.prepare("UPDATE events SET league='Brasileirão Série A' WHERE sport='soccer' AND country='Brazil' AND (LOWER(league)='série a' OR LOWER(league)='serie a')").run(); 
-    db.prepare("UPDATE events SET league='Brasileirão Série B' WHERE sport='soccer' AND country='Brazil' AND (LOWER(league)='série b' OR LOWER(league)='serie b')").run(); 
+    await db.prepare("UPDATE events SET league='Brasileirão Série A' WHERE sport='soccer' AND country='Brazil' AND (LOWER(league)='série a' OR LOWER(league)='serie a')").run(); 
+    await db.prepare("UPDATE events SET league='Brasileirão Série B' WHERE sport='soccer' AND country='Brazil' AND (LOWER(league)='série b' OR LOWER(league)='serie b')").run(); 
   } catch (e) { 
     console.error('[Server] Admin seed error:', e.message); 
   } 

@@ -157,15 +157,21 @@ async function resolveSportSlug(sport: string): Promise<string> {
   const aliases: Record<string, string> = {
     soccer: 'football',
     football: 'football',
-    'ice-hockey': 'hockey',
-    hockey: 'hockey',
+    basketball: 'basketball',
+    'ice-hockey': 'ice-hockey',
+    hockey: 'ice-hockey',
+    handball: 'handball',
+    volleyball: 'volleyball',
+    rugby: 'rugby',
     'american-football': 'american-football',
     nfl: 'american-football',
-    mma: 'mma',
-    ufc: 'mma',
+    boxing: 'boxing',
+    mma: 'mixed-martial-arts',
+    ufc: 'mixed-martial-arts',
     'formula-1': 'formula-1',
     f1: 'formula-1',
-    afl: 'afl',
+    afl: 'aussie-rules',
+    'aussie-rules': 'aussie-rules',
   };
 
   const want = aliases[raw.toLowerCase()] || raw.toLowerCase();
@@ -197,9 +203,9 @@ function toMarketKey(name: string): string {
   if (n.includes('correct score') || n.includes('exact score')) return 'correct_score';
   if (n.includes('next goal')) return 'next_goal';
   if (n.includes('team to score first') || n.includes('first team to score') || n.includes('first to score')) return 'team_to_score_first';
-  if (n.includes('corners') && (n.includes('over/under') || n.includes('totals'))) return 'corners_total';
+  if (n.includes('corners') && (n.includes('over/under') || n.includes('totals'))) return 'corners_totals';
   if (n.includes('corner') && n.includes('handicap')) return 'corner_handicap';
-  if (n.includes('cards') && (n.includes('over/under') || n.includes('totals'))) return 'cards_total';
+  if (n.includes('cards') && (n.includes('over/under') || n.includes('totals'))) return 'cards_totals';
   if (n.includes('run line')) return 'run_line';
   if (n.includes('puck line')) return 'puck_line';
   return `special_${normKey(n).slice(0, 32) || 'misc'}`;
@@ -636,11 +642,12 @@ export async function fetchOddsApiMarketsForFixture(
   apiKey: string,
   fixture: { league: string; home: string; away: string; kickoff: string; sport?: string },
   bookmakersCsv: string,
+  marketsCsv?: string,
   statusCsv: string = 'pending,live',
 ): Promise<OddsMarketsResult | null> {
   const slug = await resolveSportSlug(fixture.sport || 'soccer');
   if (!slug) return null;
-  const cacheKey = `${slug}|${normTeam(fixture.home)}|${normTeam(fixture.away)}|${String(fixture.kickoff || '').slice(0, 16)}|${statusCsv}`;
+  const cacheKey = `${slug}|${normTeam(fixture.home)}|${normTeam(fixture.away)}|${String(fixture.kickoff || '').slice(0, 16)}|${statusCsv}|${String(marketsCsv || '').trim()}`;
   const nowMs = Date.now();
   const cached = fixtureOddsCache.get(cacheKey);
   if (cached && cached.expiresAt > nowMs) return cached.data;
@@ -710,11 +717,28 @@ export async function fetchOddsApiMarketsForFixture(
       scoreMatch(baseSide, { league: bestMeta.league, home: bestMeta.home, away: bestMeta.away, kickoff: bestMeta.kickoff })
     ));
 
-  const books = resolvedBooks ? `&bookmakers=${encodeURIComponent(resolvedBooks)}` : '';
-  const payload = await fetchJson(`${ODDS_API_BASE}/odds?apiKey=${apiKey}&eventId=${encodeURIComponent(bestId)}${books}`);
-  if (!payload) return null;
+  const mkts = marketsCsv ? `&markets=${encodeURIComponent(String(marketsCsv))}` : '';
+  const tryFetch = async (booksParam: string) => {
+    const books = booksParam ? `&bookmakers=${encodeURIComponent(booksParam)}` : '';
+    const payload = await fetchJson(`${ODDS_API_BASE}/odds?apiKey=${apiKey}&eventId=${encodeURIComponent(bestId)}${books}${mkts}`);
+    if (!payload) return null;
+    const { markets, primary } = payloadToLegacyMarkets(payload, booksParam);
+    return { markets, primary };
+  };
 
-  const { markets, primary } = payloadToLegacyMarkets(payload, resolvedBooks);
+  const first = await tryFetch(resolvedBooks);
+  if (!first) return null;
+
+  const firstKeys = first.markets && typeof first.markets === 'object' ? Object.keys(first.markets) : [];
+  const requested = new Set(String(marketsCsv || '').split(',').map((s) => s.trim()).filter(Boolean));
+  const present = new Set(firstKeys.map((k) => String(k)));
+  const meaningfulRequested = Array.from(requested).filter((k) => !['h2h'].includes(k));
+  const hasAnyMeaningful = meaningfulRequested.length === 0 ? true : meaningfulRequested.some((k) => present.has(k));
+  const tooThin = firstKeys.length <= 2 || !hasAnyMeaningful;
+  const second = resolvedBooks && tooThin ? await tryFetch('') : null;
+  const bestResult = second || first;
+
+  const { markets, primary } = bestResult;
   if (isSwapped) {
     if (Array.isArray(markets.h2h)) {
       const home = markets.h2h.find((x: any) => String(x?.label || x?.name || '').toLowerCase() === 'casa');

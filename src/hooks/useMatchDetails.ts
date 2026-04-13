@@ -3,12 +3,15 @@ import type { Match } from '../types/sports';
 import { sportsDataHub } from '../services/sportsDataHub';
 
 // Cache local para detalhes de jogos
-const CACHE_KEY_PREFIX = 'match_details_';
+const CACHE_KEY_PREFIX = 'match_details_v2_';
+const LEGACY_CACHE_KEY_PREFIX = 'match_details_';
+const CACHE_SCHEMA = 2;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
 interface CacheData {
   match: Match;
   timestamp: number;
+  schema?: number;
 }
 
 export function useMatchDetails(matchId: string) {
@@ -19,13 +22,14 @@ export function useMatchDetails(matchId: string) {
   // Função para buscar do cache
   const getFromCache = useCallback((id: string): Match | null => {
     try {
+      localStorage.removeItem(LEGACY_CACHE_KEY_PREFIX + id);
       const cached = localStorage.getItem(CACHE_KEY_PREFIX + id);
       if (!cached) return null;
 
       const data: CacheData = JSON.parse(cached);
       const now = Date.now();
 
-      if (now - data.timestamp < CACHE_TTL) {
+      if (data.schema === CACHE_SCHEMA && now - data.timestamp < CACHE_TTL) {
         console.log('✅ Usando cache local para jogo', id);
         return data.match;
       }
@@ -43,7 +47,8 @@ export function useMatchDetails(matchId: string) {
     try {
       const cacheData: CacheData = {
         match: matchData,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        schema: CACHE_SCHEMA,
       };
       localStorage.setItem(CACHE_KEY_PREFIX + id, JSON.stringify(cacheData));
     } catch (err) {

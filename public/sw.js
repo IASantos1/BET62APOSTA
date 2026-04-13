@@ -1,4 +1,4 @@
-const CACHE_STATIC = 'betarena-static-v3'
+const CACHE_STATIC = 'betarena-static-v4'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -37,10 +37,16 @@ self.addEventListener('fetch', (event) => {
   }
   if (url.origin === self.location.origin && isAsset(url)) {
     event.respondWith(
-      caches.open(CACHE_STATIC).then(async (cache) => {
+      fetch(req).then(async (res) => {
+        if (res && res.status === 200) {
+          const cache = await caches.open(CACHE_STATIC)
+          cache.put(req, res.clone())
+        }
+        return res
+      }).catch(async () => {
+        const cache = await caches.open(CACHE_STATIC)
         const cached = await cache.match(req)
-        const network = fetch(req).then((res) => { if (res && res.status === 200) cache.put(req, res.clone()); return res })
-        return cached || network
+        return cached || Response.error()
       })
     )
     return

@@ -5,6 +5,7 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import OddsBlockedOverlay from '../../../components/feature/OddsBlockedOverlay';
 import { useMatchIncidents } from '../../../hooks/useMatchIncidents';
 import { useMatchScore, useMatchOdds } from '../../../hooks/useLiveScoresWebSocket';
+import { useHomeTeamBanner } from '../../../hooks/useHomeTeamBanner';
 
 interface Match {
   id?: string | number;
@@ -338,6 +339,7 @@ export default function MatchCard({
   const shouldShowLogos = showLogos || isLive || index < 80;
   const sportType = useMemo(() => detectSportType(match), [match]);
   const isSoccer = sportType === 'soccer';
+  const { bannerUrl } = useHomeTeamBanner(match.homeTeam, index < 80);
 
   // ✅ Hook para incidentes - APENAS FUTEBOL AO VIVO
   const { incidents } = useMatchIncidents(String(match.id || ''), {
@@ -530,12 +532,25 @@ export default function MatchCard({
       className={`group rounded-xl overflow-hidden transition-all duration-300 border relative cursor-pointer
         ${theme === 'dark'
           ? 'bg-gray-800/60 border-gray-700/40 hover:border-gray-600/60'
-          : 'bg-white border-gray-200 hover:border-gray-300 shadow-sm'}
+          : (bannerUrl ? 'bg-white/65 border-gray-200 hover:border-gray-300 shadow-sm backdrop-blur-sm' : 'bg-white border-gray-200 hover:border-gray-300 shadow-sm')}
         hover:shadow-xl hover:shadow-black/10
         ${hasScoreChanged ? 'ring-2 ring-emerald-400 animate-pulse' : ''}
         animate-card-entrance`}
       style={{ animationDelay }}
     >
+      {bannerUrl && (
+        <div className="absolute inset-0 pointer-events-none">
+          <img
+            src={bannerUrl}
+            alt=""
+            aria-hidden="true"
+            className={`absolute inset-0 h-full w-full object-cover transform-gpu ${theme === 'dark' ? (isLive ? 'opacity-25' : 'opacity-35') : (isLive ? 'opacity-20' : 'opacity-30')}`}
+            decoding="async"
+            loading="lazy"
+          />
+          <div className={`absolute inset-0 ${theme === 'dark' ? 'bg-gradient-to-r from-black/85 via-black/60 to-black/25' : 'bg-gradient-to-r from-white/85 via-white/65 to-white/25'}`} />
+        </div>
+      )}
       {/* Desktop */}
       <div className="hidden sm:block">
         <div className="flex items-stretch">

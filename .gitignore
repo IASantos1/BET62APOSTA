@@ -61,3 +61,4 @@ temp_*
 worker_output.txt
 support.status
 .vercel
+.env*.local

@@ -21,27 +21,25 @@ export const SPORT_CONFIG = {
 
 export const SPORT_SLUG_MAP = {
   soccer:              ['football'],
-  basketball:          ['basketball_nba', 'basketball_euroleague', 'basketball_nbl', 'basketball_ncaab'],
-  'ice-hockey':        ['icehockey_nhl', 'icehockey_sweden_hockey_league', 'icehockey_ahl'],
-  tennis:              ['tennis_atp_french_open', 'tennis_wta_french_open', 'tennis_atp_us_open', 'tennis_wta_us_open'],
-  'american-football': ['americanfootball_nfl', 'americanfootball_ncaaf'],
-  handball:            ['handball_euro_championship'],
-  volleyball:          ['volleyball_womens_world_championship'],
-  rugby:               ['rugbyleague_nrl', 'rugbyunion_world_cup'],
-  mma:                 ['mma_mixed_martial_arts'],
-  boxing:              ['boxing_boxing'],
-  afl:                 ['aussierules_afl'],
-  'formula-1':         ['motorsport_formula_one_championship'],
+  basketball:          ['basketball'],
+  'ice-hockey':        ['ice-hockey'],
+  tennis:              ['tennis'],
+  handball:            ['handball'],
+  volleyball:          ['volleyball'],
+  rugby:               ['rugby'],
+  mma:                 ['mixed-martial-arts'],
+  boxing:              ['boxing'],
+  afl:                 ['aussie-rules'],
 };
 
 export const SPORT_MARKETS = {
   soccer:              'h2h,totals,btts,handicap,double_chance,h2h_ht,totals_ht,dnb,correct_score,spreads,corners_totals,cards_totals,team_totals,half_time_full_time,next_goal',
-  basketball:          'h2h,totals,spreads',
-  'ice-hockey':        'h2h,totals,spreads',
-  tennis:              'h2h,totals',
-  'american-football': 'h2h,totals,spreads',
-  handball:            'h2h,totals,handicap',
-  volleyball:          'h2h,totals',
+  basketball:          'h2h,totals,spreads,team_totals,double_chance,h2h_ht,totals_ht',
+  'ice-hockey':        'h2h,totals,spreads,double_chance,team_totals,h2h_ht,totals_ht',
+  tennis:              'h2h,totals,spreads',
+  'american-football': 'h2h,totals,spreads,team_totals',
+  handball:            'h2h,totals,handicap,double_chance,team_totals,h2h_ht,totals_ht',
+  volleyball:          'h2h,totals,spreads,double_chance,team_totals,h2h_ht,totals_ht',
   rugby:               'h2h,totals,spreads',
   mma:                 'h2h',
   boxing:              'h2h,totals',
@@ -49,8 +47,8 @@ export const SPORT_MARKETS = {
   'formula-1':         'h2h',
 };
 
-export const DEFAULT_BOOKMAKERS = 'Bet365,1xbet,Betano,Betano PT,Betano BR,Superbet,Betclic PT,Bwin,Unibet';
-export const DEFAULT_MARKETS    = 'h2h,totals';
+export const DEFAULT_BOOKMAKERS = 'Bet365,1xbet,Betano,Betclic,Superbet';
+export const DEFAULT_MARKETS    = 'h2h,totals,btts,handicap,double_chance,h2h_ht,totals_ht,dnb,correct_score,spreads,corners_totals,cards_totals,team_totals,half_time_full_time,next_goal';
 
 export const FINISHED_STATUSES = [
   'FT','AET','PEN','AWD','WO','ABD','FIN','FINAL','Finished','Match Finished','Final','Ended','AOT','AP','POST','FT_PEN'
@@ -151,6 +149,36 @@ export async function runPool(items, concurrency, fn) {
 
 export function normKey(s) {
   return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '').trim();
+}
+
+const ODDS_API_ALLOWED_BOOKMAKERS = ['Bet365', '1xbet', 'Betano', 'Superbet', 'Betclic'];
+
+function normalizeOddsApiBookmakers(bookmakers) {
+  const parts = String(bookmakers || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const allowedByNorm = new Map(ODDS_API_ALLOWED_BOOKMAKERS.map(b => [normKey(b), b]));
+
+  const picked = [];
+  const seen = new Set();
+  for (const bm of parts) {
+    const allowed = allowedByNorm.get(normKey(bm));
+    if (!allowed) continue;
+    if (seen.has(allowed)) continue;
+    picked.push(allowed);
+    seen.add(allowed);
+    if (picked.length >= 5) break;
+  }
+
+  if (picked.length === 0) return ODDS_API_ALLOWED_BOOKMAKERS.join(',');
+  return picked.join(',');
+}
+
+export function getOddsApiBookmakers() {
+  const envBooks = String(process.env.ODDS_API_BOOKMAKERS || '').trim();
+  return envBooks;
 }
 
 export function toMarketKey(name) {
@@ -496,6 +524,21 @@ export function extractBasicOdds(ev) {
 
 // In-memory cache for odds-api.io events lists (10 min TTL per slug) 
 const eventsListCache = new Map(); 
+const invalidOddsApiSlugs = new Map();
+
+function isInvalidOddsApiSlug(slug) {
+  const cached = invalidOddsApiSlugs.get(slug);
+  if (!cached) return false;
+  if (cached.expiresAt < Date.now()) {
+    invalidOddsApiSlugs.delete(slug);
+    return false;
+  }
+  return true;
+}
+
+function markInvalidOddsApiSlug(slug) {
+  invalidOddsApiSlugs.set(slug, { expiresAt: Date.now() + 24 * 60 * 60 * 1000 });
+}
 
 /** 
  * Fetch the list of events from odds-api.io for a single sport slug. 
@@ -503,6 +546,7 @@ const eventsListCache = new Map();
  * Cached for 10 minutes. 
  */ 
 export async function fetchOddsApiEventsList(oddsKey, slug, daysAhead = 3, statuses = 'pending,live') { 
+   if (isInvalidOddsApiSlug(slug)) return [];
    const now = Date.now(); 
    const cacheKey = `${slug}|${statuses}|${daysAhead}`; 
    const cached = eventsListCache.get(cacheKey); 
@@ -513,8 +557,30 @@ export async function fetchOddsApiEventsList(oddsKey, slug, daysAhead = 3, statu
    const to   = new Date(now + daysAhead * 24 * 60 * 60 * 1000).toISOString(); 
    // Note: odds-api.io uses literal commas in status param (not URL-encoded) 
   const url  = `${ODDS_API_BASE}/events?apiKey=${oddsKey}&sport=${slug}&status=${statuses}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=2500`; 
- 
-   const data = await safeFetch(url); 
+
+   let data = null;
+   try {
+     const controller = new AbortController();
+     const timer = setTimeout(() => controller.abort(), 20000);
+     const r = await fetch(url, { signal: controller.signal });
+     clearTimeout(timer);
+     if (!r.ok) {
+       const body = await r.text().catch(() => '');
+       console.warn(`[SportsSync] HTTP ${r.status} → ${url.split('?')[0]} | ${body.slice(0, 120)}`);
+       if (r.status === 400 && body.toLowerCase().includes('invalid sport slug')) {
+         markInvalidOddsApiSlug(slug);
+         eventsListCache.set(cacheKey, { expiresAt: now + 24 * 60 * 60 * 1000, data: [] });
+       } else {
+         eventsListCache.set(cacheKey, { expiresAt: now + 60000, data: [] });
+       }
+       return [];
+     }
+     data = await r.json();
+   } catch (err) {
+     if (err.name !== 'AbortError') console.warn(`[SportsSync] fetch error: ${err.message}`);
+     eventsListCache.set(cacheKey, { expiresAt: now + 60000, data: [] });
+     return [];
+   }
    if (!Array.isArray(data)) { 
      eventsListCache.set(cacheKey, { expiresAt: now + 60000, data: [] }); // short cache on error 
      return []; 
@@ -544,29 +610,79 @@ export async function fetchOddsApiEventsList(oddsKey, slug, daysAhead = 3, statu
  */ 
 export async function fetchOddsApiOddsForEvent(oddsKey, eventId, markets, bookmakers) { 
    // odds-api.io accepts literal commas in bookmakers and markets params 
-   const books = bookmakers ? `&bookmakers=${bookmakers}` : ''; 
    const mkts  = `&markets=${markets || DEFAULT_MARKETS}`; 
-   const url   = `${ODDS_API_BASE}/odds?apiKey=${oddsKey}&eventId=${encodeURIComponent(eventId)}${books}${mkts}`; 
  
-   const payload = await safeFetch(url); 
-   if (!payload) return null; 
+   const tryFetch = async (booksParam) => {
+     const books = booksParam ? `&bookmakers=${booksParam}` : '';
+     const url = `${ODDS_API_BASE}/odds?apiKey=${oddsKey}&eventId=${encodeURIComponent(eventId)}${books}${mkts}`;
+     const payload = await safeFetch(url);
+     if (!payload) return null;
+     const { markets: mktsObj, primary } = marketsToLegacyFormat(payload, booksParam);
+     return { payload, markets: mktsObj, primary };
+   };
  
-   const { markets: mktsObj, primary } = marketsToLegacyFormat(payload, bookmakers); 
-   return { payload, markets: mktsObj, primary }; 
+   const first = await tryFetch(bookmakers);
+   if (!first) return null;
+
+   const keys = first?.markets && typeof first.markets === 'object' ? Object.keys(first.markets) : [];
+   const requested = new Set(String(markets || DEFAULT_MARKETS).split(',').map((s) => s.trim()).filter(Boolean));
+   const present = new Set(keys.map((k) => String(k)));
+   const meaningfulRequested = Array.from(requested).filter((k) => !['h2h'].includes(k));
+   const hasAnyMeaningful =
+     meaningfulRequested.length === 0
+       ? true
+       : meaningfulRequested.some((k) => present.has(k));
+
+   const tooThin = keys.length <= 2 || !hasAnyMeaningful;
+   if (bookmakers && tooThin) {
+     const retry = await tryFetch('');
+     if (retry) return retry;
+   }
+ 
+   return first;
+}
+
+export function getOddsApiSlugsForSport(sport, max) {
+  const base = Array.isArray(SPORT_SLUG_MAP[sport]) ? SPORT_SLUG_MAP[sport] : [];
+  const extra = [];
+  if (sport === 'basketball') extra.push('basketball');
+  if (sport === 'ice-hockey') extra.push('ice-hockey', 'hockey');
+  if (sport === 'american-football') extra.push('american-football');
+  if (sport === 'tennis') extra.push('tennis');
+  if (sport === 'handball') extra.push('handball');
+  if (sport === 'volleyball') extra.push('volleyball');
+  if (sport === 'rugby') extra.push('rugby');
+  if (sport === 'mma') extra.push('mma');
+  if (sport === 'boxing') extra.push('boxing');
+  if (sport === 'afl') extra.push('afl');
+  if (sport === 'formula-1') extra.push('formula-1');
+  if (sport === 'soccer') extra.push('football');
+  extra.push(String(sport || '').trim());
+  const out = [];
+  const seen = new Set();
+  for (const s of [...extra, ...base]) {
+    const slug = String(s || '').trim();
+    if (!slug) continue;
+    if (seen.has(slug)) continue;
+    seen.add(slug);
+    out.push(slug);
+    if (max && out.length >= max) break;
+  }
+  return out;
 }
 
 /** 
  * Fetch bulk events list from odds-api.io for ALL slugs of a sport, deduplicated. 
  */
 export async function fetchAllOddsApiEventsForSport(oddsKey, sport, daysAhead = 3) { 
-   const slugs = (SPORT_SLUG_MAP[sport] || []).slice(0, 4); // max 4 slugs per sport 
+  const slugs = getOddsApiSlugsForSport(sport, 2); 
    if (!slugs.length) return []; 
  
    const all = []; 
    const seen = new Set(); 
    const statuses = 'pending,live'; 
  
-   await Promise.all(slugs.map(async (slug) => { 
+  await Promise.all(slugs.map(async (slug) => { 
      const events = await fetchOddsApiEventsList(oddsKey, slug, daysAhead, statuses); 
      for (const ev of events) { 
        if (!seen.has(ev.id)) { 
@@ -632,8 +748,8 @@ export async function buildOddsMap(fixtures, oddsEvents, sport, oddsKey, bookmak
    } 
  
    // Fetch full odds for matched events (concurrency limit = 4 to protect quota) 
-   // Cap at 100 events per sport per sync cycle 
-   const limited = toFetch.slice(0, 100); 
+   // Cap at 200 events per sport per sync cycle to get more odds coverage 
+   const limited = toFetch.slice(0, 200); 
  
   const oddsResults = await runPool(limited, 4, async ({ fixture, oddsEventId, fromCache }) => { 
      const result = await fetchOddsApiOddsForEvent(oddsKey, oddsEventId, markets, bookmakers); 
@@ -1016,7 +1132,7 @@ function stripCountryPrefix(league) {
   return m ? m[1].trim() : s; 
 } 
 
-function matchOddsEvent(fixture, oddsEvents, minScore = 75) { 
+export function matchOddsEvent(fixture, oddsEvents, minScore = 75) { 
   if (!oddsEvents || !oddsEvents.length) return null; 
 
   const candidates = oddsEvents.map(e => ({ 
@@ -1055,9 +1171,7 @@ let syncCycle = 0;
 export async function runSportsSync(forceFull = false) { 
    const apiKey     = process.env.API_SPORTS_KEY; 
    const oddsKey    = process.env.ODDS_API_KEY; 
-   // Use env var if it looks correct (contains capital letters), otherwise use default 
-   const envBooks   = process.env.ODDS_API_BOOKMAKERS || ''; 
-   const bookmakers = (envBooks && /[A-Z]/.test(envBooks)) ? envBooks : DEFAULT_BOOKMAKERS; 
+   const bookmakers = getOddsApiBookmakers(); 
  
    if (!apiKey && !oddsKey) { 
      console.log('[SportsSync] Skipped: no API_SPORTS_KEY and no ODDS_API_KEY'); 
@@ -1206,7 +1320,7 @@ export async function runSportsSync(forceFull = false) {
          if (!allEvts.length) continue; 
  
          // Fetch full odds for each event 
-         const oddsResults = await runPool(allEvts.slice(0, 100), 4, async (ev) => { 
+         const oddsResults = await runPool(allEvts.slice(0, 200), 4, async (ev) => { 
            const result = await fetchOddsApiOddsForEvent(oddsKey, ev.id, markets, books); 
            return { ev, result }; 
          }); 
@@ -1278,12 +1392,11 @@ export async function runLiveOddsRefresh() {
      const oddsKey = process.env.ODDS_API_KEY; 
      if (!oddsKey && !apiKey) return; 
  
-     const envBooks   = process.env.ODDS_API_BOOKMAKERS || ''; 
-     const bookmakers = (envBooks && /[A-Z]/.test(envBooks)) ? envBooks : DEFAULT_BOOKMAKERS; 
+     const bookmakers = getOddsApiBookmakers(); 
  
     const db = await getDb(); 
     const liveRows = await db.prepare( 
-       "SELECT id, external_event_id, sport FROM events WHERE is_live = 1 LIMIT 100" 
+       "SELECT id, external_event_id, sport, league, home_team, away_team, event_date FROM events WHERE is_live = 1 LIMIT 200" 
     ).all(); 
  
      if (!liveRows.length) return; 
@@ -1311,14 +1424,54 @@ export async function runLiveOddsRefresh() {
      // ── Step 2: update odds via matchIdCache → odds-api.io direct lookup ── 
      if (!oddsKey) return; 
  
-     const toRefresh = liveRows.filter(r => matchIdCache.has(r.external_event_id)); 
-     if (!toRefresh.length) return; 
+    const marketsBySport = SPORT_MARKETS; 
+    let toRefresh = liveRows.filter(r => matchIdCache.has(r.external_event_id)); 
  
-     const markets = DEFAULT_MARKETS; 
+    if (!toRefresh.length) {
+        const toMatch = liveRows.filter(r => !matchIdCache.has(r.external_event_id)).slice(0, 80);
+      if (toMatch.length) {
+        const oddsEventsBySport = new Map();
+        const getOddsEventsForSport = async (sport) => {
+          if (oddsEventsBySport.has(sport)) return oddsEventsBySport.get(sport);
+          const promise = (async () => {
+            const slugs = getOddsApiSlugsForSport(sport, 2);
+            const lists = await Promise.all(slugs.map(slug => fetchOddsApiEventsList(oddsKey, slug, 2, 'pending,live')));
+            return lists.flat();
+          })();
+          oddsEventsBySport.set(sport, promise);
+          return promise;
+        };
+
+        await runPool(toMatch, 2, async (row) => {
+          try {
+            const oddsEvents = await getOddsEventsForSport(row.sport);
+            const matched = matchOddsEvent(
+              {
+                league: row.league || '',
+                home_team: row.home_team || '',
+                away_team: row.away_team || '',
+                event_date: row.event_date || null,
+              },
+              oddsEvents,
+              70
+            );
+            if (matched?.id) matchIdCache.set(row.external_event_id, { oddsApiId: matched.id, cachedAt: Date.now() });
+          } catch { /* empty */ }
+        });
+      }
+ 
+      toRefresh = liveRows.filter(r => matchIdCache.has(r.external_event_id)); 
+      if (!toRefresh.length) return; 
+    }
  
     const updateOdds = db.prepare(` 
        UPDATE events 
-       SET home_odd = ?, draw_odd = ?, away_odd = ?, markets = ?, updated_at = ? 
+       SET 
+         home_odd = CASE WHEN ? > 0 THEN ? ELSE home_odd END,
+         draw_odd = CASE WHEN ? > 0 THEN ? ELSE draw_odd END,
+         away_odd = CASE WHEN ? > 0 THEN ? ELSE away_odd END,
+         markets  = CASE WHEN ? IS NOT NULL AND ? != '' AND ? != '{}' THEN ? ELSE markets END,
+         updated_at = ?
        WHERE id = ? AND is_live = 1 
      `); 
  
@@ -1326,18 +1479,24 @@ export async function runLiveOddsRefresh() {
        try { 
          const { oddsApiId } = matchIdCache.get(row.external_event_id) || {}; 
          if (!oddsApiId) return; 
-         const result = await fetchOddsApiOddsForEvent(oddsKey, oddsApiId, markets, bookmakers); 
+        const mktCsv = marketsBySport[row.sport] || DEFAULT_MARKETS;
+        const result = await fetchOddsApiOddsForEvent(oddsKey, oddsApiId, mktCsv, bookmakers); 
          if (!result) return; 
          const { primary, markets: mktsObj } = result; 
-         if (!primary?.home) return; 
+        const primaryHome = Number(primary?.home || 0);
+        const primaryDraw = Number(primary?.draw || 0);
+        const primaryAway = Number(primary?.away || 0);
+        const marketsJson = JSON.stringify(mktsObj || {});
+        const hasMarkets = marketsJson && marketsJson !== '{}' && marketsJson !== 'null';
+        if (!hasMarkets && primaryHome <= 0) return;
          const now = new Date().toISOString(); 
         await updateOdds.run( 
-           Number(primary.home  || 0), 
-           Number(primary.draw  || 0), 
-           Number(primary.away  || 0), 
-           JSON.stringify(mktsObj || {}), 
-           now, 
-           row.id 
+          primaryHome, primaryHome,
+          primaryDraw, primaryDraw,
+          primaryAway, primaryAway,
+          marketsJson, marketsJson, marketsJson, marketsJson,
+          now,
+          row.id
          ); 
        } catch { /* skip event on error */ } 
      }); 

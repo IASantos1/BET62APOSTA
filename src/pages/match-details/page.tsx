@@ -30,7 +30,7 @@ export default function MatchDetailsPage() {
   const navigate = useNavigate();
   const { theme } = useTheme();
 
-  const [toasts, setToasts] = useState([]);
+  const [toasts, setToasts] = useState<Array<{ id: number; message: string }>>([]);
   const [selections, setSelections] = useState<any[]>([]);
   const [marketsOpen, setMarketsOpen] = useState(false);
 
@@ -69,6 +69,16 @@ export default function MatchDetailsPage() {
     return found;
   }, [liveMatches, upcomingMatches, matchId]);
 
+  const resolvedMatch = useMemo(() => {
+    const count = (m: any) => {
+      const mk = m?.markets;
+      if (!mk || typeof mk !== 'object') return 0;
+      return Object.keys(mk).length;
+    };
+    if (fallbackMatch && (!match || count(fallbackMatch) > count(match))) return fallbackMatch;
+    return match || fallbackMatch;
+  }, [match, fallbackMatch]);
+
   useEffect(() => {
     let cancelled = false;
     async function fetchFallback() {
@@ -87,7 +97,39 @@ export default function MatchDetailsPage() {
     };
   }, [match, matchId]);
 
-  const resolvedMatch = match || fallbackMatch;
+  useEffect(() => {
+    let cancelled = false;
+    async function enrichMarkets() {
+      if (!matchId || !resolvedMatch) return;
+      const mk = resolvedMatch?.markets;
+      const hasMarkets = mk && typeof mk === 'object' && Object.keys(mk).length > 2;
+      if (hasMarkets) return;
+
+      try {
+        const res = await fetch(`/api/events/${encodeURIComponent(String(matchId))}/odds?realtime=1`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const raw: any = await res.json().catch(() => null);
+        const rawMarkets = raw?.markets && typeof raw.markets === 'object' ? raw.markets : null;
+        if (!rawMarkets) return;
+        if (cancelled) return;
+        setFallbackMatch((prev: any) => ({
+          ...(prev || resolvedMatch),
+          markets: rawMarkets,
+          odds: {
+            home: Number(raw?.home_odd || (prev || resolvedMatch)?.odds?.home || 0),
+            draw: Number(raw?.draw_odd || (prev || resolvedMatch)?.odds?.draw || 0),
+            away: Number(raw?.away_odd || (prev || resolvedMatch)?.odds?.away || 0),
+          },
+        }));
+      } catch {
+        return;
+      }
+    }
+    enrichMarkets();
+    return () => {
+      cancelled = true;
+    };
+  }, [matchId, resolvedMatch]);
 
   const isLive = useMemo(() => {
     return !!liveMatches?.some((m) => String(m.id) === matchId);

@@ -622,7 +622,7 @@ sports.get('/by-sport', async (c) => {
           oddsKey,
           sp,
           1,
-          c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
+          c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,Betclic,Superbet',
           'live',
           Math.min(25, live.length * 2),
           2,
@@ -723,10 +723,14 @@ sports.get('/:id/odds', async (c) => {
 
     if (realtime && oddsKey) {
       const r: any = row as any;
+      const marketsCsv = String(sportPrefix).toLowerCase() === 'soccer'
+        ? 'h2h,totals,btts,handicap,double_chance,h2h_ht,totals_ht,dnb,correct_score,spreads,corners_totals,cards_totals,team_totals,half_time_full_time,next_goal'
+        : undefined;
       const out = await fetchOddsApiMarketsForFixture(
         oddsKey,
         { league: String(r.league || ''), home: String(r.home_team || ''), away: String(r.away_team || ''), kickoff: String(r.event_date || ''), sport: sportPrefix },
-        c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet',
+        c.env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,Betclic,Superbet',
+        marketsCsv,
         'pending,live',
       );
       if (out) return c.json(out);

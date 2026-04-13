@@ -17,14 +17,16 @@ import { getUpcomingMatches } from '../services/sportsDataHub';
  * @property {number} [hoursAhead=4]
  */
 
-const LOCAL_STORAGE_KEY = 'upcoming_matches_cache_v1';
+const LOCAL_STORAGE_KEY = 'upcoming_matches_cache_v2';
+const LEGACY_LOCAL_STORAGE_KEY = 'upcoming_matches_cache_v1';
+const CACHE_SCHEMA = 2;
 
 const upcomingCache = {
   data: null as any[] | null,
   timestamp: 0,
   ttl: 300000,
   isLoading: false,
-  promise: null as Promise<any[] | null> | null,
+  promise: null as Promise<any[]> | null,
   hoursAhead: 4,
 };
 
@@ -32,10 +34,12 @@ const loadCacheFromStorage = () => {
   if (typeof window === 'undefined') return;
   if (upcomingCache.data) return;
   try {
+    window.localStorage.removeItem(LEGACY_LOCAL_STORAGE_KEY);
     const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
     if (!raw) return;
-    const parsed = JSON.parse(raw) as { data: any[]; timestamp: number; hoursAhead?: number };
+    const parsed = JSON.parse(raw) as { data: any[]; timestamp: number; hoursAhead?: number; schema?: number };
     if (!parsed || !Array.isArray(parsed.data)) return;
+    if (parsed.schema !== CACHE_SCHEMA) return;
     if (Date.now() - parsed.timestamp > upcomingCache.ttl) return;
     upcomingCache.data = parsed.data;
     upcomingCache.timestamp = parsed.timestamp;
@@ -57,6 +61,7 @@ const persistCacheToStorage = () => {
         data: upcomingCache.data,
         timestamp: upcomingCache.timestamp,
         hoursAhead: upcomingCache.hoursAhead,
+        schema: CACHE_SCHEMA,
       })
     );
   } catch {
@@ -64,7 +69,7 @@ const persistCacheToStorage = () => {
   }
 };
 
-const fetchWithDedup = async (hoursAhead: number) => {
+const fetchWithDedup = async (hoursAhead: number): Promise<any[]> => {
   if (
     upcomingCache.isLoading &&
     upcomingCache.promise &&
@@ -88,7 +93,7 @@ const fetchWithDedup = async (hoursAhead: number) => {
         upcomingCache.promise = null;
         return upcomingCache.data;
       }
-      upcomingCache.data = data || [];
+      upcomingCache.data = Array.isArray(data) ? data : [];
       upcomingCache.timestamp = Date.now();
       upcomingCache.isLoading = false;
       upcomingCache.promise = null;
@@ -119,13 +124,13 @@ export function useUpcomingMatches(options: UseUpcomingMatchesOptions = {}) {
     hoursAhead = 4,
   } = options;
 
-  const [matches, setMatches] = useState(() => upcomingCache.data || []);
+  const [matches, setMatches] = useState<any[]>(() => upcomingCache.data || []);
   const [loading, setLoading] = useState(!upcomingCache.data);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(upcomingCache.timestamp);
 
   const isMountedRef = useRef(true);
-  const intervalRef = useRef(null); // ✅ Ref para intervalo
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchMatches = useCallback(
     async (forceRefresh = false) => {
@@ -148,7 +153,7 @@ export function useUpcomingMatches(options: UseUpcomingMatchesOptions = {}) {
       try {
         setError(null);
         const upcomingMatches = await fetchWithDedup(hoursAhead);
-        const finalMatches = upcomingMatches;
+        const finalMatches = Array.isArray(upcomingMatches) ? upcomingMatches : [];
         upcomingCache.data = finalMatches;
         upcomingCache.timestamp = Date.now();
         persistCacheToStorage();
@@ -159,16 +164,15 @@ export function useUpcomingMatches(options: UseUpcomingMatchesOptions = {}) {
         setLoading(false);
         setLastUpdate(Date.now());
       } catch (err) {
-        if (err && err.name === 'AbortError') return;
+        const e = err as any;
+        if (e && e.name === 'AbortError') return;
 
         console.error('❌ Erro ao buscar pré-jogos:', err);
 
         if (!isMountedRef.current) return;
 
-        if (upcomingCache.data) {
-          setMatches(upcomingCache.data);
-        }
-        setError(err?.message || 'Erro ao carregar pré-jogos');
+        if (upcomingCache.data) setMatches(upcomingCache.data);
+        setError(e?.message || 'Erro ao carregar pré-jogos');
         setLoading(false);
       }
     },

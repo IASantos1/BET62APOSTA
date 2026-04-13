@@ -13,6 +13,37 @@ const normalizeTeam = (s: string) =>
 const matchUID = (home: string, away: string, date: string | null | undefined) =>
   `${normalizeTeam(home)}-vs-${normalizeTeam(away)}-${String(date || '').slice(0, 10)}`;
 
+type NormalizedMarket = { key: string; selections?: any[]; outcomes?: any[] } & Record<string, any>;
+
+const normalizeMarkets = (raw: any): NormalizedMarket[] => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw as NormalizedMarket[];
+  if (typeof raw === 'string') {
+    try { return normalizeMarkets(JSON.parse(raw)); } catch { return []; }
+  }
+  if (typeof raw !== 'object') return [];
+  const out: NormalizedMarket[] = [];
+  for (const [key, value] of Object.entries(raw)) {
+    if (!value) continue;
+    if (Array.isArray(value)) {
+      out.push({ key, selections: value });
+      continue;
+    }
+    if (typeof value === 'object') {
+      const v: any = value;
+      const selections = Array.isArray(v.selections) ? v.selections : (Array.isArray(v.outcomes) ? v.outcomes : undefined);
+      out.push(selections ? { key, ...v, selections } : { key, ...v });
+    }
+  }
+  return out;
+};
+
+const normalizeEvent = (e: any): Event => {
+  if (!e || typeof e !== 'object') return e as Event;
+  const markets = normalizeMarkets((e as any).markets);
+  return { ...(e as any), markets } as Event;
+};
+
 const scoreEvent = (e: Event) =>
   (Number(e.home_odd || 0) > 0 ? 1 : 0) +
   (Number(e.draw_odd || 0) > 0 ? 1 : 0) +
@@ -249,8 +280,8 @@ export function useSportsEvents(category: string | null) {
         // Só consideramos o formato estruturado se houver pelo menos 1 evento.
         // Caso venha { live: [], pregame: [] }, caímos para os fallbacks legados (/api/events, featured, etc).
         if (hasStructured && hasAnyStructured) { 
-          const rawLive = (data.live || []) as Event[];
-          const rawPregame = (data.pregame || []) as Event[];
+          const rawLive = ((data.live || []) as any[]).map(normalizeEvent);
+          const rawPregame = ((data.pregame || []) as any[]).map(normalizeEvent);
           
           let liveEvents = dedupEvents(rawLive).filter(e => !shouldHideEvent(e));
           let pregameEvents = dedupEvents(rawPregame).filter(e => !shouldHideEvent(e));  
@@ -314,7 +345,7 @@ export function useSportsEvents(category: string | null) {
           return; 
         } else if (Array.isArray(data) && data.length > 0) {
             // FLAT ARRAY FALLBACK (API returning simple list)
-            const list = data as Event[];
+            const list = (data as any[]).map(normalizeEvent);
             const liveEvents = list.filter(e => Number(e.is_live) === 1);
             const pregameEvents = list.filter(e => Number(e.is_live) !== 1);
             

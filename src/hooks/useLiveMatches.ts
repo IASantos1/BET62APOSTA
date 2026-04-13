@@ -26,7 +26,9 @@ interface UseLiveMatchesReturn {
 // ✅ CACHE AGRESSIVO - 5 minutos (WebSocket atualiza em tempo real)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const LOCAL_STORAGE_KEY = 'live_matches_cache_v1';
+const LOCAL_STORAGE_KEY = 'live_matches_cache_v2';
+const LEGACY_LOCAL_STORAGE_KEY = 'live_matches_cache_v1';
+const CACHE_SCHEMA = 2;
 
 const matchesCache = {
   data: null as Match[] | null,
@@ -40,10 +42,12 @@ const loadCacheFromStorage = () => {
   if (typeof window === 'undefined') return;
   if (matchesCache.data) return;
   try {
+    window.localStorage.removeItem(LEGACY_LOCAL_STORAGE_KEY);
     const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
     if (!raw) return;
-    const parsed = JSON.parse(raw) as { data: Match[]; timestamp: number };
+    const parsed = JSON.parse(raw) as { data: Match[]; timestamp: number; schema?: number };
     if (!parsed || !Array.isArray(parsed.data)) return;
+    if (parsed.schema !== CACHE_SCHEMA) return;
     if (Date.now() - parsed.timestamp > matchesCache.ttl) return;
     matchesCache.data = parsed.data;
     matchesCache.timestamp = parsed.timestamp;
@@ -61,6 +65,7 @@ const persistCacheToStorage = () => {
       JSON.stringify({
         data: matchesCache.data,
         timestamp: matchesCache.timestamp,
+        schema: CACHE_SCHEMA,
       })
     );
   } catch {

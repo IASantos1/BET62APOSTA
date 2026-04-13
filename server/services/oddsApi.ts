@@ -84,10 +84,19 @@ export async function fetchOdds(sportKey: string): Promise<OddsApiIoEvent[] | nu
            bookmakersList = Object.values(event.bookmakers);
        }
 
-       // Prioridade: Bet365 > 1xbet > Primeiro disponível
+       // Prioridade: Bet365 > 1xbet > Betano > Betclic > Superbet > Primeiro disponível
        let selectedBookmaker = bookmakersList.find((b: any) => b.name === 'Bet365' || b.slug === 'bet365');
        if (!selectedBookmaker) {
-           selectedBookmaker = bookmakersList.find((b: any) => b.name === '1xBet' || b.slug === '1xbet');
+           selectedBookmaker = bookmakersList.find((b: any) => b.name === '1xbet' || b.name === '1xBet' || b.slug === '1xbet');
+       }
+       if (!selectedBookmaker) {
+           selectedBookmaker = bookmakersList.find((b: any) => b.name === 'Betano' || b.slug === 'betano');
+       }
+       if (!selectedBookmaker) {
+           selectedBookmaker = bookmakersList.find((b: any) => b.name === 'Betclic' || b.name === 'BetClic' || b.slug === 'betclic');
+       }
+       if (!selectedBookmaker) {
+           selectedBookmaker = bookmakersList.find((b: any) => b.name === 'Superbet' || b.slug === 'superbet');
        }
        if (!selectedBookmaker && bookmakersList.length > 0) {
            selectedBookmaker = bookmakersList[0];
@@ -149,7 +158,7 @@ function mapOddsApiIoToApiFootballFormat(event: any, fixtureId: number): any {
             bookmakers: [
               {
                 id: 1, // ID genérico
-                name: "Odds-API.io (Bet365/1xBet)",
+                name: "Odds-API.io",
                 bets: [
                   {
                     id: 1,
@@ -177,10 +186,19 @@ function mapOddsApiIoToApiFootballFormat(event: any, fixtureId: number): any {
       bookmakersList = Object.values(bookmakersData);
   }
 
-  // 3. Tentar encontrar Bet365 ou 1xBet
+  // 3. Tentar encontrar Bet365 ou 1xbet
   let selectedBookmaker = bookmakersList.find((b: any) => b.name === 'Bet365' || b.slug === 'bet365');
   if (!selectedBookmaker) {
-      selectedBookmaker = bookmakersList.find((b: any) => b.name === '1xBet' || b.slug === '1xbet');
+      selectedBookmaker = bookmakersList.find((b: any) => b.name === '1xbet' || b.name === '1xBet' || b.slug === '1xbet');
+  }
+  if (!selectedBookmaker) {
+      selectedBookmaker = bookmakersList.find((b: any) => b.name === 'Betano' || b.slug === 'betano');
+  }
+  if (!selectedBookmaker) {
+      selectedBookmaker = bookmakersList.find((b: any) => b.name === 'Betclic' || b.name === 'BetClic' || b.slug === 'betclic');
+  }
+  if (!selectedBookmaker) {
+      selectedBookmaker = bookmakersList.find((b: any) => b.name === 'Superbet' || b.slug === 'superbet');
   }
   if (!selectedBookmaker && bookmakersList.length > 0) {
       selectedBookmaker = bookmakersList[0];
