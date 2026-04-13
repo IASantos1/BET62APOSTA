@@ -5,6 +5,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/x", "destination": "/api/server?path=debug/env" },
     { "source": "/api/server", "destination": "/api/server" },
     { "source": "/api/:path*", "destination": "/api/server?path=:path*" }
   ],
