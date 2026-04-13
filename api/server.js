@@ -1,3 +1,5 @@
+import app from '../backend/src/index.js';
+
 export default async function handler(req, res) {
   try {
     const url = new URL(req.url, `https://${req.headers.host}`);
@@ -25,7 +27,6 @@ export default async function handler(req, res) {
       body,
     });
 
-    const { default: app } = await import('../backend/src/index.js');
     const response = await app.fetch(request);
 
     res.statusCode = response.status;
@@ -38,4 +39,3 @@ export default async function handler(req, res) {
     res.end(JSON.stringify({ error: err?.message || String(err) }));
   }
 }
-
