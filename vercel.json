@@ -4,6 +4,14 @@
   "installCommand": "npm install",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/server.js": {
+      "includeFiles": [
+        "backend/src/**",
+        "node_modules/bcryptjs/**"
+      ]
+    }
+  },
   "rewrites": [
     { "source": "/x", "destination": "/api/server?path=debug/env" },
     { "source": "/api/server", "destination": "/api/server" },
