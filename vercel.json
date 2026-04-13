@@ -4,6 +4,10 @@
   "installCommand": "npm install",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/api/server", "destination": "/api/server" },
+    { "source": "/api/:path*", "destination": "/api/server?path=:path*" }
+  ],
   "crons": [
     { "path": "/api/cron/live-refresh", "schedule": "*/1 * * * *" },
     { "path": "/api/cron/sports-sync", "schedule": "*/5 * * * *" },
