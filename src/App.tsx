@@ -1,5 +1,6 @@
 import { BrowserRouter } from 'react-router-dom';
 import { lazy, Suspense, useEffect } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { AppRoutes } from './router';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
@@ -24,6 +25,7 @@ function App() {
                 <CacheHealthMonitor />
               </Suspense>
             )}
+            <Analytics />
           </NotificationProvider>
         </AuthProvider>
       </ThemeProvider>
