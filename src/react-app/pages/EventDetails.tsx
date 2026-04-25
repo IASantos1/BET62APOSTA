@@ -6,6 +6,7 @@ import { apiFetch } from '@/react-app/utils/api'
 import { BetSlip } from '@/react-app/components/BetSlip'
 import { Sidebar } from '@/react-app/components/Sidebar'
 import MatchTracker from '@/react-app/components/MatchTracker'
+import FootballPitchAnimation from '@/react-app/components/FootballPitchAnimation'
 import { MemoSubOddsModel } from '@/react-app/components/SubOddsModel'
 import { useLiveFeed } from '@/react-app/hooks/useLiveFeed'
 import { useMergedEvents } from '@/react-app/hooks/useMergedEvents'
@@ -77,15 +78,7 @@ export default function EventDetails() {
   // --- Real-time Score Updates (Removed - using Polling via useLiveFeed) ---
   // const { liveUpdates, isConnected: wsConnected } = useEventLiveUpdates(id);
 
-  // Extract logos
-  const DEFAULT_LOGO = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjY2NjIiBzdHJva2Utd2lkdGg9IjIiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PHBhdGggZD0iTTEyIDh2OG0tNCAwaDgiLz48L3N2Zz4=';
-  const homeTeamLogo = displayEvent?.home_team_logo || displayEvent?.teams?.home?.logo || displayEvent?.logo_home || DEFAULT_LOGO;
-  const awayTeamLogo = displayEvent?.away_team_logo || displayEvent?.teams?.away?.logo || displayEvent?.logo_away || DEFAULT_LOGO;
-
   // Use displayEvent for helpers where possible, but keep existing helpers consistent
-  // Actually, labelOutcome relies on displayEventWithOdds closure, but we should use the latest event if we want accurate team names (though they rarely change).
-  // For safety, let's keep helpers using displayEventWithOdds for now as names don't change, 
-  // but we must use displayEvent for rendering scores and status.
 
   // --- Helpers ---
   const handleLabelOutcome = useCallback((market: string, name: string) => {
@@ -281,45 +274,21 @@ export default function EventDetails() {
 
         {/* Main Content */}
         <main className="flex-1 min-w-0 pb-20 mt-4">
-          {/* Header & Score */}
-          <div className={`relative h-48 md:h-64 rounded-xl overflow-hidden mb-6 ${darkMode ? 'bg-gray-800' : 'bg-gradient-to-r from-red-700 to-red-900'}`}>
-            <div className="absolute inset-0 bg-black/30"></div>
-            <div className="relative z-10 h-full flex flex-col justify-center items-center p-4">
-              <div className="flex items-center justify-between w-full max-w-3xl px-4 md:px-12">
-                <div className="flex flex-col items-center gap-2">
-                    <img src={homeTeamLogo} alt={displayEvent.home_team} className="w-16 h-16 md:w-24 md:h-24 object-contain drop-shadow-lg bg-white/10 rounded-full p-2" onError={(e) => e.currentTarget.style.display = 'none'} />
-                    <span className="text-lg md:text-2xl font-bold text-white text-center">{cleanTeam(displayEvent.home_team)}</span>
-                </div>
-                
-                <div className="text-center mx-4">
-                   <div className={`text-4xl md:text-6xl font-black text-white transition-all duration-300 ${displayEvent.lastGoal ? 'scale-125 text-green-400' : ''}`}>
-                     {isLive 
-                       ? (() => { const g = parseGoals(displayEvent.goals); return `${g.home} - ${g.away}`; })()
-                       : 'VS'} 
-                   </div> 
-                   {isLive && ( 
-                     <div className="text-sm md:text-lg text-white/90 mt-1 flex items-center justify-center gap-2"> 
-                       <span className="font-din font-bold bg-black/30 px-2 py-0.5 rounded">{statusShort || displayEvent.fixture?.status?.short}</span>
-                       <span className="font-din font-bold bg-red-600 px-2 py-0.5 rounded">
-                         {liveTimer || (liveElapsed > 0 ? `${liveElapsed}'` : 'AO VIVO')}
-                       </span> 
-                       {isLive && <span className="ml-1 flex h-2 w-2 relative" title="A receber actualizações">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                       </span>} 
-                     </div> 
-                   )} 
-                   {displayEvent.lastGoal && (
-                       <div className="text-green-400 font-bold animate-bounce mt-1 text-lg">GOL!</div>
-                   )}
-                 </div>
-
-                <div className="flex flex-col items-center gap-2">
-                    <img src={awayTeamLogo} alt={displayEvent.away_team} className="w-16 h-16 md:w-24 md:h-24 object-contain drop-shadow-lg bg-white/10 rounded-full p-2" onError={(e) => e.currentTarget.style.display = 'none'} />
-                    <span className="text-lg md:text-2xl font-bold text-white text-center">{cleanTeam(displayEvent.away_team)}</span>
-                </div>
+          {/* Header & Score — Football Pitch Animation */}
+          <div className={`relative rounded-xl overflow-hidden mb-6`} style={{ height: 200 }}>
+            <FootballPitchAnimation
+              homeName={cleanTeam(displayEvent.home_team)}
+              awayName={cleanTeam(displayEvent.away_team)}
+              isLive={isLive}
+              score={isLive ? (() => { const g = parseGoals(displayEvent.goals); return `${g.home} - ${g.away}`; })() : undefined}
+              statusLabel={isLive ? (statusShort || displayEvent.fixture?.status?.short || '') : undefined}
+              timer={isLive ? (liveTimer || (liveElapsed > 0 ? `${liveElapsed}'` : 'AO VIVO')) : undefined}
+            />
+            {displayEvent.lastGoal && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                <div className="text-4xl md:text-7xl font-black text-yellow-400 animate-bounce drop-shadow-[0_4px_4px_rgba(0,0,0,0.9)]">GOL!!!</div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Match Center */}

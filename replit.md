@@ -139,6 +139,26 @@ Configured as a static site deployment:
 
 ## Intro Splash Screen
 - Component: `src/react-app/components/Bet62Intro.tsx`
-- Shows once per browser session (sessionStorage flag)
-- Duration: 2.9 seconds (600ms in → 2200ms hold → 2900ms done)
+- Shows once per browser session (sessionStorage `bet62_intro_seen` flag)
+- Duration: 1.3 seconds (300ms in → 900ms hold → 1300ms done)
 - Red background, white B62 circle, BET62 gold text, "APOSTAS DESPORTIVAS", bouncing dots
+
+## UI — Market Layout (SubOddsModel)
+- Redesigned with card-style panels: each market wrapped in a bordered card with title + ⓘ icon
+- Labels shown OUTSIDE the red odds button (label text on the left, red button with only the price on the right)
+- Tall red buttons (h-11 = 44px) with clear tabular odds value
+- Totals market (goals/corners) shown as a grid table: Line | Mais | Menos columns
+- Handicap market: side-by-side home/away panels divided by a vertical line
+
+## UI — EventDetails Header
+- Replaced team logos with `FootballPitchAnimation` — a 2D SVG animated football pitch
+- Ball animation uses requestAnimationFrame for smooth bounce movement around the pitch
+- Shows score, status badge, and timer for live events; VS for prematch
+- Team names displayed bottom-left and bottom-right over the pitch
+
+## Multi-Sport Coverage
+- Statpal.io API v2 covers **soccer/football only** — no basketball, tennis, handball, etc.
+- Other sports UI groups (NBA, NFL, etc.) are defined in `marketConfig.ts` for future use
+
+## Logos Removed
+- Team logos removed from: `EventCard.tsx` and `EventDetails.tsx`

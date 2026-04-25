@@ -1,5 +1,5 @@
 import { OddButton } from '@/react-app/components/OddButton';
-import { useMemo, useState, useEffect, memo } from 'react';
+import { useMemo, useState, memo } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { formatLeagueHeader, abbreviateTeamName, getSportFromLeague, getSportIcon, labelOutcome } from '@/shared/helpers';
@@ -25,9 +25,7 @@ interface EventCardProps {
 
 export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) { 
   const { darkMode, addNotification, addToBetSlip } = useApp(); 
-  const [isHovered, setIsHovered] = useState(false); 
-  const [homeLogoOk, setHomeLogoOk] = useState(true);
-  const [awayLogoOk, setAwayLogoOk] = useState(true);
+  const [isHovered, setIsHovered] = useState(false);
 
   // Robustly extract event ID (support both structures)
   const eventId = event.id || event.fixture?.id;
@@ -36,28 +34,9 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
   const homeTeamName = event.home_team || event.teams?.home?.name || (event.match ? event.match.split(' vs ')[0] : '') || (event.match ? event.match.split(' - ')[0] : '') || 'Home Team';
   const awayTeamName = event.away_team || event.teams?.away?.name || (event.match ? event.match.split(' vs ')[1] : '') || (event.match ? event.match.split(' - ')[1] : '') || 'Away Team';
   
-  // Use a public placeholder that allows CORB/CORS or a data URI
-  const DEFAULT_LOGO = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjY2NjIiBzdHJva2Utd2lkdGg9IjIiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PHBhdGggZD0iTTEyIDh2OG0tNCAwaDgiLz48L3N2Zz4=';
-  
-  const homeTeamLogo = event.home_team_logo || event.teams?.home?.logo || event.logo_home || DEFAULT_LOGO;
-  const awayTeamLogo = event.away_team_logo || event.teams?.away?.logo || event.logo_away || DEFAULT_LOGO;
-
-  useEffect(() => {
-    setHomeLogoOk(true);
-    setAwayLogoOk(true);
-  }, [homeTeamLogo, awayTeamLogo]);
-
-  const initials = (name: string) => {
-    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-    const a = parts[0]?.[0] || '';
-    const b = parts.length > 1 ? (parts[parts.length - 1]?.[0] || '') : (parts[0]?.[1] || '');
-    return (a + b).toUpperCase();
-  };
-  
   const eventLeague = event.league?.name || event.league || 'Unknown League'; // Handle object or string
   const eventSport = event.sport;
   const sport = eventSport ? normalizeSport(eventSport) : getSportFromLeague(typeof eventLeague === 'string' ? eventLeague : (eventLeague?.name || ''));
-  const isTennis = sport === 'tennis';
 
   // Removed useRealtimeOdds hook
   
@@ -257,20 +236,6 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
         > 
           <span className="flex items-center gap-2 w-full justify-start">
             <div className="flex items-center gap-2 min-w-0 max-w-[46%]">
-              {!isTennis && (
-                homeTeamLogo && homeLogoOk ? (
-                  <img
-                    src={homeTeamLogo}
-                    alt={homeTeamName}
-                    className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5"
-                    onError={() => setHomeLogoOk(false)}
-                  />
-                ) : (
-                  <div className="w-6 h-6 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold">
-                    {initials(homeTeamName)}
-                  </div>
-                )
-              )}
               <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(homeTeamName)}</span>
             </div>
 
@@ -336,20 +301,6 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
            
             <div className="flex items-center gap-2 min-w-0 max-w-[46%]">
               <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(awayTeamName)}</span>
-              {!isTennis && (
-                awayTeamLogo && awayLogoOk ? (
-                  <img
-                    src={awayTeamLogo}
-                    alt={awayTeamName}
-                    className="w-6 h-6 object-contain shrink-0 bg-white/5 rounded-full p-0.5"
-                    onError={() => setAwayLogoOk(false)}
-                  />
-                ) : (
-                  <div className="w-6 h-6 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold">
-                    {initials(awayTeamName)}
-                  </div>
-                )
-              )}
             </div>
           </span>
         </button>

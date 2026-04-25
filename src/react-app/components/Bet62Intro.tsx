@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 
 export function Bet62Intro() {
-  const [phase, setPhase] = useState<'in' | 'hold' | 'out' | 'done'>('in')
+  const alreadySeen = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('bet62_intro_seen') === '1';
+  const [phase, setPhase] = useState<'in' | 'hold' | 'out' | 'done'>(alreadySeen ? 'done' : 'in')
 
   useEffect(() => {
-    const t1 = setTimeout(() => setPhase('hold'), 600)
-    const t2 = setTimeout(() => setPhase('out'), 2200)
-    const t3 = setTimeout(() => setPhase('done'), 2900)
+    if (alreadySeen) return;
+    const t1 = setTimeout(() => setPhase('hold'), 300)
+    const t2 = setTimeout(() => setPhase('out'), 900)
+    const t3 = setTimeout(() => { setPhase('done'); sessionStorage.setItem('bet62_intro_seen', '1'); }, 1300)
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
   }, [])
 
