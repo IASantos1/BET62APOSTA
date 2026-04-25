@@ -1,222 +1,92 @@
 #!/usr/bin/env node
 /**
- * odds-proxy.mjs — Local enrichment proxy (port 8080)
+ * odds-proxy.mjs — Statpal.io data proxy (port 8080)
  *
  * Rules:
- *  - Block women's leagues, youth (U16-U23), amateur, 3rd division+, friendlies
+ *  - Block women's leagues, youth (U16-U23), amateur, 3rd division+, friendlies, Middle East
  *  - Only return events that have odds (home_odd > 1)
- *  - Pregame: max 60 events with odds | Live: max 120 events with odds
- *  - Preferred bookmakers: auto-reset every 12h
+ *  - Live: max 120 events | Pregame: max 60 events
+ *  - Odds suspended when Statpal status.blocked or status.stopped = "1"
+ *  - Score-based market locking (totals lines already scored)
  */
 
-import http   from 'http';
-import https  from 'https';
-import fs     from 'fs';
-import path   from 'path';
-import { fileURLToPath } from 'url';
+import http  from 'http';
+import https from 'https';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CLEAR_TS_FILE = path.join(__dirname, '.last_bm_clear');
+const CF_WORKER     = 'https://bet62apostasesportivas.bet62.workers.dev';
+const PORT          = 8080;
+const STATPAL_KEY   = process.env.STATPAL_KEY  || '';
+const STATPAL_BASE  = 'https://statpal.io/api/v2/soccer';
 
-const CF_WORKER        = 'https://bet62apostasesportivas.bet62.workers.dev';
-const PORT             = 8080;
-const ODDS_API_KEY     = process.env.ODDS_API_KEY     || '';
-const ODDS_API_BASE    = 'https://api.odds-api.io/v3';
-const API_SPORTS_KEY   = process.env.API_SPORTS_KEY   || '';
-const APIFB_BASE       = 'https://v3.football.api-sports.io';
+if (!STATPAL_KEY) console.warn('[proxy] WARNING: STATPAL_KEY not set');
 
-// Target bookmakers
-const PREFERRED_BM  = 'Bet365,Betano,Unibet,Superbet,Betfair Sportsbook';
-let   BOOKMAKERS_CSV = PREFERRED_BM;
-
-if (!ODDS_API_KEY) console.warn('[proxy] WARNING: ODDS_API_KEY not set');
-
-// ── Bookmaker auto-reset (once per 12h) ─────────────────────────────────────
-async function tryResetBookmakers() {
-  if (!ODDS_API_KEY) return;
-  try {
-    let lastClear = 0;
-    try { lastClear = parseInt(fs.readFileSync(CLEAR_TS_FILE, 'utf8').trim()) || 0; } catch {}
-    const twelveH = 12 * 3600_000;
-    if (Date.now() - lastClear < twelveH) {
-      const remaining = Math.ceil((twelveH - (Date.now() - lastClear)) / 60_000);
-      console.log(`[proxy] Bookmakers reset in ${remaining}m — checking current selection`);
-      const r = await fetch(`${ODDS_API_BASE}/bookmakers/selected?apiKey=${ODDS_API_KEY}`, { signal: AbortSignal.timeout(6000) });
-      const j = await r.json().catch(() => ({}));
-      BOOKMAKERS_CSV = Array.isArray(j?.bookmakers) ? j.bookmakers.join(',') : PREFERRED_BM;
-      console.log(`[proxy] Active bookmakers: ${BOOKMAKERS_CSV}`);
-      return;
-    }
-    const r = await fetch(`${ODDS_API_BASE}/bookmakers/selected/clear?apiKey=${ODDS_API_KEY}`, { method: 'PUT', signal: AbortSignal.timeout(8000) });
-    const j = await r.json().catch(() => ({}));
-    if (r.ok) {
-      fs.writeFileSync(CLEAR_TS_FILE, String(Date.now()));
-      BOOKMAKERS_CSV = PREFERRED_BM;
-      console.log(`[proxy] Bookmakers reset ✓ → ${BOOKMAKERS_CSV}`);
-    } else {
-      console.warn(`[proxy] Bookmakers reset blocked: ${String(j?.error||'').slice(0,120)}`);
-      const r2 = await fetch(`${ODDS_API_BASE}/bookmakers/selected?apiKey=${ODDS_API_KEY}`, { signal: AbortSignal.timeout(6000) });
-      const j2 = await r2.json().catch(() => ({}));
-      BOOKMAKERS_CSV = Array.isArray(j2?.bookmakers) ? j2.bookmakers.join(',') : PREFERRED_BM;
-      if (j?.timeRemaining) {
-        const resetAt = Date.now() - (twelveH - j.timeRemaining * 1000);
-        fs.writeFileSync(CLEAR_TS_FILE, String(resetAt));
-      }
-    }
-  } catch (e) { console.warn('[proxy] Bookmakers setup failed:', e?.message); }
-}
-tryResetBookmakers();
-
-// ── Cache ────────────────────────────────────────────────────────────────────
-const _cache = new Map();
-const cGet = (k) => { const e = _cache.get(k); return e && e.exp > Date.now() ? e.data : null; };
-const cSet = (k, d, ttl) => _cache.set(k, { exp: Date.now() + ttl, data: d });
-
-// ── Sport slug maps ───────────────────────────────────────────────────────────
-const SLUG_TO_API = {
-  soccer: 'football', basketball: 'basketball', tennis: 'tennis',
-  'ice-hockey': 'icehockey', handball: 'handball', volleyball: 'volleyball',
-  'american-football': 'americanfootball', baseball: 'baseball', rugby: 'rugbyleague',
-};
-const API_TO_SPORT = {
-  football: 'soccer', basketball: 'basketball', tennis: 'tennis',
-  icehockey: 'ice-hockey', handball: 'handball', volleyball: 'volleyball',
-  americanfootball: 'american-football', baseball: 'baseball', rugbyleague: 'rugby',
-};
-
-// ── LEAGUE BLOCKER ───────────────────────────────────────────────────────────
-// Women's leagues (any language)
-const WOMEN_RE = /\b(women|woman|féminin|feminine|feminino|feminina|mulheres|damen|dames|damallsvenskan|toppserien|kvinner|kvinder|naiset|naisten|feminil|femenino|femmes|nők|ženy|ženske|nő|kobiety|females?)\b/i;
-
-// Youth / junior
-const YOUTH_RE = /\b(u-?1[6789]|u-?20|u-?21|u-?22|u-?23|under-?1[6789]|under-?20|under-?21|under-?22|under-?23|youth|junior|juvenil|juvenis|jugend|cadete|infantil|sub-?1[6789]|sub-?20|sub-?21|sub-?22|sub-?23)\b/i;
-
-// Amateur
-const AMATEUR_RE = /\b(amateur|amateurs|amateure|amador|amateurs|amatör)\b/i;
-
-// Friendly games
-const FRIENDLY_RE = /\b(friendly|friendlies|amistoso|amistosos|amical|freundschaft|testspiel|preseason|pre-?season)\b/i;
-
-// Blocked countries (Middle East)
-const BLOCKED_ME = new Set([
-  'saudi arabia','qatar','united arab emirates','uae','kuwait',
-  'bahrain','oman','jordan','iraq','syria','lebanon','palestine',
-  'palestinian territory','yemen','iran',
-]);
-
-// Low-tier division keywords — 3rd division and below
-const LOW_TIER_RE = /\b(iii[\s_-]liga|liga[\s_-]iii|3[.\s]liga|liga[\s_-]3|ligue[\s_-]3|serie[\s_-][cd]|tercera|3rd[\s_-]div|division[\s_-]3|div[\s_-]3|gamma[\s_-]ethniki|nb[\s_-]iii|segunda[\s_-]b|tercera[\s_-]rfef|regionalliga|kakkonen|kolmonen|vtora[\s_-]liga|dritte|esiliiga|ii[\s_-]liiga|ii[\s_-]lyga|derde[\s_-]divisie|derde[\s_-]klasse|segunda[\s_-]divisao[\s_-]b|liga[\s_-][456]|vierde|vijfde|copa[\s_-]espirito|2[\.\s]cfl|2[\.\s]mfl|3[\.\s]snl|ligue[\s_-][345]|campionato[\s_-][cd]|polska[\s_-][3456]|II[\s_-]liga|segunda[\s_-]federacion|promozione|eccellenza|interregional)\b/i;
-
-// Extra: specific league name patterns always block
-const ALWAYS_BLOCK_SLUGS = [
-  'kakkonen', 'kolmonen', 'regionalliga', 'esiliiga-b', 'ii-liiga', 'ii-lyga',
-  'derde-divisie', 'tweede-divisie', 'vtora-liga', 'gamma-ethniki',
-  'copa-espirito-santo', 'nb-iii', '2-cfl', '3-snl',
+// ── Top league IDs for prematch odds ────────────────────────────────────────
+const TOP_LEAGUE_IDS = [
+  3037,  // England Premier League
+  3062,  // Germany Bundesliga
+  3058,  // Germany Bundesliga 2
+  3054,  // France Ligue 1
+  3102,  // Italy Serie A
+  3232,  // Spain Primera (La Liga)
+  3185,  // Portugal Primeira Liga
+  3186,  // Portugal Liga 2
+  3155,  // Netherlands Eredivisie
+  2838,  // UEFA Champions League
+  2840,  // UEFA Europa League
+  20686, // UEFA Europa Conference League
+  2935,  // Belgium Pro League
+  3203,  // Scotland Premier League
+  3065,  // Greece Super League
+  3258,  // Turkey Super Lig
+  3290,  // Russia Premier League
+  3241,  // Switzerland Super League
+  3214,  // Serbia Super Liga
+  2974,  // Brazil Serie A
+  2914,  // Argentina Primera Division
+  3156,  // Netherlands Eerste Divisie
 ];
 
-function isBlockedLeague(leagueName, leagueSlug, country) {
-  if (!leagueName) return false;
-  const name = String(leagueName);
-  const slug = String(leagueSlug || '');
-  const ctry = String(country || '').toLowerCase();
+// ── Statpal live market ID → canonical key ──────────────────────────────────
+const LIVE_MKT_MAP = {
+  '3610':  'h2h',
+  '91841': 'totals',
+  '2254':  'totals',
+  '1844':  'handicap',
+  '1845':  'handicap',
+  '12398': 'btts',
+  '11834': 'correct_score',
+  '1849':  'corners_total',
+  '2353':  'corners_total',
+  '91839': 'corners_total',
+  '2151':  'btts_second_half',
+  '1834':  'team_totals',
+  '2835':  'team_totals',
+  '2140':  'clean_sheet',
+  '1836':  'second_half_h2h',
+  '12395': 'goals_odd_even',
+  '1877':  'next_goal',
+  '52294': 'result_btts',
+  '2833':  'first_goal',
+};
 
-  if (BLOCKED_ME.has(ctry)) return true;
-  if (WOMEN_RE.test(name))   return true;
-  if (YOUTH_RE.test(name))   return true;
-  if (AMATEUR_RE.test(name)) return true;
-  if (FRIENDLY_RE.test(name)) return true;
-  if (LOW_TIER_RE.test(name)) return true;
-  if (ALWAYS_BLOCK_SLUGS.some(s => slug.includes(s))) return true;
+// ── Statpal prematch market ID → canonical key ──────────────────────────────
+const PRE_MKT_MAP = {
+  '1834': 'h2h',
+  '1835': 'dnb',
+  '1836': 'second_half_h2h',
+  '1837': 'handicap',
+  '1838': 'totals',
+  '1839': 'first_half_totals',
+  '1840': 'second_half_totals',
+  '1845': 'half_time_full_time',
+  '1848': 'btts',
+  '1914': 'correct_score',
+  '2055': 'double_chance',
+  '3935': 'first_half_h2h',
+};
 
-  return false;
-}
-
-// ── Team fuzzy match ──────────────────────────────────────────────────────────
-function norm(s) {
-  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
-}
-function teamScore(a, b) {
-  const na = norm(a), nb = norm(b);
-  if (na === nb) return 100;
-  if (na.includes(nb) || nb.includes(na)) return 80;
-  const wa = na.split(' ').filter(w => w.length > 2);
-  const wb = nb.split(' ').filter(w => w.length > 2);
-  const shared = wa.filter(w => wb.includes(w));
-  return shared.length ? 60 + (shared.length / Math.max(wa.length, wb.length)) * 30 : 0;
-}
-function pairScore(h1, a1, h2, a2) {
-  return (teamScore(h1, h2) + teamScore(a1, a2)) / 2;
-}
-
-// ── Fetch helpers ─────────────────────────────────────────────────────────────
-async function apiFetch(url) {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(12_000) });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.warn(`[proxy] HTTP ${res.status} | body: ${body.slice(0, 200)}`);
-      return null;
-    }
-    return res.json();
-  } catch (e) { console.warn('[proxy] fetch error:', e?.message); return null; }
-}
-
-// ── Fetch event list from odds-api.io ─────────────────────────────────────────
-async function getOddsEvents(sport, statusCsv) {
-  if (!ODDS_API_KEY) return [];
-  const ck = `ev:${sport}:${statusCsv}`;
-  const cached = cGet(ck);
-  if (cached) return cached;
-
-  const apiSlug = SLUG_TO_API[sport] || sport;
-  const now  = new Date();
-  const from = new Date(now.getTime() - 4 * 3600_000).toISOString();
-  const to   = new Date(now.getTime() + 72 * 3600_000).toISOString();
-  const url  = `${ODDS_API_BASE}/events?apiKey=${ODDS_API_KEY}&sport=${apiSlug}&status=${encodeURIComponent(statusCsv)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=200`;
-  const data = await apiFetch(url);
-  const list = Array.isArray(data) ? data : (data?.data && Array.isArray(data.data) ? data.data : []);
-
-  // Apply league filter immediately
-  const filtered = list.filter(e => {
-    const league = e.league || {};
-    return !isBlockedLeague(league.name || e.competition, league.slug, league.country || e.country);
-  });
-
-  const ttl = statusCsv === 'live' ? 20_000 : 120_000;
-  cSet(ck, filtered, ttl);
-  console.log(`[proxy] odds-api.io: ${filtered.length}/${list.length} ${sport} events after filter (${statusCsv})`);
-  return filtered;
-}
-
-// ── Individual event odds response cache (60s TTL) ───────────────────────────
-const _oddsRespCache = new Map();
-function oddsRespGet(key) {
-  const e = _oddsRespCache.get(key);
-  if (!e) return null;
-  if (Date.now() - e.ts < 60_000) return e.buf;
-  _oddsRespCache.delete(key);
-  return null;
-}
-function oddsRespSet(key, buf) {
-  _oddsRespCache.set(key, { buf, ts: Date.now() });
-}
-
-// ── Fetch ALL markets for a single event ─────────────────────────────────────
-async function getOddsForEventId(eventId) {
-  const ck = `odds:${eventId}:${BOOKMAKERS_CSV.slice(0,20)}`;
-  const cached = cGet(ck);
-  if (cached !== undefined && cached !== null) return cached;
-
-  const bms = encodeURIComponent(BOOKMAKERS_CSV);
-  const url  = `${ODDS_API_BASE}/odds?apiKey=${ODDS_API_KEY}&eventId=${encodeURIComponent(eventId)}&bookmakers=${bms}`;
-  const data = await apiFetch(url);
-  const result = parseAllMarkets(data);
-  cSet(ck, result, 120_000); // 2 min TTL to save quota
-  return result;
-}
-
-// ── Market category mapping ───────────────────────────────────────────────────
-const MARKET_CATEGORIES = {
+// ── Market category display names ────────────────────────────────────────────
+const MKT_CATEGORY = {
   h2h:                  'Mercado Raiz',
   totals:               'Mercado Raiz',
   handicap:             'Mercado Raiz',
@@ -234,720 +104,669 @@ const MARKET_CATEGORIES = {
   half_time_full_time:  'Mercados Temporais',
   corners_total:        'Mercados Estatísticos',
   cards_total:          'Mercados Estatísticos',
-  fouls_total:          'Mercados Estatísticos',
-  penalty_scored:       'Mercados Especiais',
-  winner:               'Mercado Raiz',
-  moneyline:            'Mercado Raiz',
+  team_totals:          'Mercados de Gols',
+  clean_sheet:          'Mercados Especiais',
+  btts_second_half:     'Mercados Temporais',
+  goals_odd_even:       'Mercados Especiais',
+  next_goal:            'Mercados Especiais',
+  result_btts:          'Mercados Especiais',
+  first_goal:           'Mercados Especiais',
 };
 
-// ── Parse all markets from odds payload ──────────────────────────────────────
-function isH2hMarket(name) {
-  const k = String(name || '').toLowerCase().trim();
-  return k === 'ml' || k === '1x2' || k === 'h2h' || k.includes('moneyline') ||
-    k.includes('match winner') || k.includes('match result') ||
-    k.includes('full time result') || k.includes('result final') || k.includes('resultado') ||
-    k === 'winner' || k === '3way' || k === '3-way';
+const MKT_NAMES = {
+  h2h:                  'Resultado Final',
+  totals:               'Mais/Menos Gols',
+  handicap:             'Handicap',
+  btts:                 'Ambas Marcam',
+  double_chance:        'Dupla Chance',
+  dnb:                  'Empate Anula Aposta',
+  correct_score:        'Marcador Correto',
+  half_time_full_time:  'Intervalo/Final',
+  first_half_h2h:       '1º Tempo - Resultado',
+  second_half_h2h:      '2º Tempo - Resultado',
+  first_half_totals:    '1º Tempo - Mais/Menos',
+  second_half_totals:   '2º Tempo - Mais/Menos',
+  corners_total:        'Cantos',
+  clean_sheet:          'Sem Sofrer Golo',
+  btts_second_half:     '2º Tempo - Ambas Marcam',
+  goals_odd_even:       'Gols Par/Ímpar',
+  next_goal:            'Próximo Golo',
+  result_btts:          'Resultado + Ambas Marcam',
+  first_goal:           'Primeiro Golo',
+  team_totals:          'Total por Equipe',
+};
+
+// ── League filtering ─────────────────────────────────────────────────────────
+const WOMEN_RE   = /\b(women|woman|féminin|feminine|feminino|feminina|mulheres|damen|dames|damallsvenskan|toppserien|kvinner|kvinder|naiset|naisten|feminil|femenino|femmes|nők|ženy|ženske|nő|kobiety|females?|women's|wsl|nwsl|d1[\s_]arkema|serie[\s_]a[\s_]women)\b/i;
+const YOUTH_RE   = /\b(u-?1[6789]|u-?20|u-?21|u-?22|u-?23|under-?1[6789]|under-?20|under-?21|under-?22|under-?23|youth|junior|juvenil|juvenis|jugend|cadete|infantil|sub-?1[6789]|sub-?20|sub-?21|sub-?22|sub-?23|u21|u23|u20|u19|u18|u17|revelacao|revelação)\b/i;
+const AMATEUR_RE = /\b(amateur|amateurs|amateure|amador|amatör)\b/i;
+const FRIENDLY_RE = /\b(friendly|friendlies|amistoso|amistosos|amical|freundschaft|testspiel|preseason|pre-?season)\b/i;
+const BLOCKED_ME  = new Set(['saudi arabia','qatar','united arab emirates','uae','kuwait','bahrain','oman','jordan','iraq','syria','lebanon','palestine','palestinian territory','yemen','iran']);
+const LOW_TIER_RE = /\b(iii[\s_-]liga|liga[\s_-]iii|3[.\s]liga|liga[\s_-]3|ligue[\s_-]3|serie[\s_-][cd]|tercera|3rd[\s_-]div|division[\s_-]3|div[\s_-]3|gamma[\s_-]ethniki|nb[\s_-]iii|segunda[\s_-]b|tercera[\s_-]rfef|regionalliga|kakkonen|kolmonen|vtora[\s_-]liga|dritte|esiliiga|ii[\s_-]liiga|ii[\s_-]lyga|derde[\s_-]divisie|derde[\s_-]klasse|liga[\s_-][456]|promozione|eccellenza|interregional)\b/i;
+
+function isBlockedLeague(name, country) {
+  if (!name) return false;
+  const ctry = String(country || '').toLowerCase().replace(/[\s_]/g, '');
+  if (BLOCKED_ME.has(ctry) || BLOCKED_ME.has(String(country || '').toLowerCase())) return true;
+  if (WOMEN_RE.test(name))   return true;
+  if (YOUTH_RE.test(name))   return true;
+  if (AMATEUR_RE.test(name)) return true;
+  if (FRIENDLY_RE.test(name)) return true;
+  if (LOW_TIER_RE.test(name)) return true;
+  return false;
 }
 
-function extract1x2(arr) {
-  if (!Array.isArray(arr) || !arr.length) return null;
-  if (arr[0]?.home !== undefined) {
-    const h = Number(arr[0].home), d = Number(arr[0].draw || 0), a = Number(arr[0].away || 0);
-    if (h > 1) return { home: h, draw: d, away: a };
-  }
-  let home = 0, draw = 0, away = 0;
-  for (const o of arr) {
-    const name = String(o?.name || o?.label || o?.outcome || '').toLowerCase().trim();
-    const price = Number(o?.price ?? o?.odd ?? 0);
-    if (price <= 1) continue;
-    if (name === 'home' || name === '1' || name === 'home win') home = home || price;
-    else if (name === 'draw' || name === 'x' || name === 'tie') draw = draw || price;
-    else if (name === 'away' || name === '2' || name === 'away win') away = away || price;
-  }
-  return home > 1 ? { home, draw, away } : null;
+// ── Simple TTL cache ─────────────────────────────────────────────────────────
+const _cache = new Map();
+function cGet(k) { const e = _cache.get(k); return e && e.exp > Date.now() ? e.data : null; }
+function cSet(k, d, ttl) { _cache.set(k, { exp: Date.now() + ttl, data: d }); }
+
+// ── Event store ──────────────────────────────────────────────────────────────
+const _eventsById = new Map();
+let _liveCache   = [];
+let _pregameCache = [];
+let _cacheTs = 0;
+const LIVE_TTL    = 30_000;
+const PREGAME_TTL = 120_000;
+let _refreshing = false;
+
+// ── Statpal API fetch ────────────────────────────────────────────────────────
+async function statpalGet(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  const url = `${STATPAL_BASE}${path}${sep}access_key=${STATPAL_KEY}`;
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(14_000) });
+    if (!r.ok) { console.warn(`[proxy] Statpal HTTP ${r.status} → ${path}`); return null; }
+    return r.json();
+  } catch (e) { console.warn('[proxy] Statpal error:', e?.message); return null; }
 }
 
-// Identify which canonical market type a raw market belongs to
-function classifyMarket(rawKey, rawName) {
-  const k = String(rawKey || rawName || '').toLowerCase().replace(/[-_\s]+/g, ' ').trim();
-  // H2H
-  if (isH2hMarket(k)) {
-    if (k.includes('1st half') || k.includes('first half') || k.includes('halftime') || k.includes('half time result')) return null; // handled as first_half_h2h
-    if (k.includes('2nd half') || k.includes('second half')) return null;
-    return 'h2h';
-  }
-  // First half H2H
-  if ((k.includes('1st half') || k.includes('first half') || k.includes('half time result')) && !k.includes('total') && !k.includes('over') && !k.includes('under')) return 'first_half_h2h';
-  // Second half H2H
-  if ((k.includes('2nd half') || k.includes('second half')) && !k.includes('total') && !k.includes('over') && !k.includes('under')) return 'second_half_h2h';
-  // Totals / Over-Under
-  if ((k.includes('total') || k.includes('over') || k.includes('under') || k.includes(' ou') || k === 'ou') && !k.includes('corner') && !k.includes('card') && !k.includes('foul')) {
-    if (k.includes('1st half') || k.includes('first half')) return 'first_half_totals';
-    if (k.includes('2nd half') || k.includes('second half')) return 'second_half_totals';
-    return 'totals';
-  }
-  // Handicap
-  if (k.includes('handicap') || k.includes('spread') || k.includes('asian')) return 'handicap';
-  // BTTS
-  if (k.includes('btts') || k.includes('both teams to score') || k.includes('both to score') || k.includes('ambas marcam') || k.includes('gg') || k === 'gg ng') return 'btts';
-  // Double Chance
-  if (k.includes('double chance') || k.includes('dupla chance')) return 'double_chance';
-  // Draw No Bet
-  if (k.includes('draw no bet') || k.includes('dnb') || k.includes('empate anula')) return 'dnb';
-  // HTFT
-  if (k.includes('half time full time') || k.includes('ht ft') || k.includes('ht/ft') || k.includes('halftime/fulltime')) return 'half_time_full_time';
-  // Correct Score
-  if (k.includes('correct score') || k.includes('exact score') || k.includes('score exact') || k.includes('scoreline')) return 'correct_score';
-  // Corners
-  if (k.includes('corner') && (k.includes('total') || k.includes('over') || k.includes('under'))) return 'corners_total';
-  // Cards
-  if ((k.includes('card') || k.includes('yellow') || k.includes('booking')) && (k.includes('total') || k.includes('over') || k.includes('under'))) return 'cards_total';
-  // Fouls
-  if (k.includes('foul') && (k.includes('total') || k.includes('over') || k.includes('under'))) return 'fouls_total';
-  // First goal scorer
-  if (k.includes('first goalscorer') || k.includes('first goal scorer') || k.includes('first scorer')) return 'first_goal_scorer';
-  // Last goal scorer
-  if (k.includes('last goalscorer') || k.includes('last goal scorer') || k.includes('last scorer')) return 'last_goal_scorer';
-  // Anytime goalscorer
-  if (k.includes('anytime') && (k.includes('score') || k.includes('goal'))) return 'anytime_goal_scorer';
-  // Shots on target / total shots
-  if ((k.includes('shot') || k.includes('chute')) && (k.includes('total') || k.includes('target') || k.includes('goal') || k.includes('on goal'))) return 'shots_total';
-  // Team totals (e.g. "team total goals")
-  if (k.includes('team total') || k.includes('total goals home') || k.includes('total goals away')) return 'team_totals';
-  // Penalty
-  if (k.includes('penalty') || k.includes('pênalti') || k.includes('penalti')) return 'penalty_scored';
-  return null; // unknown
+// ── Outcome name translation ─────────────────────────────────────────────────
+function translateOutcome(name, canonical) {
+  const n = String(name || '').toLowerCase().trim();
+  const MAP = { home:'Casa', '1':'Casa', draw:'Empate', x:'Empate', away:'Fora', '2':'Fora', over:'Mais', under:'Menos', yes:'Sim', no:'Não', gg:'Sim', ng:'Não' };
+  if (MAP[n]) return MAP[n];
+  return name;
 }
 
-function parseAllMarkets(payload) {
-  if (!payload || typeof payload !== 'object') return null;
-  let allMarkets = [];
-  const bms = payload.bookmakers;
-  if (bms && typeof bms === 'object') {
-    const entries = Array.isArray(bms) ? bms : Object.values(bms);
-    for (const bm of entries) {
-      const markets = Array.isArray(bm) ? bm : (bm?.markets || []);
-      for (const m of markets) { if (m) allMarkets.push(m); }
-    }
-  }
-  if (Array.isArray(payload.markets)) allMarkets = [...allMarkets, ...payload.markets];
-  if (!allMarkets.length) return null;
-
-  // Buckets for each canonical market type
-  const buckets = {}; // canonicalKey → { outcomes: [], line: null }
-  const ouBuckets = {}; // 'totals:2.5' → { over, under }
-  const hdcBuckets = {}; // 'handicap:0' → { home, draw, away }
-  const partialBuckets = {}; // 'first_half_totals:2.5' → { over, under }
-
+// ── Normalize Statpal LIVE odds → BET62 format ───────────────────────────────
+function normalizeLiveOdds(statpalOdds, isSuspended, totalGoals) {
+  const oddsObj   = {};
+  const marketsArr = [];
+  const partialTotals = {};
+  const partialCorners = {};
+  const handicapAgg = {};
   let h2h = null;
 
-  for (const m of allMarkets) {
-    const rawKey  = String(m?.key || m?.type || '');
-    const rawName = String(m?.name || '');
-    const canonical = classifyMarket(rawKey, rawName);
+  for (const market of (statpalOdds || [])) {
+    const mktId    = String(market.market_id || '');
+    const canonical = LIVE_MKT_MAP[mktId];
     if (!canonical) continue;
 
-    const outcomes = m?.odds || m?.outcomes || m?.selections || [];
-    const line = String(m?.line || m?.value || m?.handicap || '').replace(/[^0-9.-]/g, '') || null;
+    const mktSusp = isSuspended || market.suspended === '1';
+    const lines   = Array.isArray(market.lines) ? market.lines : [];
 
-    // H2H — capture the 3-way odds
+    // ── H2H ──────────────────────────────────────────────────────────────────
     if (canonical === 'h2h') {
-      if (!h2h) {
-        const parsed = extract1x2(outcomes);
-        if (parsed) h2h = parsed;
-      }
-      continue;
-    }
-
-    // Over/Under totals (various types)
-    if (['totals', 'first_half_totals', 'second_half_totals', 'corners_total', 'cards_total', 'fouls_total'].includes(canonical)) {
-      if (!line) continue;
-      const bucketKey = `${canonical}:${line}`;
-      if (!partialBuckets[bucketKey]) partialBuckets[bucketKey] = { canonical, line, over: 0, under: 0 };
-      for (const o of outcomes) {
-        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
-        const price = Number(o?.price ?? o?.odd ?? 0);
-        if (price <= 1) continue;
-        if (lbl.includes('over') || lbl.includes('acima') || lbl.includes('mais') || lbl === 'o') partialBuckets[bucketKey].over = partialBuckets[bucketKey].over || price;
-        if (lbl.includes('under') || lbl.includes('abaixo') || lbl.includes('menos') || lbl === 'u') partialBuckets[bucketKey].under = partialBuckets[bucketKey].under || price;
-      }
-      continue;
-    }
-
-    // Handicap — group by line
-    if (canonical === 'handicap') {
-      if (!line) continue;
-      const bucketKey = `handicap:${line}`;
-      if (!hdcBuckets[bucketKey]) hdcBuckets[bucketKey] = { line, home: 0, draw: 0, away: 0 };
-      for (const o of outcomes) {
-        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
-        const price = Number(o?.price ?? o?.odd ?? 0);
-        if (price <= 1) continue;
-        if (lbl === 'home' || lbl === '1') hdcBuckets[bucketKey].home = price;
-        if (lbl === 'away' || lbl === '2') hdcBuckets[bucketKey].away = price;
-        if (lbl === 'draw' || lbl === 'x') hdcBuckets[bucketKey].draw = price;
-      }
-      continue;
-    }
-
-    // BTTS
-    if (canonical === 'btts') {
-      if (buckets.btts) continue;
-      let yes = 0, no = 0;
-      for (const o of outcomes) {
-        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
-        const price = Number(o?.price ?? o?.odd ?? 0);
-        if (price <= 1) continue;
-        if (lbl === 'yes' || lbl === 'sim' || lbl === 'gg') yes = yes || price;
-        if (lbl === 'no' || lbl === 'não' || lbl === 'nao' || lbl === 'ng') no = no || price;
-      }
-      if (yes || no) buckets.btts = { yes, no };
-      continue;
-    }
-
-    // Double Chance
-    if (canonical === 'double_chance') {
-      if (buckets.double_chance) continue;
-      let homeX = 0, awayX = 0, homeAway = 0;
-      for (const o of outcomes) {
-        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase().replace(/\s+/g,' ');
-        const price = Number(o?.price ?? o?.odd ?? 0);
-        if (price <= 1) continue;
-        if (lbl === '1x' || lbl === 'home or draw' || lbl === '1 or x') homeX = price;
-        else if (lbl === 'x2' || lbl === 'draw or away' || lbl === 'x or 2') awayX = price;
-        else if (lbl === '12' || lbl === 'home or away' || lbl === '1 or 2') homeAway = price;
-      }
-      if (homeX || awayX || homeAway) buckets.double_chance = { homeX, awayX, homeAway };
-      continue;
-    }
-
-    // DNB
-    if (canonical === 'dnb') {
-      if (buckets.dnb) continue;
-      let home = 0, away = 0;
-      for (const o of outcomes) {
-        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
-        const price = Number(o?.price ?? o?.odd ?? 0);
-        if (price <= 1) continue;
-        if (lbl === 'home' || lbl === '1') home = price;
-        if (lbl === 'away' || lbl === '2') away = price;
-      }
-      if (home || away) buckets.dnb = { home, away };
-      continue;
-    }
-
-    // Half Time Full Time
-    if (canonical === 'half_time_full_time') {
-      if (buckets.htft) continue;
-      const htftOutcomes = outcomes.map(o => ({
-        outcome: String(o?.name || o?.label || o?.outcome || '').replace(/\//g, '/'),
-        odd: Number(o?.price ?? o?.odd ?? 0),
-      })).filter(o => o.odd > 1);
-      if (htftOutcomes.length) buckets.htft = htftOutcomes;
-      continue;
-    }
-
-    // Correct Score
-    if (canonical === 'correct_score') {
-      if (buckets.correct_score) continue;
-      const csOutcomes = outcomes.map(o => ({
-        outcome: String(o?.name || o?.label || o?.outcome || ''),
-        odd: Number(o?.price ?? o?.odd ?? 0),
-      })).filter(o => o.odd > 1 && o.outcome);
-      if (csOutcomes.length) buckets.correct_score = csOutcomes;
-      continue;
-    }
-
-    // First Half / Second Half H2H
-    if (canonical === 'first_half_h2h' || canonical === 'second_half_h2h') {
-      if (buckets[canonical]) continue;
-      const parsed = extract1x2(outcomes);
-      if (parsed) buckets[canonical] = parsed;
-      continue;
-    }
-
-    // First Goal Scorer / Anytime / Last Goal Scorer
-    if (canonical === 'first_goal_scorer' || canonical === 'anytime_goal_scorer' || canonical === 'last_goal_scorer') {
-      if (buckets[canonical]) continue;
-      const scorerOutcomes = outcomes.map(o => ({
-        outcome: String(o?.name || o?.label || o?.outcome || ''),
-        odd: Number(o?.price ?? o?.odd ?? 0),
-      })).filter(o => o.odd > 1 && o.outcome).slice(0, 20);
-      if (scorerOutcomes.length) buckets[canonical] = scorerOutcomes;
-      continue;
-    }
-
-    // Shots Total / Team Totals (over/under style)
-    if (canonical === 'shots_total' || canonical === 'team_totals') {
-      if (!buckets[canonical]) buckets[canonical] = [];
-      const line = outcomes[0]?.handicap ?? outcomes[0]?.line ?? null;
-      for (const o of outcomes) {
-        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
-        const price = Number(o?.price ?? o?.odd ?? 0);
-        if (price <= 1) continue;
-        const isOver = lbl.includes('over') || lbl.includes('mais');
-        const isUnder = lbl.includes('under') || lbl.includes('menos');
-        if (isOver || isUnder) {
-          buckets[canonical].push({ outcome: isOver ? `Mais ${line ?? ''}`.trim() : `Menos ${line ?? ''}`.trim(), odd: price });
+      if (h2h) continue;
+      const getOdd = (n) => parseFloat(lines.find(l => l.name?.toLowerCase() === n)?.odd || '0');
+      const ho = getOdd('home'), dr = getOdd('draw'), aw = getOdd('away');
+      if (ho > 1) {
+        h2h = { home: ho, draw: dr, away: aw };
+        const ocs = [
+          { outcome: 'Casa',   odd: ho, suspended: mktSusp },
+          ...(dr > 1 ? [{ outcome: 'Empate', odd: dr, suspended: mktSusp }] : []),
+          { outcome: 'Fora',   odd: aw, suspended: mktSusp },
+        ];
+        oddsObj.h2h = { category: MKT_CATEGORY.h2h, outcomes: ocs, suspended: mktSusp };
+        marketsArr.push({ key: 'h2h', name: MKT_NAMES.h2h, suspended: mktSusp, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+        // Derive Double Chance
+        if (dr > 1) {
+          const dc1x = parseFloat((1 / (1/ho + 1/dr) * 0.93).toFixed(2));
+          const dcx2 = parseFloat((1 / (1/dr + 1/aw) * 0.93).toFixed(2));
+          const dc12 = parseFloat((1 / (1/ho + 1/aw) * 0.93).toFixed(2));
+          if (dc1x > 1 && dcx2 > 1 && dc12 > 1) {
+            const dcOcs = [
+              { outcome: '1X', odd: dc1x, suspended: mktSusp },
+              { outcome: 'X2', odd: dcx2, suspended: mktSusp },
+              { outcome: '12', odd: dc12, suspended: mktSusp },
+            ];
+            oddsObj.double_chance = { category: MKT_CATEGORY.double_chance, outcomes: dcOcs, suspended: mktSusp };
+            marketsArr.push({ key: 'double_chance', name: MKT_NAMES.double_chance, suspended: mktSusp, selections: dcOcs.map(o => ({ label: o.outcome, odd: o.odd })) });
+          }
         }
       }
       continue;
     }
 
-    // Penalty Scored
-    if (canonical === 'penalty_scored') {
-      if (buckets.penalty_scored) continue;
-      let yes = 0, no = 0;
-      for (const o of outcomes) {
-        const lbl = String(o?.name || o?.label || o?.outcome || '').toLowerCase();
-        const price = Number(o?.price ?? o?.odd ?? 0);
+    // ── Totals (Over/Under goals) ─────────────────────────────────────────────
+    if (canonical === 'totals') {
+      for (const l of lines) {
+        const hcap = String(l.handicap || '').trim();
+        if (!hcap) continue;
+        const lbl   = String(l.name || '').toLowerCase();
+        const price = parseFloat(l.odd || '0');
         if (price <= 1) continue;
-        if (lbl === 'yes' || lbl === 'sim') yes = price;
-        if (lbl === 'no' || lbl === 'não') no = price;
+        if (!partialTotals[hcap]) partialTotals[hcap] = { over: 0, under: 0, susp: mktSusp || l.suspended === '1' };
+        if (lbl === 'over')  partialTotals[hcap].over  = price;
+        if (lbl === 'under') partialTotals[hcap].under = price;
       }
-      if (yes || no) buckets.penalty_scored = { yes, no };
       continue;
     }
-  }
 
-  // ── Build normalized odds object (keyed, with category) ──────────────────
-  const oddsObj = {};
-  const marketsArr = [];
-
-  // H2H
-  if (h2h) {
-    const cat = MARKET_CATEGORIES.h2h;
-    oddsObj['h2h'] = { category: cat, outcomes: [
-      { outcome: 'Casa',   odd: h2h.home },
-      ...(h2h.draw ? [{ outcome: 'Empate', odd: h2h.draw }] : []),
-      { outcome: 'Fora',   odd: h2h.away },
-    ]};
-    marketsArr.push({ key: 'h2h', name: 'Resultado Final', selections: oddsObj['h2h'].outcomes.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-
-  // Totals (Over/Under) — all types; aggregate all lines into 'totals' for SubOddsModel
-  const aggregated = {}; // canonical → all outcomes flat
-  for (const [bucketKey, v] of Object.entries(partialBuckets)) {
-    if (!v.over && !v.under) continue;
-    const { canonical, line } = v;
-    const lineStr = String(line).replace('_', '.');
-    const cat = MARKET_CATEGORIES[canonical] || 'Mercado Raiz';
-    const labelOver  = `Mais ${lineStr}`;
-    const labelUnder = `Menos ${lineStr}`;
-    const ocs = [
-      ...(v.over  ? [{ outcome: labelOver,  odd: v.over  }] : []),
-      ...(v.under ? [{ outcome: labelUnder, odd: v.under }] : []),
-    ];
-    // Add to canonical aggregation (flat list for SubOddsModel renderMarketContent)
-    if (!aggregated[canonical]) aggregated[canonical] = { category: cat, outcomes: [] };
-    aggregated[canonical].outcomes.push(...ocs);
-    marketsArr.push({ key: canonical, name: `Mais/Menos ${lineStr}`, line: lineStr, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-  // Store aggregated totals in oddsObj (canonical key for SubOddsModel)
-  for (const [canonical, agg] of Object.entries(aggregated)) {
-    oddsObj[canonical] = agg;
-    // Sort by line number
-    oddsObj[canonical].outcomes.sort((a, b) => {
-      const na = parseFloat(String(a.outcome).match(/[\d.]+/)?.[0] || '0');
-      const nb = parseFloat(String(b.outcome).match(/[\d.]+/)?.[0] || '0');
-      return na - nb;
-    });
-  }
-
-  // Handicap — group by line, aggregate all lines into 'handicap' for SubOddsModel
-  const hdcAggOutcomes = [];
-  for (const [, v] of Object.entries(hdcBuckets)) {
-    if (!v.home && !v.away) continue;
-    const line = v.line;
-    const ls = (String(line).startsWith('-') ? '' : '+') + line;
-    const cat = MARKET_CATEGORIES.handicap;
-    const ocs = [
-      ...(v.home ? [{ outcome: `Casa (${ls})`, odd: v.home }] : []),
-      ...(v.draw ? [{ outcome: `Empate (${ls})`, odd: v.draw }] : []),
-      ...(v.away ? [{ outcome: `Fora (${ls})`, odd: v.away }] : []),
-    ];
-    hdcAggOutcomes.push(...ocs);
-    marketsArr.push({ key: 'handicap', name: `Handicap ${ls}`, line, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-  if (hdcAggOutcomes.length > 0) {
-    oddsObj['handicap'] = { category: MARKET_CATEGORIES.handicap, outcomes: hdcAggOutcomes };
-    oddsObj['spreads']  = oddsObj['handicap']; // alias
-  }
-
-  // BTTS
-  if (buckets.btts) {
-    const { yes, no } = buckets.btts;
-    const ocs = [
-      ...(yes ? [{ outcome: 'Sim', odd: yes }] : []),
-      ...(no  ? [{ outcome: 'Não', odd: no  }] : []),
-    ];
-    oddsObj['btts'] = { category: MARKET_CATEGORIES.btts, outcomes: ocs };
-    marketsArr.push({ key: 'btts', name: 'Ambas Marcam', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-
-  // Double Chance
-  if (buckets.double_chance) {
-    const { homeX, awayX, homeAway } = buckets.double_chance;
-    const ocs = [
-      ...(homeX    ? [{ outcome: '1X', odd: homeX    }] : []),
-      ...(awayX    ? [{ outcome: 'X2', odd: awayX    }] : []),
-      ...(homeAway ? [{ outcome: '12', odd: homeAway }] : []),
-    ];
-    oddsObj['double_chance'] = { category: MARKET_CATEGORIES.double_chance, outcomes: ocs };
-    marketsArr.push({ key: 'double_chance', name: 'Dupla Chance', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-
-  // DNB
-  if (buckets.dnb) {
-    const ocs = [
-      ...(buckets.dnb.home ? [{ outcome: 'Casa', odd: buckets.dnb.home }] : []),
-      ...(buckets.dnb.away ? [{ outcome: 'Fora', odd: buckets.dnb.away }] : []),
-    ];
-    oddsObj['dnb'] = { category: MARKET_CATEGORIES.dnb, outcomes: ocs };
-    marketsArr.push({ key: 'dnb', name: 'Empate Anula Aposta', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-
-  // Half Time / Full Time
-  if (buckets.htft && buckets.htft.length > 0) {
-    const ocs = buckets.htft.map(o => ({ outcome: o.outcome, odd: o.odd }));
-    oddsObj['half_time_full_time'] = { category: MARKET_CATEGORIES.half_time_full_time, outcomes: ocs };
-    marketsArr.push({ key: 'half_time_full_time', name: 'Intervalo/Final', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-
-  // Correct Score
-  if (buckets.correct_score && buckets.correct_score.length > 0) {
-    const ocs = buckets.correct_score.map(o => ({ outcome: o.outcome, odd: o.odd }));
-    oddsObj['correct_score'] = { category: MARKET_CATEGORIES.correct_score, outcomes: ocs };
-    marketsArr.push({ key: 'correct_score', name: 'Marcador Correto', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-
-  // First Half / Second Half H2H
-  for (const canonical of ['first_half_h2h', 'second_half_h2h']) {
-    const v = buckets[canonical];
-    if (!v) continue;
-    const ocs = [
-      { outcome: 'Casa',  odd: v.home },
-      ...(v.draw ? [{ outcome: 'Empate', odd: v.draw }] : []),
-      { outcome: 'Fora',  odd: v.away },
-    ];
-    const name = canonical === 'first_half_h2h' ? '1º Tempo - Resultado' : '2º Tempo - Resultado';
-    oddsObj[canonical] = { category: MARKET_CATEGORIES[canonical] || 'Mercados Temporais', outcomes: ocs };
-    marketsArr.push({ key: canonical, name, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-
-  // Goal Scorers
-  for (const [canonical, name] of [
-    ['first_goal_scorer', 'Primeiro Marcador'],
-    ['last_goal_scorer', 'Último Marcador'],
-    ['anytime_goal_scorer', 'Marca a Qualquer Momento'],
-  ]) {
-    const v = buckets[canonical];
-    if (!v || !v.length) continue;
-    const ocs = v.map(o => ({ outcome: o.outcome, odd: o.odd }));
-    oddsObj[canonical] = { category: MARKET_CATEGORIES[canonical] || 'Mercados de Jogadores', outcomes: ocs };
-    marketsArr.push({ key: canonical, name, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-
-  // Shots Total / Team Totals
-  for (const [canonical, name] of [
-    ['shots_total', 'Chutes a Gol'],
-    ['team_totals', 'Total por Equipe'],
-  ]) {
-    const v = buckets[canonical];
-    if (!v || !v.length) continue;
-    const ocs = v.filter(o => o.odd > 1).map(o => ({ outcome: o.outcome, odd: o.odd }));
-    if (!ocs.length) continue;
-    oddsObj[canonical] = { category: 'Mercados Estatísticos', outcomes: ocs };
-    marketsArr.push({ key: canonical, name, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-
-  // Penalty Scored
-  if (buckets.penalty_scored) {
-    const ocs = [
-      ...(buckets.penalty_scored.yes ? [{ outcome: 'Sim', odd: buckets.penalty_scored.yes }] : []),
-      ...(buckets.penalty_scored.no  ? [{ outcome: 'Não', odd: buckets.penalty_scored.no  }] : []),
-    ];
-    oddsObj['penalty_scored'] = { category: MARKET_CATEGORIES.penalty_scored, outcomes: ocs };
-    marketsArr.push({ key: 'penalty_scored', name: 'Pênalti Marcado', selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
-  }
-
-  return { h2h, markets: marketsArr, odds: oddsObj };
-}
-
-// ── API-Football live cache ────────────────────────────────────────────────────
-let _afbCache = null;       // { ts, byName: Map<normalizedName, fixture> }
-let _afbFetching = false;
-
-async function fetchApiFootballLive() {
-  if (!API_SPORTS_KEY) return null;
-  if (_afbFetching) return _afbCache;
-  const now = Date.now();
-  if (_afbCache && now - _afbCache.ts < 60_000) return _afbCache;
-  _afbFetching = true;
-  try {
-    const r = await fetch(`${APIFB_BASE}/fixtures?live=all`, {
-      headers: { 'x-apisports-key': API_SPORTS_KEY },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!r.ok) { _afbFetching = false; return _afbCache; }
-    const j = await r.json();
-    const fixtures = Array.isArray(j.response) ? j.response : [];
-    const byName = new Map();
-    for (const f of fixtures) {
-      const home = String(f.teams?.home?.name || '').toLowerCase().trim();
-      const away = String(f.teams?.away?.name || '').toLowerCase().trim();
-      if (home) byName.set(home, f);
-      if (away) byName.set(away, f);
+    // ── Corners ───────────────────────────────────────────────────────────────
+    if (canonical === 'corners_total') {
+      for (const l of lines) {
+        const hcap = String(l.handicap || '').trim();
+        if (!hcap) continue;
+        const lbl   = String(l.name || '').toLowerCase();
+        const price = parseFloat(l.odd || '0');
+        if (price <= 1) continue;
+        if (!partialCorners[hcap]) partialCorners[hcap] = { over: 0, under: 0, susp: mktSusp };
+        if (lbl === 'over')  partialCorners[hcap].over  = price;
+        if (lbl === 'under') partialCorners[hcap].under = price;
+      }
+      continue;
     }
-    _afbCache = { ts: now, byName, fixtures };
-    console.log(`[proxy] API-Football: ${fixtures.length} live fixtures cached`);
-  } catch (e) {
-    console.warn('[proxy] API-Football fetch failed:', e?.message);
+
+    // ── Handicap ──────────────────────────────────────────────────────────────
+    if (canonical === 'handicap') {
+      for (const l of lines) {
+        const hcap  = String(l.handicap || '').trim() || '0';
+        const lbl   = String(l.name || '').toLowerCase();
+        const price = parseFloat(l.odd || '0');
+        if (price <= 1) continue;
+        if (!handicapAgg[hcap]) handicapAgg[hcap] = { home: 0, draw: 0, away: 0, susp: mktSusp };
+        if (lbl === 'home' || lbl === '1') handicapAgg[hcap].home = price;
+        if (lbl === 'draw' || lbl === 'x') handicapAgg[hcap].draw = price;
+        if (lbl === 'away' || lbl === '2') handicapAgg[hcap].away = price;
+      }
+      continue;
+    }
+
+    // ── BTTS ──────────────────────────────────────────────────────────────────
+    if (canonical === 'btts' || canonical === 'btts_second_half') {
+      if (oddsObj[canonical]) continue;
+      const yes = parseFloat(lines.find(l => l.name?.toLowerCase() === 'yes')?.odd || '0');
+      const no  = parseFloat(lines.find(l => l.name?.toLowerCase() === 'no')?.odd  || '0');
+      if (yes > 1 || no > 1) {
+        const ocs = [
+          ...(yes > 1 ? [{ outcome: 'Sim', odd: yes, suspended: mktSusp }] : []),
+          ...(no  > 1 ? [{ outcome: 'Não', odd: no,  suspended: mktSusp }] : []),
+        ];
+        const nm = canonical === 'btts' ? MKT_NAMES.btts : MKT_NAMES.btts_second_half;
+        oddsObj[canonical] = { category: MKT_CATEGORY[canonical], outcomes: ocs, suspended: mktSusp };
+        marketsArr.push({ key: canonical, name: nm, suspended: mktSusp, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+      }
+      continue;
+    }
+
+    // ── Correct Score ─────────────────────────────────────────────────────────
+    if (canonical === 'correct_score') {
+      if (oddsObj.correct_score) continue;
+      const ocs = lines.filter(l => parseFloat(l.odd || '0') > 1).map(l => ({
+        outcome: String(l.name || ''),
+        odd: parseFloat(l.odd || '0'),
+        suspended: mktSusp || l.suspended === '1',
+      }));
+      if (ocs.length) {
+        oddsObj.correct_score = { category: MKT_CATEGORY.correct_score, outcomes: ocs, suspended: mktSusp };
+        marketsArr.push({ key: 'correct_score', name: MKT_NAMES.correct_score, suspended: mktSusp, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+      }
+      continue;
+    }
+
+    // ── Second Half H2H ──────────────────────────────────────────────────────
+    if (canonical === 'second_half_h2h') {
+      if (oddsObj.second_half_h2h) continue;
+      const getOdd = (n) => parseFloat(lines.find(l => l.name?.toLowerCase() === n)?.odd || '0');
+      const ho = getOdd('home'), dr = getOdd('draw'), aw = getOdd('away');
+      if (ho > 1) {
+        const ocs = [
+          { outcome: 'Casa', odd: ho, suspended: mktSusp },
+          ...(dr > 1 ? [{ outcome: 'Empate', odd: dr, suspended: mktSusp }] : []),
+          { outcome: 'Fora', odd: aw, suspended: mktSusp },
+        ];
+        oddsObj.second_half_h2h = { category: MKT_CATEGORY.second_half_h2h, outcomes: ocs, suspended: mktSusp };
+        marketsArr.push({ key: 'second_half_h2h', name: MKT_NAMES.second_half_h2h, suspended: mktSusp, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+      }
+      continue;
+    }
+
+    // ── Generic (goals_odd_even, next_goal, result_btts, first_goal, team_totals) ──
+    if (!oddsObj[canonical]) {
+      const ocs = lines.filter(l => parseFloat(l.odd || '0') > 1).map(l => ({
+        outcome: translateOutcome(l.name, canonical),
+        odd: parseFloat(l.odd || '0'),
+        suspended: mktSusp || l.suspended === '1',
+      }));
+      if (ocs.length) {
+        oddsObj[canonical] = { category: MKT_CATEGORY[canonical] || 'Mercados Especiais', outcomes: ocs, suspended: mktSusp };
+        marketsArr.push({ key: canonical, name: MKT_NAMES[canonical] || canonical, suspended: mktSusp, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+      }
+    }
   }
-  _afbFetching = false;
-  return _afbCache;
-}
 
-function matchApiFootball(homeName, awayName, afbCache) {
-  if (!afbCache) return null;
-  const norm = s => String(s || '').toLowerCase().replace(/\s+(fc|sc|cf|cd|ac|bc|bsc|afc|sfc|utd|united|city|town)$/i,'').trim();
-  const hn = norm(homeName);
-  const an = norm(awayName);
-  // Try direct match
-  let f = afbCache.byName.get(hn) || afbCache.byName.get(an);
-  if (f) return f;
-  // Try partial match  
-  for (const [k, fx] of afbCache.byName) {
-    if (k.includes(hn) || hn.includes(k) || k.includes(an) || an.includes(k)) return fx;
+  // ── Aggregate Totals ─────────────────────────────────────────────────────────
+  const sortedTotalLines = Object.entries(partialTotals)
+    .filter(([, v]) => v.over || v.under)
+    .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]));
+
+  if (sortedTotalLines.length) {
+    const aggOcs = [];
+    for (const [line, v] of sortedTotalLines) {
+      // Score-based locking: if total goals already exceeds line, suspend that line
+      const lineNum  = parseFloat(line);
+      const scored   = isSuspended || (totalGoals !== null && totalGoals > lineNum);
+      const lineSusp = v.susp || scored;
+      if (v.over > 1)  aggOcs.push({ outcome: `Mais ${line}`,  odd: v.over,  suspended: lineSusp });
+      if (v.under > 1) aggOcs.push({ outcome: `Menos ${line}`, odd: v.under, suspended: lineSusp });
+      marketsArr.push({ key: 'totals', name: `Mais/Menos ${line}`, line, suspended: lineSusp, selections: [
+        ...(v.over  > 1 ? [{ label: `Mais ${line}`,  odd: v.over }]  : []),
+        ...(v.under > 1 ? [{ label: `Menos ${line}`, odd: v.under }] : []),
+      ]});
+    }
+    oddsObj.totals = { category: MKT_CATEGORY.totals, outcomes: aggOcs, suspended: isSuspended };
   }
-  return null;
-}
 
-// ── Event ID cache (for EventDetails lookup) ──────────────────────────────────
-let _eventsById = new Map();   // id → event
+  // ── Aggregate Corners ────────────────────────────────────────────────────────
+  const sortedCornerLines = Object.entries(partialCorners)
+    .filter(([, v]) => v.over || v.under)
+    .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]));
 
-function cacheEvents(live, pregame) {
-  for (const e of [...(live || []), ...(pregame || [])]) {
-    if (e?.id) _eventsById.set(String(e.id), e);
+  if (sortedCornerLines.length) {
+    const aggOcs = [];
+    for (const [line, v] of sortedCornerLines) {
+      const lineSusp = v.susp;
+      if (v.over > 1)  aggOcs.push({ outcome: `Mais ${line}`,  odd: v.over,  suspended: lineSusp });
+      if (v.under > 1) aggOcs.push({ outcome: `Menos ${line}`, odd: v.under, suspended: lineSusp });
+      marketsArr.push({ key: 'corners_total', name: `Cantos +/-${line}`, line, suspended: lineSusp, selections: [
+        ...(v.over  > 1 ? [{ label: `Mais ${line}`,  odd: v.over }]  : []),
+        ...(v.under > 1 ? [{ label: `Menos ${line}`, odd: v.under }] : []),
+      ]});
+    }
+    oddsObj.corners_total = { category: MKT_CATEGORY.corners_total, outcomes: aggOcs, suspended: isSuspended };
   }
+
+  // ── Aggregate Handicap ───────────────────────────────────────────────────────
+  const hdcLines = Object.entries(handicapAgg).filter(([, v]) => v.home || v.away);
+  if (hdcLines.length) {
+    const hdcAggOcs = [];
+    for (const [hcap, v] of hdcLines) {
+      const ls = (hcap.startsWith('-') ? '' : '+') + hcap;
+      if (v.home > 1) hdcAggOcs.push({ outcome: `Casa (${ls})`, odd: v.home, suspended: v.susp });
+      if (v.draw > 1) hdcAggOcs.push({ outcome: `Empate (${ls})`, odd: v.draw, suspended: v.susp });
+      if (v.away > 1) hdcAggOcs.push({ outcome: `Fora (${ls})`, odd: v.away, suspended: v.susp });
+      marketsArr.push({ key: 'handicap', name: `Handicap ${ls}`, line: hcap, suspended: v.susp, selections: [
+        ...(v.home > 1 ? [{ label: `Casa (${ls})`, odd: v.home }] : []),
+        ...(v.draw > 1 ? [{ label: `Empate (${ls})`, odd: v.draw }] : []),
+        ...(v.away > 1 ? [{ label: `Fora (${ls})`, odd: v.away }] : []),
+      ]});
+    }
+    oddsObj.handicap = { category: MKT_CATEGORY.handicap, outcomes: hdcAggOcs, suspended: isSuspended };
+    oddsObj.spreads  = oddsObj.handicap;
+  }
+
+  return { h2h, oddsObj, marketsArr };
 }
 
-function sofascoreLogo(teamId) {
-  if (!teamId) return '';
-  return `https://img.sofascore.com/api/v1/team/${teamId}/image`;
-}
+// ── Normalize Statpal live match → BET62 event ───────────────────────────────
+function normalizeLiveMatch(m) {
+  const info   = m.match_info  || {};
+  const ti     = m.team_info   || {};
+  const status = m.status      || {};
+  const stats  = m.stats       || {};
 
-// ── Convert odds-api.io event → normalized ────────────────────────────────────
-function oddsApiToNormalized(oe, sport, oddsById, afbFixture) {
-  const homeName = oe.home_team || oe.home || '';
-  const awayName = oe.away_team || oe.away || '';
-  if (!homeName || !awayName) return null;
+  const homeTeam = ti.home?.name || String(info.name || '').split(' vs ')[0]?.trim() || '';
+  const awayTeam = ti.away?.name || String(info.name || '').split(' vs ')[1]?.trim() || '';
+  if (!homeTeam || !awayTeam) return null;
 
-  const leagueObj  = oe.league || {};
-  const leagueName = leagueObj.name || oe.competition || 'Unknown';
-  const country    = leagueObj.country || oe.country || '';
+  const leagueName = String(info.league || '');
+  const country    = String(info.country || '').toLowerCase();
+  if (isBlockedLeague(leagueName, country)) return null;
 
-  // Extra safety: block again if somehow slipped through
-  if (isBlockedLeague(leagueName, leagueObj.slug, country)) return null;
+  const homeScore = parseInt(ti.home?.score || info.score?.split(':')?.[0] || '0', 10);
+  const awayScore = parseInt(ti.away?.score || info.score?.split(':')?.[1] || '0', 10);
+  const totalGoals = homeScore + awayScore;
 
-  const statusRaw  = String(oe.status || '').toLowerCase();
-  const isLive     = statusRaw === 'live' || statusRaw === 'in_progress' || statusRaw === 'inprogress';
-  const oddsResult = oddsById ? oddsById.get(String(oe.id)) : null;
-  const h2h        = oddsResult?.h2h || null;
-  const marketsArr = oddsResult?.markets || [];
-  const oddsObj    = oddsResult?.odds || null;
+  const isSuspended = status.blocked === '1' || status.stopped === '1';
 
-  // REQUIRE ODDS — skip events without odds
+  const { h2h, oddsObj, marketsArr } = normalizeLiveOdds(m.odds || [], isSuspended, totalGoals);
   if (!h2h) return null;
 
-  const sportSlug  = oe.sport?.slug || 'football';
-  const appSport   = API_TO_SPORT[sportSlug] || sport || 'soccer';
+  const minute = info.minute ? parseInt(info.minute, 10) : null;
 
-  // Scores: prefer API-Football (more accurate), fall back to odds-api.io
-  const afbGoals   = afbFixture?.goals;
-  const scoreHome  = afbGoals?.home ?? oe.score?.home ?? oe.scores?.home ?? null;
-  const scoreAway  = afbGoals?.away ?? oe.score?.away ?? oe.scores?.away ?? null;
-
-  // Elapsed time: from API-Football fixture status
-  const elapsed    = afbFixture?.fixture?.status?.elapsed ?? oe.elapsed ?? null;
-  const timerStr   = elapsed != null ? String(elapsed) : (oe.timer ? String(oe.timer) : '');
-
-  // Logos: from API-Football (proxied), fall back to SofaScore
-  const homeLogo   = afbFixture?.teams?.home?.logo
-    ? `/api/events/media?url=${encodeURIComponent(afbFixture.teams.home.logo)}`
-    : sofascoreLogo(oe.homeId);
-  const awayLogo   = afbFixture?.teams?.away?.logo
-    ? `/api/events/media?url=${encodeURIComponent(afbFixture.teams.away.logo)}`
-    : sofascoreLogo(oe.awayId);
-
-  return {
-    id: String(oe.id),
-    external_event_id: `${appSport}_oa_${oe.id}`,
-    sport: appSport,
-    league: leagueName,
-    league_name: leagueName,
-    home_team: homeName,
-    away_team: awayName,
-    team_match: `${homeName} vs ${awayName}`,
-    event_date: oe.date || new Date().toISOString(),
-    status: isLive ? 'LIVE' : 'NS',
-    is_live: isLive ? 1 : 0,
-    home_odd:  h2h.home,
-    draw_odd:  h2h.draw || 0,
-    away_odd:  h2h.away,
-    elapsed:   elapsed ?? 0,
-    timer:     timerStr,
-    score:     JSON.stringify({ home: scoreHome, away: scoreAway }),
-    goals:     { home: scoreHome ?? 0, away: scoreAway ?? 0 },
-    markets:   marketsArr,
-    odds:      oddsObj,
-    country,
-    home_team_logo: homeLogo,
-    away_team_logo: awayLogo,
+  // Parse stats
+  const statArr = Object.values(stats);
+  const getStat = (name) => {
+    const s = statArr.find(x => x.name === name);
+    return s ? { home: parseInt(s.home || '0', 10), away: parseInt(s.away || '0', 10) } : { home: 0, away: 0 };
   };
+  const statsData = {
+    possession:   getStat('Posession'),
+    corners:      getStat('Corner'),
+    yellowCards:  getStat('YellowCard'),
+    redCards:     getStat('RedCard'),
+    onTarget:     getStat('OnTarget'),
+    offTarget:    getStat('OffTarget'),
+    attacks:      getStat('Attacks'),
+    dangerousAttacks: getStat('DangerousAttacks'),
+    shots: {
+      home: getStat('OnTarget').home + getStat('OffTarget').home,
+      away: getStat('OnTarget').away + getStat('OffTarget').away,
+    },
+  };
+
+  const matchId = String(info.main_id || info.fallback_id_1 || `${homeTeam}${awayTeam}`.replace(/\s/g,''));
+  const evId = `sp_${matchId}`;
+
+  const ev = {
+    id:           evId,
+    external_event_id: evId,
+    sport:        'soccer',
+    league:       leagueName,
+    league_name:  leagueName,
+    league_id:    info.league_id,
+    home_team:    homeTeam,
+    away_team:    awayTeam,
+    team_match:   `${homeTeam} vs ${awayTeam}`,
+    event_date:   info.start_ts ? new Date(parseInt(info.start_ts, 10) * 1000).toISOString() : new Date().toISOString(),
+    status:       'LIVE',
+    is_live:      1,
+    home_odd:     h2h.home,
+    draw_odd:     h2h.draw || 0,
+    away_odd:     h2h.away,
+    elapsed:      minute ?? 0,
+    timer:        minute != null ? String(minute) : 'AO VIVO',
+    period:       info.period || '',
+    score:        JSON.stringify({ home: homeScore, away: awayScore }),
+    goals:        { home: homeScore, away: awayScore },
+    suspended:    isSuspended,
+    markets:      marketsArr,
+    odds:         oddsObj,
+    statsData,
+    match_events: Array.isArray(m.match_events) ? m.match_events : [],
+    state_name:   info.state_name || '',
+    country,
+    home_team_logo: '',
+    away_team_logo: '',
+  };
+
+  _eventsById.set(evId, ev);
+  return ev;
 }
 
-// ── Build events from odds-api.io (when CF Worker is unavailable) ─────────────
-async function buildFromOddsApi(sports) {
-  const sportsToFetch = (sports === 'all' || !sports)
-    ? ['soccer', 'basketball', 'handball', 'volleyball', 'tennis']
-    : String(sports).split(',').map(s => s.trim()).filter(Boolean);
+// ── Fetch live matches from Statpal ──────────────────────────────────────────
+async function fetchLive() {
+  const data = await statpalGet('/odds/live');
+  if (!data) return [];
+  const matches = data.live_matches || [];
+  const result = matches.map(normalizeLiveMatch).filter(Boolean);
+  console.log(`[proxy] Statpal live: ${result.length}/${matches.length} events after filter`);
+  return result.slice(0, 120);
+}
 
-  const allLive = [], allPregame = [];
+// ── Normalize Statpal prematch odds ──────────────────────────────────────────
+function extractBmOdds(market) {
+  const bms = Array.isArray(market.bookmaker) ? market.bookmaker : (market.bookmaker ? [market.bookmaker] : []);
+  if (!bms.length) return { odd: [], total: null };
+  const bm = bms.find(b => b.name?.toLowerCase().includes('bet365')) || bms.find(b => b.name?.toLowerCase().includes('betway')) || bms[0];
+  return { odd: Array.isArray(bm?.odd) ? bm.odd : [], total: Array.isArray(bm?.total) ? bm.total : null };
+}
 
-  await Promise.all(sportsToFetch.map(async sport => {
-    if (!SLUG_TO_API[sport]) return;
-    const [liveEvs, pregameEvs] = await Promise.all([
-      getOddsEvents(sport, 'live'),
-      getOddsEvents(sport, 'pending'),
-    ]);
-    allLive.push(...liveEvs.map(e => ({ ...e, _sport: sport })));
-    allPregame.push(...pregameEvs.map(e => ({ ...e, _sport: sport })));
-  }));
+function normalizePrematchOdds(matchOdds) {
+  const oddsObj   = {};
+  const marketsArr = [];
+  const partialTotals = {};
+  let h2h = null;
 
-  // Sort by date ascending (soonest first) for pregame
-  const sortedLive    = allLive;
-  const sortedPregame = allPregame.sort((a, b) => new Date(a.date||0) - new Date(b.date||0));
+  for (const market of (matchOdds || [])) {
+    const mktId    = String(market.id || '');
+    const canonical = PRE_MKT_MAP[mktId];
+    if (!canonical) continue;
+    const mktStop = market.stop === 'True' || market.stop === true;
+    const { odd, total } = extractBmOdds(market);
 
-  // Fetch odds for ALL live + top 80 pregame (budget: ~200 requests max)
-  const liveIds    = sortedLive.map(e => String(e.id));
-  const pregameIds = sortedPregame.map(e => String(e.id)).slice(0, 80);
-  const allIds     = [...new Set([...liveIds, ...pregameIds])];
+    // ── H2H ─────────────────────────────────────────────────────────────────
+    if (canonical === 'h2h') {
+      if (h2h) continue;
+      const getOdd = (n) => parseFloat(odd.find(o => o.name?.toLowerCase() === n)?.value || '0');
+      const ho = getOdd('home'), dr = getOdd('draw'), aw = getOdd('away');
+      if (ho > 1) {
+        h2h = { home: ho, draw: dr, away: aw };
+        const ocs = [
+          { outcome: 'Casa', odd: ho },
+          ...(dr > 1 ? [{ outcome: 'Empate', odd: dr }] : []),
+          { outcome: 'Fora', odd: aw },
+        ];
+        oddsObj.h2h = { category: MKT_CATEGORY.h2h, outcomes: ocs };
+        marketsArr.push({ key: 'h2h', name: MKT_NAMES.h2h, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+        if (dr > 1) {
+          const dc1x = parseFloat((1 / (1/ho + 1/dr) * 0.93).toFixed(2));
+          const dcx2 = parseFloat((1 / (1/dr + 1/aw) * 0.93).toFixed(2));
+          const dc12 = parseFloat((1 / (1/ho + 1/aw) * 0.93).toFixed(2));
+          if (dc1x > 1) {
+            const dcOcs = [{ outcome: '1X', odd: dc1x }, { outcome: 'X2', odd: dcx2 }, { outcome: '12', odd: dc12 }];
+            oddsObj.double_chance = { category: MKT_CATEGORY.double_chance, outcomes: dcOcs };
+            marketsArr.push({ key: 'double_chance', name: MKT_NAMES.double_chance, selections: dcOcs.map(o => ({ label: o.outcome, odd: o.odd })) });
+          }
+        }
+      }
+      continue;
+    }
 
-  const oddsById = new Map();
-  // Fetch in batches of 20 to stay within rate limits
-  for (let i = 0; i < allIds.length; i += 20) {
-    const batch = allIds.slice(i, i + 20);
-    await Promise.all(batch.map(async id => {
-      oddsById.set(id, await getOddsForEventId(id));
-    }));
+    // ── Totals (from `total` array) ─────────────────────────────────────────
+    if (['totals', 'first_half_totals', 'second_half_totals'].includes(canonical)) {
+      if (!total) continue;
+      for (const t of total) {
+        const line  = String(t.name || '').trim();
+        if (!line) continue;
+        const bkey  = `${canonical}:${line}`;
+        if (!partialTotals[bkey]) partialTotals[bkey] = { canonical, line, over: 0, under: 0 };
+        for (const o of (Array.isArray(t.odd) ? t.odd : [])) {
+          const lbl = String(o.name || '').toLowerCase();
+          const val = parseFloat(o.value || '0');
+          if (lbl === 'over')  partialTotals[bkey].over  = val;
+          if (lbl === 'under') partialTotals[bkey].under = val;
+        }
+      }
+      continue;
+    }
+
+    // ── BTTS ─────────────────────────────────────────────────────────────────
+    if (canonical === 'btts') {
+      if (oddsObj.btts) continue;
+      const yes = parseFloat(odd.find(o => o.name?.toLowerCase() === 'yes')?.value || '0');
+      const no  = parseFloat(odd.find(o => o.name?.toLowerCase() === 'no')?.value  || '0');
+      if (yes > 1 || no > 1) {
+        const ocs = [...(yes > 1 ? [{ outcome: 'Sim', odd: yes }] : []), ...(no > 1 ? [{ outcome: 'Não', odd: no }] : [])];
+        oddsObj.btts = { category: MKT_CATEGORY.btts, outcomes: ocs };
+        marketsArr.push({ key: 'btts', name: MKT_NAMES.btts, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+      }
+      continue;
+    }
+
+    // ── Correct Score ────────────────────────────────────────────────────────
+    if (canonical === 'correct_score') {
+      if (oddsObj.correct_score) continue;
+      const ocs = odd.filter(o => parseFloat(o.value || '0') > 1).map(o => ({ outcome: String(o.name || ''), odd: parseFloat(o.value || '0') }));
+      if (ocs.length) {
+        oddsObj.correct_score = { category: MKT_CATEGORY.correct_score, outcomes: ocs };
+        marketsArr.push({ key: 'correct_score', name: MKT_NAMES.correct_score, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+      }
+      continue;
+    }
+
+    // ── HT/FT Double ─────────────────────────────────────────────────────────
+    if (canonical === 'half_time_full_time') {
+      if (oddsObj.half_time_full_time) continue;
+      const ocs = odd.filter(o => parseFloat(o.value || '0') > 1).map(o => ({ outcome: String(o.name || ''), odd: parseFloat(o.value || '0') }));
+      if (ocs.length) {
+        oddsObj.half_time_full_time = { category: MKT_CATEGORY.half_time_full_time, outcomes: ocs };
+        marketsArr.push({ key: 'half_time_full_time', name: MKT_NAMES.half_time_full_time, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+      }
+      continue;
+    }
+
+    // ── DNB / 1st Half / 2nd Half H2H ────────────────────────────────────────
+    if (['dnb', 'first_half_h2h', 'second_half_h2h'].includes(canonical)) {
+      if (oddsObj[canonical]) continue;
+      const getOdd = (n) => parseFloat(odd.find(o => o.name?.toLowerCase() === n)?.value || '0');
+      const ho = getOdd('home'), dr = getOdd('draw'), aw = getOdd('away');
+      if (ho > 1) {
+        const ocs = [{ outcome: 'Casa', odd: ho }, ...(dr > 1 ? [{ outcome: 'Empate', odd: dr }] : []), { outcome: 'Fora', odd: aw }];
+        oddsObj[canonical] = { category: MKT_CATEGORY[canonical] || 'Mercados Temporais', outcomes: ocs };
+        marketsArr.push({ key: canonical, name: MKT_NAMES[canonical] || canonical, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+      }
+      continue;
+    }
+
+    // ── Double Chance (explicit) ──────────────────────────────────────────────
+    if (canonical === 'double_chance' && !oddsObj.double_chance) {
+      const getOdd = (n) => parseFloat(odd.find(o => o.name?.toLowerCase().replace(/\s+/g, '') === n)?.value || '0');
+      const h1x = getOdd('1x'), x2 = getOdd('x2'), h12 = getOdd('12');
+      if (h1x > 1 || x2 > 1 || h12 > 1) {
+        const ocs = [...(h1x > 1 ? [{ outcome: '1X', odd: h1x }] : []), ...(x2 > 1 ? [{ outcome: 'X2', odd: x2 }] : []), ...(h12 > 1 ? [{ outcome: '12', odd: h12 }] : [])];
+        oddsObj.double_chance = { category: MKT_CATEGORY.double_chance, outcomes: ocs };
+        marketsArr.push({ key: 'double_chance', name: MKT_NAMES.double_chance, selections: ocs.map(o => ({ label: o.outcome, odd: o.odd })) });
+      }
+    }
   }
 
-  // Fetch API-Football live fixtures (for elapsed time, accurate scores, logos)
-  const afbCache = await fetchApiFootballLive();
+  // Aggregate totals
+  const sortedTlines = Object.entries(partialTotals)
+    .filter(([, v]) => v.over || v.under)
+    .sort((a, b) => parseFloat(a[1].line) - parseFloat(b[1].line));
 
-  // Build events — only those with odds (oddsApiToNormalized returns null without odds)
-  const live    = sortedLive.map(oe => {
-    const afbFixture = oe._sport === 'soccer' ? matchApiFootball(oe.home_team || oe.home, oe.away_team || oe.away, afbCache) : null;
-    return oddsApiToNormalized(oe, oe._sport || 'soccer', oddsById, afbFixture);
-  }).filter(Boolean).slice(0, 120);
+  if (sortedTlines.length) {
+    const aggOcs = [];
+    for (const [, v] of sortedTlines) {
+      if (v.over > 1)  aggOcs.push({ outcome: `Mais ${v.line}`,  odd: v.over });
+      if (v.under > 1) aggOcs.push({ outcome: `Menos ${v.line}`, odd: v.under });
+      marketsArr.push({ key: v.canonical, name: `Mais/Menos ${v.line}`, line: v.line, selections: [
+        ...(v.over  > 1 ? [{ label: `Mais ${v.line}`,  odd: v.over }]  : []),
+        ...(v.under > 1 ? [{ label: `Menos ${v.line}`, odd: v.under }] : []),
+      ]});
+    }
+    oddsObj[sortedTlines[0][1].canonical] = { category: MKT_CATEGORY.totals, outcomes: aggOcs };
+  }
 
-  const pregame = sortedPregame.map(oe => oddsApiToNormalized(oe, oe._sport || 'soccer', oddsById, null)).filter(Boolean).slice(0, 60);
-
-  // Cache events by ID for EventDetails lookup
-  cacheEvents(live, pregame);
-
-  console.log(`[proxy] odds-api.io: ${live.length} live, ${pregame.length} pregame (all with odds)`);
-  return { live, pregame };
+  return { h2h, oddsObj, marketsArr };
 }
 
-// ── Enrich CF Worker events with odds-api.io (+ filter banned leagues) ────────
-async function enrichList(events, type) {
-  if (!events.length) return [];
+// ── Normalize Statpal prematch match → BET62 event ───────────────────────────
+function normalizePrematchMatch(match, leagueName, leagueId, country) {
+  const homeTeam = match.home?.name || '';
+  const awayTeam = match.away?.name || '';
+  if (!homeTeam || !awayTeam) return null;
+  if (isBlockedLeague(leagueName, country)) return null;
 
-  // First: filter banned leagues from CF Worker events
-  const filtered = events.filter(ev => {
-    const league  = ev.league;
-    const lname   = typeof league === 'string' ? league : (league?.name || '');
-    const lslug   = typeof league === 'object' ? (league?.slug || '') : '';
-    const country = ev.country || '';
-    return !isBlockedLeague(lname, lslug, country);
-  });
+  const { h2h, oddsObj, marketsArr } = normalizePrematchOdds(match.odds || []);
+  if (!h2h) return null;
 
-  if (!ODDS_API_KEY || !filtered.length) return filtered;
+  const matchId = String(match.main_id || `pre_${homeTeam}${awayTeam}`.replace(/\s/g, ''));
+  const evId = `sp_${matchId}`;
 
-  const sports = [...new Set(filtered.map(ev => String(ev.sport || 'soccer').toLowerCase().replace('football', 'soccer')))];
-  const validSports = sports.filter(s => SLUG_TO_API[s]);
-  if (!validSports.length) return filtered;
+  const dateStr = String(match.date || '').split('.').reverse().join('-');
+  const timeStr = String(match.time || '00:00');
+  const eventDate = dateStr ? `${dateStr}T${timeStr}:00.000Z` : new Date().toISOString();
 
-  const statusCsv = type === 'live' ? 'live' : 'pending,live';
-  const poolBySport = new Map();
-  await Promise.all(validSports.map(async sp => {
-    poolBySport.set(sp, await getOddsEvents(sp, statusCsv));
-  }));
+  const ev = {
+    id:           evId,
+    external_event_id: evId,
+    sport:        'soccer',
+    league:       leagueName,
+    league_name:  leagueName,
+    league_id:    leagueId,
+    home_team:    homeTeam,
+    away_team:    awayTeam,
+    team_match:   `${homeTeam} vs ${awayTeam}`,
+    event_date:   eventDate,
+    status:       'NS',
+    is_live:      0,
+    home_odd:     h2h.home,
+    draw_odd:     h2h.draw || 0,
+    away_odd:     h2h.away,
+    elapsed:      0,
+    timer:        '',
+    period:       '',
+    score:        JSON.stringify({ home: null, away: null }),
+    goals:        { home: null, away: null },
+    suspended:    false,
+    markets:      marketsArr,
+    odds:         oddsObj,
+    country:      country || '',
+    home_team_logo: '',
+    away_team_logo: '',
+  };
 
-  const matchedPairs = filtered.map(ev => {
-    const sp   = String(ev.sport || 'soccer').toLowerCase().replace('football', 'soccer');
-    const pool = poolBySport.get(sp) || [];
-    let best = null, bestSc = 0;
-    for (const oe of pool) {
-      const sc = pairScore(ev.home_team || '', ev.away_team || '', oe.home_team || oe.home || '', oe.away_team || oe.away || '');
-      if (sc >= 58 && sc > bestSc) { best = oe; bestSc = sc; }
-    }
-    return { ev, best };
-  });
-
-  const matched   = matchedPairs.filter(p => p.best);
-  const uniqueIds = [...new Set(matched.map(p => String(p.best.id)))].slice(0, 60);
-  const oddsById  = new Map();
-  await Promise.all(uniqueIds.map(async id => {
-    oddsById.set(id, await getOddsForEventId(id));
-  }));
-
-  let enriched = 0;
-  const result = matchedPairs.map(({ ev, best }) => {
-    if (!best) return ev;
-    const oddsResult = oddsById.get(String(best.id));
-    const h2h = oddsResult?.h2h;
-    if (!h2h) return ev; // Keep original CF Worker event (may already have odds from its DB)
-    enriched++;
-    return {
-      ...ev,
-      home_odd: h2h.home || ev.home_odd,
-      draw_odd: h2h.draw || ev.draw_odd,
-      away_odd: h2h.away || ev.away_odd,
-      markets: oddsResult.markets?.length ? oddsResult.markets : (ev.markets || []),
-      odds:    oddsResult.odds || ev.odds || null,
-      home_team_logo: ev.home_team_logo || sofascoreLogo(best.homeId),
-      away_team_logo: ev.away_team_logo || sofascoreLogo(best.awayId),
-    };
-  });
-
-  if (enriched) console.log(`[proxy] enriched ${enriched}/${filtered.length} ${type} with odds-api.io`);
-
-  // Filter: REQUIRE odds (from CF Worker OR odds-api.io enrichment)
-  const withOdds = result.filter(ev => {
-    // Check direct fields
-    if (Number(ev.home_odd) > 1) return true;
-    // Check markets array
-    if (Array.isArray(ev.markets) && ev.markets.length > 0) {
-      const h2h = ev.markets.find(m => m.key === 'h2h');
-      if (h2h?.selections?.some(s => Number(s.odd) > 1)) return true;
-    }
-    return false;
-  });
-
-  const limit = type === 'live' ? 120 : 60;
-  const limited = withOdds.slice(0, limit);
-  console.log(`[proxy] ${type}: ${limited.length} events with odds (${filtered.length - withOdds.length} dropped — no odds)`);
-  return limited;
+  _eventsById.set(evId, ev);
+  return ev;
 }
 
-// ── Forward request to CF Worker ──────────────────────────────────────────────
+// ── Fetch prematch matches from Statpal ───────────────────────────────────────
+async function fetchPrematch() {
+  const results = await Promise.allSettled(
+    TOP_LEAGUE_IDS.map(lid => statpalGet(`/leagues/${lid}/odds/prematch`))
+  );
+
+  const all = [];
+  for (let i = 0; i < results.length; i++) {
+    if (results[i].status !== 'fulfilled' || !results[i].value) continue;
+    const data   = results[i].value;
+    const league = data?.prematch_odds?.league;
+    if (!league) continue;
+
+    const leagueName = String(league.name || '');
+    const leagueId   = TOP_LEAGUE_IDS[i];
+    const country    = String(league.country || '').toLowerCase();
+    const matches    = Array.isArray(league.match) ? league.match : (league.match ? [league.match] : []);
+
+    for (const m of matches) {
+      const ev = normalizePrematchMatch(m, leagueName, leagueId, country);
+      if (ev) all.push(ev);
+    }
+  }
+
+  // Sort by date ascending
+  all.sort((a, b) => new Date(a.event_date) - new Date(b.event_date));
+  console.log(`[proxy] Statpal prematch: ${all.length} events from ${TOP_LEAGUE_IDS.length} leagues`);
+  return all.slice(0, 60);
+}
+
+// ── Background refresh ────────────────────────────────────────────────────────
+async function refreshAll() {
+  if (_refreshing) return;
+  _refreshing = true;
+  try {
+    const [live, pregame] = await Promise.all([fetchLive(), fetchPrematch()]);
+    _liveCache    = live;
+    _pregameCache = pregame;
+    _cacheTs      = Date.now();
+    console.log(`[proxy] Refreshed: ${live.length} live, ${pregame.length} pregame`);
+  } catch (e) {
+    console.error('[proxy] Refresh error:', e?.message);
+  }
+  _refreshing = false;
+}
+
+// ── Get events (with cache) ───────────────────────────────────────────────────
+async function getEvents() {
+  const now = Date.now();
+  if (_cacheTs === 0 || now - _cacheTs > LIVE_TTL) {
+    await refreshAll();
+  }
+  return { live: _liveCache, pregame: _pregameCache };
+}
+
+// Initial load + interval refresh
+refreshAll();
+setInterval(() => refreshAll().catch(() => {}), LIVE_TTL);
+
+// ── Forward to CF Worker ──────────────────────────────────────────────────────
 function forwardToCF(reqUrl, method, headers, body) {
   return new Promise((resolve, reject) => {
     const target = new URL(CF_WORKER + reqUrl);
-    const mod  = target.protocol === 'https:' ? https : http;
     const opts = {
       hostname: target.hostname,
       port: target.port || 443,
@@ -956,6 +775,7 @@ function forwardToCF(reqUrl, method, headers, body) {
       headers: { ...headers, host: target.hostname },
     };
     delete opts.headers['connection'];
+    const mod = target.protocol === 'https:' ? https : http;
     const req = mod.request(opts, res => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
@@ -967,201 +787,174 @@ function forwardToCF(reqUrl, method, headers, body) {
   });
 }
 
-// ── Response cache ────────────────────────────────────────────────────────────
-const _rc = new Map();
-function rcGet(key) {
-  const e = _rc.get(key);
-  if (!e) return null;
-  if (Date.now() < e.staleUntil) return { buf: e.buf, stale: Date.now() > e.freshUntil };
-  _rc.delete(key);
-  return null;
-}
-function rcSet(key, buf) {
-  const now = Date.now();
-  _rc.set(key, { buf, freshUntil: now + 45_000, staleUntil: now + 600_000 });
-}
-
-function sendJSON(res, buf) {
+function sendJSON(res, data) {
+  const buf = Buffer.from(JSON.stringify(data), 'utf8');
   res.writeHead(200, { 'content-type': 'application/json', 'content-length': buf.length, 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
   res.end(buf);
 }
 
-// ── Core: fetch + filter + enrich ─────────────────────────────────────────────
-async function fetchAndEnrich(url, method, headers, body, rcKey) {
-  const urlObj    = new URL('http://x' + url);
-  const sportsParam = urlObj.searchParams.get('sports') || 'all';
-
-  let payload = null;
-  try {
-    const r  = await forwardToCF(url, method, headers, body);
-    const ct = String(r.headers?.['content-type'] || '');
-    if (ct.includes('application/json')) {
-      const parsed = JSON.parse(r.body.toString('utf8'));
-      if ((parsed.live?.length || 0) + (parsed.pregame?.length || 0) > 0 && !parsed.error_code) {
-        payload = parsed;
-      }
-    }
-  } catch (err) { console.warn('[proxy] CF forward error:', err?.message); }
-
-  let live, pregame;
-  if (payload && ODDS_API_KEY) {
-    [live, pregame] = await Promise.all([
-      enrichList(Array.isArray(payload.live)    ? payload.live    : [], 'live'),
-      enrichList(Array.isArray(payload.pregame) ? payload.pregame : [], 'pregame'),
-    ]);
-    cacheEvents(live, pregame);
-  } else if (ODDS_API_KEY) {
-    console.log('[proxy] CF Worker unavailable — using odds-api.io direct');
-    const result = await buildFromOddsApi(sportsParam);
-    live    = result.live;
-    pregame = result.pregame;
-  } else {
-    return null;
-  }
-
-  const responsePayload = payload ? { ...payload, live, pregame } : { live, pregame };
-  if (live.length > 0 || pregame.length > 0) {
-    const buf = Buffer.from(JSON.stringify(responsePayload), 'utf8');
-    rcSet(rcKey, buf);
-    return buf;
-  }
-  return null;
+function sendBuf(res, buf, status = 200, ct = 'application/json') {
+  res.writeHead(status, { 'content-type': ct, 'content-length': buf.length, 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
+  res.end(buf);
 }
 
-// ── HTTP server ────────────────────────────────────────────────────────────────
+// ── HTTP server ───────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
   const chunks = [];
   req.on('data', c => chunks.push(c));
   req.on('end', async () => {
     const reqBody = chunks.length ? Buffer.concat(chunks) : null;
     const url     = req.url || '';
-    const isBySportOdds = url.includes('/by-sport') && url.includes('include=odds');
 
-    // ── Image proxy: /api/events/media?url=... ─────────────────────────────────
+    // ── Image proxy ─────────────────────────────────────────────────────────
     if (url.startsWith('/api/events/media')) {
-      const urlObj  = new URL('http://x' + url);
-      const target  = urlObj.searchParams.get('url');
+      const urlObj = new URL('http://x' + url);
+      const target = urlObj.searchParams.get('url');
       if (!target) { res.writeHead(400); res.end('Missing url'); return; }
       try {
         const r = await fetch(target, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
-            'Referer': 'https://www.api-football.com/',
-            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-          },
+          headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'image/webp,image/*,*/*;q=0.8' },
           signal: AbortSignal.timeout(8000),
         });
         const buf = Buffer.from(await r.arrayBuffer());
         const ct  = r.headers.get('content-type') || 'image/png';
-        res.writeHead(r.ok ? 200 : r.status, {
-          'content-type': ct,
-          'content-length': buf.length,
-          'cache-control': 'public, max-age=86400',
-          'access-control-allow-origin': '*',
-        });
+        res.writeHead(r.ok ? 200 : r.status, { 'content-type': ct, 'content-length': buf.length, 'cache-control': 'public, max-age=86400', 'access-control-allow-origin': '*' });
         res.end(buf);
-      } catch {
-        res.writeHead(502); res.end('Image fetch failed');
+      } catch { res.writeHead(502); res.end('Image fetch failed'); }
+      return;
+    }
+
+    // ── by-sport (main events endpoint) ─────────────────────────────────────
+    if (url.includes('/by-sport')) {
+      try {
+        const { live, pregame } = await getEvents();
+        sendJSON(res, { live, pregame });
+      } catch (e) {
+        console.error('[proxy] by-sport error:', e?.message);
+        sendJSON(res, { live: [], pregame: [] });
       }
       return;
     }
 
-    // ── Event by ID: /api/events/:id (lookup from local cache) ─────────────────
-    const evByIdMatch = url.match(/^\/api\/events\/(\d+)(?:\?.*)?$/);
+    // ── Event by ID: /api/events/:id ────────────────────────────────────────
+    const evByIdMatch = url.match(/^\/api\/events\/(sp_[^/?]+)(?:[?/].*)?$/);
     if (evByIdMatch && !url.includes('/odds') && !url.includes('/stats') && !url.includes('/roster') && !url.includes('/media')) {
-      const evId = evByIdMatch[1];
+      const evId  = evByIdMatch[1];
       const cached = _eventsById.get(evId);
       if (cached) {
-        const buf = Buffer.from(JSON.stringify(cached), 'utf8');
-        res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
-        res.end(buf);
+        sendJSON(res, cached);
       } else {
-        // Fall through to CF Worker (will likely 404, but try)
-        try {
-          const { status, headers, body: cfBody } = await forwardToCF(url, req.method, req.headers, reqBody);
-          res.writeHead(status, { ...headers, 'access-control-allow-origin': '*' });
-          res.end(cfBody);
-        } catch {
-          res.writeHead(404, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
-          res.end(JSON.stringify({ error: 'Event not found' }));
-        }
+        res.writeHead(404, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
+        res.end(JSON.stringify({ error: 'Event not found' }));
       }
       return;
     }
 
-    // ── Cache individual event odds (/api/events/{id}/odds) ──────────────────
-    const oddsEndpointMatch = url.match(/^\/api\/events\/([^/]+)\/odds/);
-    if (oddsEndpointMatch) {
-      const evId = oddsEndpointMatch[1];
-      const cacheKey = `ev_odds:${evId}`;
-      // Try proxy event cache first (from last buildFromOddsApi or enrichList cycle)
-      const cachedEv = _eventsById.get(evId);
-      if (cachedEv?.odds && Object.keys(cachedEv.odds).length > 0) {
-        const oddsPayload = {
-          markets: cachedEv.odds,
-          suspended: false,
-          suspended_reason: '',
-        };
-        const buf = Buffer.from(JSON.stringify(oddsPayload), 'utf8');
-        res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
-        res.end(buf);
+    // ── Event odds: /api/events/:id/odds ────────────────────────────────────
+    const oddsMatch = url.match(/^\/api\/events\/([^/?]+)\/odds/);
+    if (oddsMatch) {
+      const evId = oddsMatch[1];
+      const ev   = _eventsById.get(evId);
+      if (ev?.odds && Object.keys(ev.odds).length > 0) {
+        sendJSON(res, { markets: ev.odds, suspended: ev.suspended || false, suspended_reason: ev.suspended ? 'Lance crítico' : '' });
         return;
       }
-      // Check response cache (60s TTL)
-      const respCached = oddsRespGet(cacheKey);
-      if (respCached) {
-        res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
-        res.end(respCached);
+      // Try CF Worker as fallback
+      try {
+        const { status, headers, body: cfBody } = await forwardToCF(url, req.method, req.headers, reqBody);
+        sendBuf(res, cfBody, status, headers['content-type'] || 'application/json');
+      } catch {
+        res.writeHead(404, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
+        res.end(JSON.stringify({ markets: {}, suspended: false }));
+      }
+      return;
+    }
+
+    // ── Event stats: /api/events/:id/stats ──────────────────────────────────
+    const statsMatch = url.match(/^\/api\/events\/([^/?]+)\/stats/);
+    if (statsMatch) {
+      const evId = statsMatch[1];
+      const ev   = _eventsById.get(evId);
+      if (ev?.statsData) {
+        const { statsData, match_events, state_name, goals, period, timer } = ev;
+        // Convert Statpal stats to API-Football format for MatchTracker compatibility
+        const sd = statsData;
+        const poss = sd.possession || { home: 50, away: 50 };
+        const afbStats = [
+          {
+            team: { id: 'home', name: ev.home_team },
+            statistics: [
+              { type: 'Ball Possession', value: poss.home > 0 ? `${poss.home}%` : '50%' },
+              { type: 'Total Shots', value: sd.shots?.home ?? 0 },
+              { type: 'Shots on Goal', value: sd.onTarget?.home ?? 0 },
+              { type: 'Corner Kicks', value: sd.corners?.home ?? 0 },
+              { type: 'Yellow Cards', value: sd.yellowCards?.home ?? 0 },
+              { type: 'Red Cards', value: sd.redCards?.home ?? 0 },
+            ],
+          },
+          {
+            team: { id: 'away', name: ev.away_team },
+            statistics: [
+              { type: 'Ball Possession', value: poss.away > 0 ? `${poss.away}%` : '50%' },
+              { type: 'Total Shots', value: sd.shots?.away ?? 0 },
+              { type: 'Shots on Goal', value: sd.onTarget?.away ?? 0 },
+              { type: 'Corner Kicks', value: sd.corners?.away ?? 0 },
+              { type: 'Yellow Cards', value: sd.yellowCards?.away ?? 0 },
+              { type: 'Red Cards', value: sd.redCards?.away ?? 0 },
+            ],
+          },
+        ];
+        // Convert Statpal match_events to AFB-like format for event timeline
+        const afbEvents = (match_events || []).map((me, idx) => {
+          const txt = String(me.event || '');
+          const min = parseInt(me.minute || '0', 10);
+          const isGoal = /goal|gol|\u26bd/i.test(txt);
+          const isCard = /yellow|cartão|card/i.test(txt);
+          const isCorner = /corner|escanteio/i.test(txt);
+          const teamInText = txt.split('-').slice(1).join('-').replace(/[()]/g,'').trim();
+          return {
+            time: { elapsed: min },
+            type: isGoal ? 'Goal' : isCard ? 'Card' : isCorner ? 'Corner' : 'Event',
+            detail: txt,
+            team: { id: null, name: teamInText || '' },
+            player: { id: null, name: '' },
+          };
+        });
+        sendJSON(res, { stats: afbStats, events: afbEvents, statsData, match_events: match_events || [], state_name, goals, period, timer });
         return;
       }
-      // Forward to CF Worker and cache the response
+      // Fallback to CF Worker
       try {
         const { status, headers, body: cfBody } = await forwardToCF(url, req.method, req.headers, reqBody);
-        res.writeHead(status, { ...headers, 'access-control-allow-origin': '*' });
-        res.end(cfBody);
-        if (status === 200) oddsRespSet(cacheKey, cfBody);
+        sendBuf(res, cfBody, status, headers['content-type'] || 'application/json');
       } catch {
-        res.writeHead(502, { 'content-type': 'text/plain', 'access-control-allow-origin': '*' });
-        res.end('Bad Gateway');
+        res.writeHead(404, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
+        res.end(JSON.stringify({ statsData: null }));
       }
       return;
     }
 
-    if (!isBySportOdds) {
-      try {
-        const { status, headers, body: cfBody } = await forwardToCF(url, req.method, req.headers, reqBody);
-        res.writeHead(status, { ...headers, 'access-control-allow-origin': '*' });
-        res.end(cfBody);
-      } catch {
-        res.writeHead(502, { 'content-type': 'text/plain', 'access-control-allow-origin': '*' });
-        res.end('Bad Gateway');
-      }
+    // ── Sports list ──────────────────────────────────────────────────────────
+    if (url.startsWith('/api/sports')) {
+      sendJSON(res, [{ id: 'soccer', name: 'Futebol', slug: 'soccer', icon: '⚽' }]);
       return;
     }
 
-    const rcKey  = url;
-    const cached = rcGet(rcKey);
-    if (cached && !cached.stale) return sendJSON(res, cached.buf);
-    if (cached && cached.stale) {
-      sendJSON(res, cached.buf);
-      setImmediate(() => fetchAndEnrich(url, req.method, req.headers, reqBody, rcKey).catch(() => {}));
-      return;
-    }
-
+    // ── All other routes → CF Worker ─────────────────────────────────────────
     try {
-      const buf = await fetchAndEnrich(url, req.method, req.headers, reqBody, rcKey);
-      if (buf) return sendJSON(res, buf);
-    } catch (err) { console.error('[proxy] error:', err?.message); }
-
-    res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
-    res.end(JSON.stringify({ live: [], pregame: [] }));
+      const { status, headers, body: cfBody } = await forwardToCF(url, req.method, req.headers, reqBody);
+      res.writeHead(status, { ...headers, 'access-control-allow-origin': '*' });
+      res.end(cfBody);
+    } catch {
+      res.writeHead(502, { 'content-type': 'text/plain', 'access-control-allow-origin': '*' });
+      res.end('Bad Gateway');
+    }
   });
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[proxy] Odds proxy on http://127.0.0.1:${PORT}`);
-  console.log(`[proxy] Preferred: ${PREFERRED_BM}`);
-  console.log(`[proxy] Filters: women ✓ | youth ✓ | amateur ✓ | 3rd-div ✓ | friendly ✓`);
-  console.log(`[proxy] Limits: live ≤120 | pregame ≤60 | ODDS REQUIRED`);
+  console.log(`[proxy] Statpal odds proxy running on http://127.0.0.1:${PORT}`);
+  console.log(`[proxy] Live refresh: ${LIVE_TTL/1000}s | Prematch: ${PREGAME_TTL/1000}s`);
+  console.log(`[proxy] Top leagues: ${TOP_LEAGUE_IDS.length} | Filters: women ✓ youth ✓ amateur ✓ 3rd-div ✓`);
 });
 server.on('error', e => { console.error('[proxy] fatal:', e.message); process.exit(1); });

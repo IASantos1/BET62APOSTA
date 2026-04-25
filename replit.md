@@ -8,6 +8,7 @@ A Portuguese-language sports betting platform (BET62) built with React + Vite on
 - **Backend**: Cloudflare Workers (Hono framework) with D1 SQLite database
 - **Auth**: Lucia Auth with SQLite adapter
 - **Payments**: Stripe and PayPal integrations
+- **Odds & Stats**: Statpal.io API (soccer v2)
 
 ## Project Structure
 
@@ -17,54 +18,90 @@ A Portuguese-language sports betting platform (BET62) built with React + Vite on
 - `migrations/` — D1 database migration SQL files
 - `vite.config.ts` — Vite configuration (port 5000, all hosts allowed)
 - `wrangler.toml` — Cloudflare Workers configuration
+- `scripts/odds-proxy.mjs` — Statpal.io odds/stats proxy (port 8080)
 
 ## Development Setup
 
 Two workflows must run simultaneously:
 
-1. **Start worker** (`npm run worker`) — Odds enrichment proxy on port 8080. Forwards all requests to the deployed CF Worker and enriches `/api/events/by-sport?include=odds` responses with real odds from odds-api.io using Replit's `ODDS_API_KEY` secret. Implements stale-while-revalidate caching to handle intermittent CF Worker 1102 errors.
+1. **Start worker** (`npm run worker`) — Statpal.io data proxy on port 8080. Fetches live matches + odds (one global call) and prematch odds from 22 top leagues. Implements automatic refresh every 30s for live, 120s for prematch.
 
 2. **Start application** (`npm run dev`) — Vite dev server on port 5000 with all API traffic proxied through the local odds proxy at `http://127.0.0.1:8080`.
 
-The proxy pipeline: Browser → Vite (5000) → odds-proxy (8080) → CF Worker (remote) + odds-api.io enrichment.
+The proxy pipeline: Browser → Vite (5000) → odds-proxy (8080) → Statpal.io API (+ CF Worker fallback for auth/payments).
 
 ## Running the App
 
 ```bash
-npm run worker      # Start odds enrichment proxy (port 8080) — required first
+npm run worker      # Start Statpal odds proxy (port 8080) — required first
 npm run dev         # Start frontend dev server (port 5000)
 npm run build       # Build for production
 npm run deploy:prod # Deploy CF Worker to production (requires CF auth)
 ```
 
-## odds-api.io Integration
+## Statpal.io Integration
 
-The `scripts/odds-proxy.mjs` proxy implements the odds-api.io enrichment:
+API key stored as `STATPAL_KEY` environment secret.
+Base URL: `https://statpal.io/api/v2/soccer/`
+
+### Live Matches
+- Endpoint: `GET /api/v2/soccer/odds/live`
+- Returns all live soccer matches with: odds, stats, match events, score, period, minute
+- Refreshed every 30 seconds
+- `status.blocked === "1"` or `status.stopped === "1"` → odds suspended
+
+### Prematch Odds
+- Endpoint: `GET /api/v2/soccer/leagues/{league_id}/odds/prematch`
+- 22 top leagues fetched in parallel: Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Primeira Liga, Liga Portugal 2, Eredivisie, Champions League, Europa League, Conference League, Belgium Pro League, Scotland PL, Greece Super League, Turkey Super Lig, Russia PL, Switzerland SL, Serbia Super Liga, Brazil Serie A, Argentina Primera, Tweede Divisie
+- Refreshed every 120 seconds
 
 ### League Filtering (Backend)
-- **Women's leagues** blocked: women, woman, feminino, damen, toppserien, etc.
-- **Youth leagues** blocked: U16–U23, under-16–23, youth, junior, juvenil, etc.
+- **Women's leagues** blocked: women, woman, feminino, damen, toppserien, wsl, nwsl, etc.
+- **Youth leagues** blocked: U16–U23, under-16–23, youth, junior, juvenil, revelacao, etc.
 - **Amateur leagues** blocked: amateur, amateure, amador, amatör
 - **3rd division+** blocked: regionalliga, kakkonen, gamma ethniki, esiliiga, derde divisie, etc.
 - **Friendly games** blocked: friendly, amistoso, amical, testspiel
-- **Middle East countries** blocked (no relevant leagues)
+- **Middle East countries** blocked (saudi arabia, qatar, uae, kuwait, bahrain, oman, jordan, iraq, syria, lebanon, palestine, yemen, iran)
 
-### Odds Requirement
-- **All events MUST have odds** — events without `home_odd > 1` are filtered out
-- Enrichment budget: live events + top 80 pregame candidates fetched for odds
-- Limits enforced at proxy level: **live ≤ 120** events, **pregame ≤ 60** events
+### Odds Suspension (Critical Moments)
+- Match-level: `status.blocked === "1"` or `status.stopped === "1"` → ALL markets suspended
+- Line-level: individual line `suspended === "1"` → that specific line suspended
+- Score-based: O/U line ≤ total goals scored → that line suspended (e.g. 0:1 → Mais/Menos 0.5 suspended)
 
-### Markets Returned (parseAllMarkets)
-- `h2h` — Resultado Final (1X2) — category: "Mercado Raiz"
-- `totals` / `goals_total` — Mais/Menos Golos — category: "Mercados de Gols"
-- `handicap` / `spreads` — Handicap — category: "Mercados de Resultado"
-- `btts` — Ambas Marcam — category: "Mercados de Gols"
-- `double_chance` — Dupla Hipótese — category: "Mercados de Resultado"
-- `first_half_h2h` / `second_half_h2h` — Intervalo — category: "Mercados Temporais"
-- `first_half_totals` / `second_half_totals` — Over/Under por Período — category: "Mercados Temporais"
-- `corners_total` / `cards_total` — Cantos/Cartões — category: "Mercados Estatísticos"
-- `correct_score` — Resultado Exato — category: "Mercados Especiais"
-- Available markets depend on bookmakers + match tier (lower leagues have fewer markets)
+### Markets Available
+
+**Live markets (Statpal IDs → canonical key):**
+- `3610` → `h2h` (Resultado Final)
+- `91841`/`2254` → `totals` (Mais/Menos Gols)
+- `1844`/`1845` → `handicap` (Handicap)
+- `12398` → `btts` (Ambas Marcam)
+- `11834` → `correct_score` (Marcador Correto)
+- `1849`/`2353`/`91839` → `corners_total` (Cantos)
+- `2151` → `btts_second_half`
+- `1836` → `second_half_h2h`
+- `12395` → `goals_odd_even`
+- `double_chance` — computed from h2h via inverse-probability
+
+**Prematch markets (Statpal IDs → canonical key):**
+- `1834` → `h2h` (1x2)
+- `1835` → `dnb` (Empate Anula Aposta)
+- `1838` → `totals` (O/U, uses `total` array with handicap lines)
+- `1848` → `btts`
+- `1914` → `correct_score`
+- `1845` → `half_time_full_time`
+- `2055` → `double_chance`
+
+### Live Statistics (Statpal Stats Keys)
+Stats object keyed 0-14: `Goal`, `Corner`, `YellowCard`, `RedCard`, `Attacks`, `DangerousAttacks`, `OnTarget`, `OffTarget`, `Posession`, `FirstHalfScore`
+
+Returned from `/api/events/{id}/stats` in API-Football format for MatchTracker compatibility:
+- `Ball Possession` (%)
+- `Total Shots` (OnTarget + OffTarget)
+- `Shots on Goal` (OnTarget)
+- `Corner Kicks`, `Yellow Cards`, `Red Cards`
+
+### Event IDs
+All Statpal events use `sp_` prefix: `sp_{main_id}`. Cached in `_eventsById` map.
 
 ### SubOddsModel Tab Logic
 - **Category-based system** fires ONLY when API returns markets from 2+ distinct categories
@@ -78,47 +115,20 @@ The `scripts/odds-proxy.mjs` proxy implements the odds-api.io enrichment:
 - **DESPORTO** (`/`) → shows ONLY pregame events, max 60, sorted by date
 - **AO VIVO** (`/live`) → shows ONLY live events, max 120
 
-### Bookmaker Auto-Reset
-- Every 12h: switches to Bet365, Betano, Unibet, Superbet, Betfair Sportsbook
-- Tracks reset time in `scripts/.last_bm_clear`
-
-### Live Scores & Clock
-- API-Football (`/v3/fixtures?live=all`) fetched every 60s with `API_SPORTS_KEY`
-- 337+ live fixtures matched to events by team name → `elapsed` (minutes) + `goals` (score)
-- `goals: {home, away}` returned on every live event
-- `elapsed: N` returned (match minute, from API-Football)
-- `timer: "N"` returned as string for EventCard/EventDetails display
-- BannerCarousel shows `N – M · elapsed'` for live events
-
-### Team Logos
-- API-Football logos proxied via `/api/events/media?url=...` (server-side, bypasses 403)
-- Proxy fetches image with browser User-Agent + Referer header
-- Logos cached 24h (`cache-control: public, max-age=86400`)
-- Falls back to SofaScore CDN for non-soccer or unmatched events
-
-### EventDetails
-- **localFoundEvent**: looks up event in `live` + `pregame` (direct) + `upcomingEvents` from useSportsEvents hook
-- Searching `pregame` directly avoids race condition with `useUpcomingCache` async state update
-- Waits for `eventsLoading: false` (main fetch complete) before trying API fallback
-- Avoids "Evento não encontrado" — finds event from local state instantly for both live and pregame events
-- Falls back to proxy `/api/events/{id}` → CF Worker if not in local list
-- Odds endpoint returns `{ markets: { [key]: { category, outcomes } }, suspended }`
-- SubOddsModel uses static MARKET_GROUPS (+ computed fallbacks) to show multiple tabs always
+### Proxy Endpoints
+- `GET /api/events/by-sport?*` → returns `{ live, pregame }` from Statpal cache
+- `GET /api/events/{sp_id}` → returns cached event by ID
+- `GET /api/events/{sp_id}/odds` → returns `{ markets, suspended }` for event
+- `GET /api/events/{sp_id}/stats` → returns `{ stats, events, statsData }` for event
+- `GET /api/sports` → returns soccer only
+- `GET /api/events/media?url=...` → image proxy with CORS headers
+- All other routes → forwarded to CF Worker (auth, payments, user data)
 
 ### Match Center (MatchTracker component)
 - Collapsible section inside EventDetails for live events
 - Shows: MatchHeader (sport name in PT + league), Scoreboard (full team names + score + time), Possession bar, Match Stats, Timeline
-- Sport names translated to Portuguese: soccer→Futebol, basketball→Basquetebol, tennis→Ténis, etc.
-- Scoreboard uses full team names (`homeName`/`awayName`) with word-wrap (no truncation)
-- Animation (animated ball field) removed — replaced with possession bar from real API-Football stats
-- Stats fetched from `/api/events/{id}/stats` → populated from API-Football live fixture data
-
-### Proxy Event Cache
-- `_eventsById` map: populated on every `buildFromOddsApi` / `enrichList` cycle
-- Numeric IDs (odds-api.io): matched by regex `/api/events/(\d+)/`
-- CF Worker IDs (`soccer_XXXXXXX`): forwarded to CF Worker directly
-
-For the deployed CF Worker to use odds-api.io directly, set `ODDS_API_KEY` as a Cloudflare Worker secret via `wrangler secret put ODDS_API_KEY`.
+- Stats fetched from `/api/events/{id}/stats` → populated from Statpal live fixture data, converted to API-Football format
+- Match events from Statpal (text-based, e.g. "4' - 1st Corner - (Team Name)")
 
 ## Deployment
 
@@ -126,3 +136,9 @@ Configured as a static site deployment:
 - Build command: `npm run build`
 - Public directory: `dist`
 - Backend runs separately as Cloudflare Workers (deployed via `npm run deploy:prod`)
+
+## Intro Splash Screen
+- Component: `src/react-app/components/Bet62Intro.tsx`
+- Shows once per browser session (sessionStorage flag)
+- Duration: 2.9 seconds (600ms in → 2200ms hold → 2900ms done)
+- Red background, white B62 circle, BET62 gold text, "APOSTAS DESPORTIVAS", bouncing dots
