@@ -1,7 +1,26 @@
 
 import { D1Database } from '@cloudflare/workers-types';
 
-export const ensureUserSchema = async (db: D1Database) => {
+// Module-level cache: ensureUserSchema runs once per worker isolate.
+// All ALTER/CREATE statements are idempotent (use IF NOT EXISTS or are wrapped in try/catch),
+// so we don't need to re-run them on every request.
+let _ensurePromise: Promise<void> | null = null;
+
+export const ensureUserSchema = (db: D1Database): Promise<void> => {
+  if (_ensurePromise) return _ensurePromise;
+  _ensurePromise = (async () => {
+    try {
+      await _runMigrations(db);
+    } catch (e) {
+      // If migrations fail, allow retry on next request
+      _ensurePromise = null;
+      throw e;
+    }
+  })();
+  return _ensurePromise;
+};
+
+const _runMigrations = async (db: D1Database) => {
   await db.prepare(`CREATE TABLE IF NOT EXISTS user_key (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, hashed_password TEXT, FOREIGN KEY (user_id) REFERENCES user(id))`).run().catch(() => { /* empty */ });
   await db.prepare(`CREATE TABLE IF NOT EXISTS user_session (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, active_expires INTEGER NOT NULL, idle_expires INTEGER NOT NULL, FOREIGN KEY (user_id) REFERENCES user(id))`).run().catch(() => { /* empty */ });
   await db.prepare(`CREATE TABLE IF NOT EXISTS refresh_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, revoked INTEGER DEFAULT 0, FOREIGN KEY (user_id) REFERENCES user(id))`).run().catch(() => { /* empty */ });

@@ -279,6 +279,124 @@ admin.get('/profit/payouts', async (c) => {
     }
 });
 
+// Consolidated operator dashboard endpoint - single roundtrip for all KPIs
+admin.get('/dashboard', async (c) => {
+    try {
+        const safe = async <T>(p: Promise<T>, fallback: T): Promise<T> => {
+            try { return await p; } catch { return fallback; }
+        };
+        const oneScalar = async (sql: string, def = 0): Promise<number> => {
+            const r = await safe(c.env.DB.prepare(sql).first<{ n: number }>(), null as any);
+            return Number((r as any)?.n || def);
+        };
+
+        const since24h = "datetime('now', '-1 day')";
+        const since7d = "datetime('now', '-7 day')";
+
+        const [
+            usersTotal, usersActive24h,
+            depositsToday, depositsTotal, depositsCount24h,
+            withdrawalsPending, withdrawalsPendingCount, withdrawalsPaid7d,
+            betsOpenCount, betsOpenStake, betsOpenExposure,
+            betsSettled24hCount, betsStake24h, betsPayout24h,
+            kycPending, eventsLive, eventsTotal,
+            walletsHouseLiability,
+            alertsRecent,
+        ] = await Promise.all([
+            oneScalar('SELECT COUNT(*) AS n FROM user'),
+            oneScalar(`SELECT COUNT(DISTINCT user_id) AS n FROM bets WHERE created_at >= ${since24h}`),
+            oneScalar(`SELECT COALESCE(SUM(amount),0) AS n FROM ledger_transactions WHERE type='credit' AND reference LIKE 'DEPOSIT:%' AND created_at >= ${since24h}`),
+            oneScalar("SELECT COALESCE(SUM(amount),0) AS n FROM ledger_transactions WHERE type='credit' AND reference LIKE 'DEPOSIT:%'"),
+            oneScalar(`SELECT COUNT(*) AS n FROM ledger_transactions WHERE type='credit' AND reference LIKE 'DEPOSIT:%' AND created_at >= ${since24h}`),
+            oneScalar("SELECT COALESCE(SUM(amount),0) AS n FROM withdraw_requests WHERE status IN ('requested','approved','processing')"),
+            oneScalar("SELECT COUNT(*) AS n FROM withdraw_requests WHERE status IN ('requested','approved','processing')"),
+            oneScalar(`SELECT COALESCE(SUM(amount),0) AS n FROM withdraw_requests WHERE status='paid' AND processed_at >= ${since7d}`),
+            oneScalar("SELECT COUNT(*) AS n FROM bets WHERE status='pending'"),
+            oneScalar("SELECT COALESCE(SUM(stake),0) AS n FROM bets WHERE status='pending'"),
+            oneScalar("SELECT COALESCE(SUM(potential_win - stake),0) AS n FROM bets WHERE status='pending'"),
+            oneScalar(`SELECT COUNT(*) AS n FROM bets WHERE status IN ('won','lost','void','cashed_out') AND updated_at >= ${since24h}`),
+            oneScalar(`SELECT COALESCE(SUM(stake),0) AS n FROM bets WHERE created_at >= ${since24h}`),
+            oneScalar(`SELECT COALESCE(SUM(potential_win),0) AS n FROM bets WHERE status='won' AND updated_at >= ${since24h}`),
+            oneScalar("SELECT COUNT(*) AS n FROM kyc_profiles WHERE status='pending'"),
+            oneScalar("SELECT COUNT(*) AS n FROM events WHERE is_live=1"),
+            oneScalar("SELECT COUNT(*) AS n FROM events"),
+            oneScalar('SELECT COALESCE(SUM(balance),0) AS n FROM wallets'),
+            safe(
+                c.env.DB.prepare("SELECT id, type, message, created_at FROM risk_alerts ORDER BY id DESC LIMIT 5").all().then(r => r.results || []),
+                [] as any[]
+            ),
+        ]);
+
+        // Top open exposure bets (largest single potential_win)
+        const topExposure = await safe(
+            c.env.DB.prepare(`
+                SELECT b.id, b.user_id, b.stake, b.potential_win, b.odd, b.type, b.created_at, u.username
+                FROM bets b LEFT JOIN user u ON u.id = b.user_id
+                WHERE b.status='pending'
+                ORDER BY b.potential_win DESC
+                LIMIT 8
+            `).all().then(r => r.results || []),
+            [] as any[]
+        );
+
+        // GGR last 7 days (daily series)
+        const ggrSeries = await safe(
+            c.env.DB.prepare(`
+                SELECT DATE(created_at) AS d,
+                       COALESCE(SUM(stake),0) AS staked,
+                       COALESCE(SUM(CASE WHEN status='won' THEN potential_win ELSE 0 END),0) AS payout
+                FROM bets
+                WHERE created_at >= datetime('now','-7 day')
+                GROUP BY DATE(created_at)
+                ORDER BY d ASC
+            `).all().then(r => r.results || []),
+            [] as any[]
+        );
+
+        const ggr24h = betsStake24h - betsPayout24h;
+        const margin24h = betsStake24h > 0 ? (ggr24h / betsStake24h) * 100 : 0;
+
+        return c.json({
+            users: {
+                total: usersTotal,
+                active24h: usersActive24h,
+            },
+            deposits: {
+                today: depositsToday,
+                total: depositsTotal,
+                count24h: depositsCount24h,
+            },
+            withdrawals: {
+                pendingAmount: withdrawalsPending,
+                pendingCount: withdrawalsPendingCount,
+                paid7d: withdrawalsPaid7d,
+            },
+            bets: {
+                openCount: betsOpenCount,
+                openStake: betsOpenStake,
+                openExposure: betsOpenExposure,
+                settled24h: betsSettled24hCount,
+                stake24h: betsStake24h,
+                payout24h: betsPayout24h,
+                ggr24h,
+                margin24h,
+            },
+            kyc: { pending: kycPending },
+            events: { live: eventsLive, total: eventsTotal },
+            house: { liability: walletsHouseLiability },
+            alerts: alertsRecent,
+            topExposure,
+            ggrSeries,
+            generatedAt: new Date().toISOString(),
+        }, 200, {
+            'Cache-Control': 'no-store',
+        });
+    } catch (e: any) {
+        console.error('[Admin Dashboard]', e);
+        return c.json({ error: e.message || 'Dashboard error' }, 500);
+    }
+});
+
 admin.get('/alerts', async (c) => {
     const limitParam = c.req.query('limit');
     const limit = Math.min(Math.max(Number(limitParam) || 50, 1), 200);

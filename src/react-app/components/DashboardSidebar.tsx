@@ -1,14 +1,15 @@
 import { useApp } from '@/react-app/contexts/AppContext';
 import { useNavigate } from 'react-router-dom';
-import { 
-  X, 
-  LayoutDashboard, 
-  Users, 
-  Settings, 
-  ShieldAlert, 
-  Banknote, 
-  FileBarChart,
-  Activity
+import {
+  X,
+  LayoutDashboard,
+  ShieldAlert,
+  Banknote,
+  Activity,
+  UserCheck,
+  ArrowDownToLine,
+  Wallet,
+  NotepadText,
 } from 'lucide-react';
 
 export function DashboardSidebar() {
@@ -18,13 +19,14 @@ export function DashboardSidebar() {
   if (!showDashboard) return null;
 
   const menuItems = [
-    { label: 'Visão Geral', icon: LayoutDashboard, path: '/metrics' },
+    { label: 'Painel do Operador', icon: LayoutDashboard, path: '/metrics' },
+    { label: 'KYC — Aprovar identidade', icon: UserCheck, path: '/admin/kyc' },
+    { label: 'Levantamentos', icon: ArrowDownToLine, path: '/admin/withdrawals' },
+    { label: 'Pagamentos clientes', icon: Banknote, path: '/admin/payouts' },
     { label: 'Gestão de Risco', icon: ShieldAlert, path: '/admin/risk' },
-    { label: 'Utilizadores', icon: Users, path: '/admin/users' },
-    { label: 'Apostas em Tempo Real', icon: Activity, path: '/admin/live-bets' },
-    { label: 'Pagamentos', icon: Banknote, path: '/admin/payouts' },
-    { label: 'Relatórios', icon: FileBarChart, path: '/admin/reports' },
-    { label: 'Configurações', icon: Settings, path: '/admin/settings' },
+    { label: 'Trading / Mercados', icon: Activity, path: '/trading-panel' },
+    { label: 'Carteira (vista cliente)', icon: Wallet, path: '/wallet' },
+    { label: 'As Minhas Apostas', icon: NotepadText, path: '/my-bets' },
   ];
 
   const handleNavigate = (path: string) => {
