@@ -81,6 +81,15 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     return liveStatuses.has(status);
   }, [event]);
 
+  // Match-finished detection (covers FT, AET, PEN, CANC, AWD, WO, ABD, FT_PEN…)
+  const isFinishedEvent = useMemo(() => {
+    const status = String(event?.status ?? event?.fixture?.status?.short ?? event?.fixture?.status?.long ?? '').toUpperCase().trim();
+    const finishedKeys = new Set(['FT', 'AET', 'PEN', 'FT_PEN', 'AWD', 'WO', 'ABD', 'CANC', 'PST', 'FINISHED', 'ENDED']);
+    if (finishedKeys.has(status)) return true;
+    if (/match.?finished|encerrad|terminad|full.?time/i.test(status)) return true;
+    return false;
+  }, [event]);
+
   const cleanTeam = (s: string) => {
     const raw = String(s || '');
     const head = raw.split(',')[0] || raw;
@@ -398,6 +407,22 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
               );
           }
             
+            // ── Match finished: hide all market odds + show "Fim de Jogo" ──
+            if (isFinishedEvent) {
+              return (
+                <div className="w-full sm:w-[320px] lg:w-[400px]">
+                  <div className={`w-full h-12 rounded-lg flex items-center justify-center gap-2 font-black text-sm uppercase tracking-widest border
+                    ${darkMode
+                      ? 'bg-gray-700/70 border-gray-600 text-gray-300'
+                      : 'bg-gray-100 border-gray-300 text-gray-600'}`}
+                  >
+                    <span className="text-base opacity-80">⏹</span>
+                    <span>Fim de Jogo</span>
+                  </div>
+                </div>
+              );
+            }
+
             // ── Critical event button (overrides 3 odds) ──
             if (critState !== 'idle' && !isSuspended && favBet) {
               const cfg = {

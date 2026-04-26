@@ -399,6 +399,7 @@ export default function EventDetails() {
                 homeName={cleanTeam(displayEvent.home_team)}
                 awayName={cleanTeam(displayEvent.away_team)}
                 currentMinute={liveElapsed || (liveTimer ? parseInt(liveTimer) : 0)}
+                statusKey={statusKey}
               />
 
               {/* 3 Tab Icons */}
