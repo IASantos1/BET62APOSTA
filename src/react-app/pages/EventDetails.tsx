@@ -435,6 +435,7 @@ export default function EventDetails() {
                     timer={liveTimer || (liveElapsed > 0 ? `${liveElapsed}'` : 'AO VIVO')}
                     sport={displayEvent.sport || 'soccer'}
                     matchEvents={liveStats.events}
+                    liveStats={liveStats.stats}
                   />
                 </div>
               )}

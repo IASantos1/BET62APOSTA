@@ -9,6 +9,23 @@ interface FootballPitchAnimationProps {
   timer?: string;
   sport?: string;
   matchEvents?: any[];
+  /** Real-time stats from StatPal (possession, attacks, dangerous_attacks, shots) */
+  liveStats?: any[] | null;
+}
+
+// Extract a numeric stat from API-Football style stats array for a given team
+function getTeamStat(stats: any[] | null | undefined, teamSide: 'home' | 'away', statType: RegExp): number {
+  if (!Array.isArray(stats) || stats.length === 0) return 0;
+  const teamStats = stats.find((s) => {
+    const id = String(s?.team?.id || '').toLowerCase();
+    return id === teamSide || (teamSide === 'home' && id.includes('home')) || (teamSide === 'away' && id.includes('away'));
+  });
+  if (!teamStats?.statistics) return 0;
+  const entry = teamStats.statistics.find((x: any) => statType.test(String(x?.type || '')));
+  if (!entry) return 0;
+  const v = String(entry.value ?? '').replace('%', '').trim();
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
 }
 
 type SportType = 'football' | 'basketball' | 'tennis' | 'volleyball' | 'handball' | 'hockey' | 'default';
@@ -190,7 +207,7 @@ const BALL_CONFIG: Record<SportType, { r: number; fill: string; stroke: string; 
 };
 
 function FootballPitchAnimation({
-  homeName, awayName, isLive, score, statusLabel, timer, sport, matchEvents,
+  homeName, awayName, isLive, score, statusLabel, timer, sport, matchEvents, liveStats,
 }: FootballPitchAnimationProps) {
   const sportType = detectSport(sport);
   const ball = BALL_CONFIG[sportType] || BALL_CONFIG.default;
@@ -264,16 +281,42 @@ function FootballPitchAnimation({
       const t = (performance.now() - t0) / 1000; // seconds
 
       if (cur === 'moving') {
-        // ── Smooth Lissajous curve in central area (deterministic) ─────────
-        // Centro do campo: (150, 90); amplitudes confinam ao meio-campo
-        // Frequências irracionais (1.0 e 1.4) produzem padrão complexo mas previsível
-        const ampX = 90;   // half of 180 width range
-        const ampY = 45;   // half of 90 height range
-        const freqX = 0.35; // Hz (lento, ~3s ciclo completo X)
-        const freqY = 0.49; // ~ freqX * sqrt(2), evita ressonância simples
+        // ── Reactive movement biased by real StatPal data ──────────────────
+        // Posse de bola → centro de gravidade do movimento (esquerda/direita)
+        // Ataques perigosos → tendência a empurrar a bola para a área adversária
+        // Casa ataca da esquerda → direita; Fora ataca da direita → esquerda
+        const possHome = getTeamStat(liveStats, 'home', /possession/i) || 50;
+        const dangerHome = getTeamStat(liveStats, 'home', /dangerous.*attack/i) || 0;
+        const dangerAway = getTeamStat(liveStats, 'away', /dangerous.*attack/i) || 0;
+        const attacksHome = getTeamStat(liveStats, 'home', /^attacks$/i) || 0;
+        const attacksAway = getTeamStat(liveStats, 'away', /^attacks$/i) || 0;
+
+        // Centro X do movimento varia entre 90 (casa dominante) e 210 (fora dominante)
+        // A casa joga atacando para a direita (centro de gravidade da bola desloca-se para a direita
+        // quando ela tem mais posse + mais ataques; o oposto para a fora).
+        const totalDanger = dangerHome + dangerAway;
+        const totalAttacks = attacksHome + attacksAway;
+        const dangerBiasHome = totalDanger > 0 ? dangerHome / totalDanger : 0.5;
+        const attackBiasHome = totalAttacks > 0 ? attacksHome / totalAttacks : 0.5;
+        // Combinação: 50% posse + 30% ataques perigosos + 20% ataques totais
+        const homePressure = (possHome / 100) * 0.5 + dangerBiasHome * 0.3 + attackBiasHome * 0.2;
+        // homePressure 0 → ball stays in home half (left); 1 → ball stays in away half (right)
+        const centerX = 60 + homePressure * 180; // varia entre 60 e 240
+
+        // Amplitudes ajustam-se à pressão: equipa muito dominante = movimento concentrado na área adversária
+        const dominance = Math.abs(homePressure - 0.5) * 2; // 0 = equilibrado, 1 = total domínio
+        const ampX = 70 - dominance * 30; // mais equilíbrio → mais movimento; mais domínio → mais concentrado
+        const ampY = 40;
+
+        const freqX = 0.35; // Hz (~3s ciclo completo)
+        const freqY = 0.49; // razão irracional → padrão não repetitivo
         const phaseY = Math.PI / 4;
-        p.x = 150 + ampX * Math.sin(2 * Math.PI * freqX * t);
+        p.x = centerX + ampX * Math.sin(2 * Math.PI * freqX * t);
         p.y = 90 + ampY * Math.sin(2 * Math.PI * freqY * t + phaseY);
+
+        // Clamp dentro dos limites do campo
+        p.x = Math.max(15, Math.min(285, p.x));
+        p.y = Math.max(15, Math.min(165, p.y));
 
       } else if (cur === 'stopped') {
         // Ball stays at current position (no movement)
@@ -318,7 +361,7 @@ function FootballPitchAnimation({
       if (animRef.current) cancelAnimationFrame(animRef.current);
       if (resumeTimer) clearTimeout(resumeTimer);
     };
-  }, [isLive, sportType, matchEvents, homeName]);
+  }, [isLive, sportType, matchEvents, homeName, liveStats]);
 
   const homeShort = clean(homeName).slice(0, 14);
   const awayShort = clean(awayName).slice(0, 14);
