@@ -62,6 +62,8 @@ database_id = "ebaef170-b999-47d6-887d-24c5e16a674b"
 [env.production]
 name = "bet62apostasesportivas"
 account_id = "ca04a31d62caccd4774fd850d109bb91"
+workers_dev = true
+preview_urls = false
 triggers = { crons = ["*/5 * * * *"] }
 
 [env.production.vars]
