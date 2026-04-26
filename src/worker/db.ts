@@ -128,6 +128,12 @@ const _runMigrations = async (db: D1Database) => {
   try { await db.prepare('ALTER TABLE user_profile ADD COLUMN roi REAL DEFAULT 0').run(); } catch { /* empty */ }
   try { await db.prepare('ALTER TABLE user_profile ADD COLUMN bets INTEGER DEFAULT 0').run(); } catch { /* empty */ }
   try { await db.prepare('ALTER TABLE user_profile ADD COLUMN wins INTEGER DEFAULT 0').run(); } catch { /* empty */ }
+  try { await db.prepare('ALTER TABLE user_profile ADD COLUMN self_exclude INTEGER DEFAULT 0').run(); } catch { /* empty */ }
+  try { await db.prepare('ALTER TABLE user_profile ADD COLUMN self_exclude_until TEXT').run(); } catch { /* empty */ }
+  try { await db.prepare('ALTER TABLE user_profile ADD COLUMN deposit_limit_daily REAL').run(); } catch { /* empty */ }
+  try { await db.prepare('ALTER TABLE user_profile ADD COLUMN deposit_limit_weekly REAL').run(); } catch { /* empty */ }
+  try { await db.prepare('ALTER TABLE user_profile ADD COLUMN deposit_limit_monthly REAL').run(); } catch { /* empty */ }
+  try { await db.prepare('ALTER TABLE user_profile ADD COLUMN reality_check_minutes INTEGER').run(); } catch { /* empty */ }
 
   // Imported Odds Table for Odds-API.io caching
   await db.prepare(`

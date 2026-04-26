@@ -35,12 +35,9 @@ export async function checkSelfExclusion(c: Context, next: Next) {
             }
         }
     } catch (e) {
-        console.error('Self-exclusion check failed:', e);
-        // Fail safe: if we can't check, we should probably allow? 
-        // Or block to be safe? 
-        // Better to block if error implies system failure, but let's log and proceed to avoid DoS if DB is glitchy?
-        // Responsible gaming: better to block if uncertain.
-        return c.json({ error: 'System error verifying account status' }, 500);
+        // Most common cause: missing columns on legacy schemas. Don't block the user — just log and proceed.
+        // Auto-exclusion on errors created false-positive 500s blocking all bets/deposits.
+        console.error('Self-exclusion check failed (allowing through):', e);
     }
 
     await next();
