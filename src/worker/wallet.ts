@@ -143,13 +143,19 @@ wallet.post('/withdraw', async (c) => {
   }
 
   try {
-    const { amount, method, destination } = await c.req.json();
+    const { amount, method: rawMethod, destination: destParam, iban, holder_name } = await c.req.json();
+    const method = rawMethod || 'SEPA';
     if (!amount || amount <= 0) return c.json({ error: 'Montante inválido' }, 400);
 
-    const idempotencyKey = c.req.header('Idempotency-Key');
-    if (!idempotencyKey) {
-        return c.json({ error: 'Idempotency-Key header is required' }, 400);
+    const idempotencyKey = c.req.header('Idempotency-Key') || `wd-${userId}-${Date.now()}`;
+
+    // Resolve destination: use passed iban or lookup locked IBAN from KYC
+    let destination = destParam || iban || '';
+    if (!destination && method.toUpperCase() === 'SEPA') {
+      const kyc = await c.env.DB.prepare('SELECT locked_iban FROM kyc_profiles WHERE user_id = ?').bind(userId).first();
+      destination = (kyc as any)?.locked_iban || '';
     }
+    if (!destination) return c.json({ error: 'IBAN de destino em falta. Guarde o seu IBAN primeiro.' }, 400);
 
     const audit = new AuditService(c.env.DB);
     const withdrawService = new WithdrawService(c.env.DB, audit);
@@ -290,6 +296,55 @@ wallet.post('/deposit/stripe/multibanco', async (c) => {
       metadata: { userId, method: 'multibanco' },
     });
     return c.json({ url: session.url, reference: (session as any).payment_intent });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// Stripe: confirmar pagamento e creditar saldo (fallback para webhook)
+wallet.post('/deposit/stripe/confirm', async (c) => {
+  const userId = c.get('user').userId;
+  try {
+    const { paymentIntentId } = await c.req.json();
+    if (!paymentIntentId) return c.json({ error: 'paymentIntentId obrigatório' }, 400);
+
+    const stripe = new Stripe(c.env.STRIPE_SECRET_KEY, { apiVersion: '2025-10-29.clover' });
+    const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+    if (intent.status !== 'succeeded') {
+      return c.json({ status: intent.status, credited: false });
+    }
+
+    // Verify ownership via metadata
+    if (intent.metadata?.userId && intent.metadata.userId !== String(userId)) {
+      return c.json({ error: 'Não autorizado' }, 403);
+    }
+
+    // Idempotency: check if already credited
+    const existing = await c.env.DB.prepare(
+      "SELECT id FROM ledger_transactions WHERE reference = ? LIMIT 1"
+    ).bind(`DEPOSIT:stripe:${paymentIntentId}`).first();
+
+    if (existing) {
+      return c.json({ status: 'succeeded', credited: false, reason: 'already_credited' });
+    }
+
+    const w = await c.env.DB.prepare('SELECT id FROM wallets WHERE user_id = ?').bind(userId).first();
+    if (!w) return c.json({ error: 'Carteira não encontrada' }, 404);
+
+    const amount = intent.amount / 100;
+    const audit = new AuditService(c.env.DB);
+    const ledger = new LedgerService(c.env.DB, audit);
+    await ledger.addTransaction(
+      (w as any).id,
+      'credit',
+      amount,
+      `DEPOSIT:stripe:${paymentIntentId}`,
+      `Stripe Deposit (${intent.metadata?.method || 'card'})`,
+      { actorId: userId, ip: c.req.header('CF-Connecting-IP') || 'confirm', userAgent: c.req.header('User-Agent') || 'confirm' }
+    );
+
+    return c.json({ status: 'succeeded', credited: true, amount });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }

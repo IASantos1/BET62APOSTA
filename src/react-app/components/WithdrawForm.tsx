@@ -49,9 +49,10 @@ export function WithdrawForm() {
         payload.holder_name = holderName;
       }
 
-      const data = await apiFetch<{ iban?: string, message?: string }>('/api/withdrawals', {
+      const data = await apiFetch<{ iban?: string, message?: string, id?: string }>('/api/wallet/withdraw', {
         method: 'POST',
-        body: JSON.stringify(payload)
+        headers: { 'Idempotency-Key': `wd-${Date.now()}-${Math.random().toString(36).slice(2)}` },
+        body: JSON.stringify({ ...payload, method: 'SEPA' })
       });
 
       addNotification({ type: 'success', message: data.message || 'Levantamento solicitado com sucesso!' });

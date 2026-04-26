@@ -182,6 +182,16 @@ async function statpalGet(path) {
 }
 
 // ── Outcome name translation ─────────────────────────────────────────────────
+// Normalize totals line to half-value (e.g. 2 → 2.5, 3 → 3.5)
+// Football/sports over-under lines are always half-lines to avoid push outcomes
+function normalizeHalfLine(raw) {
+  const str = String(raw || '').trim();
+  if (!str) return str;
+  const n = parseFloat(str);
+  if (!Number.isFinite(n)) return str;
+  return Number.isInteger(n) ? String(n + 0.5) : str;
+}
+
 function translateOutcome(name, canonical) {
   const n = String(name || '').toLowerCase().trim();
   const MAP = { home:'Casa', '1':'Casa', draw:'Empate', x:'Empate', away:'Fora', '2':'Fora', over:'Mais', under:'Menos', yes:'Sim', no:'Não', gg:'Sim', ng:'Não' };
@@ -242,8 +252,9 @@ function normalizeLiveOdds(statpalOdds, isSuspended, totalGoals) {
     // ── Totals (Over/Under goals) ─────────────────────────────────────────────
     if (canonical === 'totals') {
       for (const l of lines) {
-        const hcap = String(l.handicap || '').trim();
-        if (!hcap) continue;
+        const hcapRaw = String(l.handicap || '').trim();
+        if (!hcapRaw) continue;
+        const hcap = normalizeHalfLine(hcapRaw);
         const lbl   = String(l.name || '').toLowerCase();
         const price = parseFloat(l.odd || '0');
         if (price <= 1) continue;
@@ -257,8 +268,9 @@ function normalizeLiveOdds(statpalOdds, isSuspended, totalGoals) {
     // ── Corners ───────────────────────────────────────────────────────────────
     if (canonical === 'corners_total') {
       for (const l of lines) {
-        const hcap = String(l.handicap || '').trim();
-        if (!hcap) continue;
+        const hcapRaw = String(l.handicap || '').trim();
+        if (!hcapRaw) continue;
+        const hcap = normalizeHalfLine(hcapRaw);
         const lbl   = String(l.name || '').toLowerCase();
         const price = parseFloat(l.odd || '0');
         if (price <= 1) continue;
@@ -559,8 +571,9 @@ function normalizePrematchOdds(matchOdds) {
     if (['totals', 'first_half_totals', 'second_half_totals'].includes(canonical)) {
       if (!total) continue;
       for (const t of total) {
-        const line  = String(t.name || '').trim();
-        if (!line) continue;
+        const lineRaw = String(t.name || '').trim();
+        if (!lineRaw) continue;
+        const line  = normalizeHalfLine(lineRaw);
         const bkey  = `${canonical}:${line}`;
         if (!partialTotals[bkey]) partialTotals[bkey] = { canonical, line, over: 0, under: 0 };
         for (const o of (Array.isArray(t.odd) ? t.odd : [])) {
@@ -930,6 +943,55 @@ const server = http.createServer((req, res) => {
       } catch {
         res.writeHead(404, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
         res.end(JSON.stringify({ statsData: null }));
+      }
+      return;
+    }
+
+    // ── H2H: /api/events/:id/h2h ─────────────────────────────────────────────
+    const h2hMatch = url.match(/^\/api\/events\/(sp_[^/?]+)\/h2h/);
+    if (h2hMatch) {
+      const evId = h2hMatch[1];
+      const ev   = _eventsById.get(evId);
+      const numId = evId.replace(/^sp_/, '');
+      try {
+        const data = await statpalGet(`/matches/${numId}/h2h`);
+        const matches = data?.h2h || data?.matches || data?.previous || [];
+        const formatted = (Array.isArray(matches) ? matches : []).slice(0, 10).map(m => ({
+          date: m.date || m.match_date || '',
+          home: m.home?.name || m.home_team || '',
+          away: m.away?.name || m.away_team || '',
+          scoreHome: m.home?.score ?? m.score_home ?? m.goals_home ?? null,
+          scoreAway: m.away?.score ?? m.score_away ?? m.goals_away ?? null,
+          competition: m.competition?.name || m.league || m.competition || '',
+        }));
+        sendJSON(res, { h2h: formatted, event: ev ? { home: ev.home_team, away: ev.away_team } : null });
+      } catch {
+        sendJSON(res, { h2h: [], event: ev ? { home: ev.home_team, away: ev.away_team } : null });
+      }
+      return;
+    }
+
+    // ── Standings: /api/leagues/:id/standings ────────────────────────────────
+    const standingsMatch = url.match(/^\/api\/leagues\/([^/?]+)\/standings/);
+    if (standingsMatch) {
+      const leagueId = standingsMatch[1];
+      try {
+        const data = await statpalGet(`/leagues/${leagueId}/standings`);
+        const table = data?.standings?.table || data?.table || data?.standings || [];
+        const rows = (Array.isArray(table) ? table : []).map(row => ({
+          position: row.position || row.rank || row.pos || '',
+          team: row.team?.name || row.team_name || row.name || '',
+          played: row.played || row.games || row.gp || 0,
+          wins: row.wins || row.win || row.w || 0,
+          draws: row.draws || row.draw || row.d || 0,
+          losses: row.losses || row.loss || row.l || 0,
+          goalsFor: row.goals_for || row.gf || row.scored || 0,
+          goalsAgainst: row.goals_against || row.ga || row.conceded || 0,
+          points: row.points || row.pts || row.p || 0,
+        }));
+        sendJSON(res, { standings: rows, leagueId });
+      } catch {
+        sendJSON(res, { standings: [], leagueId });
       }
       return;
     }

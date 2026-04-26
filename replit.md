@@ -181,11 +181,30 @@ Configured as a static site deployment:
 - Builds from real stats (shots, attacks) with spike overlay from match events
 - Shows team names, Ao Vivo indicator, minute labels
 
+## Wallet — Robustness
+- **Deposit via Stripe (Card)**: after `stripe.confirmCardPayment` succeeds, frontend calls `POST /api/wallet/deposit/stripe/confirm` to credit the wallet immediately (idempotent — will not double-credit if webhook also fires)
+- **Stripe webhook** at `/api/wallet/webhook/stripe/intents` also credits on `payment_intent.succeeded` (production path)
+- **Withdrawal (`WithdrawForm`)**: fixed endpoint from `/api/withdrawals` to `/api/wallet/withdraw`; auto-generates `Idempotency-Key` header; sends `method: 'SEPA'`; backend auto-looks up locked IBAN from KYC profile if not provided in body
+- **Confirm endpoint** (`POST /api/wallet/deposit/stripe/confirm`): retrieves PaymentIntent from Stripe, verifies ownership via metadata, checks for duplicate credit via `reference` field, then creates ledger credit
+- **Withdraw route** auto-resolves `destination` IBAN from KYC `kyc_profiles.locked_iban` if not passed by client
+
 ## Payments — Deposit
 - PayPal completely removed from DepositPage
 - Remaining methods: Cartão (Stripe) | MBway | Multibanco
 - Default method: Cartão (Stripe)
 - Stripe key manager: operators can input a live Stripe public key (pk_live_...) via UI; stored in localStorage
+
+## Goals / Totals Markets
+- **Half-line normalization**: `normalizeHalfLine()` helper in proxy converts integer lines (0, 1, 2, 3...) to half-lines (0.5, 1.5, 2.5, 3.5...) for both live and prematch totals
+- **SubOddsModel**: `formatTotalNumber()` also applies the same integer→X.5 normalization as safety net
+- Lines are sorted numerically ascending (0.5, 1.5, 2.5, 3.5, 4.5, 5.5)
+
+## Pre-game Statistics
+- EventDetails: when event is NOT live, shows a tab bar: **📊 Histórico H2H | 🏆 Classificação**
+- **H2H tab**: fetches `/api/events/:id/h2h` → Statpal `/matches/{id}/h2h`; shows last 10 matches with date, teams, score (winner highlighted in green)
+- **Standings tab**: fetches `/api/leagues/:leagueId/standings` → Statpal `/leagues/{id}/standings`; shows full league table (Pos | Team | J | V | E | D | GM | GS | Pts) with home/away teams highlighted
+- Both endpoints handle Statpal errors gracefully (empty data shown with "Indisponível" message)
+- Data is fetched once on mount (idempotent, `pregameStatsLoaded` flag prevents re-fetches)
 
 ## Multi-Sport Coverage
 - Statpal.io API v2 covers **soccer/football only** — no basketball, tennis, handball, etc.

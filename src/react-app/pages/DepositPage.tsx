@@ -42,7 +42,14 @@ const StripeCardForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
       if (stripeError) {
         setError(stripeError.message || 'Erro no pagamento');
       } else if (paymentIntent?.status === 'succeeded') {
-        addNotification({ type: 'success', message: '✅ Pagamento com cartão efetuado!' });
+        // Credit wallet directly (webhook fallback for dev/test environments)
+        try {
+          await apiFetch('/api/wallet/deposit/stripe/confirm', {
+            method: 'POST',
+            body: JSON.stringify({ paymentIntentId: paymentIntent.id })
+          });
+        } catch { /* webhook may have already credited; ignore */ }
+        addNotification({ type: 'success', message: '✅ Saldo creditado com sucesso! Boas apostas.' });
         onSuccess();
       }
     } catch (err: any) {

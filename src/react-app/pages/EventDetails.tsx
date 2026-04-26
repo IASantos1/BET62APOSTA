@@ -214,6 +214,28 @@ export default function EventDetails() {
   }, [displayEvent, addToBetSlip]);
 
   const [livePanel, setLivePanel] = useState<'pitch' | 'lineup' | 'stats'>('pitch');
+  const [pregameTab, setPregameTab] = useState<'h2h' | 'standings'>('h2h');
+  const [h2hData, setH2hData] = useState<any[]>([]);
+  const [standingsData, setStandingsData] = useState<any[]>([]);
+  const [pregameStatsLoaded, setPregameStatsLoaded] = useState(false);
+
+  // Fetch pre-game stats: H2H + standings
+  useEffect(() => {
+    if (!displayEvent || displayEvent.is_live === 1 || pregameStatsLoaded) return;
+    const evId = displayEvent.id || displayEvent.external_event_id;
+    const leagueId = displayEvent.league_id;
+    if (!evId) return;
+    setPregameStatsLoaded(true);
+    const ac = new AbortController();
+    Promise.allSettled([
+      apiFetch<any>(`/api/events/${evId}/h2h`, { signal: ac.signal }).catch(() => ({ h2h: [] })),
+      leagueId ? apiFetch<any>(`/api/leagues/${leagueId}/standings`, { signal: ac.signal }).catch(() => ({ standings: [] })) : Promise.resolve({ standings: [] })
+    ]).then(([h2hResult, standResult]) => {
+      if (h2hResult.status === 'fulfilled') setH2hData(h2hResult.value?.h2h || []);
+      if (standResult.status === 'fulfilled') setStandingsData((standResult.value as any)?.standings || []);
+    });
+    return () => ac.abort();
+  }, [displayEvent, pregameStatsLoaded]);
 
   if (loading) return <div className="p-8 text-center"><div className="animate-spin h-8 w-8 border-4 border-red-600 border-t-transparent rounded-full mx-auto"></div></div>;
   if (error || !displayEvent) return <div className="p-8 text-center text-red-600">{error || 'Evento não encontrado'}</div>;
@@ -393,6 +415,109 @@ export default function EventDetails() {
                     sportName={displayEvent.sport}
                     darkMode={darkMode} 
                   />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Pre-game Stats: H2H + Standings (side by side) */}
+          {!isLive && (
+            <div className="mb-4">
+              {/* Tab bar */}
+              <div className={`flex rounded-xl overflow-hidden border mb-3 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                {[
+                  { key: 'h2h' as const, label: '📊 Histórico H2H' },
+                  { key: 'standings' as const, label: '🏆 Classificação' },
+                ].map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setPregameTab(tab.key)}
+                    className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-wide transition-colors
+                      ${pregameTab === tab.key
+                        ? 'bg-red-600 text-white'
+                        : darkMode ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-50'
+                      }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* H2H Panel */}
+              {pregameTab === 'h2h' && (
+                <div className={`rounded-xl border overflow-hidden ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                  <div className={`px-4 py-2.5 border-b text-xs font-bold uppercase tracking-wide ${darkMode ? 'border-gray-700 text-gray-400' : 'border-gray-100 text-gray-500'}`}>
+                    Confrontos Directos — {cleanTeam(displayEvent.home_team)} vs {cleanTeam(displayEvent.away_team)}
+                  </div>
+                  {h2hData.length === 0 ? (
+                    <p className={`text-center py-6 text-sm ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Sem dados de H2H disponíveis</p>
+                  ) : (
+                    <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                      {h2hData.map((m: any, i: number) => {
+                        const homeWon = (m.scoreHome ?? -1) > (m.scoreAway ?? -1);
+                        const awayWon = (m.scoreAway ?? -1) > (m.scoreHome ?? -1);
+                        return (
+                          <div key={i} className={`flex items-center px-4 py-2.5 gap-3 text-sm ${i % 2 === 0 ? (darkMode ? 'bg-gray-800/50' : 'bg-gray-50/60') : ''}`}>
+                            <span className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'} w-20 shrink-0`}>{String(m.date || '').slice(0, 10)}</span>
+                            <span className={`flex-1 text-right text-xs font-medium ${homeWon ? (darkMode ? 'text-green-400' : 'text-green-600') : (darkMode ? 'text-gray-300' : 'text-gray-700')}`}>{m.home}</span>
+                            <span className={`px-2 py-0.5 rounded font-bold text-xs tabular-nums ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                              {m.scoreHome ?? '-'} – {m.scoreAway ?? '-'}
+                            </span>
+                            <span className={`flex-1 text-xs font-medium ${awayWon ? (darkMode ? 'text-green-400' : 'text-green-600') : (darkMode ? 'text-gray-300' : 'text-gray-700')}`}>{m.away}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Standings Panel */}
+              {pregameTab === 'standings' && (
+                <div className={`rounded-xl border overflow-hidden ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                  <div className={`px-4 py-2.5 border-b text-xs font-bold uppercase tracking-wide ${darkMode ? 'border-gray-700 text-gray-400' : 'border-gray-100 text-gray-500'}`}>
+                    Classificação — {displayEvent.league_name || displayEvent.league}
+                  </div>
+                  {standingsData.length === 0 ? (
+                    <p className={`text-center py-6 text-sm ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Classificação indisponível</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className={`${darkMode ? 'bg-gray-700/50 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>
+                            <th className="px-2 py-2 text-center w-8">#</th>
+                            <th className="px-3 py-2 text-left">Equipa</th>
+                            <th className="px-2 py-2 text-center">J</th>
+                            <th className="px-2 py-2 text-center">V</th>
+                            <th className="px-2 py-2 text-center">E</th>
+                            <th className="px-2 py-2 text-center">D</th>
+                            <th className="px-2 py-2 text-center">GM</th>
+                            <th className="px-2 py-2 text-center">GS</th>
+                            <th className="px-2 py-2 text-center font-bold">Pts</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {standingsData.map((row: any, i: number) => {
+                            const isHome = cleanTeam(displayEvent.home_team).toLowerCase() === String(row.team).toLowerCase();
+                            const isAway = cleanTeam(displayEvent.away_team).toLowerCase() === String(row.team).toLowerCase();
+                            return (
+                              <tr key={i} className={`border-t ${darkMode ? 'border-gray-700' : 'border-gray-100'} ${isHome ? (darkMode ? 'bg-blue-900/30' : 'bg-blue-50') : isAway ? (darkMode ? 'bg-red-900/30' : 'bg-red-50') : i % 2 === 0 ? (darkMode ? 'bg-gray-800/30' : 'bg-gray-50/60') : ''}`}>
+                                <td className={`px-2 py-1.5 text-center font-bold ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{row.position}</td>
+                                <td className={`px-3 py-1.5 font-medium truncate max-w-[120px] ${isHome ? (darkMode ? 'text-blue-300' : 'text-blue-700') : isAway ? (darkMode ? 'text-red-300' : 'text-red-700') : (darkMode ? 'text-gray-200' : 'text-gray-800')}`}>{row.team}</td>
+                                <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{row.played}</td>
+                                <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-green-400' : 'text-green-600'}`}>{row.wins}</td>
+                                <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{row.draws}</td>
+                                <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-red-400' : 'text-red-500'}`}>{row.losses}</td>
+                                <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{row.goalsFor}</td>
+                                <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{row.goalsAgainst}</td>
+                                <td className={`px-2 py-1.5 text-center font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{row.points}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

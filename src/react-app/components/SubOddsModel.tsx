@@ -449,7 +449,10 @@ export function SubOddsModel({
           const formatTotalNumber = (label: string) => {
             const m = /([0-9]+(?:\.[0-9]+)?|[0-9]+(?:,[0-9]+)?)/.exec(String(label || ''))
             if (!m) return ''
-            return String(m[1]).replace(',', '.')
+            const raw = String(m[1]).replace(',', '.')
+            const n = parseFloat(raw)
+            // Normalize integer lines to X.5 (football over-under convention)
+            return Number.isFinite(n) && Number.isInteger(n) ? String(n + 0.5) : raw
           }
           const maxLine = key === 'totals' ? 5.5 : 999;
           const okLine = (lbl: string) => {
