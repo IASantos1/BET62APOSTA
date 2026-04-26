@@ -59,6 +59,59 @@ function baselineOdds(sport: string): { home: number; draw: number; away: number
   return { home: 2.10, draw: 3.30, away: 3.20 };
 }
 
+// Gera mercados base (totals + btts) em JSON. Variação determinística por id+teams
+// para que o utilizador veja odds diferentes em jogos diferentes (em vez de tudo igual).
+function hashSeed(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 16777619) >>> 0; }
+  return h >>> 0;
+}
+function jitter(seed: number, salt: number, min: number, max: number): number {
+  const v = (((seed * 1103515245 + salt) >>> 0) % 1000) / 1000;
+  return +(min + (max - min) * v).toFixed(2);
+}
+function buildSoccerMarketsJson(seedKey: string): string {
+  const s = hashSeed(seedKey);
+  const o05 = jitter(s, 1, 1.02, 1.18);
+  const u05 = +(1 / (1 / o05 - 0.85)).toFixed(2);
+  const o15 = jitter(s, 2, 1.20, 1.65);
+  const u15 = jitter(s, 3, 2.20, 4.20);
+  const o25 = jitter(s, 4, 1.55, 2.30);
+  const u25 = jitter(s, 5, 1.55, 2.30);
+  const bttsYes = jitter(s, 6, 1.55, 2.10);
+  const bttsNo = jitter(s, 7, 1.65, 2.20);
+  return JSON.stringify({
+    totals: [
+      { line: '0.5', selections: [
+        { label: 'Mais 0.5', name: 'over', odd: o05 },
+        { label: 'Menos 0.5', name: 'under', odd: u05 },
+      ]},
+      { line: '1.5', selections: [
+        { label: 'Mais 1.5', name: 'over', odd: o15 },
+        { label: 'Menos 1.5', name: 'under', odd: u15 },
+      ]},
+      { line: '2.5', selections: [
+        { label: 'Mais 2.5', name: 'over', odd: o25 },
+        { label: 'Menos 2.5', name: 'under', odd: u25 },
+      ]},
+    ],
+    btts: { selections: [
+      { label: 'Sim', name: 'yes', odd: bttsYes },
+      { label: 'Não', name: 'no', odd: bttsNo },
+    ]},
+  });
+}
+
+// Minuto aproximado a partir do status (StatPal não fornece minuto exacto na livescores)
+function minuteFromStatus(status: string): number {
+  const s = String(status || '').toLowerCase().trim();
+  if (s === 'ht' || s === 'halftime' || s === 'half time') return 45;
+  if (s === '1st half' || s === '1h') return 25;
+  if (s === '2nd half' || s === '2h') return 70;
+  if (s === 'extra time' || s === 'et') return 105;
+  return 0;
+}
+
 // ── Soccer ────────────────────────────────────────────────────────────
 export async function fetchStatpalSoccer(apiKey: string): Promise<NormalizedEvent[]> {
   const url = `${STATPAL_BASE}/soccer/livescores?access_key=${encodeURIComponent(apiKey)}`;
@@ -89,7 +142,13 @@ export async function fetchStatpalSoccer(apiKey: string): Promise<NormalizedEven
       const live = isLive(status);
       const homeGoals = Number(m?.home?.goals ?? 0);
       const awayGoals = Number(m?.away?.goals ?? 0);
-      const score = (live || finished) ? `${homeGoals}-${awayGoals}` : '';
+      const scoreJson = (live || finished)
+        ? JSON.stringify({ home: homeGoals, away: awayGoals })
+        : '{"home":null,"away":null}';
+      const minute = live ? minuteFromStatus(status) : 0;
+      const timerLabel = status.toUpperCase() === 'HT'
+        ? 'INTERVALO'
+        : (live && minute > 0 ? `${minute}'` : String(m?.status || ''));
 
       out.push({
         external_event_id: `statpal_soccer_${id}`,
@@ -104,10 +163,10 @@ export async function fetchStatpalSoccer(apiKey: string): Promise<NormalizedEven
         home_odd: baseline.home,
         draw_odd: baseline.draw,
         away_odd: baseline.away,
-        elapsed: Number(m?.inj_minute || 0) || 0,
-        timer: String(m?.status || ''),
-        score,
-        markets: '',
+        elapsed: minute,
+        timer: timerLabel,
+        score: scoreJson,
+        markets: buildSoccerMarketsJson(`${id}|${home}|${away}`),
         country,
         home_team_logo: '',
         away_team_logo: '',
@@ -149,7 +208,9 @@ export async function fetchStatpalTennis(apiKey: string): Promise<NormalizedEven
       const live = isLive(status);
       const homeSets = Number(players[0]?.sets ?? players[0]?.totalsets ?? 0);
       const awaySets = Number(players[1]?.sets ?? players[1]?.totalsets ?? 0);
-      const score = (live || finished) ? `${homeSets}-${awaySets}` : '';
+      const scoreJson = (live || finished)
+        ? JSON.stringify({ home: homeSets, away: awaySets })
+        : '{"home":null,"away":null}';
 
       out.push({
         external_event_id: `statpal_tennis_${id}`,
@@ -166,7 +227,7 @@ export async function fetchStatpalTennis(apiKey: string): Promise<NormalizedEven
         away_odd: baseline.away,
         elapsed: 0,
         timer: status,
-        score,
+        score: scoreJson,
         markets: '',
         country: '',
         home_team_logo: '',

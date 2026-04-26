@@ -182,6 +182,24 @@ function formatEvent(r: any): any {
     marketsArr.push({ id: 'mkt_h2h', key: 'h2h', name: 'Resultado Final', selections: h2hSelections });
   }
 
+  // ── totals (Mais/Menos golos) + btts (Ambas marcam) ──
+  const rawTotals = (markets as any)?.totals;
+  if (Array.isArray(rawTotals) && rawTotals.length > 0) {
+    // Preferir linha 0.5 (mostrada no card resumo); o resto fica disponível no detalhe
+    const preferred = rawTotals.find((t: any) => String(t?.line || '') === '0.5') || rawTotals[0];
+    const sel = Array.isArray(preferred?.selections) ? preferred.selections : [];
+    if (sel.length >= 2) {
+      marketsArr.push({ id: 'mkt_totals', key: 'totals', name: 'Total de Golos', line: String(preferred.line || '0.5'), selections: sel });
+    }
+  }
+  const rawBtts = (markets as any)?.btts;
+  if (rawBtts) {
+    const sel = Array.isArray(rawBtts?.selections) ? rawBtts.selections : (Array.isArray(rawBtts) ? rawBtts : []);
+    if (sel.length >= 1) {
+      marketsArr.push({ id: 'mkt_btts', key: 'btts', name: 'Ambas Equipas Marcam', selections: sel });
+    }
+  }
+
   const elapsedNum = Number(r.elapsed) || 0;
   const timerStr = String(r.timer || '').trim() || (elapsedNum > 0 ? `${elapsedNum}'` : '');
 
