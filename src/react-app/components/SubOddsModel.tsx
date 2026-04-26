@@ -174,6 +174,9 @@ export function SubOddsModel({
   labelOutcome,
   applyMarginClamp,
   suspendedMarkets,
+  liveEvents,
+  liveTimer,
+  isLive,
 }: {
   event: any
   darkMode: boolean
@@ -183,6 +186,9 @@ export function SubOddsModel({
   labelOutcome: (market: string, name: string) => string
   applyMarginClamp: (mk: string, v: number) => number
   suspendedMarkets?: { eventId: number; marketId: string; reason: string }[]
+  liveEvents?: any[]
+  liveTimer?: string
+  isLive?: boolean
 }) {
   const home = useMemo(() => String(event?.home_team || (event?.match || '').split(' vs ')[0] || ''), [event])
   const away = useMemo(() => String(event?.away_team || (event?.match || '').split(' vs ')[1] || ''), [event])
@@ -409,6 +415,64 @@ export function SubOddsModel({
     ] as MarketItem[]
   }, [eventOdds, markets, resultadoRegulamentar, totalsItems])
 
+  // ─────────────────────────────────────────────────────────────────────
+  // CRITICAL EVENT STATE MACHINE — replaces 1X2 buttons during key moments
+  // ─────────────────────────────────────────────────────────────────────
+  type CritState = 'idle' | 'big_chance' | 'var_review' | 'var_penalty' | 'goal';
+  const [critState, setCritState] = useState<CritState>('idle');
+  const lastEventIdRef = useRef<string>('');
+
+  // Watch live events and trigger critical state on goal/var/big-chance/penalty
+  useEffect(() => {
+    if (!isLive || !Array.isArray(liveEvents) || liveEvents.length === 0) return;
+    const latest = liveEvents[liveEvents.length - 1];
+    if (!latest) return;
+    const id = `${latest?.timer || latest?.minute || latest?.time?.elapsed || ''}|${latest?.type || ''}|${latest?.detail || ''}|${latest?.player?.name || latest?.player || ''}`;
+    if (id === lastEventIdRef.current) return;
+    lastEventIdRef.current = id;
+
+    const text = `${latest?.type || ''} ${latest?.detail || ''} ${latest?.text || ''} ${latest?.comments || ''}`.toLowerCase();
+    let next: CritState | null = null;
+    // Order matters: most-specific first
+    if (/(var.*pen|pen.*var|p[eê]nalti.*confirmad|penalty.*confirmed)/.test(text)) next = 'var_penalty';
+    else if (/\bvar\b|video.*assist|review/.test(text)) next = 'var_review';
+    else if (/\b(goal|gol)\b/.test(text) && !/disallow|cancel|anulad|missed|own/.test(text)) next = 'goal';
+    else if (/big.*chance|grande.*chance|great.*chance|big_chance|gc\b/.test(text)) next = 'big_chance';
+
+    if (next) {
+      setCritState(next);
+      // Phase duration: goal is most prominent
+      const dur = next === 'goal' ? 12000 : next === 'var_penalty' ? 10000 : 8000;
+      const t = setTimeout(() => setCritState('idle'), dur);
+      return () => clearTimeout(t);
+    }
+  }, [liveEvents, isLive]);
+
+  // ─────────────────────────────────────────────────────────────────────
+  // "APOSTA JÁ" mode: collapse 1X2 into single button when match is decided
+  // Triggers: any odd ≤ 1.01, score 2-0 at min ≥ 80, score diff ≥ 3
+  // ─────────────────────────────────────────────────────────────────────
+  const apostaJaActive = useMemo(() => {
+    if (!isLive) return false;
+    let h = 0, a = 0;
+    const goals = (event as any)?.goals;
+    if (goals && typeof goals === 'object') {
+      h = Number(goals.home ?? goals.localteam_score ?? 0);
+      a = Number(goals.away ?? goals.visitorteam_score ?? 0);
+    } else if (typeof goals === 'string') {
+      try { const g = JSON.parse(goals); h = Number(g.home || 0); a = Number(g.away || 0); } catch { /* ignore */ }
+    }
+    const diff = Math.abs(h - a);
+    if (diff >= 3) return true;
+    const minute = parseInt(String(liveTimer || '').replace(/[^\d]/g, ''), 10) || 0;
+    if (diff >= 2 && minute >= 80) return true;
+    for (const it of resultadoRegulamentar) {
+      const v = Number(it.odd);
+      if (v > 0 && v <= 1.01) return true;
+    }
+    return false;
+  }, [isLive, event, liveTimer, resultadoRegulamentar]);
+
   // --- Render each market as a card ---
   const renderMarketContent = (key: string) => {
       if (key !== 'h2h' && ['h2h_3_way', '1x2', 'main', 'match_winner'].includes(key)) {
@@ -416,11 +480,65 @@ export function SubOddsModel({
       }
 
       // H2H — 3-column side-by-side layout (Casa | Empate | Fora)
+      // Replaced by single full-width button when:
+      //   • critical event detected (goal/var/big_chance/var_penalty)
+      //   • match decided ("Aposta Já": odd≤1.01, 2-0 at 80', or 3+ goal diff)
       if (key === 'h2h') {
           if (resultadoRegulamentar.length === 0) return null;
           const title = getMarketTitle('h2h', event?.sport);
           const susp = getSuspendedReason('h2h');
           const isSusp = !!susp;
+
+          // ── Critical event button (overrides everything) ──────────────
+          if (critState !== 'idle' && !isSusp) {
+            const cfg = {
+              goal:        { label: '⚽ GOL!',                       bg: 'from-emerald-500 to-green-600', ring: 'ring-emerald-300', anim: 'animate-bounce' },
+              big_chance:  { label: '🔥 GRANDE CHANCE',              bg: 'from-orange-500 to-amber-600',  ring: 'ring-orange-300',  anim: 'animate-pulse' },
+              var_review:  { label: '📺 REVISÃO VAR',                bg: 'from-indigo-500 to-purple-600', ring: 'ring-purple-300',  anim: 'animate-pulse' },
+              var_penalty: { label: '🎯 VAR: PÉNALTI CONFIRMADO',    bg: 'from-yellow-500 to-amber-500',  ring: 'ring-yellow-300',  anim: 'animate-pulse' },
+            }[critState];
+            // Auto-pick favourite to wager on (lowest odd)
+            const fav = resultadoRegulamentar.reduce((m, x) => (Number(x.odd) > 0 && Number(x.odd) < Number(m.odd) ? x : m), resultadoRegulamentar[0]);
+            return (
+              <MarketCard title={title} darkMode={darkMode} noPad>
+                <div className="p-3">
+                  <button
+                    onClick={() => fav && onSelect(fav.label, Number(fav.odd))}
+                    className={`w-full h-16 rounded-xl font-black text-lg uppercase tracking-wider text-white shadow-lg
+                      bg-gradient-to-r ${cfg.bg} ring-4 ${cfg.ring} ring-opacity-60 ${cfg.anim}
+                      transition-all duration-200 hover:scale-[1.02] active:scale-95`}
+                  >
+                    {cfg.label}
+                  </button>
+                </div>
+              </MarketCard>
+            );
+          }
+
+          // ── "Aposta Já" mode (single big red button) ──────────────────
+          if (apostaJaActive && !isSusp) {
+            const fav = resultadoRegulamentar.reduce((m, x) => (Number(x.odd) > 0 && Number(x.odd) < Number(m.odd) ? x : m), resultadoRegulamentar[0]);
+            const favOdd = Number(fav?.odd) || 0;
+            const favStr = favOdd > 0 ? favOdd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+            return (
+              <MarketCard title={title} darkMode={darkMode} noPad>
+                <div className="p-3">
+                  <button
+                    onClick={() => fav && onSelect(fav.label, favOdd)}
+                    className="w-full h-16 rounded-xl font-black text-xl uppercase tracking-wider text-white shadow-lg
+                      bg-gradient-to-r from-red-600 to-rose-700 ring-4 ring-red-400 ring-opacity-50 animate-pulse
+                      transition-all duration-200 hover:scale-[1.02] active:scale-95
+                      flex items-center justify-center gap-3"
+                  >
+                    <span>⚡ APOSTA JÁ</span>
+                    {fav && <span className="text-base opacity-90">{fav.label} @ {favStr}</span>}
+                  </button>
+                </div>
+              </MarketCard>
+            );
+          }
+
+          // ── Normal 3-column layout ────────────────────────────────────
           return (
             <MarketCard title={title} darkMode={darkMode} noPad>
               <div className="grid grid-cols-3 gap-0 divide-x divide-gray-100 dark:divide-gray-700 p-0">

@@ -612,6 +612,9 @@ export default function EventDetails() {
             labelOutcome={handleLabelOutcome}
             applyMarginClamp={applyMarginClamp}
             suspendedMarkets={[]}
+            liveEvents={liveStats.events}
+            liveTimer={liveTimer || (liveElapsed > 0 ? `${liveElapsed}` : '')}
+            isLive={isLive}
           />
         </main>
 
