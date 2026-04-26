@@ -340,14 +340,43 @@ export function SubOddsModel({
           if (resultadoRegulamentar.length > 0) return null;
       }
 
-      // H2H
+      // H2H — 3-column side-by-side layout (Casa | Empate | Fora)
       if (key === 'h2h') {
           if (resultadoRegulamentar.length === 0) return null;
           const title = getMarketTitle('h2h', event?.sport);
           const susp = getSuspendedReason('h2h');
+          const isSusp = !!susp;
           return (
-            <MarketCard title={title} darkMode={darkMode}>
-              <MarketButtonGroup items={resultadoRegulamentar} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
+            <MarketCard title={title} darkMode={darkMode} noPad>
+              <div className="grid grid-cols-3 gap-0 divide-x divide-gray-100 dark:divide-gray-700 p-0">
+                {resultadoRegulamentar.map((item, i) => {
+                  const val = Number(item.odd);
+                  const priceStr = val > 0 ? val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-1.5 py-3 px-2">
+                      <span className={`text-[11px] font-extrabold uppercase tracking-wider ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {item.label}
+                      </span>
+                      <button
+                        onClick={isSusp ? undefined : () => onSelect(item.label, val)}
+                        disabled={isSusp}
+                        className={`w-full h-14 rounded-lg font-black text-lg tabular-nums transition-all duration-200 shadow-sm
+                          ${isSusp
+                            ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
+                            : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'
+                          }`}
+                      >
+                        {isSusp
+                          ? <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mx-auto text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                            </svg>
+                          : priceStr
+                        }
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             </MarketCard>
           );
       }
@@ -502,6 +531,76 @@ export function SubOddsModel({
               <MarketButtonGroup items={bttsItems} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
             </MarketCard>
           )
+      }
+
+      // Correct Score — 3 columns: Casa wins | Empates | Fora wins
+      if (key === 'correct_score' || key === 'exact_score' || key === 'score') {
+        const rawItems = getMarketItems(key);
+        if (!rawItems || rawItems.length === 0) return null;
+        const title = getMarketTitle(key, event?.sport);
+        const susp = getSuspendedReason(key);
+        const isSusp = !!susp;
+
+        // Parse label like "1-0" → { h: 1, a: 0 }
+        const parseScore = (label: string) => {
+          const m = /(\d+)\s*[-:]\s*(\d+)/.exec(String(label || ''));
+          if (!m) return null;
+          return { h: parseInt(m[1]), a: parseInt(m[2]) };
+        };
+
+        const homeWins: typeof rawItems = [];
+        const draws: typeof rawItems = [];
+        const awayWins: typeof rawItems = [];
+
+        for (const it of rawItems) {
+          const s = parseScore(String(it.label));
+          if (!s) continue;
+          if (s.h > s.a) homeWins.push(it);
+          else if (s.h === s.a) draws.push(it);
+          else awayWins.push(it);
+        }
+
+        const maxRows = Math.max(homeWins.length, draws.length, awayWins.length);
+        const colData = [
+          { label: 'Casa', items: homeWins, color: 'text-blue-400' },
+          { label: 'Empate', items: draws, color: 'text-yellow-400' },
+          { label: 'Fora', items: awayWins, color: 'text-red-400' },
+        ];
+
+        return (
+          <MarketCard title={title} darkMode={darkMode} noPad>
+            <div className="grid grid-cols-3 divide-x divide-gray-100 dark:divide-gray-700">
+              {colData.map(col => (
+                <div key={col.label} className="flex flex-col">
+                  <div className={`text-[10px] font-extrabold uppercase tracking-wider text-center py-1.5 ${col.color} ${darkMode ? 'bg-gray-800/60' : 'bg-gray-50'} border-b border-gray-100 dark:border-gray-700`}>
+                    {col.label}
+                  </div>
+                  <div className="flex flex-col gap-0">
+                    {Array.from({ length: maxRows }).map((_, i) => {
+                      const item = col.items[i];
+                      if (!item) return <div key={i} className="h-10 border-b border-gray-50 dark:border-gray-800/50 last:border-0" />;
+                      const val = Number(item.odd);
+                      const priceStr = val > 0 ? val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+                      return (
+                        <div key={i} className={`flex items-center justify-between px-2 py-1.5 border-b last:border-0 ${darkMode ? 'border-gray-800/50' : 'border-gray-50'}`}>
+                          <span className={`text-xs font-semibold tabular-nums ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{item.label}</span>
+                          <button
+                            onClick={isSusp ? undefined : () => onSelect(item.label, val)}
+                            disabled={isSusp}
+                            className={`min-w-[54px] h-8 px-2 rounded font-bold text-sm tabular-nums transition-all duration-200
+                              ${isSusp ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
+                          >
+                            {priceStr}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </MarketCard>
+        );
       }
 
       // Generic

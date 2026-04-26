@@ -1,68 +1,18 @@
 import { useState, type ChangeEvent } from "react";
-import { PayPalScriptProvider, PayPalButtons, usePayPalScriptReducer } from "@paypal/react-paypal-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { useApp } from '@/react-app/contexts/AppContext';
 import { apiFetch } from '@/react-app/utils/api';
 
-const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID || "";
-const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLIC_KEY || import.meta.env.VITE_STRIPE_PK || "";
-const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
-
-type Method = 'paypal' | 'mbway' | 'multibanco' | 'card';
-
 const QUICK_AMOUNTS = [10, 25, 50, 100, 200, 500];
 
-const PayPalPayment = ({ amount }: { amount: string }) => {
-  const [{ isPending, isRejected }] = usePayPalScriptReducer();
-  const { addNotification } = useApp();
+function getStripePromise() {
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('bet62_stripe_pk') : null;
+  const pk = stored || import.meta.env.VITE_STRIPE_PUBLIC_KEY || import.meta.env.VITE_STRIPE_PK || '';
+  return pk ? loadStripe(pk) : null;
+}
 
-  if (isRejected) {
-    return <div className="text-red-500 text-center p-4 text-sm">Erro ao carregar PayPal. Por favor, recarregue a página.</div>;
-  }
-
-  return (
-    <>
-      {isPending && <div className="flex justify-center py-4"><div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
-      <PayPalButtons
-        style={{ layout: "vertical", color: "gold", shape: "rect", label: "pay" }}
-        disabled={parseFloat(amount) < 10}
-        forceReRender={[amount]}
-        createOrder={async (_data, _actions) => {
-          try {
-            const res = await apiFetch<{ orderId: string }>('/api/deposits/paypal/create-order', {
-              method: 'POST',
-              body: JSON.stringify({ amount: parseFloat(amount) })
-            });
-            return res.orderId;
-          } catch (err: any) {
-            addNotification({ type: 'error', message: 'Erro ao criar ordem: ' + err.message });
-            throw err;
-          }
-        }}
-        onApprove={async (data, _actions) => {
-          try {
-            const res = await apiFetch<{ status: string }>('/api/deposits/paypal/capture-order', {
-              method: 'POST',
-              body: JSON.stringify({ orderId: data.orderID })
-            });
-            if (res.status === 'COMPLETED') {
-              addNotification({ type: 'success', message: '✅ Depósito realizado com sucesso!' });
-            } else {
-              addNotification({ type: 'error', message: 'Pagamento não concluído: ' + res.status });
-            }
-          } catch (err: any) {
-            addNotification({ type: 'error', message: 'Erro ao validar pagamento: ' + err.message });
-          }
-        }}
-        onError={(err: any) => {
-          console.error("PayPal Button Error:", err);
-          addNotification({ type: 'error', message: 'Erro no PayPal. Tente novamente.' });
-        }}
-      />
-    </>
-  );
-};
+type Method = 'card' | 'mbway' | 'multibanco';
 
 const StripeCardForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
   const stripe = useStripe();
@@ -111,7 +61,7 @@ const StripeCardForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
       <button
         type="submit"
         disabled={loading || !stripe}
-        className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-500 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+        className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-500 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
       >
         {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> A processar...</> : `💳 Pagar €${amount.toFixed(2)}`}
       </button>
@@ -172,7 +122,7 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
             onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
             maxLength={9}
             placeholder="912 345 678"
-            className={`flex-1 p-3 rounded-r-lg border outline-none focus:ring-2 focus:ring-blue-500 ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+            className={`flex-1 p-3 rounded-r-lg border outline-none focus:ring-2 focus:ring-red-500 ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
           />
         </div>
       </div>
@@ -180,7 +130,7 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
       <button
         type="submit"
         disabled={loading}
-        className="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 disabled:opacity-50 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+        className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2"
       >
         {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> A enviar...</> : `📱 Pagar €${amount.toFixed(2)} via MBway`}
       </button>
@@ -229,7 +179,7 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
       <button
         type="submit"
         disabled={loading}
-        className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+        className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2"
       >
         {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> A gerar...</> : `🏦 Gerar Referência €${amount.toFixed(2)}`}
       </button>
@@ -237,14 +187,80 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
   );
 };
 
+// ── Stripe Key Manager (admin/operator) ────────────────────────────────────────
+export function StripeKeyManager({ darkMode }: { darkMode: boolean }) {
+  const [key, setKey] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [show, setShow] = useState(false);
+
+  const currentKey = typeof localStorage !== 'undefined' ? (localStorage.getItem('bet62_stripe_pk') || '') : '';
+  const masked = currentKey ? `${currentKey.slice(0, 8)}...${currentKey.slice(-4)}` : 'Não configurado';
+
+  const handleSave = () => {
+    if (!key.startsWith('pk_')) {
+      alert('A chave deve começar com pk_live_ ou pk_test_');
+      return;
+    }
+    localStorage.setItem('bet62_stripe_pk', key.trim());
+    setSaved(true);
+    setKey('');
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  return (
+    <div className={`p-4 rounded-xl border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-lg">🔑</span>
+        <h3 className={`font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>Chave Stripe</h3>
+      </div>
+      <p className={`text-xs mb-2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+        Chave atual: <code className="font-mono">{masked}</code>
+      </p>
+      {show ? (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={key}
+            onChange={e => setKey(e.target.value)}
+            placeholder="pk_live_..."
+            className={`w-full p-2 rounded-lg border text-sm font-mono ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg text-sm"
+            >
+              {saved ? '✅ Salvo!' : 'Salvar'}
+            </button>
+            <button
+              onClick={() => setShow(false)}
+              className={`flex-1 py-2 rounded-lg text-sm font-bold ${darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-700'}`}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShow(true)}
+          className="text-sm text-blue-500 hover:underline"
+        >
+          Alterar chave Stripe Live →
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function DepositPage() {
-  const { darkMode } = useApp();
+  const { darkMode, isOperator } = useApp();
   const [amount, setAmount] = useState("25");
   const [amountError, setAmountError] = useState("");
-  const [method, setMethod] = useState<Method>('paypal');
+  const [method, setMethod] = useState<Method>('card');
   const [success, setSuccess] = useState(false);
 
   const numAmount = parseFloat(amount) || 0;
+  const stripePromise = getStripePromise();
 
   const handleAmountChange = (e: ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -260,10 +276,9 @@ export default function DepositPage() {
   const handleSuccess = () => setSuccess(true);
 
   const methodTabs: { key: Method; label: string; icon: string }[] = [
-    { key: 'paypal', label: 'PayPal / Cartão', icon: '🅿️' },
+    { key: 'card', label: 'Cartão', icon: '💳' },
     { key: 'mbway', label: 'MBway', icon: '📱' },
     { key: 'multibanco', label: 'Multibanco', icon: '🏦' },
-    { key: 'card', label: 'Cartão Stripe', icon: '💳' },
   ];
 
   if (success) {
@@ -309,7 +324,7 @@ export default function DepositPage() {
 
       {/* Método de pagamento */}
       <div className={`rounded-xl shadow overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-        <div className="grid grid-cols-2 border-b border-gray-700">
+        <div className="grid grid-cols-3 border-b border-gray-700">
           {methodTabs.map(tab => (
             <button
               key={tab.key}
@@ -326,13 +341,20 @@ export default function DepositPage() {
             <p className="text-center text-gray-500 text-sm py-4">Seleciona um valor mínimo de €10</p>
           ) : (
             <>
-              {method === 'paypal' && (
-                <PayPalScriptProvider options={{ clientId: PAYPAL_CLIENT_ID, currency: "EUR", intent: "capture", "disable-funding": "venmo,applepay" }}>
-                  <div>
-                    <p className="text-xs text-center text-gray-400 mb-3 uppercase tracking-wide">Pagamento Seguro via PayPal</p>
-                    <PayPalPayment amount={amount} />
+              {method === 'card' && (
+                stripePromise ? (
+                  <Elements stripe={stripePromise}>
+                    <div>
+                      <p className="text-xs text-center text-gray-400 mb-3 uppercase tracking-wide">Pagamento Seguro via Stripe</p>
+                      <StripeCardForm amount={numAmount} onSuccess={handleSuccess} />
+                    </div>
+                  </Elements>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-yellow-500 text-sm mb-3">Stripe não configurado.</p>
+                    {isOperator && <StripeKeyManager darkMode={darkMode} />}
                   </div>
-                </PayPalScriptProvider>
+                )
               )}
 
               {method === 'mbway' && (
@@ -342,20 +364,17 @@ export default function DepositPage() {
               {method === 'multibanco' && (
                 <MultibancoForm amount={numAmount} onSuccess={handleSuccess} />
               )}
-
-              {method === 'card' && (
-                stripePromise ? (
-                  <Elements stripe={stripePromise}>
-                    <StripeCardForm amount={numAmount} onSuccess={handleSuccess} />
-                  </Elements>
-                ) : (
-                  <p className="text-center text-yellow-500 text-sm py-4">Stripe não configurado. Contacta o suporte.</p>
-                )
-              )}
             </>
           )}
         </div>
       </div>
+
+      {/* Stripe key manager for operators */}
+      {isOperator && (
+        <div className="mt-4">
+          <StripeKeyManager darkMode={darkMode} />
+        </div>
+      )}
 
       <p className={`text-center text-xs mt-4 ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>🔒 Todos os pagamentos são processados com encriptação SSL</p>
     </div>

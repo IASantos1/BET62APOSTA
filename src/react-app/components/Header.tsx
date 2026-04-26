@@ -4,6 +4,12 @@ import { Link, NavLink } from "react-router-dom";
 import { useEffect, useState, useMemo } from 'react';
 import { NotepadText } from 'lucide-react';
 
+const SPORT_AVATARS = ['🐯','🦁','🐻','🐼','🦊','🐸','🦋','🐬','🦅','🐺','🐊','🐙','🦑','🦓','🦒','🐘','🦏','🦛','🐆','🐅'];
+function getEmojiAvatar(name: string): string {
+  const sum = String(name || 'U').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return SPORT_AVATARS[sum % SPORT_AVATARS.length];
+}
+
 export function Header() {
   const { darkMode, user, selfExclude, selfExcludeUntil, isOperator, showMobileSidebar, setShowMobileSidebar, openAuthModal, setSelectedCategory, showDashboard, setShowDashboard } = useApp();
 
@@ -12,8 +18,10 @@ export function Header() {
 
   const firstName = useMemo(() => {
     const name = (user && (user as any).username) ? String((user as any).username) : '';
-    return name.split(' ')[0] || name || 'Perfil';
+    return name.split(' ')[0] || name || 'U';
   }, [user]);
+
+  const emojiAvatar = useMemo(() => getEmojiAvatar(firstName), [firstName]);
 
   useEffect(() => {
     let alive = true;
@@ -55,7 +63,6 @@ export function Header() {
       if (typeof window !== 'undefined') {
         const url = new URL(window.location.href);
         if (url.pathname === '/register' || url.searchParams.has('ref')) {
-          // Wait for context to be ready
           setTimeout(() => openAuthModal('register'), 100);
         } else if (url.pathname === '/login') {
           setTimeout(() => openAuthModal('login'), 100);
@@ -129,55 +136,61 @@ export function Header() {
               </>
             )}
           </nav>
-            <div className="flex items-center space-x-4">
-              {user ? (
-                <>
-                  <div className="flex items-center gap-2 relative">
-                    <NavLink
-                      to="/my-bets"
-                      className={({ isActive }) => `p-2 rounded-md transition-colors ${isActive ? (darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-gray-900') : (darkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100')}`}
-                      title="As Minhas Apostas"
-                    >
-                      <NotepadText size={20} />
-                    </NavLink>
 
-                    <div className={`px-2 py-1 md:px-3 md:py-2 rounded-md border text-xs md:text-sm ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-gray-900'}`}>
-                      €{eurBalance !== null ? eurBalance.toFixed(2) : '0.00'}
-                    </div>
-                    <div className={`px-2 py-1 md:px-3 md:py-2 rounded-md border text-xs md:text-sm ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-gray-900'}`}>
-                      <span className={`${darkMode ? 'bg-red-700 text-white' : 'bg-red-600 text-white'} inline-flex items-center justify-center w-4 h-4 md:w-5 md:h-5 rounded-full text-[10px] md:text-xs font-bold mr-2`}>F</span>
-                      €{freebets !== null ? freebets.toFixed(2) : '0.00'}
-                    </div>
-                    
+          <div className="flex items-center space-x-2">
+            {user ? (
+              <div className="flex items-center gap-2 relative">
+                <NavLink
+                  to="/my-bets"
+                  className={({ isActive }) => `p-2 rounded-md transition-colors ${isActive ? (darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-gray-900') : (darkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100')}`}
+                  title="As Minhas Apostas"
+                >
+                  <NotepadText size={20} />
+                </NavLink>
 
-                    <Link to="/deposit" className="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-2 md:py-2 md:px-4 rounded text-xs md:text-sm">
-                      Depósito
-                    </Link>
-                    <Link
-                      to="/profile"
-                      className={`py-1 px-2 md:py-2 md:px-4 rounded font-bold text-xs md:text-sm ${darkMode ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {firstName}
-                    </Link>
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => openAuthModal('login')}
-                    className={`font-bold py-1 px-3 md:py-2 md:px-4 rounded text-xs md:text-sm transition-colors ${darkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
-                  >
-                    Entrar
-                  </button>
-                  <button
-                    onClick={() => openAuthModal('register')}
-                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 md:py-2 md:px-4 rounded text-xs md:text-sm shadow-md transition-colors"
-                  >
-                    Registar
-                  </button>
+                <div className={`px-2 py-1 md:px-3 md:py-2 rounded-md border text-xs md:text-sm ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-gray-900'}`}>
+                  €{eurBalance !== null ? eurBalance.toFixed(2) : '0.00'}
                 </div>
-              )}
-            </div>
+                <div className={`px-2 py-1 md:px-3 md:py-2 rounded-md border text-xs md:text-sm ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-gray-900'}`}>
+                  <span className={`${darkMode ? 'bg-red-700 text-white' : 'bg-red-600 text-white'} inline-flex items-center justify-center w-4 h-4 md:w-5 md:h-5 rounded-full text-[10px] md:text-xs font-bold mr-2`}>F</span>
+                  €{freebets !== null ? freebets.toFixed(2) : '0.00'}
+                </div>
+
+                {/* Deposit button — green square with "+" */}
+                <Link
+                  to="/deposit"
+                  title="Depositar"
+                  className="bg-green-600 hover:bg-green-700 text-white font-black w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-2xl leading-none shadow-md transition-colors"
+                >
+                  +
+                </Link>
+
+                {/* Profile — emoji avatar */}
+                <Link
+                  to="/profile"
+                  title={firstName}
+                  className={`w-9 h-9 rounded-full flex items-center justify-center text-xl font-bold transition-colors flex-shrink-0 border-2 ${darkMode ? 'bg-gray-800 border-gray-600 hover:bg-gray-700' : 'bg-gray-100 border-gray-300 hover:bg-gray-200'}`}
+                >
+                  {emojiAvatar}
+                </Link>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => openAuthModal('login')}
+                  className={`font-bold py-1 px-3 md:py-2 md:px-4 rounded text-xs md:text-sm transition-colors ${darkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  Entrar
+                </button>
+                <button
+                  onClick={() => openAuthModal('register')}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 md:py-2 md:px-4 rounded text-xs md:text-sm shadow-md transition-colors"
+                >
+                  Registar
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
       
@@ -248,7 +261,6 @@ export function Header() {
         </div>
       )}
     </header>
-
     </>
   );
 }

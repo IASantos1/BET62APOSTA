@@ -143,22 +143,54 @@ Configured as a static site deployment:
 - Duration: 1.3 seconds (300ms in → 900ms hold → 1300ms done)
 - Red background, white B62 circle, BET62 gold text, "APOSTAS DESPORTIVAS", bouncing dots
 
-## UI — Market Layout (SubOddsModel)
-- Redesigned with card-style panels: each market wrapped in a bordered card with title + ⓘ icon
-- Labels shown OUTSIDE the red odds button (label text on the left, red button with only the price on the right)
-- Tall red buttons (h-11 = 44px) with clear tabular odds value
-- Totals market (goals/corners) shown as a grid table: Line | Mais | Menos columns
-- Handicap market: side-by-side home/away panels divided by a vertical line
+## UI — Header
+- Deposit button: green square (9x9) with "+" icon only, title="Depositar"
+- Profile button: when logged in, shows emoji avatar (deterministic from username hash); when not logged in, shows Entrar/Registar buttons
 
-## UI — EventDetails Header
-- Replaced team logos with `FootballPitchAnimation` — a 2D SVG animated football pitch
-- Ball animation uses requestAnimationFrame for smooth bounce movement around the pitch
-- Shows score, status badge, and timer for live events; VS for prematch
-- Team names displayed bottom-left and bottom-right over the pitch
+## UI — Market Layout (SubOddsModel)
+- H2H market: 3-column side-by-side layout (Casa | Empate | Fora) with tall red buttons (h-14 = 56px) and label above each button
+- Correct Score (correct_score/exact_score): 3-column layout — Casa wins | Empates | Fora wins — grouped and colored (blue/yellow/red)
+- Totals market: grid table with Line | Mais | Menos columns
+- Handicap market: side-by-side home/away panels
+
+## UI — EventCard
+- Odds buttons (Casa/Empate/Fora): min-h-[44px] for taller appearance; labels updated from "1"/"X"/"2" to "Casa"/"Empate"/"Fora"
+
+## UI — EventDetails Live Panel
+- Removed Match Center collapsible section
+- Added: Live Momentum Graph (SVG wave chart of home vs away pressure over time)
+- Added: 3 icon tab buttons (⚽ Mini Campo | 📋 Escalação | 📊 Estatísticas)
+  - Mini Campo tab: enlarged 2D sport field animation
+  - Escalação tab: shows team lineup data if available
+  - Estatísticas tab: full MatchTracker with stats, possession, shots, corners, timeline
+
+## UI — FootballPitchAnimation (multi-sport)
+- Detects sport from the `sport` prop and renders the correct field:
+  - Football: green pitch with penalty areas, center circle, corner arcs
+  - Basketball: orange court with keys, baskets, 3-point arcs
+  - Tennis: green/clay court with service boxes, net
+  - Volleyball: indoor court with net and attack lines
+  - Handball: court with goal areas and free-throw arcs
+  - Ice Hockey: white rink with blue/red lines and face-off circles
+- Ball stationary (cx=150,cy=90) in pregame; animated with requestAnimationFrame when live
+- Match events overlay: last event parsed and shown center-field (Goal→⚽GOL! | Corner→🚩 | VAR→📺 | Penalty→🎯 | Red Card→🟥 etc.)
+- Ball color matches sport (white for football, orange for basketball, yellow for tennis)
+
+## Live Momentum Graph (`LiveMomentumGraph.tsx`)
+- New component: SVG wave chart showing home (blue) vs away (red) match pressure
+- Builds from real stats (shots, attacks) with spike overlay from match events
+- Shows team names, Ao Vivo indicator, minute labels
+
+## Payments — Deposit
+- PayPal completely removed from DepositPage
+- Remaining methods: Cartão (Stripe) | MBway | Multibanco
+- Default method: Cartão (Stripe)
+- Stripe key manager: operators can input a live Stripe public key (pk_live_...) via UI; stored in localStorage
 
 ## Multi-Sport Coverage
 - Statpal.io API v2 covers **soccer/football only** — no basketball, tennis, handball, etc.
-- Other sports UI groups (NBA, NFL, etc.) are defined in `marketConfig.ts` for future use
+- Field animations for other sports are rendered correctly based on sport type
+- Data (odds/stats) for non-soccer sports will need a separate API integration
 
 ## Logos Removed
 - Team logos removed from: `EventCard.tsx` and `EventDetails.tsx`

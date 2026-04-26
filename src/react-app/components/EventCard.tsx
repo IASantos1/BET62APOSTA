@@ -344,33 +344,33 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                 )}
                 {(hh > 0) ? (
                   <OddButton 
-                    label="1"
+                    label="Casa"
                     price={hh}
                     trend={homeTrend}
                     onClick={(e) => { e.stopPropagation(); addPrimary('Casa', hh, hhSelection?.suspended); }}
-                    className="w-full h-full min-h-[30px] px-2 py-0.5 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                     suspended={marketSuspended || (hhSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
                   />
                 ) : <div />}
                 
                 {showDraw && (
                   <OddButton 
-                    label="X"
+                    label="Empate"
                     price={dd}
                     trend={drawTrend}
                     onClick={(e) => { e.stopPropagation(); addPrimary('Empate', dd, ddSelection?.suspended); }}
-                    className="w-full h-full min-h-[30px] px-2 py-0.5 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                     suspended={marketSuspended || (ddSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
                   />
                 )}
                 
                 {(aa > 0) ? (
                   <OddButton 
-                    label="2"
+                    label="Fora"
                     price={aa}
                     trend={awayTrend}
                     onClick={(e) => { e.stopPropagation(); addPrimary('Fora', aa, aaSelection?.suspended); }}
-                    className="w-full h-full min-h-[30px] px-2 py-0.5 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                     suspended={marketSuspended || (aaSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
                   />
                 ) : <div />}

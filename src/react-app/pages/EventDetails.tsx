@@ -7,6 +7,7 @@ import { BetSlip } from '@/react-app/components/BetSlip'
 import { Sidebar } from '@/react-app/components/Sidebar'
 import MatchTracker from '@/react-app/components/MatchTracker'
 import FootballPitchAnimation from '@/react-app/components/FootballPitchAnimation'
+import LiveMomentumGraph from '@/react-app/components/LiveMomentumGraph'
 import { MemoSubOddsModel } from '@/react-app/components/SubOddsModel'
 import { useLiveFeed } from '@/react-app/hooks/useLiveFeed'
 import { useMergedEvents } from '@/react-app/hooks/useMergedEvents'
@@ -212,7 +213,7 @@ export default function EventDetails() {
     });
   }, [displayEvent, addToBetSlip]);
 
-  const [showMatchCenter, setShowMatchCenter] = useState(false);
+  const [livePanel, setLivePanel] = useState<'pitch' | 'lineup' | 'stats'>('pitch');
 
   if (loading) return <div className="p-8 text-center"><div className="animate-spin h-8 w-8 border-4 border-red-600 border-t-transparent rounded-full mx-auto"></div></div>;
   if (error || !displayEvent) return <div className="p-8 text-center text-red-600">{error || 'Evento não encontrado'}</div>;
@@ -274,8 +275,8 @@ export default function EventDetails() {
 
         {/* Main Content */}
         <main className="flex-1 min-w-0 pb-20 mt-4">
-          {/* Header & Score — Football Pitch Animation */}
-          <div className={`relative rounded-xl overflow-hidden mb-6`} style={{ height: 200 }}>
+          {/* Header & Score — Football Pitch Animation (always visible) */}
+          <div className={`relative rounded-xl overflow-hidden mb-4`} style={{ height: 200 }}>
             <FootballPitchAnimation
               homeName={cleanTeam(displayEvent.home_team)}
               awayName={cleanTeam(displayEvent.away_team)}
@@ -283,6 +284,8 @@ export default function EventDetails() {
               score={isLive ? (() => { const g = parseGoals(displayEvent.goals); return `${g.home} - ${g.away}`; })() : undefined}
               statusLabel={isLive ? (statusShort || displayEvent.fixture?.status?.short || '') : undefined}
               timer={isLive ? (liveTimer || (liveElapsed > 0 ? `${liveElapsed}'` : 'AO VIVO')) : undefined}
+              sport={displayEvent.sport || 'soccer'}
+              matchEvents={liveStats.events}
             />
             {displayEvent.lastGoal && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
@@ -291,14 +294,97 @@ export default function EventDetails() {
             )}
           </div>
 
-          {/* Match Center */}
+          {/* Live Section: Momentum Graph + 3 Tab Icons */}
           {isLive && (
-            <div className={`rounded-xl overflow-hidden shadow-lg mb-6 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-              <button onClick={() => setShowMatchCenter(!showMatchCenter)} className="w-full p-3 flex items-center justify-between font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-                <span>Match Center</span><span>{showMatchCenter ? '▲' : '▼'}</span>
-              </button>
-              {showMatchCenter && (
-                <div id="match-center" className="p-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="mb-4 space-y-3">
+              {/* Momentum Graph */}
+              <LiveMomentumGraph
+                darkMode={darkMode}
+                stats={(() => {
+                  const st = liveStats.stats;
+                  if (!st || st.length === 0) return null;
+                  const find = (type: string) => {
+                    const row = st.find((s: any) => String(s?.type || '').toLowerCase().includes(type));
+                    return row ? { home: Number(row.home || 0), away: Number(row.away || 0) } : { home: 0, away: 0 };
+                  };
+                  return {
+                    shots: find('shot'),
+                    onTarget: find('on target'),
+                    attacks: find('attack')
+                  };
+                })()}
+                matchEvents={liveStats.events}
+                homeName={cleanTeam(displayEvent.home_team)}
+                awayName={cleanTeam(displayEvent.away_team)}
+                currentMinute={liveElapsed || (liveTimer ? parseInt(liveTimer) : 0)}
+              />
+
+              {/* 3 Tab Icons */}
+              <div className={`flex rounded-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                {[
+                  { key: 'pitch' as const, icon: '⚽', label: 'Mini Campo' },
+                  { key: 'lineup' as const, icon: '📋', label: 'Escalação' },
+                  { key: 'stats' as const, icon: '📊', label: 'Estatísticas' },
+                ].map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setLivePanel(livePanel === tab.key ? 'pitch' : tab.key)}
+                    className={`flex-1 flex flex-col items-center py-3 gap-0.5 transition-colors font-semibold text-xs
+                      ${livePanel === tab.key
+                        ? 'bg-red-600 text-white'
+                        : darkMode ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-50'
+                      }`}
+                  >
+                    <span className="text-xl">{tab.icon}</span>
+                    <span className="uppercase tracking-wide">{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab Panels */}
+              {livePanel === 'pitch' && (
+                <div className={`rounded-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`} style={{ height: 220 }}>
+                  <FootballPitchAnimation
+                    homeName={cleanTeam(displayEvent.home_team)}
+                    awayName={cleanTeam(displayEvent.away_team)}
+                    isLive={isLive}
+                    score={(() => { const g = parseGoals(displayEvent.goals); return `${g.home} - ${g.away}`; })()}
+                    statusLabel={statusShort || ''}
+                    timer={liveTimer || (liveElapsed > 0 ? `${liveElapsed}'` : 'AO VIVO')}
+                    sport={displayEvent.sport || 'soccer'}
+                    matchEvents={liveStats.events}
+                  />
+                </div>
+              )}
+
+              {livePanel === 'lineup' && (
+                <div className={`rounded-xl p-4 border ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
+                  <h3 className="font-bold text-sm uppercase tracking-wide mb-3 text-center">Escalação</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className={`text-xs font-bold uppercase mb-2 ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>{cleanTeam(displayEvent.home_team)}</p>
+                      {(displayEvent.lineup?.home || []).slice(0, 11).map((p: any, i: number) => (
+                        <p key={i} className={`text-xs py-0.5 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{p.name || p.full_name || p}</p>
+                      ))}
+                      {(!displayEvent.lineup?.home || displayEvent.lineup.home.length === 0) && (
+                        <p className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Sem dados disponíveis</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className={`text-xs font-bold uppercase mb-2 ${darkMode ? 'text-red-400' : 'text-red-600'}`}>{cleanTeam(displayEvent.away_team)}</p>
+                      {(displayEvent.lineup?.away || []).slice(0, 11).map((p: any, i: number) => (
+                        <p key={i} className={`text-xs py-0.5 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{p.name || p.full_name || p}</p>
+                      ))}
+                      {(!displayEvent.lineup?.away || displayEvent.lineup.away.length === 0) && (
+                        <p className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Sem dados disponíveis</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {livePanel === 'stats' && (
+                <div className={`rounded-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
                   <MatchTracker 
                     live={{ ...displayEvent, fixture: { ...(displayEvent.fixture || {}), stats: liveStats.stats, events: liveStats.events } }} 
                     homeName={displayEvent.home_team}
