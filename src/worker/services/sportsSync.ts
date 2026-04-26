@@ -406,12 +406,15 @@ async function upsertBatch(env: Env, events: NormalizedEvent[]): Promise<void> {
       event_date      = excluded.event_date,
       status          = excluded.status,
       is_live         = excluded.is_live,
-      home_odd        = CASE WHEN excluded.home_odd > 0   THEN excluded.home_odd   ELSE events.home_odd END,
-      draw_odd        = CASE WHEN excluded.draw_odd > 0   THEN excluded.draw_odd   ELSE events.draw_odd END,
-      away_odd        = CASE WHEN excluded.away_odd > 0   THEN excluded.away_odd   ELSE events.away_odd END,
+      -- Odds: ESCREVER SEMPRE o estado da fonte (mesmo zero). Política
+      -- "real ou nada": se a fonte não tem odds, o evento fica sem odds
+      -- (em vez de manter valores stale que podem ser fakes herdadas).
+      home_odd        = excluded.home_odd,
+      draw_odd        = excluded.draw_odd,
+      away_odd        = excluded.away_odd,
       elapsed         = excluded.elapsed,
       score           = CASE WHEN excluded.score    != '{"home":null,"away":null}' THEN excluded.score    ELSE events.score    END,
-      markets         = CASE WHEN excluded.markets  != '{}' THEN excluded.markets  ELSE events.markets  END,
+      markets         = excluded.markets,
       home_team_logo  = CASE WHEN excluded.home_team_logo != '' THEN excluded.home_team_logo ELSE events.home_team_logo END,
       away_team_logo  = CASE WHEN excluded.away_team_logo != '' THEN excluded.away_team_logo ELSE events.away_team_logo END,
       country         = CASE WHEN excluded.country != '' THEN excluded.country ELSE events.country END,

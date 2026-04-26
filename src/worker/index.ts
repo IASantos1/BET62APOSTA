@@ -124,6 +124,44 @@ app.post('/api/admin/repair-events-index', async (c) => {
   return c.json({ nulls: nulls?.n ?? 0, duplicates: dups.results, log });
 });
 
+// Zera odds herdadas (fakes 2.10/3.30/3.20 e 1.85/0/1.85). Idempotente.
+// Após chamar isto, o próximo sync repõe as odds REAIS (do Statpal v2)
+// e os eventos sem odds reais ficam visivelmente sem cotas (em vez de mostrar fakes).
+app.post('/api/admin/zero-stale-odds', async (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
+  if (token !== c.env.ADMIN_TOKEN) return c.json({ error: 'Forbidden' }, 403);
+  try {
+    // Soccer baseline antiga: 2.10 / 3.30 / 3.20
+    const r1 = await c.env.DB.prepare(
+      `UPDATE events
+         SET home_odd = 0, draw_odd = 0, away_odd = 0, markets = ''
+       WHERE home_odd = 2.10 AND draw_odd = 3.30 AND away_odd = 3.20`
+    ).run();
+    // Tennis baseline antiga: 1.85 / 0 / 1.85
+    const r2 = await c.env.DB.prepare(
+      `UPDATE events
+         SET home_odd = 0, draw_odd = 0, away_odd = 0, markets = ''
+       WHERE home_odd = 1.85 AND draw_odd = 0 AND away_odd = 1.85`
+    ).run();
+    // Modo agressivo via query param: zera TODAS as odds para forçar refresh do sync
+    const url = new URL(c.req.url);
+    let r3: any = null;
+    if (url.searchParams.get('all') === '1') {
+      r3 = await c.env.DB.prepare(
+        `UPDATE events SET home_odd = 0, draw_odd = 0, away_odd = 0, markets = ''`
+      ).run();
+    }
+    return c.json({
+      ok: true,
+      zeroed_baseline_soccer: r1?.meta ?? r1,
+      zeroed_baseline_tennis: r2?.meta ?? r2,
+      zeroed_all: r3?.meta ?? null,
+    });
+  } catch (err: any) {
+    return c.json({ ok: false, error: String(err?.message || err) }, 500);
+  }
+});
+
 // Diagnostic: try one upsert and report error verbatim
 app.post('/api/admin/test-upsert', async (c) => {
   const token = c.req.header('Authorization')?.replace('Bearer ', '');
@@ -223,11 +261,19 @@ app.get('/', async (c) => {
 app.get('/api/featured-games', cacheControl({ maxAge: 30, staleWhileRevalidate: 60 }), async (c) => {
   try {
     const eventDt = `datetime(replace(substr(event_date, 1, 19), 'T', ' '))`;
+    // Prioriza: 1) live com cotas reais  2) live sem cotas  3) prematch com cotas  4) prematch sem cotas
+    // E exclui FT (jogos terminados) do destaque.
     const res = await c.env.DB.prepare(`
       SELECT * FROM events
-      WHERE is_live = 1
-        OR ${eventDt} BETWEEN datetime('now', '-3 hours') AND datetime('now', '+48 hours')
-      ORDER BY is_live DESC, ${eventDt} ASC
+      WHERE status != 'FT'
+        AND (
+          is_live = 1
+          OR ${eventDt} BETWEEN datetime('now', '-30 minutes') AND datetime('now', '+48 hours')
+        )
+      ORDER BY
+        is_live DESC,
+        CASE WHEN home_odd > 1 THEN 0 ELSE 1 END ASC,
+        ${eventDt} ASC
       LIMIT 30
     `).all();
     return c.json(res.results || []);
