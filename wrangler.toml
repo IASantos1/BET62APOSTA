@@ -84,3 +84,16 @@ FRONTEND_URL = "https://bet62apostasesportivas.pages.dev"
 binding = "DB"
 database_name = "bet62-db"
 database_id = "ebaef170-b999-47d6-887d-24c5e16a674b"
+
+[env.production.assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[env.production.routes]]
+pattern = "bet62.plus"
+custom_domain = true
+
+[[env.production.routes]]
+pattern = "www.bet62.plus"
+custom_domain = true

@@ -371,7 +371,22 @@ app.get('/api/live/ws', upgradeWebSocket((_c) => {
 }));
 
 // ── 404 catch-all ─────────────────────────────────────────────────────
-app.notFound((c) => c.json({ error: 'Not Found', path: c.req.path }, 404));
+app.notFound(async (c) => {
+  const p = c.req.path;
+  // For API/internal paths, return JSON 404
+  if (p.startsWith('/api/') || p.startsWith('/cdn-cgi/') || p === '/health') {
+    return c.json({ error: 'Not Found', path: p }, 404);
+  }
+  // For SPA routes, serve index.html from assets binding so client-side routing works
+  const assets = (c.env as any).ASSETS;
+  if (assets && typeof assets.fetch === 'function') {
+    const url = new URL(c.req.url);
+    url.pathname = '/index.html';
+    const res = await assets.fetch(new Request(url.toString(), { method: 'GET' }));
+    if (res.ok) return new Response(res.body, { status: 200, headers: res.headers });
+  }
+  return c.json({ error: 'Not Found', path: p }, 404);
+});
 
 // ── Error handler ─────────────────────────────────────────────────────
 app.onError((err, c) => {
