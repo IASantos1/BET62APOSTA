@@ -203,6 +203,16 @@ export function SubOddsModel({
     return marketKey ? suspendedMap.get(marketKey) : undefined;
   };
 
+  // Current live score — used to block impossible correct-score outcomes
+  const currentGoals = useMemo(() => {
+    const goals = (event as any)?.goals;
+    if (!goals) return null;
+    const g = typeof goals === 'string' ? (() => { try { return JSON.parse(goals); } catch { return null; } })() : goals;
+    if (!g) return null;
+    const h = Number(g.home ?? 0); const a = Number(g.away ?? 0);
+    return (h > 0 || a > 0) ? { home: h, away: a } : null;
+  }, [event]);
+
   // --- Lógica de Odds Principais ---
   const h2hInternalItems = useMemo(() => {
     const raw =
@@ -584,16 +594,22 @@ export function SubOddsModel({
                       if (!item) return <div key={i} className="h-10 border-b border-gray-50 dark:border-gray-800/50 last:border-0" />;
                       const val = Number(item.odd);
                       const priceStr = val > 0 ? val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+                      // Block scores that are impossible given the current live score
+                      const parsedLabel = parseScore(String(item.label));
+                      const isImpossible = !isSusp && currentGoals !== null && parsedLabel !== null &&
+                        (parsedLabel.h < currentGoals.home || parsedLabel.a < currentGoals.away);
+                      const isBlocked = isSusp || isImpossible;
                       return (
-                        <div key={i} className={`flex items-center justify-between px-2 py-1.5 border-b last:border-0 ${darkMode ? 'border-gray-800/50' : 'border-gray-50'}`}>
+                        <div key={i} className={`flex items-center justify-between px-2 py-1.5 border-b last:border-0 ${darkMode ? 'border-gray-800/50' : 'border-gray-50'} ${isImpossible ? 'opacity-40' : ''}`}>
                           <span className={`text-xs font-semibold tabular-nums ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{item.label}</span>
                           <button
-                            onClick={isSusp ? undefined : () => onSelect(item.label, val)}
-                            disabled={isSusp}
+                            onClick={isBlocked ? undefined : () => onSelect(item.label, val)}
+                            disabled={isBlocked}
+                            title={isImpossible ? 'Resultado impossível dado o marcador actual' : undefined}
                             className={`min-w-[54px] h-8 px-2 rounded font-bold text-sm tabular-nums transition-all duration-200
-                              ${isSusp ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
+                              ${isBlocked ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
                           >
-                            {priceStr}
+                            {isImpossible ? '🔒' : priceStr}
                           </button>
                         </div>
                       );

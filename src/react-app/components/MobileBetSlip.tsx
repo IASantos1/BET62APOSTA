@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { BetSlip } from './BetSlip';
@@ -8,6 +8,11 @@ export function MobileBetSlip() {
   const { betSlip, darkMode } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
+
+  const totalOdds = useMemo(
+    () => betSlip.reduce((acc, b) => acc * b.odd, 1),
+    [betSlip]
+  );
 
   // Close when betslip is empty
   useEffect(() => {
@@ -35,14 +40,15 @@ export function MobileBetSlip() {
       {!isOpen && (
         <button
           onClick={handleOpen}
-          className="fixed bottom-24 right-4 z-50 w-14 h-14 rounded-full bg-yellow-400 text-gray-900 shadow-lg flex items-center justify-center font-bold text-lg hover:scale-110 transition-transform active:scale-95 border-2 border-yellow-500 animate-bounce"
+          className="fixed bottom-24 right-4 z-50 w-16 h-16 rounded-full bg-yellow-400 text-gray-900 shadow-lg flex flex-col items-center justify-center font-bold hover:scale-110 transition-transform active:scale-95 border-2 border-yellow-500 animate-bounce"
           style={{ animationDuration: '2s' }}
         >
-          <span className="relative">
-            {betSlip.length}
-            {betSlip.length > 0 && (
-                <span className="absolute -top-3 -right-3 w-3 h-3 bg-red-600 rounded-full animate-ping"></span>
-            )}
+          <span className="relative flex items-center justify-center">
+            <span className="text-xs font-black">{betSlip.length} sel</span>
+            <span className="absolute -top-3.5 -right-4 w-3 h-3 bg-red-600 rounded-full animate-ping"></span>
+          </span>
+          <span className="text-[11px] font-black tabular-nums leading-none mt-0.5">
+            @{totalOdds.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </button>
       )}

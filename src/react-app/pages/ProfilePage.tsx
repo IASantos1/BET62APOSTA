@@ -352,13 +352,6 @@ const ProfilePage: React.FC = () => {
                 </p>
               </div>
             )}
-            <div className={`p-4 rounded-lg border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <div className="flex items-center justify-center gap-3 mb-4">
-                <button onClick={() => window.open('/wallet', '_blank')} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md font-semibold">Levantamento</button>
-                <button onClick={() => window.open('/deposit', '_blank')} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-semibold">Depósito</button>
-              </div>
-              <div className={`${darkMode ? 'text-gray-300' : 'text-gray-700'} text-sm`}>Use os botões acima para abrir Levantamento (Carteira) e Depósito numa nova aba.</div>
-            </div>
             
 
             {selectedItem === 'A minha conta' && (

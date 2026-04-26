@@ -319,27 +319,54 @@ export default function EventDetails() {
                     )}
                   </div>
                 )}
-                <div className="w-full flex items-center justify-between gap-2">
-                  <div className="flex-1 text-center">
-                    <p className={`font-bold text-sm md:text-base truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{homeTeam}</p>
-                    {displayEvent.league_name && (
-                      <p className={`text-[10px] mt-0.5 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{displayEvent.league_name}</p>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-center min-w-[80px]">
-                    {isLive ? (
-                      <span className={`font-black text-3xl md:text-4xl tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>{g.home} - {g.away}</span>
-                    ) : (
-                      <span className={`font-black text-xl ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>VS</span>
-                    )}
-                  </div>
-                  <div className="flex-1 text-center">
-                    <p className={`font-bold text-sm md:text-base truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{awayTeam}</p>
-                    {!isLive && displayEvent.date && (
-                      <p className={`text-[10px] mt-0.5 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{new Date(displayEvent.date).toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
-                    )}
-                  </div>
-                </div>
+                {(() => {
+                  const evs = liveStats.events || [];
+                  const isRedCard = (ev: any) =>
+                    String(ev?.type || '').toLowerCase().includes('card') &&
+                    String(ev?.detail || '').toLowerCase().includes('red');
+                  const homeRedCards = evs.filter((ev: any) => {
+                    if (!isRedCard(ev)) return false;
+                    const tn = String(ev?.team?.name || ev?.team || '').toLowerCase();
+                    return tn && homeTeam.toLowerCase().includes(tn.slice(0, 5));
+                  }).length;
+                  const awayRedCards = evs.filter((ev: any) => {
+                    if (!isRedCard(ev)) return false;
+                    const tn = String(ev?.team?.name || ev?.team || '').toLowerCase();
+                    return tn && awayTeam.toLowerCase().includes(tn.slice(0, 5));
+                  }).length;
+                  const RedCardPip = ({ count }: { count: number }) => count === 0 ? null : (
+                    <div className="flex items-center justify-center gap-0.5 mb-0.5">
+                      {Array.from({ length: Math.min(count, 3) }).map((_, i) => (
+                        <div key={i} className="w-2 h-3.5 bg-red-600 rounded-sm shadow-md border border-red-800" title="Cartão Vermelho" />
+                      ))}
+                    </div>
+                  );
+                  return (
+                    <div className="w-full flex items-center justify-between gap-2">
+                      <div className="flex-1 text-center">
+                        <RedCardPip count={homeRedCards} />
+                        <p className={`font-bold text-sm md:text-base truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{homeTeam}</p>
+                        {displayEvent.league_name && (
+                          <p className={`text-[10px] mt-0.5 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{displayEvent.league_name}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-center min-w-[80px]">
+                        {isLive ? (
+                          <span className={`font-black text-3xl md:text-4xl tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>{g.home} - {g.away}</span>
+                        ) : (
+                          <span className={`font-black text-xl ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>VS</span>
+                        )}
+                      </div>
+                      <div className="flex-1 text-center">
+                        <RedCardPip count={awayRedCards} />
+                        <p className={`font-bold text-sm md:text-base truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{awayTeam}</p>
+                        {!isLive && displayEvent.date && (
+                          <p className={`text-[10px] mt-0.5 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{new Date(displayEvent.date).toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {displayEvent.lastGoal && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
                     <div className="text-4xl md:text-7xl font-black text-yellow-400 animate-bounce drop-shadow-[0_4px_4px_rgba(0,0,0,0.9)]">GOL!!!</div>
@@ -555,6 +582,24 @@ export default function EventDetails() {
               )}
             </div>
           )}
+
+          {/* Suspension reason banner */}
+          {oddsSuspended && (() => {
+            const r = String(oddsSuspendedReason || '').toUpperCase();
+            const label = /GOAL|GOL|CHANCE|ATTACK|DANGER/.test(r)
+              ? 'Grande Chance de Gol'
+              : /VAR/.test(r)
+              ? 'Revisão VAR'
+              : /PENALT|PENALTY/.test(r)
+              ? 'Pênalti'
+              : null;
+            return (
+              <div className={`mb-3 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-bold ${label === 'Revisão VAR' ? 'bg-yellow-500/20 border border-yellow-500/40 text-yellow-400' : label === 'Grande Chance de Gol' ? 'bg-red-600/20 border border-red-500/40 text-red-400' : label === 'Pênalti' ? 'bg-orange-500/20 border border-orange-500/40 text-orange-400' : 'bg-gray-700/50 border border-gray-600 text-gray-300'}`}>
+                <span className="animate-pulse w-2 h-2 rounded-full bg-current inline-block" />
+                {label ? `Odds suspensas — ${label}` : 'Odds Suspensas'}
+              </div>
+            );
+          })()}
 
           {/* Odds */}
           <MemoSubOddsModel

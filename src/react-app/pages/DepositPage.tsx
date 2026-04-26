@@ -289,10 +289,41 @@ export default function DepositPage() {
 
   const handleSuccess = () => setSuccess(true);
 
-  const methodTabs: { key: Method; label: string; icon: string }[] = [
-    { key: 'card', label: 'Cartão', icon: '💳' },
-    { key: 'mbway', label: 'MBway', icon: '📱' },
-    { key: 'multibanco', label: 'Multibanco', icon: '🏦' },
+  const PaymentLogo = ({ method: m }: { method: Method }) => {
+    if (m === 'card') return (
+      <span className="flex items-center gap-1">
+        <svg viewBox="0 0 48 30" width="30" height="19" xmlns="http://www.w3.org/2000/svg">
+          <rect width="48" height="30" rx="4" fill="#1a1f71"/>
+          <rect y="7" width="48" height="8" fill="#f7b600"/>
+          <text x="6" y="24" fontSize="9" fill="#fff" fontFamily="Arial" fontWeight="bold">VISA</text>
+        </svg>
+        <svg viewBox="0 0 48 30" width="30" height="19" xmlns="http://www.w3.org/2000/svg">
+          <rect width="48" height="30" rx="4" fill="#fff" stroke="#ddd"/>
+          <circle cx="18" cy="15" r="9" fill="#eb001b"/>
+          <circle cx="30" cy="15" r="9" fill="#f79e1b"/>
+          <path d="M24 8.3a9 9 0 0 1 0 13.4A9 9 0 0 1 24 8.3z" fill="#ff5f00"/>
+        </svg>
+      </span>
+    );
+    if (m === 'mbway') return (
+      <svg viewBox="0 0 48 20" width="40" height="17" xmlns="http://www.w3.org/2000/svg">
+        <rect width="48" height="20" rx="4" fill="#e2001a"/>
+        <text x="5" y="14" fontSize="10" fill="#fff" fontFamily="Arial" fontWeight="bold">MB WAY</text>
+      </svg>
+    );
+    if (m === 'multibanco') return (
+      <svg viewBox="0 0 48 20" width="40" height="17" xmlns="http://www.w3.org/2000/svg">
+        <rect width="48" height="20" rx="4" fill="#003b95"/>
+        <text x="4" y="14" fontSize="9" fill="#fff" fontFamily="Arial" fontWeight="bold">Multibanco</text>
+      </svg>
+    );
+    return null;
+  };
+
+  const methodTabs: { key: Method; label: string }[] = [
+    { key: 'card', label: 'Cartão' },
+    { key: 'mbway', label: 'MBway' },
+    { key: 'multibanco', label: 'Multibanco' },
   ];
 
   if (!user) {
@@ -313,10 +344,19 @@ export default function DepositPage() {
 
   if (success) {
     return (
-      <div className="text-center py-10">
+      <div className="text-center py-10 max-w-md mx-auto">
         <div className="text-5xl mb-4">✅</div>
         <h2 className="text-xl font-bold text-green-400 mb-2">Depósito Iniciado!</h2>
-        <p className={`text-sm mb-6 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>O teu saldo será atualizado assim que o pagamento for confirmado.</p>
+        <p className={`text-sm mb-4 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>O teu saldo será atualizado assim que o pagamento for confirmado.</p>
+        <div className={`rounded-xl p-4 mb-6 text-left border ${darkMode ? 'bg-yellow-900/20 border-yellow-700/40' : 'bg-yellow-50 border-yellow-300'}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xl">🎁</span>
+            <span className={`font-bold text-sm ${darkMode ? 'text-yellow-300' : 'text-yellow-800'}`}>Promoções Ativadas!</span>
+          </div>
+          <p className={`text-xs ${darkMode ? 'text-yellow-200/80' : 'text-yellow-700'}`}>
+            Todas as promoções elegíveis foram ativadas automaticamente com este depósito, de acordo com os Termos e Condições de cada uma. Consulta a página de Promoções para ver os bónus disponíveis.
+          </p>
+        </div>
         <button onClick={() => setSuccess(false)} className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl">Novo Depósito</button>
       </div>
     );
@@ -359,9 +399,10 @@ export default function DepositPage() {
             <button
               key={tab.key}
               onClick={() => setMethod(tab.key)}
-              className={`py-3 text-xs font-semibold transition-colors ${method === tab.key ? 'text-red-500 border-b-2 border-red-500 bg-red-500/10' : darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`py-2.5 flex flex-col items-center gap-1 text-xs font-semibold transition-colors ${method === tab.key ? 'text-red-500 border-b-2 border-red-500 bg-red-500/10' : darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
             >
-              {tab.icon} {tab.label}
+              <PaymentLogo method={tab.key} />
+              <span>{tab.label}</span>
             </button>
           ))}
         </div>
