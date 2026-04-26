@@ -21,7 +21,8 @@ import {
 } from './sportsApi';
 import { fetchOddsApiEvents, fetchOddsApiMarketsForFixture } from './oddsApi';
 import { upsertOddsApiRaw, upsertUnifiedMatches, upsertUnifiedOddsLatest } from './unified/unifiedStore';
-import { getApiSportsKey, getOddsApiKey } from './env';
+import { getApiSportsKey, getOddsApiKey, getStatpalKey } from './env';
+import { fetchAllStatpal } from './statpalApi';
 
 const FINISHED_STATUSES = [
   'FT', 'AET', 'PEN', 'AWD', 'WO', 'ABD', 'FT_PEN', 'AOT', 'AP',
@@ -37,8 +38,9 @@ export async function runSportsSync(
 ): Promise<{ synced: number; sports: string[] }> {
   const apiKey = getApiSportsKey(env);
   const oddsKey = getOddsApiKey(env);
-  if (!apiKey && !oddsKey) {
-    console.log('[SportsSync] Skipped: no API_SPORTS_KEY and no ODDS_API_KEY');
+  const statpalKey = getStatpalKey(env);
+  if (!apiKey && !oddsKey && !statpalKey) {
+    console.log('[SportsSync] Skipped: no API_SPORTS_KEY, ODDS_API_KEY, or STATPAL_KEY');
     return { synced: 0, sports: [] };
   }
 
@@ -48,6 +50,22 @@ export async function runSportsSync(
 
   let totalSynced = 0;
   const syncedSports: string[] = [];
+
+  // ── StatPal: corre sempre que houver chave (cobre soccer, tennis, f1, golf)
+  if (statpalKey) {
+    try {
+      const events = await fetchAllStatpal(statpalKey);
+      if (events.length) {
+        await upsertEvents(env, events);
+        totalSynced += events.length;
+        const sportsSet = new Set(events.map(e => e.sport));
+        sportsSet.forEach(s => syncedSports.push(`statpal:${s}`));
+        console.log(`[SportsSync] StatPal: ${events.length} events`);
+      }
+    } catch (err) {
+      console.error('[SportsSync] StatPal error:', err);
+    }
+  }
 
   // ── Soccer: eventos via API-Football (se disponível), odds complementares via odds-api.io
   if (apiKey) {
@@ -342,7 +360,7 @@ async function syncOddsApiOnlySport(env: Env, sport: string): Promise<number> {
 // D1 limit: 100 bind vars. 19 cols × 5 rows = 95 < 100
 const BATCH = 5;
 
-async function upsertEvents(env: Env, events: NormalizedEvent[]): Promise<void> {
+export async function upsertEvents(env: Env, events: NormalizedEvent[]): Promise<void> {
   for (let i = 0; i < events.length; i += BATCH) {
     const batch = events.slice(i, i + BATCH);
     try {

@@ -220,3 +220,13 @@ Configured as a static site deployment:
 
 ## Logos Removed
 - Team logos removed from: `EventCard.tsx` and `EventDetails.tsx`
+
+## Sports Data — StatPal Migration (Apr 26, 2026)
+- **Provider**: StatPal.io v1 (`https://statpal.io/api/v1/{sport}/livescores|schedule`); secret `STATPAL_KEY`
+- **Coverage**: soccer (~1245 matches/day), tennis (~30), formula1 (~24), golf (~48). Other sports return 404 on this key.
+- **Odds**: StatPal provides NO odds — `src/worker/services/statpalApi.ts` writes baseline 2.10/3.30/3.20 (soccer) and 1.85/x/1.85 (tennis). Operators can override via `/api/admin/odds/:id`.
+- **Status mapping**: StatPal status strings normalized to canonical `FT` / `LIVE` / `NS` to match the rest of the system (filters, exclude lists).
+- **Sync wiring**: `runSportsSync()` in `src/worker/services/sportsSync.ts` calls `fetchAllStatpal()` first when `STATPAL_KEY` is present, then writes through the existing `upsertEvents()` path (legacy `events` table → `/api/events/by-sport`).
+- **Critical fix**: `events.external_event_id` previously had only a *partial* unique index (`WHERE external_event_id IS NOT NULL`), which SQLite rejects for `ON CONFLICT(external_event_id)`. Replaced with a full unique index (`uniq_events_external_event_id_full`) — every prior sync had been silently dropping all upsert batches. Fixed in `src/worker/db.ts` and via `POST /api/admin/repair-events-index` (one-shot migration that backfills NULL/empty external_event_id with `legacy_<id>` then rebuilds the index).
+- **Diagnostic endpoints** (admin-token gated): `GET /api/admin/events-debug` (totals/by-sport/index list/sample), `POST /api/admin/test-upsert` (single-row insert that returns verbatim D1 error if it fails), `POST /api/admin/repair-events-index` (idempotent index repair).
+- **API-Sports / Odds-API**: keys dead (account suspended/invalid); StatPal block in `runSportsSync` runs whenever `STATPAL_KEY` is present, independent of legacy keys.

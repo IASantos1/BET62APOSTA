@@ -8,6 +8,15 @@ export function getApiSportsKey(env: any): string {
   ).trim();
 }
 
+export function getStatpalKey(env: any): string {
+  return String(
+    env?.STATPAL_KEY ||
+      env?.STATPAL_API_KEY ||
+      env?.STATPAL_ACCESS_KEY ||
+      '',
+  ).trim();
+}
+
 export function getOddsApiKey(env: any): string {
   return String(
     env?.ODDS_API_KEY ||

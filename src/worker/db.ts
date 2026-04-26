@@ -57,6 +57,9 @@ const _runMigrations = async (db: D1Database) => {
   try { await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS uniq_events_league_teams_start ON events(league, home_team, away_team, start_time)').run(); } catch { /* empty */ }
   // Ensure unique index for ON CONFLICT logic in EventSyncService
   try { await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS uniq_events_home_away_date ON events(home_team, away_team, event_date)').run(); } catch { /* empty */ }
+  // Required by upsertBatch ON CONFLICT(external_event_id) used by sportsSync (StatPal/API-Sports/Odds-API)
+  // Must be a NON-PARTIAL unique index — partial indexes don't satisfy SQLite's ON CONFLICT(col) check.
+  try { await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS uniq_events_external_event_id_full ON events(external_event_id)').run(); } catch { /* empty */ }
   
   // MIGRATIONS
   try { await db.prepare("ALTER TABLE events ADD COLUMN sport TEXT").run(); } catch { /* empty */ }

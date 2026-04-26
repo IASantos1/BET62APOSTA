@@ -78,10 +78,73 @@ app.post('/api/admin/force-sync-wait', async (c) => {
   if (!isAdmin && !isDev) return c.json({ error: 'Forbidden' }, 403);
 
   try {
+    const { ensureUserSchema } = await import('./db');
+    await ensureUserSchema(c.env.DB).catch(e => console.error('[force-sync] schema:', e));
     const result = await runSportsSync(c.env, { forceFull: true });
     return c.json({ ok: true, ...result });
   } catch (err: any) {
     return c.json({ ok: false, error: String(err?.message || err) }, 500);
+  }
+});
+
+// Diagnostic: inspect events table state
+app.get('/api/admin/events-debug', async (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
+  if (token !== c.env.ADMIN_TOKEN) return c.json({ error: 'Forbidden' }, 403);
+  try {
+    const total = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM events').first<{ n: number }>();
+    const bySport = await c.env.DB.prepare('SELECT sport, COUNT(*) AS n FROM events GROUP BY sport').all();
+    const indexes = await c.env.DB.prepare("SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='events'").all();
+    const sample = await c.env.DB.prepare("SELECT external_event_id, sport, status, is_live, event_date, home_team, away_team, home_odd FROM events WHERE external_event_id LIKE 'statpal_%' LIMIT 5").all();
+    return c.json({ total: total?.n ?? 0, bySport: bySport.results, indexes: indexes.results, statpalSample: sample.results });
+  } catch (err: any) {
+    return c.json({ error: String(err?.message || err) }, 500);
+  }
+});
+
+// Repair index: replace partial unique index with full unique index (required for ON CONFLICT)
+app.post('/api/admin/repair-events-index', async (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
+  if (token !== c.env.ADMIN_TOKEN) return c.json({ error: 'Forbidden' }, 403);
+  const log: any[] = [];
+  const tryRun = async (sql: string) => {
+    try { await c.env.DB.prepare(sql).run(); log.push({ sql, ok: true }); }
+    catch (e: any) { log.push({ sql, ok: false, error: String(e?.message || e) }); }
+  };
+  // Find rows with NULL or duplicate external_event_id that would block a non-partial unique index
+  const nulls = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM events WHERE external_event_id IS NULL OR external_event_id = ''").first<{ n: number }>();
+  const dups = await c.env.DB.prepare("SELECT external_event_id, COUNT(*) AS n FROM events GROUP BY external_event_id HAVING COUNT(*) > 1").all();
+  // Backfill NULL/empty external_event_id with synthetic id so a non-partial unique index can be built
+  await tryRun("UPDATE events SET external_event_id = 'legacy_' || id WHERE external_event_id IS NULL OR external_event_id = ''");
+  // Drop both partial indexes (they don't satisfy ON CONFLICT(col))
+  await tryRun("DROP INDEX IF EXISTS idx_events_external_id");
+  await tryRun("DROP INDEX IF EXISTS uniq_events_external_event_id");
+  // Create a full unique index (works for ON CONFLICT(external_event_id))
+  await tryRun("CREATE UNIQUE INDEX IF NOT EXISTS uniq_events_external_event_id_full ON events(external_event_id)");
+  return c.json({ nulls: nulls?.n ?? 0, duplicates: dups.results, log });
+});
+
+// Diagnostic: try one upsert and report error verbatim
+app.post('/api/admin/test-upsert', async (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
+  if (token !== c.env.ADMIN_TOKEN) return c.json({ error: 'Forbidden' }, 403);
+  try {
+    const { ensureUserSchema } = await import('./db');
+    await ensureUserSchema(c.env.DB);
+    const eid = 'TEST_' + Date.now();
+    const sql = `INSERT INTO events (external_event_id, sport, league, home_team, away_team, team_match, event_date, status, is_live, home_odd, draw_odd, away_odd, elapsed, score, markets, home_team_logo, away_team_logo, country, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 ON CONFLICT(external_event_id) DO UPDATE SET status = excluded.status`;
+    const r = await c.env.DB.prepare(sql).bind(
+      eid, 'soccer', 'TEST_LEAGUE', 'TestFC_'+Date.now(), 'ProbeFC_'+Date.now(), 'a x b',
+      new Date(Date.now() + 3600_000).toISOString(), 'NS', 0,
+      2.10, 3.30, 3.20, 0, '{"home":null,"away":null}', '{}', '', '', 'PT',
+      new Date().toISOString()
+    ).run();
+    const check = await c.env.DB.prepare('SELECT external_event_id, sport FROM events WHERE external_event_id = ?').bind(eid).first();
+    return c.json({ ok: true, eid, runResult: r, check });
+  } catch (err: any) {
+    return c.json({ ok: false, error: String(err?.message || err), stack: String(err?.stack || '') }, 500);
   }
 });
 
