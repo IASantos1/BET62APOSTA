@@ -1,5 +1,5 @@
 import { OddButton } from '@/react-app/components/OddButton';
-import { useMemo, useState, memo } from 'react';
+import { useMemo, useState, memo, useEffect, useRef } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { formatLeagueHeader, abbreviateTeamName, getSportFromLeague, getSportIcon, labelOutcome } from '@/shared/helpers';
@@ -187,6 +187,71 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
 
   const suspendReason = suspension?.reason || (event as any).suspendReason || ((event as any).oddsFrozen ? 'EVENT_FROZEN' : 'SUSPENSO');
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Critical-event state machine (mirrors SubOddsModel) — listing card
+  // ─────────────────────────────────────────────────────────────────────
+  type CritState = 'idle' | 'big_chance' | 'var_review' | 'var_penalty' | 'goal';
+  const [critState, setCritState] = useState<CritState>('idle');
+  const lastEventIdRef = useRef<string>('');
+
+  const liveEventList: any[] = useMemo(() => {
+    const a = (event as any)?.events;
+    if (Array.isArray(a)) return a;
+    const b = (event as any)?.fixture?.events;
+    return Array.isArray(b) ? b : [];
+  }, [event]);
+
+  useEffect(() => {
+    if (!isLiveEvent || liveEventList.length === 0) return;
+    const latest = liveEventList[liveEventList.length - 1];
+    if (!latest) return;
+    const id = `${latest?.timer || latest?.minute || latest?.time?.elapsed || ''}|${latest?.type || ''}|${latest?.detail || ''}|${latest?.player?.name || latest?.player || ''}`;
+    if (id === lastEventIdRef.current) return;
+    lastEventIdRef.current = id;
+
+    const text = `${latest?.type || ''} ${latest?.detail || ''} ${latest?.text || ''}`.toLowerCase();
+    let next: CritState | null = null;
+    if (/(var.*pen|pen.*var|p[eê]nalti.*confirmad|penalty.*confirmed)/.test(text)) next = 'var_penalty';
+    else if (/\bvar\b|video.*assist|review/.test(text)) next = 'var_review';
+    else if (/\b(goal|gol)\b/.test(text) && !/disallow|cancel|anulad|missed|own/.test(text)) next = 'goal';
+    else if (/big.*chance|grande.*chance|great.*chance|big_chance/.test(text)) next = 'big_chance';
+
+    if (next) {
+      setCritState(next);
+      const dur = next === 'goal' ? 12000 : next === 'var_penalty' ? 10000 : 8000;
+      const t = setTimeout(() => setCritState('idle'), dur);
+      return () => clearTimeout(t);
+    }
+  }, [liveEventList, isLiveEvent]);
+
+  // "Aposta Já" trigger: any odd ≤ 1.01, score 2-0 at min 80+, or diff ≥ 3
+  const apostaJaActive = useMemo(() => {
+    if (!isLiveEvent) return false;
+    const goals: any = (event as any)?.goals;
+    let h = 0, a = 0;
+    if (goals && typeof goals === 'object') { h = Number(goals.home ?? 0); a = Number(goals.away ?? 0); }
+    const diff = Math.abs(h - a);
+    if (diff >= 3) return true;
+    const elapsed = Number((event as any).elapsed ?? (event as any).fixture?.status?.elapsed ?? 0) || 0;
+    const timerStr = String((event as any).timer || (event as any).fixture?.status?.timer || '');
+    const minute = parseInt(timerStr.replace(/[^\d]/g, ''), 10) || elapsed;
+    if (diff >= 2 && minute >= 80) return true;
+    if (hh > 0 && hh <= 1.01) return true;
+    if (dd > 0 && dd <= 1.01) return true;
+    if (aa > 0 && aa <= 1.01) return true;
+    return false;
+  }, [isLiveEvent, event, hh, dd, aa]);
+
+  // Choose the favourite (lowest non-zero odd) for one-tap betting
+  const favBet = useMemo(() => {
+    const opts: { label: 'Casa' | 'Empate' | 'Fora'; odd: number }[] = [];
+    if (hh > 0) opts.push({ label: 'Casa', odd: hh });
+    if (dd > 0) opts.push({ label: 'Empate', odd: dd });
+    if (aa > 0) opts.push({ label: 'Fora', odd: aa });
+    if (opts.length === 0) return null;
+    return opts.reduce((m, x) => x.odd < m.odd ? x : m, opts[0]);
+  }, [hh, dd, aa]);
+
   return (
     <div 
       className={`border rounded-lg p-3 transition-all duration-300 ${ 
@@ -333,6 +398,48 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
               );
           }
             
+            // ── Critical event button (overrides 3 odds) ──
+            if (critState !== 'idle' && !isSuspended && favBet) {
+              const cfg = {
+                goal:        { label: '⚽ GOL!',                    bg: 'from-emerald-500 to-green-600', ring: 'ring-emerald-300', anim: 'animate-bounce' },
+                big_chance:  { label: '🔥 GRANDE CHANCE',           bg: 'from-orange-500 to-amber-600',  ring: 'ring-orange-300',  anim: 'animate-pulse' },
+                var_review:  { label: '📺 REVISÃO VAR',             bg: 'from-indigo-500 to-purple-600', ring: 'ring-purple-300',  anim: 'animate-pulse' },
+                var_penalty: { label: '🎯 VAR: PÉNALTI CONFIRMADO', bg: 'from-yellow-500 to-amber-500',  ring: 'ring-yellow-300',  anim: 'animate-pulse' },
+              }[critState];
+              return (
+                <div className="w-full sm:w-[320px] lg:w-[400px]">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); addPrimary(favBet.label, favBet.odd); }}
+                    className={`w-full h-12 rounded-lg font-black text-sm uppercase tracking-wider text-white shadow-lg
+                      bg-gradient-to-r ${cfg.bg} ring-2 ${cfg.ring} ring-opacity-60 ${cfg.anim}
+                      transition-all duration-200 hover:scale-[1.02] active:scale-95
+                      flex items-center justify-center gap-2`}
+                  >
+                    <span>{cfg.label}</span>
+                  </button>
+                </div>
+              );
+            }
+
+            // ── "Aposta Já" mode (jogo decidido) ──
+            if (apostaJaActive && !isSuspended && favBet) {
+              const favStr = favBet.odd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              return (
+                <div className="w-full sm:w-[320px] lg:w-[400px]">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); addPrimary(favBet.label, favBet.odd); }}
+                    className="w-full h-12 rounded-lg font-black text-sm uppercase tracking-wider text-white shadow-lg
+                      bg-gradient-to-r from-red-600 to-rose-700 ring-2 ring-red-400 ring-opacity-50 animate-pulse
+                      transition-all duration-200 hover:scale-[1.02] active:scale-95
+                      flex items-center justify-center gap-2"
+                  >
+                    <span>⚡ APOSTA JÁ</span>
+                    <span className="text-xs opacity-90">· {favBet.label} @ {favStr}</span>
+                  </button>
+                </div>
+              );
+            }
+
             return (
               <div className={`grid ${gridCols} gap-2 relative transition-opacity duration-300 w-full sm:w-[320px] lg:w-[400px] ${isSuspended ? 'opacity-50 pointer-events-none select-none' : ''}`}>
                 {isSuspended && (
