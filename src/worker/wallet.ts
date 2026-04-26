@@ -211,6 +211,14 @@ wallet.post('/deposit', async (c) => {
   }
 });
 
+// Helper: check if user is operator (admin) — admins are exempt from deposit minimums
+async function isOperator(db: D1Database, userId: string): Promise<boolean> {
+  try {
+    const row = await db.prepare('SELECT is_operator FROM user_profile WHERE user_id = ?').bind(userId).first<{ is_operator: number }>();
+    return !!row && row.is_operator === 1;
+  } catch { return false; }
+}
+
 // Stripe: criar Payment Intent para cartão
 wallet.post('/deposit/stripe/card', async (c) => {
   const userId = c.get('user').userId;
@@ -221,7 +229,9 @@ wallet.post('/deposit/stripe/card', async (c) => {
 
   try {
     const { amount } = await c.req.json();
-    if (!amount || amount < 10) return c.json({ error: 'Mínimo €10' }, 400);
+    const admin = await isOperator(c.env.DB, userId);
+    const minAmount = admin ? 0.5 : 10;
+    if (!amount || amount < minAmount) return c.json({ error: admin ? 'Mínimo €0.50' : 'Mínimo €10' }, 400);
 
     const stripe = new Stripe(c.env.STRIPE_SECRET_KEY, { apiVersion: '2025-10-29.clover' });
     const intent = await stripe.paymentIntents.create({
@@ -246,7 +256,9 @@ wallet.post('/deposit/stripe/mbway', async (c) => {
 
   try {
     const { amount, phone } = await c.req.json();
-    if (!amount || amount < 10) return c.json({ error: 'Mínimo €10' }, 400);
+    const admin = await isOperator(c.env.DB, userId);
+    const minAmount = admin ? 0.5 : 10;
+    if (!amount || amount < minAmount) return c.json({ error: admin ? 'Mínimo €0.50' : 'Mínimo €10' }, 400);
     if (!phone) return c.json({ error: 'Número de telemóvel obrigatório' }, 400);
 
     // Lookup customer email/name for billing_details (MB WAY exige)
@@ -291,7 +303,9 @@ wallet.post('/deposit/stripe/multibanco', async (c) => {
 
   try {
     const { amount, email: bodyEmail, name: bodyName } = await c.req.json();
-    if (!amount || amount < 10) return c.json({ error: 'Mínimo €10' }, 400);
+    const admin = await isOperator(c.env.DB, userId);
+    const minAmount = admin ? 0.5 : 10;
+    if (!amount || amount < minAmount) return c.json({ error: admin ? 'Mínimo €0.50' : 'Mínimo €10' }, 400);
 
     // Lookup customer email/name for billing_details (Multibanco exige email)
     const userRow = await c.env.DB.prepare(

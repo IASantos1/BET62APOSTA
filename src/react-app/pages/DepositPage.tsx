@@ -403,10 +403,13 @@ export default function DepositPage() {
   const numAmount = parseFloat(amount) || 0;
   const stripePromise = getStripePromise();
 
+  const isAdmin = !!(user as any)?.is_operator;
+  const minDeposit = isAdmin ? 0.5 : 10;
+
   const handleAmountChange = (e: ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setAmount(val);
-    setAmountError(parseFloat(val) < 10 ? "Valor mínimo: €10" : "");
+    setAmountError(parseFloat(val) < minDeposit ? `Valor mínimo: €${minDeposit.toFixed(2)}` : "");
   };
 
   const handleQuickAmount = (val: number) => {
@@ -419,29 +422,35 @@ export default function DepositPage() {
   const PaymentLogo = ({ method: m }: { method: Method }) => {
     if (m === 'card') return (
       <span className="flex items-center gap-1">
-        <svg viewBox="0 0 48 30" width="30" height="19" xmlns="http://www.w3.org/2000/svg">
-          <rect width="48" height="30" rx="4" fill="#1a1f71"/>
-          <rect y="7" width="48" height="8" fill="#f7b600"/>
-          <text x="6" y="24" fontSize="9" fill="#fff" fontFamily="Arial" fontWeight="bold">VISA</text>
+        {/* VISA — fundo branco, wordmark azul oficial */}
+        <svg viewBox="0 0 48 30" width="34" height="22" xmlns="http://www.w3.org/2000/svg">
+          <rect width="48" height="30" rx="4" fill="#fff" stroke="#e5e7eb"/>
+          <text x="24" y="21" textAnchor="middle" fontSize="13" fill="#1A1F71" fontFamily="'Arial Black','Helvetica Neue',sans-serif" fontWeight="900" fontStyle="italic" letterSpacing="-0.5">VISA</text>
         </svg>
-        <svg viewBox="0 0 48 30" width="30" height="19" xmlns="http://www.w3.org/2000/svg">
-          <rect width="48" height="30" rx="4" fill="#fff" stroke="#ddd"/>
-          <circle cx="18" cy="15" r="9" fill="#eb001b"/>
-          <circle cx="30" cy="15" r="9" fill="#f79e1b"/>
-          <path d="M24 8.3a9 9 0 0 1 0 13.4A9 9 0 0 1 24 8.3z" fill="#ff5f00"/>
+        {/* Mastercard — círculos vermelho e amarelo com sobreposição laranja */}
+        <svg viewBox="0 0 48 30" width="34" height="22" xmlns="http://www.w3.org/2000/svg">
+          <rect width="48" height="30" rx="4" fill="#fff" stroke="#e5e7eb"/>
+          <circle cx="20" cy="15" r="8" fill="#EB001B"/>
+          <circle cx="28" cy="15" r="8" fill="#F79E1B"/>
+          <path d="M24 9.2a8 8 0 0 1 0 11.6 8 8 0 0 1 0-11.6z" fill="#FF5F00"/>
         </svg>
       </span>
     );
     if (m === 'mbway') return (
-      <svg viewBox="0 0 48 20" width="40" height="17" xmlns="http://www.w3.org/2000/svg">
-        <rect width="48" height="20" rx="4" fill="#e2001a"/>
-        <text x="5" y="14" fontSize="10" fill="#fff" fontFamily="Arial" fontWeight="bold">MB WAY</text>
+      // MB WAY — vermelho oficial #E30613 com wordmark branco
+      <svg viewBox="0 0 60 24" width="50" height="20" xmlns="http://www.w3.org/2000/svg">
+        <rect width="60" height="24" rx="4" fill="#E30613"/>
+        <text x="30" y="16" textAnchor="middle" fontSize="10" fill="#fff" fontFamily="'Arial Black','Helvetica Neue',sans-serif" fontWeight="900" letterSpacing="0.5">MB WAY</text>
       </svg>
     );
     if (m === 'multibanco') return (
-      <svg viewBox="0 0 48 20" width="40" height="17" xmlns="http://www.w3.org/2000/svg">
-        <rect width="48" height="20" rx="4" fill="#003b95"/>
-        <text x="4" y="14" fontSize="9" fill="#fff" fontFamily="Arial" fontWeight="bold">Multibanco</text>
+      // Multibanco — selo "MB" azul oficial #004C9B + texto
+      <svg viewBox="0 0 70 24" width="58" height="20" xmlns="http://www.w3.org/2000/svg">
+        <rect width="70" height="24" rx="4" fill="#fff" stroke="#e5e7eb"/>
+        <rect x="2" y="2" width="20" height="20" rx="2" fill="#004C9B"/>
+        <text x="12" y="17" textAnchor="middle" fontSize="11" fill="#fff" fontFamily="'Arial Black','Helvetica Neue',sans-serif" fontWeight="900">MB</text>
+        <text x="46" y="11" textAnchor="middle" fontSize="6" fill="#004C9B" fontFamily="Arial,sans-serif" fontWeight="700">MULTI</text>
+        <text x="46" y="19" textAnchor="middle" fontSize="6" fill="#004C9B" fontFamily="Arial,sans-serif" fontWeight="700">BANCO</text>
       </svg>
     );
     return null;
@@ -535,8 +544,8 @@ export default function DepositPage() {
         </div>
 
         <div className="p-4">
-          {numAmount < 10 ? (
-            <p className="text-center text-gray-500 text-sm py-4">Seleciona um valor mínimo de €10</p>
+          {numAmount < minDeposit ? (
+            <p className="text-center text-gray-500 text-sm py-4">Seleciona um valor mínimo de €{minDeposit.toFixed(2)}</p>
           ) : (
             <>
               {method === 'card' && (

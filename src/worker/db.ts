@@ -88,6 +88,13 @@ export const ensureUserSchema = async (db: D1Database) => {
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_bet_selections_bet_id ON bet_selections(bet_id)').run(); } catch { /* empty */ }
   try { await db.prepare('ALTER TABLE bet_selections ADD COLUMN market_key TEXT').run(); } catch { /* empty */ }
 
+  // Migrations for user table (lockout tracking)
+  try { await db.prepare('ALTER TABLE user ADD COLUMN failed_attempts INTEGER DEFAULT 0').run(); } catch { /* empty */ }
+  try { await db.prepare('ALTER TABLE user ADD COLUMN locked_until DATETIME').run(); } catch { /* empty */ }
+  try { await db.prepare('ALTER TABLE user ADD COLUMN twofa_enabled INTEGER DEFAULT 0').run(); } catch { /* empty */ }
+  try { await db.prepare('ALTER TABLE user ADD COLUMN twofa_secret TEXT').run(); } catch { /* empty */ }
+  try { await db.prepare('ALTER TABLE user_key ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP').run(); } catch { /* empty */ }
+
   // Migrations for existing tables
   try { await db.prepare('ALTER TABLE user_profile ADD COLUMN twofa_enabled INTEGER DEFAULT 0').run(); } catch { /* empty */ }
   try { await db.prepare('ALTER TABLE user_profile ADD COLUMN twofa_secret TEXT').run(); } catch { /* empty */ }

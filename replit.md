@@ -20,6 +20,13 @@ A Portuguese-language sports betting platform (BET62) built with React + Vite on
 - `wrangler.toml` — Cloudflare Workers configuration
 - `scripts/odds-proxy.mjs` — Statpal.io odds/stats proxy (port 8080)
 
+## Admin Access
+
+- Operator account: `Admin.local` (created via `POST /api/admin/bootstrap-operator` with `X-Admin-Token: $BOOTSTRAP_TOKEN`).
+- `BOOTSTRAP_TOKEN` is a Cloudflare Worker secret (production-only). Used once to create/promote operators; not exposed to the client.
+- Operators (`user_profile.is_operator = 1`) get a €0.50 minimum deposit instead of the public €10 floor on Card / MB WAY / Multibanco.
+- In production, `.local` usernames cannot self-register or bypass passwords (`auth.ts` checks `ENVIRONMENT === 'production'`).
+
 ## Development Setup
 
 Two workflows must run simultaneously:

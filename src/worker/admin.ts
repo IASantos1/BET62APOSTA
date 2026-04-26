@@ -13,7 +13,80 @@ type Variables = {
 
 const admin = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// Middleware to ensure admin
+// Bootstrap endpoint: cria/promove um operador inicial usando ADMIN_TOKEN.
+// Pré-requisito: header X-Admin-Token com valor igual a env.ADMIN_TOKEN.
+// Não exige sessão, é o ÚNICO endpoint /admin que ignora o middleware abaixo.
+admin.post('/bootstrap-operator', async (c) => {
+    const headerToken = c.req.header('X-Admin-Token');
+    // Prefer BOOTSTRAP_TOKEN (real secret) over ADMIN_TOKEN (plaintext var)
+    const envToken = c.env.BOOTSTRAP_TOKEN || c.env.ADMIN_TOKEN;
+    if (!envToken || envToken === 'dev-admin-token') {
+        return c.json({ error: 'BOOTSTRAP_TOKEN not configured (must be a real secret)' }, 500);
+    }
+    if (!headerToken || headerToken !== envToken) {
+        return c.json({ error: 'Forbidden' }, 403);
+    }
+    try {
+        // Ensure schema is up to date (failed_attempts/locked_until columns, etc.)
+        const { ensureUserSchema } = await import('./db');
+        try { await ensureUserSchema(c.env.DB); } catch (e) { console.error('ensureUserSchema in bootstrap failed', e); }
+        const body = await c.req.json();
+        const username = String(body.username || '').trim();
+        const password = String(body.password || '');
+        if (!username || !password || password.length < 6) {
+            return c.json({ error: 'username and password (≥6) required' }, 400);
+        }
+
+        const { PasswordService } = await import('./services/security/passwordService');
+        const pwService = new PasswordService();
+        const hashedPassword = await pwService.hash(password);
+
+        let user = await c.env.DB.prepare('SELECT id FROM user WHERE username = ?').bind(username).first<{ id: string }>();
+        let userId: string;
+        if (!user) {
+            userId = crypto.randomUUID();
+            await c.env.DB.prepare('INSERT INTO user (id, username, twofa_enabled) VALUES (?, ?, 0)').bind(userId, username).run();
+        } else {
+            userId = user.id;
+        }
+
+        // Replace password (delete + insert to be idempotent)
+        await c.env.DB.prepare('DELETE FROM user_key WHERE user_id = ?').bind(userId).run();
+        try {
+            await c.env.DB.prepare('INSERT INTO user_key (id, user_id, hashed_password, created_at) VALUES (?, ?, ?, ?)')
+                .bind(`username:${username}`, userId, hashedPassword, new Date().toISOString()).run();
+        } catch {
+            // Fallback: schema may not have created_at
+            await c.env.DB.prepare('INSERT INTO user_key (id, user_id, hashed_password) VALUES (?, ?, ?)')
+                .bind(`username:${username}`, userId, hashedPassword).run();
+        }
+
+        // Ensure user_profile row exists with is_operator = 1
+        const profile = await c.env.DB.prepare('SELECT user_id FROM user_profile WHERE user_id = ?').bind(userId).first();
+        if (!profile) {
+            try {
+                await c.env.DB.prepare('INSERT INTO user_profile (user_id, email, is_operator) VALUES (?, ?, 1)')
+                    .bind(userId, /@/.test(username) ? username : null).run();
+            } catch {
+                await c.env.DB.prepare('INSERT INTO user_profile (user_id, is_operator) VALUES (?, 1)').bind(userId).run();
+            }
+        } else {
+            await c.env.DB.prepare('UPDATE user_profile SET is_operator = 1 WHERE user_id = ?').bind(userId).run();
+        }
+
+        // Ensure wallet exists
+        try {
+            await c.env.DB.prepare('INSERT OR IGNORE INTO wallets (user_id, currency, balance) VALUES (?, ?, 0)').bind(userId, 'EUR').run();
+        } catch { /* table may not exist in some envs */ }
+
+        return c.json({ success: true, userId, username, is_operator: 1 });
+    } catch (e: any) {
+        console.error('[Admin Bootstrap] Error:', e);
+        return c.json({ error: e.message || 'Bootstrap failed' }, 500);
+    }
+});
+
+// Middleware to ensure admin (applied to all routes BELOW this point)
 admin.use('*', verifyAuth);
 
 admin.use('*', async (c, next) => {

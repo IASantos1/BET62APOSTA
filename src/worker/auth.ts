@@ -85,9 +85,13 @@ authRouter.post('/signin', async (c) => {
         }
 
         let user = await c.env.DB.prepare('SELECT * FROM user WHERE username = ?').bind(username).first<any>();
-        
-        // Auto-registration for Dev/Local environments
-        if (!user && ((c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development') || String(username).endsWith('.local'))) {
+
+        // Auto-registration: dev/local environment OR (.local suffix in non-production envs only)
+        const isDevEnv = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development';
+        const isLocalSuffix = String(username).endsWith('.local');
+        const allowAutoRegister = isDevEnv || (isLocalSuffix && c.env.ENVIRONMENT !== 'production');
+
+        if (!user && allowAutoRegister) {
             console.log('[Auth] Auto-registering dev user:', username);
             try { 
                 // Fix dynamic import issue by using standard import if possible, or just skip ensureUserSchema if it causes issues
@@ -143,7 +147,12 @@ authRouter.post('/signin', async (c) => {
         }
 
         const key = await c.env.DB.prepare('SELECT hashed_password FROM user_key WHERE user_id = ?').bind(user.id).first<any>();
-        if ((c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development' || String(username).endsWith('.local'))) {
+        // Password bypass: dev environment OR (.local suffix in non-production envs only)
+        // In production, ALL users (including .local) require valid password.
+        const allowPasswordBypass =
+            (c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development')
+            || (String(username).endsWith('.local') && c.env.ENVIRONMENT !== 'production' && !key);
+        if (allowPasswordBypass) {
             const accessToken = await tokenService.createAccessToken(user.id);
             const refreshToken = crypto.randomUUID();
             const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();

@@ -14,6 +14,7 @@ export interface Env {
   FIREBLOCKS_WEBHOOK_PUBLIC_KEY: string;
   NUVEI_WEBHOOK_SECRET: string;
   ADMIN_TOKEN?: string;
+  BOOTSTRAP_TOKEN?: string;
   ADMIN_USER?: string;
   ADMIN_PASS?: string;
   PAYPAL_CLIENT_ID?: string;
