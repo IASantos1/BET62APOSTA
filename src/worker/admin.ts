@@ -41,7 +41,7 @@ admin.post('/bootstrap-operator', async (c) => {
         const pwService = new PasswordService();
         const hashedPassword = await pwService.hash(password);
 
-        let user = await c.env.DB.prepare('SELECT id FROM user WHERE username = ?').bind(username).first<{ id: string }>();
+        const user = await c.env.DB.prepare('SELECT id FROM user WHERE username = ?').bind(username).first<{ id: string }>();
         let userId: string;
         if (!user) {
             userId = crypto.randomUUID();
@@ -49,6 +49,10 @@ admin.post('/bootstrap-operator', async (c) => {
         } else {
             userId = user.id;
         }
+        // Always clear any lockout so the bootstrapped operator can sign in immediately
+        try {
+            await c.env.DB.prepare('UPDATE user SET failed_attempts = 0, locked_until = NULL WHERE id = ?').bind(userId).run();
+        } catch { /* columns may not exist on legacy schemas */ }
 
         // Replace password (delete + insert to be idempotent)
         await c.env.DB.prepare('DELETE FROM user_key WHERE user_id = ?').bind(userId).run();

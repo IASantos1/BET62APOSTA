@@ -45,6 +45,12 @@ export const ensureUserSchema = async (db: D1Database) => {
   try { await db.prepare("ALTER TABLE events ADD COLUMN status TEXT DEFAULT 'NS'").run(); } catch { /* empty */ }
     try { await db.prepare("ALTER TABLE events ADD COLUMN markets TEXT").run(); } catch { /* empty */ }
     try { await db.prepare("ALTER TABLE events ADD COLUMN score TEXT").run(); } catch { /* empty */ }
+    try { await db.prepare("ALTER TABLE events ADD COLUMN elapsed INTEGER DEFAULT 0").run(); } catch { /* empty */ }
+    try { await db.prepare("ALTER TABLE events ADD COLUMN timer TEXT").run(); } catch { /* empty */ }
+    try { await db.prepare("ALTER TABLE events ADD COLUMN home_team_logo TEXT").run(); } catch { /* empty */ }
+    try { await db.prepare("ALTER TABLE events ADD COLUMN away_team_logo TEXT").run(); } catch { /* empty */ }
+    try { await db.prepare("ALTER TABLE events ADD COLUMN country TEXT").run(); } catch { /* empty */ }
+    try { await db.prepare("ALTER TABLE events ADD COLUMN team_match TEXT").run(); } catch { /* empty */ }
 
   // Bets Table
   await db.prepare(`

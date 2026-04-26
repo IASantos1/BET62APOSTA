@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { Env } from '../shared/types';
 import { verifyAuth } from './middleware/jwtAuth';
 import { checkSelfExclusion } from './middleware/selfExclusion';
-import { calculateCashout } from './services/cashout';
+import { calculateCashout, evaluateCashoutBlock, CashoutBlockReason } from './services/cashout';
 import { canPlaceBet, updateExposure, initRiskTables, checkUserLimit } from './services/risk';
 import { initSharpTables, checkMultiAccount, detectInternalArbitrage } from './services/sharpDetection';
 import { balanceMarket, saveBalancedOdds } from './services/bookBalancing';
@@ -31,18 +31,48 @@ bets.get('/', async (c) => {
         b.*, 
         e.home_team as team_home, 
         e.away_team as team_away, 
-        e.league
+        e.league as league,
+        e.sport as sport,
+        e.event_date as event_date_iso,
+        e.is_live as is_live,
+        e.status as event_status,
+        e.elapsed as elapsed,
+        e.score as score_json,
+        e.home_team_logo as home_team_logo,
+        e.away_team_logo as away_team_logo
       FROM bets b
       LEFT JOIN events e ON b.event_id = e.id
       WHERE b.user_id = ? 
       ORDER BY b.created_at DESC
     `).bind(userId).all();
-    
-    const formatted = (results || []).map((b: any) => ({
-        ...b,
-        team_match: b.type === 'multi' ? 'Aposta Múltipla' : (b.team_home ? `${b.team_home} vs ${b.team_away}` : 'Evento Indisponível'),
-        league: b.league || (b.type === 'multi' ? 'Múltipla' : '')
-    }));
+
+    const parseScore = (raw: any): { home: number | null; away: number | null } => {
+        if (raw == null) return { home: null, away: null };
+        if (typeof raw === 'object') return { home: raw.home ?? null, away: raw.away ?? null };
+        try {
+            const j = JSON.parse(String(raw));
+            return { home: j?.home ?? null, away: j?.away ?? null };
+        } catch { return { home: null, away: null }; }
+    };
+
+    const formatted = (results || []).map((b: any) => {
+        const score = parseScore(b.score_json);
+        return {
+            ...b,
+            team_match: b.type === 'multi' ? 'Aposta Múltipla' : (b.team_home ? `${b.team_home} vs ${b.team_away}` : 'Evento Indisponível'),
+            league: b.league || (b.type === 'multi' ? 'Múltipla' : ''),
+            live: b.type === 'multi' ? null : {
+                isLive: !!b.is_live,
+                status: b.event_status || null,
+                elapsed: b.elapsed ?? null,
+                home_score: score.home,
+                away_score: score.away,
+                home_logo: b.home_team_logo || null,
+                away_logo: b.away_team_logo || null,
+                event_date: b.event_date_iso || null,
+            },
+        };
+    });
 
     // Fetch selections for multi bets
     const multiBetIds = formatted.filter((b: any) => b.type === 'multi').map((b: any) => b.id);
@@ -51,7 +81,12 @@ bets.get('/', async (c) => {
     if (multiBetIds.length > 0) {
         const placeholders = multiBetIds.map(() => '?').join(',');
         const { results: selections } = await c.env.DB.prepare(`
-            SELECT bs.*, e.home_team, e.away_team, e.league
+            SELECT bs.*, 
+                   e.home_team, e.away_team, e.league, e.sport,
+                   e.event_date as event_date_iso,
+                   e.is_live, e.status as event_status, e.elapsed,
+                   e.score as score_json,
+                   e.home_team_logo, e.away_team_logo
             FROM bet_selections bs
             LEFT JOIN events e ON bs.event_id = e.id
             WHERE bs.bet_id IN (${placeholders})
@@ -61,9 +96,20 @@ bets.get('/', async (c) => {
             if (!selectionsMap.has(s.bet_id)) {
                 selectionsMap.set(s.bet_id, []);
             }
+            const score = parseScore(s.score_json);
             selectionsMap.get(s.bet_id).push({
                 ...s,
-                team_match: s.home_team ? `${s.home_team} vs ${s.away_team}` : 'Evento Indisponível'
+                team_match: s.home_team ? `${s.home_team} vs ${s.away_team}` : 'Evento Indisponível',
+                live: {
+                    isLive: !!s.is_live,
+                    status: s.event_status || null,
+                    elapsed: s.elapsed ?? null,
+                    home_score: score.home,
+                    away_score: score.away,
+                    home_logo: s.home_team_logo || null,
+                    away_logo: s.away_team_logo || null,
+                    event_date: s.event_date_iso || null,
+                },
             });
         });
     }
@@ -125,17 +171,44 @@ bets.get('/', async (c) => {
               }
           }
 
-          if (currentOdd > 1 && !suspended) {
-             const cashout = calculateCashout({
-                 stake: Number(bet.stake),
-                 originalOdd: Number(bet.odd),
-                 currentOdd,
-                 suspended
-             });
-             if (cashout !== null) {
-                 bet.cashoutAvailable = true;
-                 bet.cashoutValue = cashout;
-             }
+          // Compute live block reason BEFORE deciding cashout availability
+          const block: CashoutBlockReason | null = evaluateCashoutBlock({
+              status: bet.event_status,
+              isLive: bet.is_live,
+              elapsed: bet.elapsed ?? null,
+              homeScore: bet.live?.home_score ?? null,
+              awayScore: bet.live?.away_score ?? null,
+              currentOdd,
+              originalOdd: Number(bet.odd),
+              suspended,
+              oddsFrozen: !!eventPayload.oddsFrozen,
+              lastIncidentAt: eventPayload.lastIncidentAt ?? null,
+          });
+
+          bet.currentOdd = currentOdd;
+          if (block) {
+              bet.cashoutAvailable = false;
+              bet.cashoutBlocked = true;
+              bet.cashoutBlockedReason = block;
+              // Still expose the indicative value so UI can show "would-be" amount in greyed state
+              const ind = calculateCashout({
+                  stake: Number(bet.stake),
+                  originalOdd: Number(bet.odd),
+                  currentOdd,
+                  suspended: false,
+              });
+              if (ind !== null) bet.cashoutValue = ind;
+          } else {
+              const cashout = calculateCashout({
+                  stake: Number(bet.stake),
+                  originalOdd: Number(bet.odd),
+                  currentOdd,
+                  suspended,
+              });
+              if (cashout !== null) {
+                  bet.cashoutAvailable = true;
+                  bet.cashoutValue = cashout;
+              }
           }
       }
     }
@@ -145,6 +218,106 @@ bets.get('/', async (c) => {
     console.error('Error fetching bets:', e);
     return c.json({ error: 'Failed to fetch bets' }, 500);
   }
+});
+
+// POST /api/bets/:id/cashout
+// Server-authoritative cashout with critical-moment guard.
+bets.post('/:id/cashout', async (c) => {
+    const userId = c.get('user').userId;
+    const betId = Number(c.req.param('id'));
+    if (!Number.isFinite(betId) || betId <= 0) {
+        return c.json({ error: 'Invalid bet id' }, 400);
+    }
+
+    try {
+        const bet: any = await c.env.DB.prepare(
+            `SELECT b.*, e.is_live, e.status as event_status, e.elapsed, e.score as score_json
+             FROM bets b LEFT JOIN events e ON b.event_id = e.id
+             WHERE b.id = ? AND b.user_id = ?`
+        ).bind(betId, userId).first();
+
+        if (!bet) return c.json({ error: 'Aposta não encontrada' }, 404);
+        if (bet.status !== 'pending') return c.json({ error: 'Aposta já resolvida' }, 400);
+        if (bet.type === 'multi') return c.json({ error: 'Cashout indisponível para múltiplas' }, 400);
+        if (bet.is_freebet) return c.json({ error: 'Cashout indisponível para freebets' }, 400);
+
+        // Re-fetch live odds for selection
+        const oddsRow: any = await c.env.DB.prepare(
+            'SELECT payload FROM imported_odds WHERE id = ?'
+        ).bind(bet.event_id).first();
+
+        let currentOdd = 0;
+        let suspended = false;
+        let payload: any = null;
+        if (oddsRow?.payload) {
+            try { payload = JSON.parse(oddsRow.payload as string); } catch { /* empty */ }
+            if (payload?.odds && typeof payload.odds === 'object') {
+                for (const marketKey in payload.odds) {
+                    const market = payload.odds[marketKey];
+                    const outcomes = Array.isArray(market.outcomes) ? market.outcomes
+                                  : (Array.isArray(market) ? market : []);
+                    const m = outcomes.find((o: any) => o.outcome === bet.selection);
+                    if (m) { currentOdd = Number(m.value); suspended = !!market.suspended; break; }
+                }
+            }
+        }
+
+        let homeScore: number | null = null, awayScore: number | null = null;
+        try {
+            const s = JSON.parse(String(bet.score_json || '{}'));
+            homeScore = s?.home ?? null; awayScore = s?.away ?? null;
+        } catch { /* empty */ }
+
+        const block = evaluateCashoutBlock({
+            status: bet.event_status,
+            isLive: bet.is_live,
+            elapsed: bet.elapsed ?? null,
+            homeScore, awayScore,
+            currentOdd,
+            originalOdd: Number(bet.odd),
+            suspended,
+            oddsFrozen: !!payload?.oddsFrozen,
+            lastIncidentAt: payload?.lastIncidentAt ?? null,
+        });
+
+        if (block) {
+            return c.json({ error: 'Cashout indisponível neste momento', reason: block }, 409);
+        }
+
+        const value = calculateCashout({
+            stake: Number(bet.stake),
+            originalOdd: Number(bet.odd),
+            currentOdd,
+            suspended,
+        });
+        if (!value || value <= 0) {
+            return c.json({ error: 'Valor de cashout indisponível' }, 409);
+        }
+
+        // Credit wallet, mark bet as cashed_out
+        const wallet: any = await c.env.DB.prepare('SELECT id FROM wallets WHERE user_id = ?').bind(userId).first();
+        if (!wallet) return c.json({ error: 'Carteira não encontrada' }, 404);
+
+        const audit = new AuditService(c.env.DB);
+        const ledger = new LedgerService(c.env.DB, audit);
+        await ledger.addTransaction(
+            wallet.id,
+            'credit',
+            value,
+            `CASHOUT:${betId}:${Date.now()}`,
+            'Bet cashout',
+            { actorId: userId, ip: c.req.header('CF-Connecting-IP') || 'unknown', userAgent: c.req.header('User-Agent') || 'unknown' }
+        );
+
+        await c.env.DB.prepare(
+            `UPDATE bets SET status = 'cashed_out', result = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+        ).bind(JSON.stringify({ cashout_value: value, current_odd: currentOdd }), betId).run();
+
+        return c.json({ success: true, amount: value, currentOdd });
+    } catch (e: any) {
+        console.error('Cashout error:', e);
+        return c.json({ error: e.message || 'Erro ao processar cashout' }, 500);
+    }
 });
 
 // Helper to find market info
