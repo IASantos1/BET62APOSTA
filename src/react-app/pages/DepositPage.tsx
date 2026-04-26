@@ -53,7 +53,12 @@ const StripeCardForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
         onSuccess();
       }
     } catch (err: any) {
-      setError(err.message || 'Erro inesperado');
+      const msg = String(err?.message || '');
+      if (/401|Unauthorized/i.test(msg)) {
+        setError('Sessão expirada. Faz login novamente.');
+      } else {
+        setError(msg || 'Erro inesperado');
+      }
     } finally {
       setLoading(false);
     }
@@ -101,7 +106,8 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
       addNotification({ type: 'success', message: '📱 Pedido MBway enviado! Confirma na tua app.' });
       onSuccess();
     } catch (err: any) {
-      setError(err.message || 'Erro ao processar MBway');
+      const msg = String(err?.message || '');
+      setError(/401|Unauthorized/i.test(msg) ? 'Sessão expirada. Faz login novamente.' : msg || 'Erro ao processar MBway');
     } finally {
       setLoading(false);
     }
@@ -166,7 +172,8 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
         onSuccess();
       }
     } catch (err: any) {
-      setError(err.message || 'Erro ao gerar referência Multibanco');
+      const msg = String(err?.message || '');
+      setError(/401|Unauthorized/i.test(msg) ? 'Sessão expirada. Faz login novamente.' : msg || 'Erro ao gerar referência Multibanco');
     } finally {
       setLoading(false);
     }
@@ -260,7 +267,7 @@ export function StripeKeyManager({ darkMode }: { darkMode: boolean }) {
 }
 
 export default function DepositPage() {
-  const { darkMode, isOperator } = useApp();
+  const { darkMode, user, openAuthModal } = useApp();
   const [amount, setAmount] = useState("25");
   const [amountError, setAmountError] = useState("");
   const [method, setMethod] = useState<Method>('card');
@@ -287,6 +294,22 @@ export default function DepositPage() {
     { key: 'mbway', label: 'MBway', icon: '📱' },
     { key: 'multibanco', label: 'Multibanco', icon: '🏦' },
   ];
+
+  if (!user) {
+    return (
+      <div className={`max-w-md mx-auto text-center py-16 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+        <div className="text-5xl mb-4">🔐</div>
+        <h2 className="text-xl font-bold mb-2">Sessão necessária</h2>
+        <p className={`text-sm mb-6 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Tens de iniciar sessão para fazer um depósito.</p>
+        <button
+          onClick={() => openAuthModal('login')}
+          className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg transition-colors"
+        >
+          Entrar na conta
+        </button>
+      </div>
+    );
+  }
 
   if (success) {
     return (
@@ -359,7 +382,7 @@ export default function DepositPage() {
                 ) : (
                   <div className="text-center py-4">
                     <p className="text-yellow-500 text-sm mb-3">Stripe não configurado.</p>
-                    {isOperator && <StripeKeyManager darkMode={darkMode} />}
+                    <StripeKeyManager darkMode={darkMode} />
                   </div>
                 )
               )}
@@ -375,13 +398,6 @@ export default function DepositPage() {
           )}
         </div>
       </div>
-
-      {/* Stripe key manager for operators */}
-      {isOperator && (
-        <div className="mt-4">
-          <StripeKeyManager darkMode={darkMode} />
-        </div>
-      )}
 
       <p className={`text-center text-xs mt-4 ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>🔒 Todos os pagamentos são processados com encriptação SSL</p>
     </div>

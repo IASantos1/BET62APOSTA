@@ -151,9 +151,9 @@ export function Header() {
                 <div className={`px-2 py-1 md:px-3 md:py-2 rounded-md border text-xs md:text-sm ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-gray-900'}`}>
                   €{eurBalance !== null ? eurBalance.toFixed(2) : '0.00'}
                 </div>
-                <div className={`px-2 py-1 md:px-3 md:py-2 rounded-md border text-xs md:text-sm ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-gray-900'}`}>
-                  <span className={`${darkMode ? 'bg-red-700 text-white' : 'bg-red-600 text-white'} inline-flex items-center justify-center w-4 h-4 md:w-5 md:h-5 rounded-full text-[10px] md:text-xs font-bold mr-2`}>F</span>
-                  €{freebets !== null ? freebets.toFixed(2) : '0.00'}
+                <div className={`flex items-center gap-1.5 px-2 py-1 md:px-3 md:py-2 rounded-md border text-xs md:text-sm ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-gray-900'}`}>
+                  <span className={`${darkMode ? 'bg-red-700 text-white' : 'bg-red-600 text-white'} inline-flex items-center justify-center w-4 h-4 md:w-5 md:h-5 rounded-full text-[10px] md:text-xs font-bold flex-shrink-0`}>F</span>
+                  <span>€{freebets !== null ? freebets.toFixed(2) : '0.00'}</span>
                 </div>
 
                 {/* Deposit button — green square with "+" */}

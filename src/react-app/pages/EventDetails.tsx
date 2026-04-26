@@ -297,24 +297,57 @@ export default function EventDetails() {
 
         {/* Main Content */}
         <main className="flex-1 min-w-0 pb-20 mt-4">
-          {/* Header & Score — Football Pitch Animation (always visible) */}
-          <div className={`relative rounded-xl overflow-hidden mb-4`} style={{ height: 200 }}>
-            <FootballPitchAnimation
-              homeName={cleanTeam(displayEvent.home_team)}
-              awayName={cleanTeam(displayEvent.away_team)}
-              isLive={isLive}
-              score={isLive ? (() => { const g = parseGoals(displayEvent.goals); return `${g.home} - ${g.away}`; })() : undefined}
-              statusLabel={isLive ? (statusShort || displayEvent.fixture?.status?.short || '') : undefined}
-              timer={isLive ? (liveTimer || (liveElapsed > 0 ? `${liveElapsed}'` : 'AO VIVO')) : undefined}
-              sport={displayEvent.sport || 'soccer'}
-              matchEvents={liveStats.events}
-            />
-            {displayEvent.lastGoal && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-                <div className="text-4xl md:text-7xl font-black text-yellow-400 animate-bounce drop-shadow-[0_4px_4px_rgba(0,0,0,0.9)]">GOL!!!</div>
+          {/* Match Header — score, teams, status (no pitch here) */}
+          {(() => {
+            const g = parseGoals(displayEvent.goals);
+            const homeTeam = cleanTeam(displayEvent.home_team);
+            const awayTeam = cleanTeam(displayEvent.away_team);
+            return (
+              <div className={`relative rounded-xl overflow-hidden mb-4 px-4 py-5 flex flex-col items-center gap-2 ${darkMode ? 'bg-gray-800' : 'bg-white'} border ${darkMode ? 'border-gray-700' : 'border-gray-200'} shadow`}>
+                {isLive && (
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-red-500 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
+                    </span>
+                    <span className="text-[11px] font-black text-red-600 uppercase tracking-widest">Ao Vivo</span>
+                    {statusShort && <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'} uppercase`}>{statusShort}</span>}
+                    {(liveTimer || liveElapsed > 0) && (
+                      <span className="text-[11px] font-bold bg-red-600 text-white px-2 py-0.5 rounded">
+                        {liveTimer || `${liveElapsed}'`}
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="w-full flex items-center justify-between gap-2">
+                  <div className="flex-1 text-center">
+                    <p className={`font-bold text-sm md:text-base truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{homeTeam}</p>
+                    {displayEvent.league_name && (
+                      <p className={`text-[10px] mt-0.5 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{displayEvent.league_name}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-center min-w-[80px]">
+                    {isLive ? (
+                      <span className={`font-black text-3xl md:text-4xl tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>{g.home} - {g.away}</span>
+                    ) : (
+                      <span className={`font-black text-xl ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>VS</span>
+                    )}
+                  </div>
+                  <div className="flex-1 text-center">
+                    <p className={`font-bold text-sm md:text-base truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{awayTeam}</p>
+                    {!isLive && displayEvent.date && (
+                      <p className={`text-[10px] mt-0.5 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{new Date(displayEvent.date).toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                    )}
+                  </div>
+                </div>
+                {displayEvent.lastGoal && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                    <div className="text-4xl md:text-7xl font-black text-yellow-400 animate-bounce drop-shadow-[0_4px_4px_rgba(0,0,0,0.9)]">GOL!!!</div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
 
           {/* Live Section: Momentum Graph + 3 Tab Icons */}
           {isLive && (
