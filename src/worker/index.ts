@@ -201,23 +201,21 @@ app.get('/api/dev/time', async (c) => {
   return c.json({ jsNow, dbNow: db?.now || null, dbLocalNow: db?.local_now || null });
 });
 
-app.get('/', (c) => {
-  const isProd = c.env.ENVIRONMENT === 'production';
-  const frontendUrl = getFrontendUrl(c.env);
-  if (isProd && frontendUrl) {
-    return c.redirect(frontendUrl, 302);
+// Note: `/` é servido pelos Static Assets (./dist/index.html) configurados
+// em wrangler.toml. Quando os assets estão bindados, o SPA fallback trata
+// também todas as rotas client-side. Mantemos só uma resposta JSON quando
+// os assets NÃO estão disponíveis (deployment sem static assets).
+app.get('/', async (c) => {
+  // Se ASSETS binding existe, delega para servir o index.html
+  const assets = (c.env as any).ASSETS;
+  if (assets && typeof assets.fetch === 'function') {
+    return assets.fetch(c.req.raw);
   }
   return c.json({
     ok: true,
     name: 'BET62 Worker API',
     env: c.env.ENVIRONMENT,
-    endpoints: [
-      '/api/health',
-      '/api/sports',
-      '/api/events/by-sport',
-      '/api/debug/db-status?key=...',
-      '/api/debug/env-check?key=...',
-    ],
+    endpoints: ['/api/health', '/api/sports', '/api/events/by-sport'],
   });
 });
 
