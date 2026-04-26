@@ -232,6 +232,18 @@ Configured as a static site deployment:
 - **API-Sports / Odds-API**: keys dead (account suspended/invalid); StatPal block in `runSportsSync` runs whenever `STATPAL_KEY` is present, independent of legacy keys.
 
 ## EventCard Mobile Layout — Markets + Live Indicators (Apr 26, 2026)
-- **MERCADOS sub-row** (Totals + BTTS) on every card: backend now generates a deterministic baseline `markets` JSON in `src/worker/services/statpalApi.ts` so every event carries `[h2h, totals(line=0.5), btts]`. Lines/odds are pseudo-random but stable per fixture (seeded from id+team names) — operators can override per event.
-- **`formatEvent` in `src/worker/sports.ts`** parses the stored `markets` JSON and emits `markets: [{key:'h2h'…}, {key:'totals', line:'0.5'…}, {key:'btts'…}]` so `EventCard.tsx` (which reads `currentMarkets.find(m => m.key === 'totals'/'btts')`) renders the "Mercados:" strip with `+0.5 / -0.5 / Ambas` chips.
-- **Live score + minute**: StatPal adapter now writes `score` as `{home, away}` JSON and derives `elapsed`/`timer` from the StatPal status (HT→45, "1st"→25, "2nd"→70, FT→90, NS→null). The Worker passes both through unchanged so the card shows the live score badge + clock alongside the team names.
+- **MERCADOS sub-row** (Totals + BTTS) on every card: backend emits real markets JSON via `src/worker/services/statpalApi.ts`.
+- **`formatEvent` in `src/worker/sports.ts`** parses the stored `markets` JSON and emits `markets: [{key:'h2h'…}, {key:'totals', line:…}, {key:'btts'…}]` so `EventCard.tsx` (which reads `currentMarkets.find(m => m.key === 'totals'/'btts')`) renders the "Mercados:" strip.
+- **Live score + minute**: comes from Statpal v2 odds endpoint (`match_info.score` and `minute`) when available, otherwise approximated from v1 status (HT→45, "1st"→25, "2nd"→70).
+
+## Real Odds via Statpal v2 (Apr 26, 2026) — REPLACED ALL FAKE ODDS
+- **Endpoint**: `GET https://statpal.io/api/v2/soccer/odds/live?access_key=KEY` — only LIVE soccer (62 matches typical, ~24 markets each). Prematch v2 + non-soccer v2 = 404, so they remain odds-less.
+- **Market mapping** in `parseV2OddsForMatch()`:
+  - `3610 Fulltime Result` → `h2h` (lines: Home/Draw/Away → `home_odd`/`draw_odd`/`away_odd`)
+  - `2254 Match Goals` → `totals` (lines have `handicap` field; `pickPrimaryTotalsLine()` chooses the line closest to 2.5; falls back to whatever bookmaker offers — e.g. 0.5/1.5/3.5)
+  - `12398 Both Teams to Score` → `btts` (Yes/No). Present on ~45/62 matches; missing matches simply have no btts chip.
+- **Match cross-reference**: v2 returns `match_info.main_id` + `fallback_id_1/2/3`. Built into a `Map<id, ParsedOdds>` indexed by every candidate. v1 livescores `match.id` + `match.alternate_id` are looked up against this map.
+- **Score & minute override**: when v2 has the match, its `match_info.score` ("0:1") and `match_info.minute` override v1's status-derived approximation (so card shows real live minute, not bucket-25/70 estimates).
+- **NO synthetic odds**: deleted `baselineOdds()` and `buildSoccerMarketsJson()`. Events without real v2 odds (all prematch soccer, all tennis/F1/golf, low-tier live leagues not in v2) carry `home_odd=0/draw_odd=0/away_odd=0/markets=''` — frontend hides the betting buttons rather than show fakes.
+- **Verified on prod (`/api/featured-games`)**: 4/4 live soccer matches with distinct real odds (e.g. AFS 0:0 Sporting CP at 45' → 15/4.333/1.3, totals L2.5 2.625/1.444, btts 4/1.222). Each match has unique odds — confirmed problem of identical 2.10/3.30/3.20 across all events is GONE.
+- **Force resync**: `POST /api/admin/force-sync-wait` with header `Authorization: Bearer dev-admin-token` (cron `*/5 * * * *` also refreshes automatically).
