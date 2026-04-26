@@ -215,7 +215,7 @@ function FootballPitchAnimation({
     return () => { if (overlayTimer.current) clearTimeout(overlayTimer.current); };
   }, [matchEvents]);
 
-  // ── Ball physics driven by match events ───────────────────────────────────
+  // ── Ball physics — DETERMINISTIC (Lissajous curve, no randomness) ─────────
   useEffect(() => {
     const ballEl = ballRef.current;
     if (!ballEl) return;
@@ -228,30 +228,21 @@ function FootballPitchAnimation({
       return;
     }
 
-    const FIELD_W = 300;
-    const FIELD_H = 180;
-    const MARGIN  = 10;
-    const SPEED   = 0.8;
-
     const p = posRef.current;
-    if (p.x === 150 && p.y === 90 && p.vx === 0) {
-      p.vx = (Math.random() > 0.5 ? 1 : -1) * (SPEED + Math.random() * 0.3);
-      p.vy = (Math.random() > 0.5 ? 1 : -1) * (SPEED * 0.6 + Math.random() * 0.2);
-    }
 
     // Determine ball state from latest event
     const latestEv = matchEvents?.[matchEvents.length - 1];
     const newState = getEventBallState(latestEv, homeName);
     if (newState) stateRef.current = newState;
 
-    // Corner position lookup (alternate based on total events for variety)
+    // Corner position chosen from event count (deterministic, not random)
     const cornerIdx = (matchEvents?.length ?? 0) % 4;
     const corners = [
       { x: 10, y: 10 }, { x: 290, y: 10 }, { x: 10, y: 170 }, { x: 290, y: 170 },
     ];
     const cornerPos = corners[cornerIdx];
 
-    // Goal target positions (slightly inside the goal box)
+    // Goal target positions
     const goalLeftPos  = { x: 5,   y: 90 };
     const goalRightPos = { x: 295, y: 90 };
 
@@ -260,34 +251,32 @@ function FootballPitchAnimation({
     if (stateRef.current === 'stopped') {
       resumeTimer = setTimeout(() => {
         stateRef.current = 'moving';
-      }, 20000); // resume after 20s if no new event arrives
+      }, 20000);
     }
 
     const lerp = (from: number, to: number, t: number) => from + (to - from) * t;
 
+    // Anchor time so the Lissajous curve is consistent each render
+    const t0 = performance.now();
+
     const step = () => {
       const cur = stateRef.current;
+      const t = (performance.now() - t0) / 1000; // seconds
 
       if (cur === 'moving') {
-        p.x += p.vx;
-        p.y += p.vy;
-
-        if (p.x <= MARGIN + ball.r) { p.x = MARGIN + ball.r; p.vx = Math.abs(p.vx); }
-        if (p.x >= FIELD_W - MARGIN - ball.r) { p.x = FIELD_W - MARGIN - ball.r; p.vx = -Math.abs(p.vx); }
-        if (p.y <= MARGIN + ball.r) { p.y = MARGIN + ball.r; p.vy = Math.abs(p.vy); }
-        if (p.y >= FIELD_H - MARGIN - ball.r) { p.y = FIELD_H - MARGIN - ball.r; p.vy = -Math.abs(p.vy); }
-
-        if (Math.random() < 0.004) {
-          p.vx += (Math.random() - 0.5) * 0.4;
-          p.vy += (Math.random() - 0.5) * 0.4;
-          const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-          const target = SPEED + Math.random() * 0.3;
-          if (speed > 0) { p.vx = (p.vx / speed) * target; p.vy = (p.vy / speed) * target; }
-        }
+        // ── Smooth Lissajous curve in central area (deterministic) ─────────
+        // Centro do campo: (150, 90); amplitudes confinam ao meio-campo
+        // Frequências irracionais (1.0 e 1.4) produzem padrão complexo mas previsível
+        const ampX = 90;   // half of 180 width range
+        const ampY = 45;   // half of 90 height range
+        const freqX = 0.35; // Hz (lento, ~3s ciclo completo X)
+        const freqY = 0.49; // ~ freqX * sqrt(2), evita ressonância simples
+        const phaseY = Math.PI / 4;
+        p.x = 150 + ampX * Math.sin(2 * Math.PI * freqX * t);
+        p.y = 90 + ampY * Math.sin(2 * Math.PI * freqY * t + phaseY);
 
       } else if (cur === 'stopped') {
         // Ball stays at current position (no movement)
-        // do nothing
 
       } else if (cur === 'goal_left' || cur === 'goal_right') {
         const target = cur === 'goal_left' ? goalLeftPos : goalRightPos;
@@ -295,7 +284,6 @@ function FootballPitchAnimation({
         p.y = lerp(p.y, target.y, 0.06);
         const dist = Math.abs(p.x - target.x) + Math.abs(p.y - target.y);
         if (dist < 2) {
-          // Arrived at goal — wait then return to center
           stateRef.current = 'returning';
           setTimeout(() => {
             p.x = target.x;
@@ -309,13 +297,11 @@ function FootballPitchAnimation({
         const dist = Math.abs(p.x - 150) + Math.abs(p.y - 90);
         if (dist < 3) {
           p.x = 150; p.y = 90;
-          p.vx = (Math.random() > 0.5 ? 1 : -1) * SPEED;
-          p.vy = (Math.random() > 0.5 ? 1 : -1) * SPEED * 0.6;
           stateRef.current = 'moving';
         }
       }
 
-      // Move ball to corner position when stopped for corner events
+      // Smooth glide to corner if event is a corner kick
       const text = String(latestEv?.type || latestEv?.detail || '').toLowerCase();
       if (cur === 'stopped' && /corner|escanteio/i.test(text)) {
         p.x = lerp(p.x, cornerPos.x, 0.05);

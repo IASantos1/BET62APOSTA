@@ -342,7 +342,72 @@ export function SubOddsModel({
 
   const spreadsItems = useMemo(() => getMarketItems('spreads'), [eventOdds, markets])
   const totalsItems = useMemo(() => getMarketItems('totals'), [eventOdds, markets])
-  const bttsItems = useMemo(() => getMarketItems('btts'), [eventOdds, markets])
+  const bttsItems = useMemo(() => {
+    const raw = getMarketItems('btts')
+    // 1) If API returned BTTS, force order: "Não" (esquerdo) → "Sim" (direito)
+    if (raw.length > 0) {
+      const nao = raw.find((x: MarketItem) => /n[aã]o/i.test(String(x.label)))
+      const sim = raw.find((x: MarketItem) => /sim|yes/i.test(String(x.label)))
+      const ordered: MarketItem[] = []
+      if (nao) ordered.push({ ...nao, label: 'Não' })
+      if (sim) ordered.push({ ...sim, label: 'Sim' })
+      if (ordered.length === 2) return ordered
+      return raw
+    }
+    // 2) Fallback — Calcular BTTS via fórmula P(BTTS) = P(A marca) × P(B marca)
+    //    Usando Poisson com gols esperados derivados de h2h + totals (over 2.5)
+    const base = resultadoRegulamentar
+    if (!base || base.length < 2) return []
+    const h0 = Number(base.find(b => /casa|home/i.test(b.label))?.odd || 0)
+    const d0 = Number(base.find(b => /empate|draw/i.test(b.label))?.odd || 0)
+    const a0 = Number(base.find(b => /fora|away/i.test(b.label))?.odd || 0)
+    if (h0 <= 1 || a0 <= 1) return []
+
+    // Probabilidades implícitas normalizadas (remove margem)
+    const inv = [1 / h0, d0 > 1 ? 1 / d0 : 0, 1 / a0]
+    const sum = inv.reduce((x, y) => x + y, 0) || 1
+    const pH = inv[0] / sum
+    const pA = inv[2] / sum
+
+    // Estimativa de λ total: usa over 2.5 se disponível, senão 2.6 (média futebol)
+    let lambdaTotal = 2.6
+    const o25 = totalsItems.find((t: MarketItem) => /2[\.,]5/.test(String(t.label)) && /acima|over|mais/i.test(String(t.label)))
+    if (o25 && Number(o25.odd) > 1.01) {
+      const pOver25 = 1 / Number(o25.odd)
+      // Mapeamento aproximado P(over 2.5) → λ via Poisson invertida (tabela)
+      if (pOver25 > 0.70) lambdaTotal = 3.4
+      else if (pOver25 > 0.60) lambdaTotal = 3.0
+      else if (pOver25 > 0.50) lambdaTotal = 2.7
+      else if (pOver25 > 0.40) lambdaTotal = 2.4
+      else if (pOver25 > 0.30) lambdaTotal = 2.1
+      else lambdaTotal = 1.8
+    }
+
+    // Distribui λ entre casa e fora baseado na força relativa (h2h)
+    const ratio = (pH + 0.5 * (1 - pH - pA)) / Math.max(0.1, (pH + pA + (1 - pH - pA)))
+    const lambdaHome = lambdaTotal * Math.max(0.35, Math.min(0.65, ratio))
+    const lambdaAway = lambdaTotal - lambdaHome
+
+    // P(time marca) = 1 - e^(-λ) (Poisson: prob de >= 1 gol)
+    const pHomeScores = 1 - Math.exp(-lambdaHome)
+    const pAwayScores = 1 - Math.exp(-lambdaAway)
+
+    // P(BTTS) = P(A marca) × P(B marca)
+    const pBTTS = pHomeScores * pAwayScores
+    if (pBTTS <= 0.05 || pBTTS >= 0.95) return []
+
+    // Aplica margem de 5% (típico de bookmaker conservador)
+    const MARGIN = 1.05
+    const oddSim = (1 / pBTTS) / MARGIN
+    const oddNao = (1 / (1 - pBTTS)) / MARGIN
+
+    if (oddSim < 1.05 || oddSim > 20 || oddNao < 1.05 || oddNao > 20) return []
+
+    return [
+      { label: 'Não', odd: Math.round(oddNao * 100) / 100 },
+      { label: 'Sim', odd: Math.round(oddSim * 100) / 100 },
+    ] as MarketItem[]
+  }, [eventOdds, markets, resultadoRegulamentar, totalsItems])
 
   // --- Render each market as a card ---
   const renderMarketContent = (key: string) => {
