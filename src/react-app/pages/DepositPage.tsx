@@ -159,25 +159,53 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
   );
 };
 
+type MultibancoRef = {
+  entity: string;
+  reference: string;
+  amount: number;
+  expiresAt: number | null;
+  paymentIntentId: string;
+};
+
 const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
-  const { addNotification, darkMode } = useApp();
+  const { addNotification, darkMode, user } = useApp();
+  const [email, setEmail] = useState((user as any)?.email || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [ref, setRef] = useState<MultibancoRef | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setError('Email inválido');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      const { url } = await apiFetch<{ url: string }>('/api/wallet/deposit/stripe/multibanco', {
+      const res = await apiFetch<{
+        status: string;
+        paymentIntentId: string;
+        entity: string | null;
+        reference: string | null;
+        amount: number;
+        expiresAt: number | null;
+      }>('/api/wallet/deposit/stripe/multibanco', {
         method: 'POST',
-        body: JSON.stringify({ amount })
+        body: JSON.stringify({ amount, email })
       });
-      if (url) {
-        addNotification({ type: 'success', message: '🏦 A redirecionar para Multibanco...' });
-        window.location.href = url;
-        onSuccess();
+      if (!res.entity || !res.reference) {
+        throw new Error('Stripe não devolveu referência. Tenta novamente.');
       }
+      setRef({
+        entity: res.entity,
+        reference: res.reference,
+        amount: res.amount,
+        expiresAt: res.expiresAt,
+        paymentIntentId: res.paymentIntentId,
+      });
+      addNotification({ type: 'success', message: '🏦 Referência Multibanco gerada!' });
     } catch (err: any) {
       const msg = String(err?.message || '');
       setError(/401|Unauthorized/i.test(msg) ? 'Sessão expirada. Faz login novamente.' : msg || 'Erro ao gerar referência Multibanco');
@@ -186,15 +214,107 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
     }
   };
 
+  const copy = (val: string, key: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(val.replace(/\s/g, ''));
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1500);
+    }
+  };
+
+  if (ref) {
+    const formatRef = (r: string) => r.replace(/(\d{3})(?=\d)/g, '$1 ').trim();
+    const expiresStr = ref.expiresAt
+      ? new Date(ref.expiresAt * 1000).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      : '3 dias';
+
+    return (
+      <div className="space-y-4">
+        <div className={`rounded-xl p-4 border-2 ${darkMode ? 'bg-blue-900/20 border-blue-700' : 'bg-blue-50 border-blue-300'}`}>
+          <div className="flex items-center gap-2 mb-3">
+            <svg viewBox="0 0 48 20" width="48" height="20" xmlns="http://www.w3.org/2000/svg">
+              <rect width="48" height="20" rx="4" fill="#003b95"/>
+              <text x="4" y="14" fontSize="9" fill="#fff" fontFamily="Arial" fontWeight="bold">Multibanco</text>
+            </svg>
+            <span className={`font-bold ${darkMode ? 'text-blue-300' : 'text-blue-800'}`}>Referência gerada</span>
+          </div>
+
+          <div className="space-y-2.5">
+            <div>
+              <p className={`text-xs uppercase tracking-wide ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Entidade</p>
+              <div className="flex items-center justify-between gap-2">
+                <code className={`text-2xl font-mono font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{ref.entity}</code>
+                <button
+                  type="button"
+                  onClick={() => copy(ref.entity, 'entity')}
+                  className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-white hover:bg-gray-100 text-gray-700 border'}`}
+                >
+                  {copied === 'entity' ? '✓ Copiado' : 'Copiar'}
+                </button>
+              </div>
+            </div>
+            <div>
+              <p className={`text-xs uppercase tracking-wide ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Referência</p>
+              <div className="flex items-center justify-between gap-2">
+                <code className={`text-xl font-mono font-bold tracking-wider ${darkMode ? 'text-white' : 'text-gray-900'}`}>{formatRef(ref.reference)}</code>
+                <button
+                  type="button"
+                  onClick={() => copy(ref.reference, 'ref')}
+                  className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-white hover:bg-gray-100 text-gray-700 border'}`}
+                >
+                  {copied === 'ref' ? '✓ Copiado' : 'Copiar'}
+                </button>
+              </div>
+            </div>
+            <div>
+              <p className={`text-xs uppercase tracking-wide ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Valor</p>
+              <code className={`text-xl font-mono font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>€ {ref.amount.toFixed(2)}</code>
+            </div>
+            <div className={`text-xs pt-2 border-t ${darkMode ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-600'}`}>
+              ⏱ Válido até <strong>{expiresStr}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className={`rounded-lg p-3 text-xs ${darkMode ? 'bg-gray-700/50 text-gray-300' : 'bg-gray-50 text-gray-700'}`}>
+          <p className="font-semibold mb-1">Como pagar:</p>
+          <ul className="space-y-0.5 ml-3">
+            <li>• Caixa ATM → Pagamentos → Outros Serviços</li>
+            <li>• Homebanking → Pagamentos → Serviços</li>
+            <li>• Crédito automático após confirmação</li>
+          </ul>
+        </div>
+
+        <button
+          type="button"
+          onClick={onSuccess}
+          className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition-colors"
+        >
+          ✅ Concluído
+        </button>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className={`p-4 rounded-xl border ${darkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-blue-50 border-blue-200'}`}>
-        <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Vais receber uma <strong>referência Multibanco</strong> para pagar em qualquer caixa ATM ou homebanking.</p>
+        <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Vais receber uma <strong>referência Multibanco</strong> aqui mesmo, para pagar em qualquer caixa ATM ou homebanking.</p>
         <ul className={`mt-2 text-xs space-y-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
           <li>• Pagamento válido por 3 dias</li>
           <li>• Crédito automático após confirmação</li>
           <li>• Sem taxas adicionais</li>
         </ul>
+      </div>
+      <div>
+        <label className={`block text-sm font-medium mb-1 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Email para confirmação</label>
+        <input
+          type="email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="o-teu@email.pt"
+          className={`w-full p-3 rounded-lg border outline-none focus:ring-2 focus:ring-red-500 ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+        />
       </div>
       {error && <p className="text-red-500 text-sm">{error}</p>}
       <button

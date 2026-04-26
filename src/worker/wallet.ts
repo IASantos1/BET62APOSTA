@@ -236,7 +236,7 @@ wallet.post('/deposit/stripe/card', async (c) => {
   }
 });
 
-// Stripe: criar Payment Intent para MBway
+// Stripe: criar Payment Intent para MB WAY (telemóvel via billing_details)
 wallet.post('/deposit/stripe/mbway', async (c) => {
   const userId = c.get('user').userId;
 
@@ -249,6 +249,12 @@ wallet.post('/deposit/stripe/mbway', async (c) => {
     if (!amount || amount < 10) return c.json({ error: 'Mínimo €10' }, 400);
     if (!phone) return c.json({ error: 'Número de telemóvel obrigatório' }, 400);
 
+    // Lookup customer email/name for billing_details (MB WAY exige)
+    const userRow = await c.env.DB.prepare(
+      "SELECT username FROM user WHERE id = ? LIMIT 1"
+    ).bind(userId).first<{ username: string }>();
+    const userEmail = userRow?.username && /@/.test(userRow.username) ? userRow.username : undefined;
+
     const stripe = new Stripe(c.env.STRIPE_SECRET_KEY, { apiVersion: '2025-10-29.clover' });
     const intent = await stripe.paymentIntents.create({
       amount: Math.round(amount * 100),
@@ -256,18 +262,26 @@ wallet.post('/deposit/stripe/mbway', async (c) => {
       payment_method_types: ['mb_way'],
       payment_method_data: {
         type: 'mb_way',
-        mb_way: { phone },
+        billing_details: {
+          phone,
+          email: userEmail,
+          name: userRow?.username || undefined,
+        },
       },
       confirm: true,
       metadata: { userId, method: 'mbway' },
     });
-    return c.json({ status: intent.status, clientSecret: intent.client_secret });
+    return c.json({
+      status: intent.status,
+      clientSecret: intent.client_secret,
+      paymentIntentId: intent.id,
+    });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
 });
 
-// Stripe: criar Checkout Session para Multibanco
+// Stripe: criar Payment Intent para Multibanco (referência inline, sem redirect)
 wallet.post('/deposit/stripe/multibanco', async (c) => {
   const userId = c.get('user').userId;
 
@@ -276,26 +290,42 @@ wallet.post('/deposit/stripe/multibanco', async (c) => {
   if (!canDeposit) return c.json({ error: 'Depósito não permitido' }, 403);
 
   try {
-    const { amount } = await c.req.json();
+    const { amount, email: bodyEmail, name: bodyName } = await c.req.json();
     if (!amount || amount < 10) return c.json({ error: 'Mínimo €10' }, 400);
 
+    // Lookup customer email/name for billing_details (Multibanco exige email)
+    const userRow = await c.env.DB.prepare(
+      "SELECT username FROM user WHERE id = ? LIMIT 1"
+    ).bind(userId).first<{ username: string }>();
+    const userEmail = userRow?.username && /@/.test(userRow.username) ? userRow.username : null;
+
+    const email = bodyEmail || userEmail;
+    const name = bodyName || userRow?.username || 'Cliente BET62';
+    if (!email) return c.json({ error: 'Email obrigatório para Multibanco' }, 400);
+
     const stripe = new Stripe(c.env.STRIPE_SECRET_KEY, { apiVersion: '2025-10-29.clover' });
-    const session = await stripe.checkout.sessions.create({
+    const intent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100),
+      currency: 'eur',
       payment_method_types: ['multibanco'],
-      line_items: [{
-        price_data: {
-          currency: 'eur',
-          product_data: { name: 'Depósito BET62 via Multibanco' },
-          unit_amount: Math.round(amount * 100),
-        },
-        quantity: 1,
-      }],
-      mode: 'payment',
-      success_url: `${c.req.header('origin')}/wallet?status=success`,
-      cancel_url: `${c.req.header('origin')}/wallet?status=cancel`,
+      payment_method_data: {
+        type: 'multibanco',
+        billing_details: { email, name },
+      },
+      confirm: true,
       metadata: { userId, method: 'multibanco' },
     });
-    return c.json({ url: session.url, reference: (session as any).payment_intent });
+
+    const next = (intent as any).next_action?.multibanco_display_details;
+    return c.json({
+      status: intent.status,
+      paymentIntentId: intent.id,
+      entity: next?.entity || null,
+      reference: next?.reference || null,
+      amount: amount,
+      expiresAt: next?.expires_at || null,
+      hostedVoucherUrl: next?.hosted_voucher_url || null,
+    });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
