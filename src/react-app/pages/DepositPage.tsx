@@ -8,7 +8,14 @@ const QUICK_AMOUNTS = [10, 25, 50, 100, 200, 500];
 
 function getStripePromise() {
   const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('bet62_stripe_pk') : null;
-  const pk = stored || import.meta.env.VITE_STRIPE_PUBLIC_KEY || import.meta.env.VITE_STRIPE_PK || '';
+  // Priority: localStorage (manual override) → Vite env (VITE_*) → injected secret (STRIPE_PUBLIC_KEY)
+  const injected = (typeof __STRIPE_PUBLIC_KEY__ !== 'undefined') ? __STRIPE_PUBLIC_KEY__ : '';
+  const pk = stored
+    || import.meta.env.VITE_STRIPE_PUBLIC_KEY
+    || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
+    || import.meta.env.VITE_STRIPE_PK
+    || injected
+    || '';
   return pk ? loadStripe(pk) : null;
 }
 

@@ -22,7 +22,12 @@ interface MBWayFormProps {
   loading?: boolean;
 }
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+const _injectedPk = (typeof __STRIPE_PUBLIC_KEY__ !== 'undefined') ? __STRIPE_PUBLIC_KEY__ : '';
+const _pk = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
+  || import.meta.env.VITE_STRIPE_PUBLIC_KEY
+  || _injectedPk
+  || '';
+const stripePromise = _pk ? loadStripe(_pk) : null;
 
 interface MBWayStripeConfirmProps {
   onConfirmed: () => void;

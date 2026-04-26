@@ -1,4 +1,5 @@
 import { useMemo, memo, useState, useEffect, useRef } from 'react'
+import { fairOddsTwoWay, formatFairOdd } from '@/shared/fairOdds'
 import { 
   MARKET_CONFIG, 
   MARKET_GROUPS, 
@@ -688,27 +689,49 @@ export function SubOddsModel({
                 {allLines.map((line, i) => {
                   const o = overMap.get(line);
                   const u = underMap.get(line);
+                  // ── Fair odds (no-vig) for this line ──
+                  const fair = (o && u && Number(o.odd) > 1 && Number(u.odd) > 1)
+                    ? fairOddsTwoWay(Number(o.odd), Number(u.odd))
+                    : null;
                   const rowBg = i % 2 === 0
                     ? (darkMode ? 'bg-gray-800/30' : 'bg-gray-50/80')
                     : '';
-                  const renderBtn = (item: MarketItem | undefined) => {
+                  const renderBtn = (item: MarketItem | undefined, side: 'a' | 'b') => {
                     if (!item) return <div className="w-20" />;
+                    const f = fair ? fair[side] : null;
                     return (
                       <button
                         onClick={susp ? undefined : () => onSelect(item.label, item.odd)}
                         disabled={!!susp}
-                        className={`w-20 h-10 rounded-lg font-bold text-sm tabular-nums transition-all duration-200
-                          ${susp ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
+                        title={f ? `Odd justa: ${formatFairOdd(f.fair)}${f.isValue ? ` · valor +${(f.edge * 100).toFixed(1)}%` : ''}` : undefined}
+                        className={`w-20 h-10 rounded-lg font-bold text-sm tabular-nums transition-all duration-200 relative
+                          ${susp ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
+                            : f?.isValue
+                              ? 'bg-emerald-600 text-white hover:bg-emerald-500 active:scale-95 ring-1 ring-emerald-300'
+                              : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
                       >
-                        {item.odd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <span>{item.odd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        {f?.isValue && (
+                          <span className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-black text-[8px] font-black px-1 py-0.5 rounded-full leading-none shadow">
+                            ★
+                          </span>
+                        )}
                       </button>
                     );
                   };
                   return (
                     <div key={line} className={`contents`}>
-                      <div className={`px-3 py-2 text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-700'} ${rowBg}`}>{line}</div>
-                      <div className={`px-2 py-2 flex justify-center ${rowBg}`}>{renderBtn(o)}</div>
-                      <div className={`px-2 py-2 flex justify-center ${rowBg}`}>{renderBtn(u)}</div>
+                      <div className={`px-3 py-2 text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-700'} ${rowBg} flex flex-col`}>
+                        <span>{line}</span>
+                        {fair && (
+                          <span className={`text-[9px] font-normal mt-0.5 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                            justo: {formatFairOdd(fair.a.fair)}/{formatFairOdd(fair.b.fair)}
+                            {fair.margin > 0 && <span className="ml-1 opacity-70">· vig {(fair.margin * 100).toFixed(1)}%</span>}
+                          </span>
+                        )}
+                      </div>
+                      <div className={`px-2 py-2 flex justify-center ${rowBg}`}>{renderBtn(o, 'a')}</div>
+                      <div className={`px-2 py-2 flex justify-center ${rowBg}`}>{renderBtn(u, 'b')}</div>
                     </div>
                   );
                 })}
