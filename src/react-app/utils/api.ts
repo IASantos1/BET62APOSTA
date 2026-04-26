@@ -5,9 +5,14 @@ export const LOCAL_FALLBACK_BASE = 'http://127.0.0.1:8788';
 // In production builds pointing directly at the worker, VITE_API_BASE can be set.
 function resolveApiBase() {
   const raw = (import.meta.env.VITE_API_BASE || '').trim();
-  // If an explicit base is provided AND we're NOT in dev, honour it.
-  // In dev we always want the Vite proxy (relative paths).
   if (raw && !import.meta.env.DEV) return raw.replace(/\/$/, '');
+  // Auto-fallback: in production builds served from a host that is NOT the worker itself
+  // (e.g. Replit deployment, custom domains), point /api/* at the worker.
+  if (!import.meta.env.DEV && typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    const onWorker = host.endsWith('.workers.dev');
+    if (!onWorker) return REMOTE_FALLBACK_BASE;
+  }
   return '';
 }
 
