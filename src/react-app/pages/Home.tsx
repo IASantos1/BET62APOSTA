@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { useSportsEvents } from '@/react-app/hooks/useSportsEvents';
+import { useLiveFeed } from '../hooks/useLiveFeed';
+import { useMergedEvents } from '../hooks/useMergedEvents';
 import EventCard from '../components/EventCard';
 import { Sidebar } from '../components/Sidebar';
 import { BannerCarousel } from '../components/BannerCarousel';
@@ -18,8 +20,47 @@ interface HomeProps {
   mode?: 'home' | 'live';
 }
 
+const normalizeTeamKey = (s: string) =>
+  String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+const matchUID = (home: string, away: string, dateIso: string) => {
+  const h = normalizeTeamKey(home);
+  const a = normalizeTeamKey(away);
+  const d = String(dateIso || '').slice(0, 10);
+  return `${h}::${a}::${d}`;
+};
+
+const mergeKeyOf = (e: any) => {
+  const ext = e?.external_event_id;
+  const fix = e?.fixture?.id;
+  const id = e?.id;
+  if (ext) return String(ext);
+  if (fix) return String(fix);
+  if (id) return String(id);
+  return matchUID(String(e?.home_team || e?.teams?.home?.name || ''), String(e?.away_team || e?.teams?.away?.name || ''), String(e?.event_date || e?.fixture?.date || ''));
+};
+
+const statusKeyOf = (e: any) =>
+  String(e?.status?.short ?? e?.status?.long ?? e?.status ?? e?.fixture?.status?.short ?? e?.fixture?.status?.long ?? '')
+    .toUpperCase()
+    .trim()
+    .replace(/[^A-Z0-9_]+/g, '');
+
+const isFinishedEvent = (e: any) => {
+  const k = statusKeyOf(e);
+  const done = new Set(['FT', 'AET', 'FT_PEN', 'FTPEN', 'AWD', 'WO', 'ABD', 'CANC', 'PST', 'FIN', 'FINAL', 'FINISHED', 'ENDED']);
+  if (done.has(k)) return true;
+  if (/MATCHFINISHED|FULLTIME|GAMEOVER|ENCERRAD|TERMINAD/.test(k)) return true;
+  return false;
+};
+
 function Home({ mode = 'home' }: HomeProps) {
-  const { darkMode, selectedCategory, showMobileSidebar, setShowMobileSidebar } = useApp();
+  const { darkMode, selectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
   const navigate = useNavigate();
 
   // Dados principais
@@ -27,7 +68,16 @@ function Home({ mode = 'home' }: HomeProps) {
   const loading = eventsLoading;
   const showBanner = true;
   
-  const processedLive = httpLive;
+  const { liveEvents: wsLiveEvents } = useLiveFeed('all');
+  const mergedLive = useMergedEvents(httpLive, wsLiveEvents);
+  const processedLive = useMemo(() => {
+    const map = new Map<string, Event>();
+    for (const ev of mergedLive) {
+      if (isFinishedEvent(ev)) continue;
+      map.set(mergeKeyOf(ev), ev);
+    }
+    return Array.from(map.values());
+  }, [mergedLive]);
 
   const { upcomingEvents } = useUpcomingCache(pregame);
 
@@ -39,10 +89,10 @@ function Home({ mode = 'home' }: HomeProps) {
 
   // Separate Lists for Live and Upcoming
   const sortedUpcoming = useMemo(() => {
-    const liveIds = new Set(processedLive.map(e => e.id));
+    const liveIds = new Set(processedLive.map(e => mergeKeyOf(e)));
     return upcomingEvents
       .filter(e => {
-        if (liveIds.has(e.id)) return false;
+        if (liveIds.has(mergeKeyOf(e))) return false;
 
         // Strict validity check
         const h = (e.home_team || '').trim();
@@ -92,6 +142,285 @@ function Home({ mode = 'home' }: HomeProps) {
 
   const handleOpenEvent = (event: Event) => {
     navigate(`/event/${event.id}`);
+  };
+
+  const multiplesSource = mode === 'home' ? displayedUpcoming : processedLive;
+
+  const multipleBanners = useMemo(() => {
+    type Pick = { event: Event; selection: string; market: string; odd: number };
+    type Banner = { id: string; picks: Pick[]; totalOdd: number; legsOddStr: string };
+
+    const normalizeOdd = (v: any) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return 0;
+      if (n <= 1.01) return 0;
+      if (n > 200) return 0;
+      return n;
+    };
+
+    const getMarkets = (ev: any) => Array.isArray(ev?.markets) ? ev.markets : [];
+
+    const pickFromEvent = (ev: Event): Pick | null => {
+      const sport = String((ev as any).sport || 'soccer');
+      const markets = getMarkets(ev);
+
+      const findMarket = (keys: string[]) => {
+        for (const k of keys) {
+          const hit = markets.find((m: any) => String(m?.key || '').toLowerCase() === k);
+          if (hit) return hit;
+        }
+        return null;
+      };
+
+      const pickSelection = (market: any, pref: (s: any) => boolean): { selection: any; odd: number } | null => {
+        const sels = Array.isArray(market?.selections) ? market.selections : Array.isArray(market?.outcomes) ? market.outcomes : [];
+        const ranked = sels
+          .map((s: any) => ({ s, odd: normalizeOdd(s?.odd ?? s?.price) }))
+          .filter((x: any) => x.odd > 0);
+        const preferred = ranked.filter((x: any) => pref(x.s));
+        const pool = preferred.length ? preferred : ranked;
+        if (!pool.length) return null;
+        const best = pool.reduce((m: any, x: any) => x.odd < m.odd ? x : m, pool[0]);
+        return { selection: best.s, odd: best.odd };
+      };
+
+      const homeName = String((ev as any)?.home_team || '').trim();
+      const awayName = String((ev as any)?.away_team || '').trim();
+
+      const makePick = (market: any, selection: any, odd: number): Pick | null => {
+        const mkKey = String(market?.key || '').toLowerCase().trim();
+        const marketName =
+          (mkKey === 'h2h' || mkKey === 'moneyline' || mkKey === 'ml' || mkKey === 'winner')
+            ? 'Resultado Final'
+            : (String(market?.name || market?.key || '').trim() || 'Mercado');
+
+        const rawSel = String(selection?.label || selection?.name || '').trim();
+        const t = rawSel.toLowerCase();
+        const selLabel =
+          t === 'casa' || t === 'home'
+            ? (homeName || rawSel)
+            : (t === 'fora' || t === 'away'
+              ? (awayName || rawSel)
+              : rawSel || 'Seleção');
+        if (!odd) return null;
+        return { event: ev, selection: selLabel, market: marketName, odd };
+      };
+
+      if (sport === 'soccer') {
+        const btts = findMarket(['btts', 'bt_ts', 'both_teams_to_score']);
+        if (btts) {
+          const picked = pickSelection(btts, (s) => /^(sim|yes)$/i.test(String(s?.label || s?.name || '').trim()));
+          if (picked && picked.odd >= 1.35 && picked.odd <= 2.75) return makePick(btts, picked.selection, picked.odd);
+        }
+
+        const totals = markets.find((m: any) => /ou|totals|total|goals/i.test(String(m?.key || m?.name || '')));
+        if (totals) {
+          const picked = pickSelection(
+            totals,
+            (s) => {
+              const t = String(s?.label || s?.name || '').toLowerCase();
+              return (t.includes('2.5') || t.includes('+2.5')) && (t.includes('over') || t.includes('mais') || t.startsWith('+'));
+            },
+          );
+          if (picked && picked.odd >= 1.15 && picked.odd <= 2.40) return makePick(totals, picked.selection, picked.odd);
+        }
+      }
+
+      const h2h = findMarket(['h2h', 'moneyline', 'ml']);
+      if (h2h) {
+        const picked = pickSelection(h2h, (s) => {
+          const t = String(s?.label || s?.name || '').toLowerCase();
+          if (t.includes('empate') || t === 'x' || t === 'draw') return false;
+          return true;
+        });
+        if (picked && picked.odd >= 1.15 && picked.odd <= 3.50) return makePick(h2h, picked.selection, picked.odd);
+      }
+
+      const homeOdd = normalizeOdd((ev as any).home_odd);
+      const awayOdd = normalizeOdd((ev as any).away_odd);
+      const opts = [
+        { selection: homeName || 'Casa', odd: homeOdd },
+        { selection: awayName || 'Fora', odd: awayOdd },
+      ].filter((x) => x.odd > 0);
+      if (opts.length >= 2) {
+        const best = opts.reduce((m, x) => x.odd < m.odd ? x : m, opts[0]);
+        return { event: ev, selection: best.selection, market: 'Resultado Final', odd: best.odd };
+      }
+      return null;
+    };
+
+    const candidates = multiplesSource
+      .filter((e) => e && e.id != null)
+      .filter((e) => String((e as any).home_team || '').trim() && String((e as any).away_team || '').trim())
+      .map((e) => {
+        const start = new Date((e as any).event_date || (e as any).start_time || (e as any).fixture?.date || 0).getTime();
+        const sport = String((e as any).sport || 'soccer');
+        return { e, start, sport };
+      })
+      .sort((a, b) => {
+        const sa = a.sport === 'soccer' ? 0 : 1;
+        const sb = b.sport === 'soccer' ? 0 : 1;
+        if (sa !== sb) return sa - sb;
+        return a.start - b.start;
+      })
+      .map((x) => x.e);
+
+    const banners: Banner[] = [];
+    let cursor = 0;
+    for (let i = 0; i < 4; i++) {
+      const picks: Pick[] = [];
+      const used = new Set<string | number>();
+      let guard = 0;
+      while (picks.length < 4 && guard < candidates.length * 2) {
+        const ev = candidates[cursor % Math.max(1, candidates.length)];
+        cursor++;
+        guard++;
+        const key = String(ev?.id);
+        if (used.has(key)) continue;
+        const pick = pickFromEvent(ev);
+        if (!pick) continue;
+        if (pick.odd <= 1.05) continue;
+        used.add(key);
+        picks.push(pick);
+      }
+      if (picks.length === 4) {
+        const totalOdd = picks.reduce((acc, p) => acc * p.odd, 1);
+        const legsOddStr = picks.map((p) => p.odd.toFixed(2)).join(' × ');
+        banners.push({ id: `multi_${i}`, picks, totalOdd, legsOddStr });
+      }
+    }
+
+    return banners;
+  }, [multiplesSource]);
+
+  const MultipleCarousel = ({ instanceKey }: { instanceKey: string }) => {
+    const [idx, setIdx] = useState(0);
+    const slides = multipleBanners.length ? multipleBanners : [];
+    if (!slides.length) return null;
+
+    const go = (next: number) => {
+      const n = slides.length;
+      setIdx(((next % n) + n) % n);
+    };
+
+    return (
+      <div className={`rounded-xl border overflow-hidden ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-red-600 font-black">🔥</span>
+            <span className="text-sm font-extrabold uppercase tracking-wider">Múltiplas em destaque</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); go(idx - 1); }}
+              className={`px-2 py-1 rounded-lg text-xs font-bold ${darkMode ? 'bg-gray-800 text-gray-200 hover:bg-gray-750' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); go(idx + 1); }}
+              className={`px-2 py-1 rounded-lg text-xs font-bold ${darkMode ? 'bg-gray-800 text-gray-200 hover:bg-gray-750' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            >
+              ›
+            </button>
+          </div>
+        </div>
+
+        <div className="relative w-full overflow-hidden">
+          <div
+            className="flex transition-transform duration-500"
+            style={{ transform: `translateX(-${idx * 100}%)` }}
+          >
+            {slides.map((b) => (
+              <div key={`${instanceKey}_${b.id}`} className="w-full shrink-0 p-4">
+                <div className={`rounded-xl border p-5 ${darkMode ? 'bg-gray-950/40 border-gray-800' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black uppercase tracking-wider">Múltipla de 4 eventos</div>
+                      <div className={`text-xs mt-1 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Odd total: {b.legsOddStr}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] uppercase tracking-wider opacity-70">Odds final</div>
+                      <div className="text-2xl font-black text-red-600 tabular-nums">{b.totalOdd.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3 min-h-[240px]">
+                    {b.picks.map((p, i) => (
+                      <div key={`${instanceKey}_${b.id}_leg_${i}`} className={`rounded-lg px-3 py-3 border ${darkMode ? 'border-gray-800 bg-gray-900/40' : 'border-gray-200 bg-white'}`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-xs font-black truncate">{i + 1}) {(p.event as any).home_team} vs {(p.event as any).away_team}</div>
+                            <div className={`text-[11px] truncate ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{p.market} — {p.selection}</div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            {(() => {
+                              const raw = (p.event as any)?.event_date || (p.event as any)?.fixture?.date;
+                              const ms = raw ? new Date(raw).getTime() : 0;
+                              if (!Number.isFinite(ms) || ms <= 0) return null;
+                              const d = new Date(ms);
+                              const pad = (n: number) => String(n).padStart(2, '0');
+                              const dt = `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}h${pad(d.getMinutes())}`;
+                              return <div className={`text-[10px] font-bold opacity-70 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{dt}</div>;
+                            })()}
+                            <div className="text-xs font-black tabular-nums">{p.odd.toFixed(2)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <div className="text-xs font-bold">
+                      TOTAL DA MÚLTIPLA: <span className="text-red-600">{b.totalOdd.toFixed(2)}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        for (let i = 0; i < b.picks.length; i++) {
+                          const p = b.picks[i];
+                          addToBetSlip({
+                            id: `${p.event.id}|${p.market}|${p.selection}|${instanceKey}`,
+                            event_id: p.event.id,
+                            match: String((p.event as any).match || `${(p.event as any).home_team} vs ${(p.event as any).away_team}`),
+                            selection: p.selection,
+                            market: p.market,
+                            odd: p.odd,
+                            stake: 0,
+                            league: String((p.event as any).league || ''),
+                            sport: String((p.event as any).sport || ''),
+                            suspended: Boolean((p.event as any).suspended),
+                            market_suspended: false,
+                          });
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider"
+                    >
+                      Aporte agora
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-center gap-1.5 px-4 pb-3">
+          {slides.map((_, i) => (
+            <button
+              key={`${instanceKey}_dot_${i}`}
+              type="button"
+              onClick={(e) => { e.stopPropagation(); go(i); }}
+              className={`h-2 rounded-full transition-all ${i === idx ? 'w-6 bg-red-600' : `w-2 ${darkMode ? 'bg-gray-700' : 'bg-gray-300'}`}`}
+              aria-label={`Ir para múltipla ${i + 1}`}
+            />
+          ))}
+        </div>
+      </div>
+    );
   };
 
   const showDebug = false; // Debug disabled by user request
@@ -290,8 +619,10 @@ function Home({ mode = 'home' }: HomeProps) {
                 {groupedLive.length > 0 && (
                   <div className="space-y-6">
                      <div className="space-y-8">
-                        {groupedLive.map(([league, events]) => (
-                          <div key={`live-${league}`} className="space-y-4">
+                        {(() => {
+                          let globalIdx = 0;
+                          return groupedLive.map(([league, events]) => (
+                            <div key={`live-${league}`} className="space-y-4">
                             <div className={`px-5 py-3 rounded-xl font-bold text-sm uppercase tracking-wider flex items-center gap-4 ${darkMode ? 'bg-red-900/20 border border-red-900/50 text-red-100' : 'bg-red-50 border border-red-100 text-red-800'}`}>
                               {(() => {
                                 const firstEvent = events[0] || {};
@@ -314,16 +645,24 @@ function Home({ mode = 'home' }: HomeProps) {
                               })()}
                             </div>
                             <div className="flex flex-col gap-4">
-                              {events.map(ev => (
-                                <EventCard
-                                  key={ev.id}
-                                  event={ev}
-                                  onOpenEvent={() => handleOpenEvent(ev)}
-                                />
-                              ))}
+                              {(() => {
+                                const out: any[] = [];
+                                for (const ev of events) {
+                                  out.push(
+                                    <EventCard
+                                      key={mergeKeyOf(ev)}
+                                      event={ev}
+                                      onOpenEvent={() => handleOpenEvent(ev)}
+                                    />,
+                                  );
+                                  globalIdx++;
+                                }
+                                return out;
+                              })()}
                             </div>
-                          </div>
-                        ))}
+                            </div>
+                          ));
+                        })()}
                      </div>
                   </div>
                 )}
@@ -338,8 +677,11 @@ function Home({ mode = 'home' }: HomeProps) {
                      )}
                      
                      <div className="space-y-8">
-                        {limitedUpcoming.map(([league, events]) => (
-                          <div key={`pre-${league}`} className="space-y-4">
+                        {(() => {
+                          let globalIdx = 0;
+                          let inserted = false;
+                          return limitedUpcoming.map(([league, events]) => (
+                            <div key={`pre-${league}`} className="space-y-4">
                             <div className={`px-5 py-3 rounded-xl font-bold text-sm uppercase tracking-wider flex items-center gap-4 ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>
                               {(() => {
                                 const firstEvent = events[0] || {};
@@ -362,16 +704,28 @@ function Home({ mode = 'home' }: HomeProps) {
                               })()}
                             </div>
                             <div className="flex flex-col gap-4">
-                              {events.map(ev => (
-                                <EventCard
-                                  key={ev.id}
-                                  event={ev}
-                                  onOpenEvent={() => handleOpenEvent(ev)}
-                                />
-                              ))}
+                              {(() => {
+                                const out: any[] = [];
+                                for (const ev of events) {
+                                  out.push(
+                                    <EventCard
+                                      key={mergeKeyOf(ev)}
+                                      event={ev}
+                                      onOpenEvent={() => handleOpenEvent(ev)}
+                                    />,
+                                  );
+                                  globalIdx++;
+                                  if (!inserted && globalIdx === 2) {
+                                    inserted = true;
+                                    out.push(<MultipleCarousel key="pre_multi_once" instanceKey="pre_once" />);
+                                  }
+                                }
+                                return out;
+                              })()}
                             </div>
-                          </div>
-                        ))}
+                            </div>
+                          ));
+                        })()}
                      </div>
                   </div>
                 )}

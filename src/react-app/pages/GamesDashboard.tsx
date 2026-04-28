@@ -25,7 +25,39 @@ const formatTime = (iso?: string) => {
   return m === 0 ? `${h}h` : `${h}h${pad(m)}`;
 };
 
-const FINISHED_STATUSES_FRONT = new Set(['FT','AET','PEN','AWD','WO','ABD','Finished','Match Finished','Final','Ended','AOT','AP']);
+const normalizeStatusKey = (v: any) =>
+  String(v ?? '')
+    .toUpperCase()
+    .trim()
+    .replace(/[^A-Z0-9_]+/g, '');
+
+const FINISHED_STATUSES_FRONT = new Set([
+  'FT', 'AET', 'FT_PEN', 'FTPEN',
+  'AWD', 'WO', 'ABD',
+  'FIN', 'FINAL', 'FINISHED', 'ENDED',
+  'AOT', 'AP'
+]);
+
+const normalizeTeamKey = (s: string) =>
+  String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+const rowKeyOf = (ev: any) => {
+  const ext = ev?.external_event_id;
+  const fix = ev?.fixture?.id;
+  const id = ev?.id;
+  if (ext) return String(ext);
+  if (fix) return String(fix);
+  if (id) return String(id);
+  const home = ev?.home_team ?? ev?.teams?.home?.name ?? '';
+  const away = ev?.away_team ?? ev?.teams?.away?.name ?? '';
+  const date = String(ev?.event_date ?? ev?.fixture?.date ?? '').slice(0, 10);
+  return `${normalizeTeamKey(home)}-vs-${normalizeTeamKey(away)}-${date}`;
+};
 const labelOf = (o: any) => {
   const v = o?.label ?? o?.name ?? o?.outcome ?? (typeof o?.value === 'string' ? o.value : '');
   return String(v).toLowerCase();
@@ -183,8 +215,16 @@ export default function GamesDashboard() {
       if (!(drawOdd > 0) && h2h.length === 3) drawOdd = priceOf(h2h[1]);
       if (!(awayOdd > 0) && h2h.length === 3) awayOdd = priceOf(h2h[2]);
 
-      const statusShort = String(ev.status?.short || (typeof ev.status === 'string' ? ev.status : '') || ev.fixture?.status?.short || 'NS');
-      const isFinished = FINISHED_STATUSES_FRONT.has(statusShort);
+      const statusRaw =
+        ev.status?.short ||
+        ev.status?.long ||
+        (typeof ev.status === 'string' ? ev.status : '') ||
+        ev.fixture?.status?.short ||
+        ev.fixture?.status?.long ||
+        'NS';
+      const statusShort = String(statusRaw || 'NS');
+      const statusKey = normalizeStatusKey(statusShort);
+      const isFinished = FINISHED_STATUSES_FRONT.has(statusKey) || /MATCHFINISHED|FULLTIME|GAMEOVER/.test(statusKey);
       const eventTime = ev.event_date || ev.date || ev.fixture?.date;
       const eventMs = eventTime ? new Date(eventTime).getTime() : 0;
       const now = Date.now();
@@ -206,7 +246,7 @@ export default function GamesDashboard() {
         awayOdd,
         status: statusShort,
         elapsed: ev.elapsed ?? ev.fixture?.status?.elapsed ?? 0,
-        isLive: !isFinished && !isStale && (ev.is_live === 1 || ev.is_live === true || ['1H','2H','HT','ET','P','LIVE','Q1','Q2','Q3','Q4','OT','BT','IN'].includes(statusShort))
+        isLive: !isFinished && !isStale && (ev.is_live === 1 || ev.is_live === true || ['1H','2H','HT','ET','P','LIVE','Q1','Q2','Q3','Q4','OT','BT','IN','IN_PROGRESS'].includes(statusKey))
       };
   };
 
@@ -254,7 +294,7 @@ export default function GamesDashboard() {
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                         {liveRows.map((row, i) => (
-                            <tr key={row.rawEvent.id || i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                            <tr key={rowKeyOf(row.rawEvent) || i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                                 <td className="px-3 py-2">
                                     <div className="font-bold">{row.home}</div>
                                     <div className="font-bold">{row.away}</div>
@@ -296,7 +336,7 @@ export default function GamesDashboard() {
               <table className="w-full text-sm">
                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {games.map((row: any, i: number) => (
-                        <tr key={row.rawEvent.id || i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                        <tr key={rowKeyOf(row.rawEvent) || i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                              <td className="px-3 py-2 w-16 text-xs text-gray-400 text-center">
                                 {row.time}
                              </td>

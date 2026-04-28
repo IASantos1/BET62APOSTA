@@ -25,9 +25,8 @@ export const formatLeagueHeader = (rawInput: any) => {
         raw = ''; 
     }
 
-    // FIX: Remove "soccer" prefix if present (common in some feeds)
-    // Handles "Soccer Spain", "Soccer-Spain", "soccerEspanha", etc.
     raw = raw.replace(/^soccer\s*[-:.]?\s*/i, '');
+    raw = raw.replace(/^(tennis|basketball|baseball|volleyball|handball|rugby|mma|american\s*football|american-football|ice\s*hockey|ice-hockey|golf|formula1|cricket)\s*[-:.]?\s*/i, '');
     
     // FIX: Clean up specific bad patterns like " - ó" (El Salvador issue)
     raw = raw.replace(/\s*[-·]\s*ó$/i, '');

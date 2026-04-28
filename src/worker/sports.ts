@@ -905,6 +905,9 @@ sports.get('/:id/odds', async (c) => {
     const normalizeKey = (k: string) => {
       const s = String(k || '').toLowerCase();
       if (s === 'h2h') return 'h2h';
+      if (s === 'btts') return 'btts';
+      if (s === 'totals') return 'totals';
+      if (s === 'correct_score') return 'correct_score';
       if (s.includes('match winner') || s.includes('full time result') || s.includes('1x2') || s.includes('home/away')) return 'h2h';
       if (s.includes('double chance')) return 'double_chance';
       if (s.includes('draw no bet')) return 'dnb';

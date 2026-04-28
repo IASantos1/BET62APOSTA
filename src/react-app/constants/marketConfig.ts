@@ -49,6 +49,10 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
 
   // F1
   podium: { title: 'Pódio' },
+  race_winner: { title: 'Vencedor da Corrida' },
+  podium_finish: { title: 'Pódio' },
+  top_10_finish: { title: 'Top 10' },
+  safety_car: { title: 'Safety Car' },
   pole_position: { title: 'Pole Position' },
   fastest_lap: { title: 'Volta Mais Rápida' },
   constructor_winner: { title: 'Construtor Vencedor' },

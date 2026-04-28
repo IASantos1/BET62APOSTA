@@ -254,11 +254,22 @@ export function SubOddsModel({
      const h0 = Number(event?.home_odd || 0)
      const d0 = Number(event?.draw_odd || 0)
      const a0 = Number(event?.away_odd || 0)
-     const items = []
-     if(h0 > 0) items.push({ label: 'Casa', odd: h0 })
-     if(d0 > 0) items.push({ label: 'Empate', odd: d0 })
-     if(a0 > 0) items.push({ label: 'Fora', odd: a0 })
-     return items as MarketItem[]
+     const items: MarketItem[] = []
+     if (h0 > 0) items.push({ label: 'Casa', odd: h0 })
+     if (d0 > 0) items.push({ label: 'Empate', odd: d0 })
+     if (a0 > 0) items.push({ label: 'Fora', odd: a0 })
+     if (items.length > 0) return items
+
+     const sport = String(event?.sport || '').toLowerCase();
+     if (sport === 'soccer' || (sport.includes('football') && !sport.includes('american'))) {
+       return [
+         { label: 'Casa', odd: 0 },
+         { label: 'Empate', odd: 0 },
+         { label: 'Fora', odd: 0 },
+       ] as MarketItem[];
+     }
+
+     return [] as MarketItem[]
   }, [event, h2hInternalItems])
 
   const doubleChanceItems = useMemo(() => {
@@ -344,6 +355,18 @@ export function SubOddsModel({
           if (s.includes('mma') || s.includes('ufc') || s.includes('mixed martial arts') || s.includes('luta')) return 'Vencedor da Luta';
           return MARKET_CONFIG['h2h']?.title || 'Resultado Final';
       }
+      if (key === 'totals') {
+          const s = (sport || '').toLowerCase();
+          if (s.includes('tennis') || s.includes('tênis')) return 'Total de Games na Partida';
+          if (s.includes('basketball') || s.includes('basquete')) return 'Total de Pontos';
+          if (s.includes('ice-hockey') || s.includes('hockey') || s.includes('hóquei')) return 'Total de Gols';
+      }
+      if (key === 'spreads') {
+          const s = (sport || '').toLowerCase();
+          if (s.includes('basketball') || s.includes('basquete')) return 'Point Spread';
+          if (s.includes('american') || s.includes('nfl') || s.includes('football')) return 'Spread';
+          if (s.includes('baseball') || s.includes('mlb')) return 'Run Line';
+      }
       return MARKET_CONFIG[key]?.title || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
 
@@ -378,7 +401,7 @@ export function SubOddsModel({
 
     // Estimativa de λ total: usa over 2.5 se disponível, senão 2.6 (média futebol)
     let lambdaTotal = 2.6
-    const o25 = totalsItems.find((t: MarketItem) => /2[\.,]5/.test(String(t.label)) && /acima|over|mais/i.test(String(t.label)))
+    const o25 = totalsItems.find((t: MarketItem) => /2[.,]5/.test(String(t.label)) && /acima|over|mais/i.test(String(t.label)))
     if (o25 && Number(o25.odd) > 1.01) {
       const pOver25 = 1 / Number(o25.odd)
       // Mapeamento aproximado P(over 2.5) → λ via Poisson invertida (tabela)
@@ -461,7 +484,7 @@ export function SubOddsModel({
       h = Number(goals.home ?? goals.localteam_score ?? 0);
       a = Number(goals.away ?? goals.visitorteam_score ?? 0);
     } else if (typeof goals === 'string') {
-      try { const g = JSON.parse(goals); h = Number(g.home || 0); a = Number(g.away || 0); } catch { /* ignore */ }
+      try { const g = JSON.parse(goals); h = Number(g.home || 0); a = Number(g.away || 0); } catch { h = 0; a = 0; }
     }
     const diff = Math.abs(h - a);
     if (diff >= 3) return true;
@@ -500,14 +523,17 @@ export function SubOddsModel({
             }[critState];
             // Auto-pick favourite to wager on (lowest odd)
             const fav = resultadoRegulamentar.reduce((m, x) => (Number(x.odd) > 0 && Number(x.odd) < Number(m.odd) ? x : m), resultadoRegulamentar[0]);
+            const favOdd = Number(fav?.odd) || 0;
+            const disabled = !(favOdd > 0);
             return (
               <MarketCard title={title} darkMode={darkMode} noPad>
                 <div className="p-3">
                   <button
-                    onClick={() => fav && onSelect(fav.label, Number(fav.odd))}
+                    onClick={disabled ? undefined : () => fav && onSelect(fav.label, favOdd)}
+                    disabled={disabled}
                     className={`w-full h-16 rounded-xl font-black text-lg uppercase tracking-wider text-white shadow-lg
                       bg-gradient-to-r ${cfg.bg} ring-4 ${cfg.ring} ring-opacity-60 ${cfg.anim}
-                      transition-all duration-200 hover:scale-[1.02] active:scale-95`}
+                      transition-all duration-200 ${disabled ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-95'}`}
                   >
                     {cfg.label}
                   </button>
@@ -521,15 +547,17 @@ export function SubOddsModel({
             const fav = resultadoRegulamentar.reduce((m, x) => (Number(x.odd) > 0 && Number(x.odd) < Number(m.odd) ? x : m), resultadoRegulamentar[0]);
             const favOdd = Number(fav?.odd) || 0;
             const favStr = favOdd > 0 ? favOdd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+            const disabled = !(favOdd > 0);
             return (
               <MarketCard title={title} darkMode={darkMode} noPad>
                 <div className="p-3">
                   <button
-                    onClick={() => fav && onSelect(fav.label, favOdd)}
-                    className="w-full h-16 rounded-xl font-black text-xl uppercase tracking-wider text-white shadow-lg
+                    onClick={disabled ? undefined : () => fav && onSelect(fav.label, favOdd)}
+                    disabled={disabled}
+                    className={`w-full h-16 rounded-xl font-black text-xl uppercase tracking-wider text-white shadow-lg
                       bg-gradient-to-r from-red-600 to-rose-700 ring-4 ring-red-400 ring-opacity-50 animate-pulse
-                      transition-all duration-200 hover:scale-[1.02] active:scale-95
-                      flex items-center justify-center gap-3"
+                      transition-all duration-200 ${disabled ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-95'}
+                      flex items-center justify-center gap-3`}
                   >
                     <span>⚡ APOSTA JÁ</span>
                     {fav && <span className="text-base opacity-90">{fav.label} @ {favStr}</span>}
@@ -546,21 +574,22 @@ export function SubOddsModel({
                 {resultadoRegulamentar.map((item, i) => {
                   const val = Number(item.odd);
                   const priceStr = val > 0 ? val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+                  const disabled = isSusp || !(val > 0);
                   return (
                     <div key={i} className="flex flex-col items-center gap-1.5 py-3 px-2">
                       <span className={`text-[11px] font-extrabold uppercase tracking-wider ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                         {item.label}
                       </span>
                       <button
-                        onClick={isSusp ? undefined : () => onSelect(item.label, val)}
-                        disabled={isSusp}
+                        onClick={disabled ? undefined : () => onSelect(item.label, val)}
+                        disabled={disabled}
                         className={`w-full h-14 rounded-lg font-black text-lg tabular-nums transition-all duration-200 shadow-sm
-                          ${isSusp
+                          ${disabled
                             ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
                             : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'
                           }`}
                       >
-                        {isSusp
+                        {disabled
                           ? <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mx-auto text-gray-400" viewBox="0 0 20 20" fill="currentColor">
                               <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                             </svg>
@@ -603,10 +632,12 @@ export function SubOddsModel({
             const team = isHome ? 'home' : (isAway ? 'away' : '')
             return { team, val }
           }
+          const sportKey = String(event?.sport || '').toLowerCase()
+          const maxAbsHandicap = sportKey.includes('soccer') || sportKey.includes('football') ? 3.5 : 30
           const parsed = baseItems.map((x: MarketItem) => {
             const p = parseHandicap(String(x.label || ''))
             if (!p.team || !Number.isFinite(p.val)) return null
-            if (Math.abs(p.val) > 3.5) return null
+            if (Math.abs(p.val) > maxAbsHandicap) return null
             if (!(Number(x.odd) > 1.01 && Number(x.odd) < 25)) return null
             const signLabel = `${p.val >= 0 ? '+' : ''}${p.val}`
             const lbl = signLabel.replace(',', '.')
@@ -645,10 +676,15 @@ export function SubOddsModel({
             if (!m) return ''
             const raw = String(m[1]).replace(',', '.')
             const n = parseFloat(raw)
-            // Normalize integer lines to X.5 (football over-under convention)
-            return Number.isFinite(n) && Number.isInteger(n) ? String(n + 0.5) : raw
+            const s = String(event?.sport || '').toLowerCase()
+            const normalizeHalf = s.includes('soccer') || s.includes('football')
+            return normalizeHalf && Number.isFinite(n) && Number.isInteger(n) ? String(n + 0.5) : raw
           }
-          const maxLine = key === 'totals' ? 5.5 : 999;
+          const maxLine = (() => {
+            if (key !== 'totals') return 999
+            const s = String(event?.sport || '').toLowerCase()
+            return (s.includes('soccer') || s.includes('football')) ? 5.5 : 999
+          })();
           const okLine = (lbl: string) => {
             const n = Number(lbl);
             if (!Number.isFinite(n)) return false;

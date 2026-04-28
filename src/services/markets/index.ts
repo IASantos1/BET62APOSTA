@@ -187,3 +187,135 @@ export const MARKET_COUNTS = {
 
 // Total de mercados implementados
 export const TOTAL_MARKETS = Object.values(MARKET_COUNTS).reduce((sum, count) => sum + count, 0); // 81 mercados
+
+export type MarketDefinitionCategory = 'result' | 'handicap' | 'totals' | 'props' | 'event';
+
+export interface MarketDefinition {
+  id: string;
+  name: string;
+  sport: string;
+  category: MarketDefinitionCategory;
+  description: string;
+  inputs: string[];
+  live_update_rule: string;
+}
+
+export const MARKET_DEFINITIONS: MarketDefinition[] = [
+  {
+    id: 'nhl_moneyline',
+    name: 'Moneyline',
+    sport: 'hockey',
+    category: 'result',
+    description: 'Vencedor da partida (tempo regulamentar ou OT dependendo do mercado).',
+    inputs: ['score', 'momentum', 'goal_diff'],
+    live_update_rule: 'update_win_probability_per_goal',
+  },
+  {
+    id: 'nhl_puck_line',
+    name: 'Puck Line',
+    sport: 'hockey',
+    category: 'handicap',
+    description: 'Handicap de ±1.5 gols no resultado final.',
+    inputs: ['score', 'goal_diff'],
+    live_update_rule: 'shift_line_per_goal_event',
+  },
+  {
+    id: 'nhl_totals',
+    name: 'Over/Under Goals',
+    sport: 'hockey',
+    category: 'totals',
+    description: 'Total de gols na partida.',
+    inputs: ['shots', 'goal_rate', 'goalie_save_rate'],
+    live_update_rule: 'update_poisson_goal_model',
+  },
+  {
+    id: 'nhl_player_points',
+    name: 'Player Points',
+    sport: 'hockey',
+    category: 'props',
+    description: 'Gols + assistências de um jogador.',
+    inputs: ['ice_time', 'line_role'],
+    live_update_rule: 'adjust_based_on_ice_time_and_line_changes',
+  },
+  {
+    id: 'f1_race_winner',
+    name: 'Race Winner',
+    sport: 'formula1',
+    category: 'result',
+    description: 'Vencedor da corrida.',
+    inputs: ['position', 'lap_time_delta', 'tyre_strategy'],
+    live_update_rule: 'update_probability_per_overtake_or_pit_stop',
+  },
+  {
+    id: 'f1_podium',
+    name: 'Podium Finish',
+    sport: 'formula1',
+    category: 'result',
+    description: 'Terminar entre os 3 primeiros.',
+    inputs: ['position', 'pit_strategy'],
+    live_update_rule: 'update_rank_probability_distribution',
+  },
+  {
+    id: 'f1_top10',
+    name: 'Top 10 Finish',
+    sport: 'formula1',
+    category: 'result',
+    description: 'Terminar entre os 10 primeiros.',
+    inputs: ['position', 'car_pace'],
+    live_update_rule: 'adjust_per_lap_position_change',
+  },
+  {
+    id: 'f1_safety_car',
+    name: 'Safety Car',
+    sport: 'formula1',
+    category: 'event',
+    description: 'Ocorrência de safety car durante a corrida.',
+    inputs: ['race_incidents', 'weather'],
+    live_update_rule: 'compress_all_probabilities_on_trigger',
+  },
+  {
+    id: 'cricket_match_winner',
+    name: 'Match Winner',
+    sport: 'cricket',
+    category: 'result',
+    description: 'Vencedor da partida.',
+    inputs: ['runs', 'wickets', 'overs_remaining'],
+    live_update_rule: 'update_win_probability_per_over',
+  },
+  {
+    id: 'cricket_total_runs',
+    name: 'Total Runs',
+    sport: 'cricket',
+    category: 'totals',
+    description: 'Total de runs na partida.',
+    inputs: ['run_rate', 'wicket_loss_rate'],
+    live_update_rule: 'update_expected_runs_model',
+  },
+  {
+    id: 'cricket_top_batsman',
+    name: 'Top Batsman',
+    sport: 'cricket',
+    category: 'props',
+    description: 'Batedor com mais runs.',
+    inputs: ['batting_order', 'strike_rate'],
+    live_update_rule: 'adjust_per_wicket_or_boundary',
+  },
+  {
+    id: 'horse_racing_win',
+    name: 'Win',
+    sport: 'horse_racing',
+    category: 'result',
+    description: 'Cavalo vencedor da corrida.',
+    inputs: ['position', 'speed', 'track_condition'],
+    live_update_rule: 'update_position_probability_per_furlong',
+  },
+  {
+    id: 'horse_racing_place',
+    name: 'Place',
+    sport: 'horse_racing',
+    category: 'result',
+    description: 'Terminar entre posições premiadas.',
+    inputs: ['position', 'race_pace'],
+    live_update_rule: 'adjust_probability_per_section',
+  },
+];

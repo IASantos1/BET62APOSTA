@@ -88,11 +88,19 @@ export default function MatchHeader({
 
     const updateClock = () => {
       const period = match.status?.short || match.statusShort || '';
+      const periodLong = match.status?.long || match.statusLong || match.timer || '';
 
       // INTERVALO: STOP no relógio
       if (period === 'HT' || period === 'BT' || period === 'INT') {
         setLiveMinute(45);
         setLivePeriod('INT');
+        return;
+      }
+
+      if (/\b(top|bottom)\b/i.test(String(periodLong || ''))) {
+        setLiveMinute(0);
+        setLivePeriod(String(periodLong));
+        setLastRefresh(Date.now());
         return;
       }
 
@@ -214,13 +222,24 @@ export default function MatchHeader({
 
             {/* ✅ RELÓGIO COM INDICADOR DE ATUALIZAÇÃO */}
             <div className="flex items-center gap-1">
-              <span
-                className={`text-xs font-bold ${
-                  theme === 'dark' ? 'text-white' : 'text-gray-900'
-                }`}
-              >
-                {liveMinute}'
-              </span>
+              {(() => {
+                const clockText = (() => {
+                  if (livePeriod === 'INT') return `45'`;
+                  if (liveMinute > 0) return `${liveMinute}'`;
+                  if (/\b(top|bottom)\b/i.test(livePeriod)) return livePeriod;
+                  return '';
+                })();
+                if (!clockText) return null;
+                return (
+                  <span
+                    className={`text-xs font-bold ${
+                      theme === 'dark' ? 'text-white' : 'text-gray-900'
+                    }`}
+                  >
+                    {clockText}
+                  </span>
+                );
+              })()}
               {/* Seta de atualização animada */}
               <i
                 className={`ri-refresh-line text-[10px] ${

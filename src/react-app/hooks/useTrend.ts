@@ -1,22 +1,31 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export const useTrend = (val: number) => {
-    const [trend, setTrend] = useState<'up' | 'down' | 'stable'>('stable');
-    const prev = useMemo(() => ({ value: val }), []); // Stable ref container
+  const [trend, setTrend] = useState<'up' | 'down' | 'stable'>('stable');
+  const prevRef = useRef<number>(val);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    if (val !== prev.value) {
-        if (val > prev.value) setTrend('up');
-        else if (val < prev.value) setTrend('down');
-        prev.value = val;
+  useEffect(() => {
+    const prev = prevRef.current;
+
+    if (!Number.isFinite(val) || val <= 0) {
+      prevRef.current = val;
+      return;
     }
 
-    // Auto-reset trend effect
-    useEffect(() => {
-        if (trend !== 'stable') {
-            const t = setTimeout(() => setTrend('stable'), 5000);
-            return () => clearTimeout(t);
-        }
-    }, [trend]);
+    if (Number.isFinite(prev) && prev > 0 && val !== prev) {
+      setTrend(val > prev ? 'up' : 'down');
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = setTimeout(() => setTrend('stable'), 3000);
+    }
 
-    return trend;
+    prevRef.current = val;
+
+    return () => {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    };
+  }, [val]);
+
+  return trend;
 };

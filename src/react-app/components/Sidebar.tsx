@@ -32,6 +32,7 @@ const sports: SidebarSection = {
     'Futebol', 
     'Basquetebol', 
     'Ténis',
+    'Críquete',
     'Futebol Americano', 
     'Handebol', 
     'MMA', 
@@ -40,6 +41,8 @@ const sports: SidebarSection = {
     'Rúgbi', 
     'Voleibol', 
     'Beisebol',
+    'Golfe',
+    'Corridas de Cavalos',
     'AFL', 
   ], 
 }; 
@@ -175,6 +178,9 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
     'Beisebol': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/26be.svg',
     'Ténis': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3be.svg',
     'AFL': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c8.svg',
+    'Críquete': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3cf.svg',
+    'Golfe': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/26f3.svg',
+    'Corridas de Cavalos': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c7.svg',
   };
 
   const sportIconUrl = (name: string) => {
@@ -316,6 +322,7 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
                 itemLabel === 'Futebol' ? 'soccer-all' :
                 itemLabel === 'Basquetebol' ? 'basketball' :
                 itemLabel === 'NBA' ? 'nba' :
+                itemLabel === 'Críquete' ? 'cricket' :
                 itemLabel === 'Futebol Americano' ? 'american-football' :
                 itemLabel === 'NFL' ? 'nfl' :
                 itemLabel === 'Handebol' ? 'handball' :
@@ -325,6 +332,8 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
                 itemLabel === 'Rúgbi' ? 'rugby' :
                 itemLabel === 'Voleibol' ? 'volleyball' :
                 itemLabel === 'Beisebol' ? 'baseball' :
+                itemLabel === 'Golfe' ? 'golf' :
+                itemLabel === 'Corridas de Cavalos' ? 'horse-racing' :
                 itemLabel === 'AFL' ? 'afl' : 
                 itemLabel === 'Ténis' ? 'tennis' : '';
               

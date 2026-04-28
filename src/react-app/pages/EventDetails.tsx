@@ -93,7 +93,7 @@ export default function EventDetails() {
     if (typeof val === 'number') return val;
     if (typeof val === 'string') {
       if (val.startsWith('{')) {
-        try { const p = JSON.parse(val); return p.home ?? p.total ?? p.score ?? 0; } catch {}
+        try { const p = JSON.parse(val); return p.home ?? p.total ?? p.score ?? 0; } catch { return 0; }
       }
       const n = parseFloat(val);
       return isNaN(n) ? 0 : n;
@@ -104,7 +104,7 @@ export default function EventDetails() {
   const parseGoals = (goals: any) => {
     if (!goals) return { home: 0, away: 0 };
     if (typeof goals === 'string') {
-      try { const p = JSON.parse(goals); return { home: p.home ?? 0, away: p.away ?? 0 }; } catch {}
+      try { const p = JSON.parse(goals); return { home: p.home ?? 0, away: p.away ?? 0 }; } catch { return { home: 0, away: 0 }; }
       return { home: 0, away: 0 };
     }
     return { home: formatScore(goals.home), away: formatScore(goals.away) };

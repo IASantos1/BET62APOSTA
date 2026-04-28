@@ -20,28 +20,26 @@ const scoreEvent = (e: Event) =>
   (Number(e.is_live || 0) === 1 ? 1 : 0);
 
   const isTodayAdjusted = (evt: Event): boolean => {
-    // return true; // DEBUG: Show all events for now
-    
     const raw = (evt.event_date || (evt as any).fixture?.date) as string | undefined;
     if (!raw) return true;
     const d = new Date(raw);
     if (Number.isNaN(d.getTime())) return true;
-    
+
     const now = Date.now();
-    
     let t = d.getTime();
     const diff = now - t;
-    
-    // If year mismatch (2025 vs 2026), adjust
+
     if (Math.abs(diff) > 300 * 24 * 60 * 60 * 1000) {
       const dAdj = new Date(d);
       dAdj.setFullYear(new Date(now).getFullYear());
       t = dAdj.getTime();
     }
-    
-    const fourteenDaysAhead = now + 14 * 24 * 60 * 60 * 1000;
-    // Show events from 12h ago until 14 days ahead
-    return t > now - 12 * 60 * 60 * 1000 && t <= fourteenDaysAhead;
+
+    const startToday = new Date(now);
+    startToday.setHours(0, 0, 0, 0);
+    const startAfterTomorrow = new Date(startToday.getTime() + 2 * 24 * 60 * 60 * 1000).getTime();
+
+    return t >= startToday.getTime() && t < startAfterTomorrow;
   };
 
 const dedupEvents = (list: Event[]): Event[] => {
@@ -54,8 +52,9 @@ const dedupEvents = (list: Event[]): Event[] => {
     const home = e.home_team || (e.teams?.home?.name) || 'Home';
     const away = e.away_team || (e.teams?.away?.name) || 'Away';
     const date = e.event_date || (e.fixture?.date);
-    
-    const k = e.id ? String(e.id) : matchUID(String(home), String(away), String(date));
+    const ext = (e as any)?.external_event_id;
+    const fixId = (e as any)?.fixture?.id;
+    const k = ext ? String(ext) : (fixId ? String(fixId) : matchUID(String(home), String(away), String(date)));
     
     const prev = by.get(k);
     if (!prev) {
@@ -80,6 +79,35 @@ const shouldHideEvent = (evt: Event) => {
   return false;
 };
 
+const parseJsonLoose = (v: any) => {
+  if (v === null || v === undefined) return v;
+  if (typeof v !== 'string') return v;
+  const s = v.trim();
+  if (!s) return undefined;
+  if (!((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']')))) return v;
+  try {
+    const j = JSON.parse(s);
+    if (typeof j === 'string') {
+      const s2 = j.trim();
+      if ((s2.startsWith('{') && s2.endsWith('}')) || (s2.startsWith('[') && s2.endsWith(']'))) {
+        try { return JSON.parse(s2); } catch { return j; }
+      }
+    }
+    return j;
+  } catch {
+    return v;
+  }
+};
+
+const normalizeMarkets = (evt: Event): Event => {
+  const e: any = evt as any;
+  const marketsRaw = e.markets ?? e.odds;
+  const marketsParsed = parseJsonLoose(marketsRaw);
+  const oddsParsed = parseJsonLoose(e.odds);
+  if (marketsParsed === marketsRaw && oddsParsed === e.odds) return evt;
+  return { ...(evt as any), markets: marketsParsed ?? e.markets, odds: oddsParsed ?? e.odds };
+};
+
 export function useSportsEvents(category: string | null) {
   const [live, setLive] = useState<Event[]>([]);
   const [pregame, setPregame] = useState<Event[]>([]);
@@ -94,7 +122,27 @@ export function useSportsEvents(category: string | null) {
   // Helper for deep equality check to prevent flickering
   const eq = (a: Event[], b: Event[]) => {
     if (a.length !== b.length) return false;
-    const key = (e: Event) => e.id ? String(e.id) : matchUID(String(e.home_team||''), String(e.away_team||''), String(e.event_date||''));
+    const key = (e: Event) => {
+      const ext = (e as any)?.external_event_id;
+      const fixId = (e as any)?.fixture?.id;
+      if (ext) return String(ext);
+      if (fixId) return String(fixId);
+      return matchUID(String(e.home_team||''), String(e.away_team||''), String(e.event_date||''));
+    };
+    const scoreSig = (e: any) => {
+      const gh = Number(e?.goals?.home);
+      const ga = Number(e?.goals?.away);
+      const home = Number.isFinite(gh) ? gh : null;
+      const away = Number.isFinite(ga) ? ga : null;
+      const s = e?.score;
+      const rawScore = typeof s === 'string' ? s : (s && typeof s === 'object' ? `${s.home ?? ''}-${s.away ?? ''}` : '');
+      return `${String(rawScore || '')}|${String(home ?? '')}-${String(away ?? '')}`;
+    };
+    const elapsedSig = (e: any) => {
+      const el = Number(e?.elapsed ?? e?.fixture?.status?.elapsed ?? 0);
+      const t = String(e?.fixture?.status?.timer ?? '');
+      return `${Number.isFinite(el) ? el : 0}|${t}`;
+    };
     const mapA = new Map(a.map(e => [key(e), e]));
     for (const e of b) {
       const k = key(e);
@@ -106,8 +154,8 @@ export function useSportsEvents(category: string | null) {
         Number(e.away_odd||0) !== Number(x.away_odd||0) ||
         e.is_live !== x.is_live ||
         (e.fixture?.status?.short || e.status) !== (x.fixture?.status?.short || x.status) ||
-        Number(e.elapsed||0) !== Number((x as any).elapsed||0) ||
-        String((e as any).score || '') !== String((x as any).score || '')
+        elapsedSig(e) !== elapsedSig(x) ||
+        scoreSig(e) !== scoreSig(x)
       ) return false;
     }
     return true;
@@ -126,15 +174,31 @@ export function useSportsEvents(category: string | null) {
 
   // Fallback para 'all' se category for nulo
   const safeCategory = category || 'all';
+  const cacheKey = `sportsEvents:${safeCategory}:v1`;
 
   useEffect(() => {
     const controller = new AbortController();
     abortRef.current = controller;
     let isActive = true;
 
-    if (isFirstLoadRef.current) {
-      setLoading(true);
+    let hadCache = false;
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(cacheKey);
+        if (raw) {
+          const cached = JSON.parse(raw) as { live?: Event[]; pregame?: Event[] };
+          const cachedLive = Array.isArray(cached?.live) ? cached.live : [];
+          const cachedPregame = Array.isArray(cached?.pregame) ? cached.pregame : [];
+          if (cachedLive.length || cachedPregame.length) {
+            hadCache = true;
+            updateState(cachedLive, cachedPregame);
+            setLoading(false);
+          }
+        }
+      } catch { void 0; }
     }
+
+    if (isFirstLoadRef.current && !hadCache) setLoading(true);
 
     const fetchData = async () => {
       // Evita buscar dados se aba estiver oculta (exceto primeira carga)
@@ -205,14 +269,14 @@ export function useSportsEvents(category: string | null) {
           const cleanLeague = leagueFilter.replace(/-+/g, ' ').replace(/\s+/g, ' ').trim();
           params.set('league', cleanLeague);
         }
-        params.set('include', 'odds'); 
-        params.set('realtime', safeCategory === 'all' ? '0' : '1');
+                params.set('include', 'odds'); 
+                params.set('realtime', '1');
         // params.set('_ts', Date.now().toString()); // Disabled for aggressive caching as requested
  
-        const url = `/api/events/by-sport?${params.toString()}`;
+                const url = `/api/events/by-sport?${params.toString()}`;
         // console.log('FETCH URL', url);
         // Disable cache to ensure fresh data
-        let data = await apiFetch<any>(url, { cache: 'no-store', signal: controller.signal, timeout: 12000 });
+        let data = await apiFetch<any>(url, { signal: controller.signal, timeout: 12000 });
         // console.log('API DATA RAW:', data);
 
         let liveCount = Array.isArray(data?.live) ? data.live.length : 0;
@@ -226,7 +290,7 @@ export function useSportsEvents(category: string | null) {
           p2.set('sports', 'all');
           p2.set('include', 'odds');
           p2.set('realtime', '0');
-          data = await apiFetch<any>(`/api/events/by-sport?${p2.toString()}`, { cache: 'no-store', signal: controller.signal });
+          data = await apiFetch<any>(`/api/events/by-sport?${p2.toString()}`, { signal: controller.signal });
           liveCount = Array.isArray(data?.live) ? data.live.length : 0;
           pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
         }
@@ -249,8 +313,8 @@ export function useSportsEvents(category: string | null) {
           const rawLive = (data.live || []) as Event[];
           const rawPregame = (data.pregame || []) as Event[];
           
-          let liveEvents = dedupEvents(rawLive).filter(e => !shouldHideEvent(e));
-          let pregameEvents = dedupEvents(rawPregame).filter(e => !shouldHideEvent(e));  
+          let liveEvents = dedupEvents(rawLive).filter(e => !shouldHideEvent(e)).map(normalizeMarkets);
+          let pregameEvents = dedupEvents(rawPregame).filter(e => !shouldHideEvent(e)).map(normalizeMarkets);  
 
           // Fallback dev
           if (
@@ -259,39 +323,69 @@ export function useSportsEvents(category: string | null) {
             pregameEvents.length === 0 &&
             (rawLive.length > 0 || rawPregame.length > 0)
           ) {
-            liveEvents = dedupEvents(rawLive);
-            pregameEvents = dedupEvents(rawPregame);
+            liveEvents = dedupEvents(rawLive).map(normalizeMarkets);
+            pregameEvents = dedupEvents(rawPregame).map(normalizeMarkets);
           }
 
           const isGameActive = (e: Event) => {
-             const status = e.status;
+             const status = (e as any)?.status ?? (e as any)?.fixture?.status;
              const sRaw =
                (typeof status === 'object' && status !== null)
                  ? ((status as any).short ?? (status as any).long)
                  : status;
-             const s = String(sRaw || '').toUpperCase().trim();
-             if (!s) return true;
-             return ![
-               'FT', 'AET', 'PEN', 'FT_PEN',
-               'FIN', 'FINAL', 'FINISHED', 'MATCH FINISHED', 'ENDED', 'FIM',
-               'PST', 'POST', 'CANC', 'CANCELLED', 'CANCELED',
-               'ABD', 'ABANDONED', 'WO', 'AWD', 'AWARDED',
-             ].includes(s);
+             const sRaw2 = sRaw ?? (e as any)?.fixture?.status?.short ?? (e as any)?.fixture?.status?.long ?? '';
+             const su = String(sRaw2 || '').toUpperCase().trim();
+             if (!su) return true;
+             const s = su.replace(/[^A-Z0-9_]+/g, '');
+             const done =
+               s === 'FT' || s.startsWith('FT') ||
+               s === 'AET' ||
+               s === 'PEN' || s === 'FTPEN' || s === 'FT_PEN' ||
+               s === 'FIN' || s === 'FINAL' || s === 'FINISHED' || s === 'ENDED' || s === 'FIM' ||
+               s === 'PST' || s === 'POST' ||
+               s === 'CANC' || s === 'CANCELLED' || s === 'CANCELED' ||
+               s === 'ABD' || s === 'ABANDONED' || s === 'WO' || s === 'AWD' || s === 'AWARDED' ||
+               /MATCHFINISHED|FULLTIME|GAMEOVER|ENCERRAD|TERMINAD/.test(s);
+             return !done;
           };
           
           liveEvents = liveEvents.filter(isGameActive);
           pregameEvents = pregameEvents.filter(isGameActive);
 
-          const hasPrimaryOdds = (e: Event) => {
-            const h = Number((e as any)?.home_odd || 0);
-            const a = Number((e as any)?.away_odd || 0);
-            if (h > 1 && a > 1) return true;
-            const mk = Array.isArray((e as any)?.markets) ? (e as any).markets : [];
-            const h2h = mk.find((m: any) => String(m?.key || '') === 'h2h');
-            const sels = h2h?.selections || h2h?.outcomes || [];
-            const ok = Array.isArray(sels) ? sels.filter((s: any) => Number(s?.odd || s?.price || 0) > 1).length : 0;
-            return ok >= 2;
-          };
+                  const hasPrimaryOdds = (e: Event) => {
+                    const h = Number((e as any)?.home_odd || 0);
+                    const a = Number((e as any)?.away_odd || 0);
+                    if (h > 1 && a > 1) return true;
+
+                    const mkRaw = (e as any)?.markets ?? (e as any)?.odds;
+                    const mkObj =
+                      mkRaw && typeof mkRaw === 'object' && !Array.isArray(mkRaw)
+                        ? mkRaw
+                        : null;
+                    const mkArr = Array.isArray(mkRaw) ? mkRaw : [];
+
+                    const h2hMarket =
+                      (mkObj ? ((mkObj as any).h2h || (mkObj as any)['1x2'] || (mkObj as any).main || (mkObj as any).match_winner) : null) ||
+                      mkArr.find((m: any) => {
+                        const k = String(m?.key || '');
+                        return k === 'h2h' || k === '1x2' || k === 'main' || k === 'match_winner';
+                      });
+
+                    const sels = Array.isArray(h2hMarket)
+                      ? h2hMarket
+                      : (h2hMarket?.selections || h2hMarket?.outcomes || h2hMarket?.values || []);
+                    const ok = Array.isArray(sels)
+                      ? sels.filter((s: any) => Number(s?.odd || s?.price || s?.value || 0) > 1).length
+                      : 0;
+                    return ok >= 2;
+                  };
+
+          const sportKey = (e: Event) => String((e as any)?.sport || '').toLowerCase().trim();
+          const blockedSports = new Set(['horse-racing', 'esports', 'e-sports', 'e-sport', 'gaming']);
+          const isAllowedSport = (e: Event) => !blockedSports.has(sportKey(e));
+
+          liveEvents = liveEvents.filter(isAllowedSport).filter(hasPrimaryOdds);
+          pregameEvents = pregameEvents.filter(isAllowedSport);
 
           const preferOdds = (arr: Event[], max: number) => {
             const withOdds = arr.filter(hasPrimaryOdds);
@@ -299,15 +393,89 @@ export function useSportsEvents(category: string | null) {
             return [...withOdds, ...withoutOdds].slice(0, max);
           };
           
-          const filteredLive = liveEvents; 
-          const maxPregame = safeCategory === 'all' ? 200 : 60;
-          const filteredPregame = preferOdds(pregameEvents.filter(isTodayAdjusted), maxPregame);
-          const finalLive = preferOdds(filteredLive, safeCategory === 'all' ? 100 : 60);
+                  const filteredLive = liveEvents; 
+                  const pregameBase = preferOdds(pregameEvents.filter(isTodayAdjusted), safeCategory === 'all' ? 120 : 60);
+
+                  const sportRank = (s: string) => {
+                    const k = s;
+                    if (k === 'soccer') return 1;
+                    if (k === 'tennis') return 2;
+                    if (k === 'basketball') return 3;
+                    if (k === 'ice-hockey') return 4;
+                    if (k === 'volleyball') return 5;
+                    if (k === 'handball') return 6;
+                    if (k === 'american-football') return 7;
+                    if (k === 'mma') return 8;
+                    if (k === 'formula1') return 9;
+                    if (k === 'golf') return 10;
+                    if (k === 'cricket') return 98;
+                    if (k === 'baseball') return 99;
+                    return 50;
+                  };
+                  const startMs = (e: Event) => {
+                    const raw = (e as any)?.event_date || (e as any)?.fixture?.date;
+                    const t = raw ? new Date(raw).getTime() : 0;
+                    return Number.isFinite(t) ? t : 0;
+                  };
+                  const limitPregameAll = (arr: Event[], max: number) => {
+                    if (safeCategory !== 'all') return arr.slice(0, max);
+                    const caps = new Map<string, number>([
+                      ['soccer', 25],
+                      ['tennis', 10],
+                      ['basketball', 8],
+                      ['ice-hockey', 6],
+                      ['volleyball', 6],
+                      ['handball', 6],
+                      ['american-football', 6],
+                      ['mma', 6],
+                      ['formula1', 4],
+                      ['golf', 4],
+                      ['cricket', 5],
+                      ['baseball', 5],
+                    ]);
+                    const used = new Map<string, number>();
+                    const sorted = [...arr].sort((a, b) => {
+                      const ar = sportRank(sportKey(a));
+                      const br = sportRank(sportKey(b));
+                      if (ar !== br) return ar - br;
+                      const ao = hasPrimaryOdds(a) ? 1 : 0;
+                      const bo = hasPrimaryOdds(b) ? 1 : 0;
+                      if (ao !== bo) return bo - ao;
+                      const at = startMs(a);
+                      const bt = startMs(b);
+                      if (at && bt && at !== bt) return at - bt;
+                      return String((a as any)?.league || '').localeCompare(String((b as any)?.league || ''), 'pt-PT');
+                    });
+
+                    const out: Event[] = [];
+                    for (const e of sorted) {
+                      if (out.length >= max) break;
+                      const sk = sportKey(e);
+                      const cap = caps.get(sk);
+                      if (typeof cap === 'number') {
+                        const cur = used.get(sk) || 0;
+                        if (cur >= cap) continue;
+                        used.set(sk, cur + 1);
+                      }
+                      out.push(e);
+                    }
+                    return out;
+                  };
+
+                  const pregameMax = safeCategory === 'all' ? 45 : 60;
+                  const filteredPregame = limitPregameAll(pregameBase, pregameMax);
+          const maxLive = safeCategory === 'all' ? 100 : 60;
+          const finalLive = preferOdds(filteredLive, maxLive * 2).filter(hasPrimaryOdds).slice(0, maxLive);
           
           const finalPregame = filteredPregame;
 
           if (import.meta.env.DEV) console.log('[events] loaded live:', finalLive.length, 'pregame:', finalPregame.length);
           updateState(finalLive, finalPregame);
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(cacheKey, JSON.stringify({ live: finalLive, pregame: finalPregame }));
+            } catch { void 0; }
+          }
           return; 
         } else if (Array.isArray(data) && data.length > 0) {
             // FLAT ARRAY FALLBACK (API returning simple list)
@@ -316,23 +484,29 @@ export function useSportsEvents(category: string | null) {
             const pregameEvents = list.filter(e => Number(e.is_live) !== 1);
             
             // Apply same filters
-            const dedupedLive = dedupEvents(liveEvents).filter(e => !shouldHideEvent(e));
-            const dedupedPregame = dedupEvents(pregameEvents).filter(e => !shouldHideEvent(e));
+            const dedupedLive = dedupEvents(liveEvents).filter(e => !shouldHideEvent(e)).map(normalizeMarkets);
+            const dedupedPregame = dedupEvents(pregameEvents).filter(e => !shouldHideEvent(e)).map(normalizeMarkets);
             
             const isGameActive = (e: Event) => {
-                const status = e.status;
+                const status = (e as any)?.status ?? (e as any)?.fixture?.status;
                 const sRaw =
                   (typeof status === 'object' && status !== null)
                     ? ((status as any).short ?? (status as any).long)
                     : status;
-                const s = String(sRaw || '').toUpperCase().trim();
-                if (!s) return true;
-                return ![
-                  'FT', 'AET', 'PEN', 'FT_PEN',
-                  'FIN', 'FINAL', 'FINISHED', 'MATCH FINISHED', 'ENDED', 'FIM',
-                  'PST', 'POST', 'CANC', 'CANCELLED', 'CANCELED',
-                  'ABD', 'ABANDONED', 'WO', 'AWD', 'AWARDED',
-                ].includes(s);
+                const sRaw2 = sRaw ?? (e as any)?.fixture?.status?.short ?? (e as any)?.fixture?.status?.long ?? '';
+                const su = String(sRaw2 || '').toUpperCase().trim();
+                if (!su) return true;
+                const s = su.replace(/[^A-Z0-9_]+/g, '');
+                const done =
+                  s === 'FT' || s.startsWith('FT') ||
+                  s === 'AET' ||
+                  s === 'PEN' || s === 'FTPEN' || s === 'FT_PEN' ||
+                  s === 'FIN' || s === 'FINAL' || s === 'FINISHED' || s === 'ENDED' || s === 'FIM' ||
+                  s === 'PST' || s === 'POST' ||
+                  s === 'CANC' || s === 'CANCELLED' || s === 'CANCELED' ||
+                  s === 'ABD' || s === 'ABANDONED' || s === 'WO' || s === 'AWD' || s === 'AWARDED' ||
+                  /MATCHFINISHED|FULLTIME|GAMEOVER|ENCERRAD|TERMINAD/.test(s);
+                return !done;
             };
 
             const activeLive = dedupedLive.filter(isGameActive);
@@ -342,10 +516,24 @@ export function useSportsEvents(category: string | null) {
               const h = Number((e as any)?.home_odd || 0);
               const a = Number((e as any)?.away_odd || 0);
               if (h > 1 && a > 1) return true;
-              const mk = Array.isArray((e as any)?.markets) ? (e as any).markets : [];
-              const h2h = mk.find((m: any) => String(m?.key || '') === 'h2h');
-              const sels = h2h?.selections || h2h?.outcomes || [];
-              const ok = Array.isArray(sels) ? sels.filter((s: any) => Number(s?.odd || s?.price || 0) > 1).length : 0;
+              const mkRaw = (e as any)?.markets ?? (e as any)?.odds;
+              const mkObj =
+                mkRaw && typeof mkRaw === 'object' && !Array.isArray(mkRaw)
+                  ? mkRaw
+                  : null;
+              const mkArr = Array.isArray(mkRaw) ? mkRaw : [];
+              const h2hMarket =
+                (mkObj ? ((mkObj as any).h2h || (mkObj as any)['1x2'] || (mkObj as any).main || (mkObj as any).match_winner) : null) ||
+                mkArr.find((m: any) => {
+                  const k = String(m?.key || '');
+                  return k === 'h2h' || k === '1x2' || k === 'main' || k === 'match_winner';
+                });
+              const sels = Array.isArray(h2hMarket)
+                ? h2hMarket
+                : (h2hMarket?.selections || h2hMarket?.outcomes || h2hMarket?.values || []);
+              const ok = Array.isArray(sels)
+                ? sels.filter((s: any) => Number(s?.odd || s?.price || s?.value || 0) > 1).length
+                : 0;
               return ok >= 2;
             };
             const preferOdds = (arr: Event[], max: number) => {
@@ -354,10 +542,90 @@ export function useSportsEvents(category: string | null) {
               return [...withOdds, ...withoutOdds].slice(0, max);
             };
 
-            const finalLive = preferOdds(activeLive, safeCategory === 'all' ? 100 : 60);
-            const finalPregame = preferOdds(activePregame.filter(isTodayAdjusted), 60);
+            const blockedSports = new Set(['horse-racing', 'esports', 'e-sports', 'e-sport', 'gaming']);
+            const sportKey = (e: Event) => String((e as any)?.sport || '').toLowerCase().trim();
+            const isAllowedSport = (e: Event) => !blockedSports.has(sportKey(e));
+
+            const maxLive = safeCategory === 'all' ? 100 : 60;
+            const finalLive = preferOdds(activeLive.filter(isAllowedSport), maxLive * 2).filter(hasPrimaryOdds).slice(0, maxLive);
+            const pregameBase = preferOdds(activePregame.filter(isTodayAdjusted), 80);
+
+            const sportRank = (s: string) => {
+              const k = s;
+              if (k === 'soccer') return 1;
+              if (k === 'tennis') return 2;
+              if (k === 'basketball') return 3;
+              if (k === 'ice-hockey') return 4;
+              if (k === 'volleyball') return 5;
+              if (k === 'handball') return 6;
+              if (k === 'american-football') return 7;
+              if (k === 'mma') return 8;
+              if (k === 'formula1') return 9;
+              if (k === 'golf') return 10;
+              if (k === 'cricket') return 98;
+              if (k === 'baseball') return 99;
+              return 50;
+            };
+            const startMs = (e: Event) => {
+              const raw = (e as any)?.event_date || (e as any)?.fixture?.date;
+              const t = raw ? new Date(raw).getTime() : 0;
+              return Number.isFinite(t) ? t : 0;
+            };
+
+            const limitPregameAll = (arr: Event[], max: number) => {
+              if (safeCategory !== 'all') return arr.slice(0, max);
+              const caps = new Map<string, number>([
+                ['soccer', 25],
+                ['tennis', 10],
+                ['basketball', 8],
+                ['ice-hockey', 6],
+                ['volleyball', 6],
+                ['handball', 6],
+                ['american-football', 6],
+                ['mma', 6],
+                ['formula1', 4],
+                ['golf', 4],
+                ['cricket', 5],
+                ['baseball', 5],
+              ]);
+              const used = new Map<string, number>();
+              const sorted = [...arr].sort((a, b) => {
+                const ar = sportRank(sportKey(a));
+                const br = sportRank(sportKey(b));
+                if (ar !== br) return ar - br;
+                const ao = hasPrimaryOdds(a) ? 1 : 0;
+                const bo = hasPrimaryOdds(b) ? 1 : 0;
+                if (ao !== bo) return bo - ao;
+                const at = startMs(a);
+                const bt = startMs(b);
+                if (at && bt && at !== bt) return at - bt;
+                return String((a as any)?.league || '').localeCompare(String((b as any)?.league || ''), 'pt-PT');
+              });
+
+              const out: Event[] = [];
+              for (const e of sorted) {
+                if (out.length >= max) break;
+                const sk = sportKey(e);
+                const cap = caps.get(sk);
+                if (typeof cap === 'number') {
+                  const cur = used.get(sk) || 0;
+                  if (cur >= cap) continue;
+                  used.set(sk, cur + 1);
+                }
+                out.push(e);
+              }
+              return out;
+            };
+
+            const pregameMax = safeCategory === 'all' ? 45 : 60;
+            const finalPregame = limitPregameAll(pregameBase, pregameMax);
 
             updateState(finalLive, finalPregame);
+            if (typeof window !== 'undefined') {
+              try {
+                localStorage.setItem(cacheKey, JSON.stringify({ live: finalLive, pregame: finalPregame }));
+              } catch { void 0; }
+            }
             return;
         }
  
@@ -376,7 +644,7 @@ export function useSportsEvents(category: string | null) {
     // Initial fetch
     fetchData();
 
-    const intervalTime = 5000;
+            const intervalTime = 3000;
     let timeoutId: NodeJS.Timeout;
 
     const scheduleNext = () => {

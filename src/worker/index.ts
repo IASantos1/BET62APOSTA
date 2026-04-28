@@ -4,7 +4,7 @@ import { upgradeWebSocket } from 'hono/cloudflare-workers';
 import { Env } from '../shared/types';
 import { cacheControl } from './middleware/cache';
 import { runSportsSync } from './services/sportsSync';
-import { getApiSportsKey, getFrontendUrl, getOddsApiKey } from './services/env';
+import { getApiSportsKey, getFrontendUrl, getOddsApiKey, getStatpalKey } from './services/env';
 
 import wallet from './wallet';
 import bets from './bets';
@@ -38,6 +38,16 @@ app.use('*', cors({
     // Domínios Replit (preview e deployments publicados)
     if (/\.replit\.dev$/.test(o) || /\.janeway\.replit\.dev$/.test(o)) return o;
     if (/\.replit\.app$/.test(o) || /\.repl\.co$/.test(o)) return o;
+
+    // Vercel (preview + production domains)
+    try {
+      const u = new URL(o);
+      if ((u.protocol === 'https:' || u.protocol === 'http:') && u.hostname.endsWith('.vercel.app')) {
+        return o;
+      }
+    } catch {
+      // ignore invalid origins
+    }
 
     const allowed = new Set<string>([
       'https://bet62.plus',
@@ -85,6 +95,67 @@ app.post('/api/admin/force-sync-wait', async (c) => {
   } catch (err: any) {
     return c.json({ ok: false, error: String(err?.message || err) }, 500);
   }
+});
+
+app.get('/api/admin/statpal-debug', async (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
+  if (token !== c.env.ADMIN_TOKEN) return c.json({ error: 'Forbidden' }, 403);
+
+  const apiKey = getStatpalKey(c.env);
+  if (!apiKey) return c.json({ ok: false, error: 'Missing STATPAL_KEY' }, 500);
+
+  const redacted = (u: string) => u.replace(/access_key=[^&]+/g, 'access_key=REDACTED');
+
+  const urls = {
+    v1_livescores: `https://statpal.io/api/v1/soccer/livescores?access_key=${encodeURIComponent(apiKey)}`,
+    v2_live_odds: `https://statpal.io/api/v2/soccer/odds/live?access_key=${encodeURIComponent(apiKey)}`,
+    v2_pregame_candidates: [
+      `https://statpal.io/api/v2/soccer/odds/pregame?access_key=${encodeURIComponent(apiKey)}`,
+      `https://statpal.io/api/v2/soccer/odds/prematch?access_key=${encodeURIComponent(apiKey)}`,
+      `https://statpal.io/api/v2/soccer/odds/pre-match?access_key=${encodeURIComponent(apiKey)}`,
+      `https://statpal.io/api/v2/soccer/odds/upcoming?access_key=${encodeURIComponent(apiKey)}`,
+    ],
+  };
+
+  const fetchJson = async (url: string) => {
+    const res = await fetch(url);
+    const text = await res.text().catch(() => '');
+    let json: any = null;
+    try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+    return { ok: res.ok, status: res.status, url: redacted(url), json, textSnippet: String(text || '').slice(0, 300) };
+  };
+
+  const v1 = await fetchJson(urls.v1_livescores);
+  const v2Live = await fetchJson(urls.v2_live_odds);
+
+  let v2Pregame: any = null;
+  for (const u of urls.v2_pregame_candidates) {
+    const r = await fetchJson(u);
+    if (r.ok) { v2Pregame = r; break; }
+    if (!v2Pregame) v2Pregame = r;
+  }
+
+  const v1Leagues = Array.isArray(v1?.json?.livescore?.league) ? v1.json.livescore.league : (v1?.json?.livescore?.league ? [v1.json.livescore.league] : []);
+  const v1MatchCount = v1Leagues.reduce((acc: number, lg: any) => {
+    const matches = Array.isArray(lg?.match) ? lg.match : (lg?.match ? [lg.match] : []);
+    return acc + matches.length;
+  }, 0);
+
+  const v2LiveMatches = Array.isArray(v2Live?.json?.live_matches) ? v2Live.json.live_matches : [];
+  const v2PregameMatches = Array.isArray(v2Pregame?.json?.pregame_matches)
+    ? v2Pregame.json.pregame_matches
+    : Array.isArray(v2Pregame?.json?.upcoming_matches)
+      ? v2Pregame.json.upcoming_matches
+      : Array.isArray(v2Pregame?.json?.matches)
+        ? v2Pregame.json.matches
+        : [];
+
+  return c.json({
+    ok: true,
+    v1: { ok: v1.ok, status: v1.status, url: v1.url, leagues: v1Leagues.length, matches: v1MatchCount, snippet: v1.textSnippet },
+    v2_live: { ok: v2Live.ok, status: v2Live.status, url: v2Live.url, live_matches: v2LiveMatches.length, snippet: v2Live.textSnippet },
+    v2_pregame: { ok: v2Pregame?.ok, status: v2Pregame?.status, url: v2Pregame?.url, pregame_matches: v2PregameMatches.length, snippet: v2Pregame?.textSnippet },
+  });
 });
 
 // Diagnostic: inspect events table state
@@ -461,18 +532,86 @@ app.get('/api/debug/env-check', async (c) => {
 });
 
 // ── WebSocket live feed ───────────────────────────────────────────────
-app.get('/api/live/ws', upgradeWebSocket((_c) => {
+app.get('/api/live/ws', upgradeWebSocket((c) => {
+  const sport = String(c.req.query('sport') || 'all').toLowerCase().trim();
+  const pollMsRaw = Number(c.req.query('interval') || 5000);
+  const pollMs = Number.isFinite(pollMsRaw) ? Math.max(1000, Math.min(15000, pollMsRaw)) : 5000;
+  const include = String(c.req.query('include') || '').toLowerCase();
+  const wantsOdds = include.includes('odds') || include.includes('markets');
+
+  const fetchSnapshot = async () => {
+    const params: any[] = [];
+    let q = `
+      SELECT
+        external_event_id,
+        sport,
+        league,
+        home_team,
+        away_team,
+        home_team_logo,
+        away_team_logo,
+        event_date,
+        status,
+        is_live,
+        elapsed,
+        timer,
+        score,
+        markets,
+        home_odd,
+        draw_odd,
+        away_odd
+      FROM events
+      WHERE is_live = 1
+    `;
+    if (sport && sport !== 'all') {
+      q += ` AND lower(sport) = ?`;
+      params.push(sport);
+    }
+    q += ` ORDER BY updated_at DESC LIMIT 150`;
+    const res = await c.env.DB.prepare(q).bind(...params).all();
+    return (res.results || []).map((r: any) => ({
+      ...r,
+      id: String(r.external_event_id || r.id || ''),
+      external_event_id: String(r.external_event_id || ''),
+      is_live: Number(r.is_live || 0),
+      elapsed: Number(r.elapsed || 0),
+      timer: String(r.timer || ''),
+      home_odd: Number(r.home_odd || 0),
+      draw_odd: Number(r.draw_odd || 0),
+      away_odd: Number(r.away_odd || 0),
+      markets: wantsOdds ? String(r.markets || '') : undefined,
+      score: String(r.score || ''),
+    }));
+  };
+
   return {
-    onOpen(_evt: unknown, ws: { send: (d: string) => void }) {
+    async onOpen(_evt: unknown, ws: { send: (d: string) => void }) {
       ws.send(JSON.stringify({ type: 'connected', ts: Date.now() }));
+
+      const sendSnapshot = async () => {
+        try {
+          const live = await fetchSnapshot();
+          ws.send(JSON.stringify({ type: 'snapshot', ts: Date.now(), live }));
+        } catch (err: any) {
+          ws.send(JSON.stringify({ type: 'error', ts: Date.now(), message: String(err?.message || 'snapshot_failed') }));
+        }
+      };
+
+      await sendSnapshot();
+      const id: any = setInterval(() => c.executionCtx.waitUntil(sendSnapshot()), pollMs);
+      (ws as any).__pollId = id;
     },
     onMessage(evt: { data: unknown }, ws: { send: (d: string) => void }) {
       try {
         const msg = JSON.parse(evt.data as string);
-        if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
-      } catch { /* ignore */ }
+        if (msg?.type === 'ping') ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
+      } catch { void 0; }
     },
-    onClose() { /* noop */ },
+    onClose(_evt: unknown, ws: any) {
+      if (ws?.__pollId) {
+        try { clearInterval(ws.__pollId); } catch { void 0; }
+      }
+    },
     onError(err: unknown) { console.error('[WS] error:', err); },
   };
 }));

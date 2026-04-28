@@ -132,7 +132,6 @@ const MatchListSkeleton = ({ count = 5, theme }) => (
    ------------------------------------------------- */
 const MatchList = ({
   matches,
-  isLive,
   selections,
   onAddSelection,
   onOpenMarkets,
@@ -146,13 +145,13 @@ const MatchList = ({
         <Suspense
           key={
             match.id ||
-            `${isLive ? "live" : "upcoming"}-${match.homeTeam}-${match.awayTeam}-${index}`
+            `${match.isLive ? "live" : "upcoming"}-${match.homeTeam}-${match.awayTeam}-${index}`
           }
           fallback={<MatchCardSkeleton theme={theme} />}
         >
           <MatchCard
             match={match}
-            isLive={isLive}
+            isLive={!!match.isLive}
             selections={selections}
             onAddSelection={onAddSelection}
             onOpenMarkets={onOpenMarkets}
@@ -211,7 +210,74 @@ export default function HomePage() {
 
   // ---- Memoised data -----------------------------------------
   const featuredMatches = useMemo(() => {
-    const allMatches = [...(liveMatches || []), ...(upcomingMatches || [])];
+    const now = Date.now();
+    const maxFuture = now + 3 * 24 * 60 * 60 * 1000;
+
+    const normalizeSportKeyLocal = (sport: any): string => {
+      const s = String(sport || "").toLowerCase().trim();
+      if (!s) return "";
+      if (s === "soccer" || s.includes("futebol") || s.includes("football")) return "soccer";
+      if (s === "basketball" || s.includes("basquet")) return "basketball";
+      if (s === "tennis" || s.includes("ténis") || s.includes("tênis")) return "tennis";
+      if (s === "ice-hockey" || s.includes("hóquei") || s.includes("hockey")) return "ice-hockey";
+      if (s === "baseball" || s.includes("basebol")) return "baseball";
+      if (s === "american-football" || s === "nfl" || s.includes("futebol americano") || s.includes("futebol-americano")) return "american-football";
+      if (s === "cricket" || s.includes("críquete") || s.includes("criquete")) return "cricket";
+      if (s === "rugby" || s.includes("rúgbi")) return "rugby";
+      if (s === "volleyball" || s.includes("voleibol") || s.includes("vôlei")) return "volleyball";
+      if (s === "handball" || s.includes("andebol")) return "handball";
+      if (s === "mma") return "mma";
+      if (s === "formula1" || s.includes("fórmula 1") || s.includes("formula 1") || s.includes("formula1")) return "formula1";
+      if (s === "golf" || s.includes("golfe") || s.includes("pga")) return "golf";
+      if (s === "horse-racing" || s.includes("cavalos") || s.includes("horse")) return "horse-racing";
+      if (s === "afl") return "afl";
+      return s;
+    };
+
+    const isBigFootballLeagueLocal = (league: string) => {
+      const l = String(league || "").toLowerCase();
+      const neg =
+        l.includes("serie b") ||
+        l.includes("segunda") ||
+        l.includes("2. liga") ||
+        l.includes("liga 2") ||
+        l.includes("2ª") ||
+        l.includes("ii") ||
+        l.includes("bundesliga 2") ||
+        l.includes("la liga 2") ||
+        l.includes("ligue 2") ||
+        l.includes("championship");
+      if (neg) return false;
+      return (
+        l.includes("champions league") ||
+        l.includes("uefa champions") ||
+        l.includes("europa league") ||
+        l.includes("uefa europa") ||
+        l.includes("premier league") ||
+        l.includes("la liga") ||
+        l.includes("liga portugal") ||
+        l.includes("primeira liga") ||
+        (l.includes("serie a") && !l.includes("serie a2")) ||
+        (l.includes("bundesliga") && !l.includes("2")) ||
+        (l.includes("ligue 1") && !l.includes("ligue 2"))
+      );
+    };
+
+    const startTimeMsLocal = (m: any): number => {
+      const d = new Date(m?.startTime || m?.event_date || "");
+      const t = d.getTime();
+      return Number.isFinite(t) ? t : 0;
+    };
+
+    const allMatches = [...(liveMatches || []), ...(upcomingMatches || [])].filter((m) => {
+      if (m?.isLive) return true;
+      const t = startTimeMsLocal(m);
+      if (!t) return false;
+      if (t <= maxFuture) return true;
+      const sk = normalizeSportKeyLocal(m?.sport);
+      if (sk !== "soccer") return false;
+      return isBigFootballLeagueLocal(m?.league);
+    });
     const validMatches = allMatches.filter(
       (m) => m.odds?.home && m.odds?.away
     );
@@ -247,10 +313,232 @@ export default function HomePage() {
     return featured;
   }, [liveMatches, upcomingMatches]);
 
+  const normalizeSportKey = useCallback((sport: any): string => {
+    const s = String(sport || "").toLowerCase().trim();
+    if (!s) return "";
+    if (s === "soccer" || s.includes("futebol") || s.includes("football")) return "soccer";
+    if (s === "basketball" || s.includes("basquet")) return "basketball";
+    if (s === "tennis" || s.includes("ténis") || s.includes("tênis")) return "tennis";
+    if (s === "ice-hockey" || s.includes("hóquei") || s.includes("hockey")) return "ice-hockey";
+    if (s === "baseball" || s.includes("basebol")) return "baseball";
+    if (s === "american-football" || s === "nfl" || s.includes("futebol americano") || s.includes("futebol-americano")) return "american-football";
+    if (s === "cricket" || s.includes("críquete") || s.includes("criquete")) return "cricket";
+    if (s === "rugby" || s.includes("rúgbi")) return "rugby";
+    if (s === "volleyball" || s.includes("voleibol") || s.includes("vôlei")) return "volleyball";
+    if (s === "handball" || s.includes("andebol")) return "handball";
+    if (s === "mma") return "mma";
+    if (s === "formula1" || s.includes("fórmula 1") || s.includes("formula 1") || s.includes("formula1")) return "formula1";
+    if (s === "golf" || s.includes("golfe") || s.includes("pga")) return "golf";
+    if (s === "horse-racing" || s.includes("cavalos") || s.includes("horse")) return "horse-racing";
+    if (s === "afl") return "afl";
+    return s;
+  }, []);
+
+  const isBigFootballLeague = useCallback((league: string) => {
+    const l = String(league || "").toLowerCase();
+    const neg =
+      l.includes("serie b") ||
+      l.includes("segunda") ||
+      l.includes("2. liga") ||
+      l.includes("liga 2") ||
+      l.includes("2ª") ||
+      l.includes("ii") ||
+      l.includes("bundesliga 2") ||
+      l.includes("la liga 2") ||
+      l.includes("ligue 2") ||
+      l.includes("championship");
+    if (neg) return false;
+
+    return (
+      l.includes("champions league") ||
+      l.includes("uefa champions") ||
+      l.includes("europa league") ||
+      l.includes("uefa europa") ||
+      l.includes("premier league") ||
+      l.includes("la liga") ||
+      l.includes("liga portugal") ||
+      l.includes("primeira liga") ||
+      (l.includes("serie a") && !l.includes("serie a2")) ||
+      (l.includes("bundesliga") && !l.includes("2")) ||
+      (l.includes("ligue 1") && !l.includes("ligue 2"))
+    );
+  }, []);
+
+  const startTimeMs = useCallback((m: any): number => {
+    const d = new Date(m?.startTime || m?.event_date || "");
+    const t = d.getTime();
+    return Number.isFinite(t) ? t : 0;
+  }, []);
+
+  const footballLeagueRank = useCallback((league: string): number => {
+    const l = String(league || "").toLowerCase();
+    if (l.includes("champions league") || l.includes("uefa champions")) return 1;
+    if (l.includes("europa league") || l.includes("uefa europa")) return 2;
+    if (l.includes("premier league")) return 3;
+    if (l.includes("la liga")) return 4;
+    if (l.includes("liga portugal") || l.includes("primeira liga")) return 5;
+    if (l.includes("serie a") && !l.includes("serie b")) return 6;
+    if (l.includes("bundesliga") && !l.includes("2")) return 7;
+    if (l.includes("ligue 1") && !l.includes("ligue 2")) return 8;
+    return 50;
+  }, []);
+
+  const sportPriorityRank = useCallback((sportKey: string): number => {
+    if (sportKey === "soccer") return 1;
+    if (sportKey === "tennis") return 2;
+    if (sportKey === "basketball") return 3;
+    if (sportKey === "ice-hockey") return 4;
+    if (sportKey === "baseball") return 5;
+    if (sportKey === "american-football") return 6;
+    if (sportKey === "cricket") return 7;
+    if (sportKey === "rugby") return 8;
+    if (sportKey === "volleyball") return 9;
+    if (sportKey === "handball") return 10;
+    if (sportKey === "mma") return 11;
+    if (sportKey === "formula1") return 12;
+    if (sportKey === "golf") return 13;
+    if (sportKey === "horse-racing") return 14;
+    if (sportKey === "afl") return 15;
+    return 99;
+  }, []);
+
+  const baseLiveMatches = useMemo(() => {
+    const now = Date.now();
+    const startSoonMin = 30 * 60 * 1000;
+    const startSoonMax = 60 * 60 * 1000;
+
+    const baseLive = liveMatches || [];
+    const baseUpcoming = upcomingMatches || [];
+
+    const liveIds = new Set(baseLive.map((m) => String(m?.id || "")));
+    const startingSoon = baseUpcoming
+      .filter((m) => {
+        const t = startTimeMs(m);
+        if (!t) return false;
+        const diff = t - now;
+        return diff >= startSoonMin && diff <= startSoonMax;
+      })
+      .filter((m) => !liveIds.has(String(m?.id || "")));
+
+    const combined = [...baseLive, ...startingSoon].sort((a, b) => {
+      const aLive = a?.isLive ? 1 : 0;
+      const bLive = b?.isLive ? 1 : 0;
+      if (aLive !== bLive) return bLive - aLive;
+
+      const as = normalizeSportKey(a?.sport);
+      const bs = normalizeSportKey(b?.sport);
+      const apr = sportPriorityRank(as);
+      const bpr = sportPriorityRank(bs);
+      if (apr !== bpr) return apr - bpr;
+
+      if (as === "soccer" && bs === "soccer") {
+        const ar = footballLeagueRank(a?.league);
+        const br = footballLeagueRank(b?.league);
+        if (ar !== br) return ar - br;
+      }
+
+      const at = startTimeMs(a);
+      const bt = startTimeMs(b);
+      if (at && bt && at !== bt) return at - bt;
+      return String(a?.league || "").localeCompare(String(b?.league || ""), "pt-PT");
+    });
+
+    const limited = combined.slice(0, 150);
+    if (limited.length >= 10) return limited;
+    return combined.slice(0, Math.min(150, Math.max(10, combined.length)));
+  }, [liveMatches, upcomingMatches, normalizeSportKey, startTimeMs, sportPriorityRank, footballLeagueRank]);
+
+  const baseUpcomingMatches = useMemo(() => {
+    const now = Date.now();
+    const maxFuture = now + 3 * 24 * 60 * 60 * 1000;
+
+    const matches = upcomingMatches || [];
+
+    const filtered = matches.filter((m) => {
+      const t = startTimeMs(m);
+      if (!t) return false;
+      if (t <= maxFuture) return true;
+      const sk = normalizeSportKey(m?.sport);
+      if (sk !== "soccer") return false;
+      return isBigFootballLeague(m?.league);
+    });
+
+    const bySport: Record<string, any[]> = {};
+    for (const m of filtered) {
+      const k = normalizeSportKey(m?.sport);
+      if (!k) continue;
+      if (!bySport[k]) bySport[k] = [];
+      bySport[k].push(m);
+    }
+
+    const sortByTime = (a: any, b: any) => startTimeMs(a) - startTimeMs(b);
+    const soccerSorted = (bySport["soccer"] || []).slice().sort((a, b) => {
+      const ar = footballLeagueRank(a?.league);
+      const br = footballLeagueRank(b?.league);
+      if (ar !== br) return ar - br;
+      return sortByTime(a, b);
+    });
+    const tennisSorted = (bySport["tennis"] || []).slice().sort(sortByTime);
+    const basketSorted = (bySport["basketball"] || []).slice().sort(sortByTime);
+
+    const otherSports = Object.entries(bySport)
+      .filter(([k]) => !["soccer", "tennis", "basketball"].includes(k))
+      .flatMap(([, list]) => list)
+      .sort((a, b) => {
+        const as = normalizeSportKey(a?.sport);
+        const bs = normalizeSportKey(b?.sport);
+        const apr = sportPriorityRank(as);
+        const bpr = sportPriorityRank(bs);
+        if (apr !== bpr) return apr - bpr;
+        return sortByTime(a, b);
+      });
+
+    const out: any[] = [];
+    const take = (arr: any[], n: number) => {
+      for (const it of arr) {
+        if (out.length >= 45) return;
+        if (n <= 0) return;
+        out.push(it);
+        n--;
+      }
+    };
+
+    take(soccerSorted, 20);
+    take(tennisSorted, 10);
+    take(basketSorted, 8);
+    take(otherSports, 7);
+
+    if (out.length < 45) {
+      const used = new Set(out.map((m) => String(m?.id || "")));
+      const remaining = [...soccerSorted, ...tennisSorted, ...basketSorted, ...otherSports].filter(
+        (m) => !used.has(String(m?.id || ""))
+      );
+      remaining.sort((a, b) => {
+        const as = normalizeSportKey(a?.sport);
+        const bs = normalizeSportKey(b?.sport);
+        const apr = sportPriorityRank(as);
+        const bpr = sportPriorityRank(bs);
+        if (apr !== bpr) return apr - bpr;
+        if (as === "soccer" && bs === "soccer") {
+          const ar = footballLeagueRank(a?.league);
+          const br = footballLeagueRank(b?.league);
+          if (ar !== br) return ar - br;
+        }
+        return sortByTime(a, b);
+      });
+      for (const it of remaining) {
+        if (out.length >= 45) break;
+        out.push(it);
+      }
+    }
+
+    return out.slice(0, 45);
+  }, [upcomingMatches, normalizeSportKey, startTimeMs, isBigFootballLeague, sportPriorityRank, footballLeagueRank]);
+
   const activeLeagues = useMemo<
     { league: string; sport: string; count: number }[]
   >(() => {
-    const allMatches = [...(liveMatches || []), ...(upcomingMatches || [])];
+    const allMatches = [...(baseLiveMatches || []), ...(baseUpcomingMatches || [])];
     const leagueCounts: Record<string, { league: string; sport: string; count: number }> = {};
 
     allMatches.forEach((match: any) => {
@@ -269,31 +557,31 @@ export default function HomePage() {
     });
 
     return Object.values(leagueCounts);
-  }, [liveMatches, upcomingMatches]);
+  }, [baseLiveMatches, baseUpcomingMatches]);
 
   const filteredLiveMatches = useMemo(() => {
-    let matches = liveMatches || [];
+    let matches = baseLiveMatches || [];
+
     if (selectedLeague) {
-      matches = matches.filter((m) =>
-        m.league.toLowerCase().includes(selectedLeague.toLowerCase())
-      );
+      const sl = selectedLeague.toLowerCase();
+      matches = matches.filter((m) => String(m?.league || "").toLowerCase().includes(sl));
     } else if (selectedSport) {
-      matches = matches.filter((m) => m.sport === selectedSport);
+      matches = matches.filter((m) => normalizeSportKey(m?.sport) === selectedSport);
     }
-    return matches.slice(0, 35);
-  }, [liveMatches, selectedLeague, selectedSport]);
+
+    return matches;
+  }, [baseLiveMatches, selectedLeague, selectedSport, normalizeSportKey]);
 
   const filteredUpcomingMatches = useMemo(() => {
-    let matches = upcomingMatches || [];
+    let matches = baseUpcomingMatches || [];
     if (selectedLeague) {
-      matches = matches.filter((m) =>
-        m.league.toLowerCase().includes(selectedLeague.toLowerCase())
-      );
+      const sl = selectedLeague.toLowerCase();
+      matches = matches.filter((m) => String(m?.league || "").toLowerCase().includes(sl));
     } else if (selectedSport) {
-      matches = matches.filter((m) => m.sport === selectedSport);
+      matches = matches.filter((m) => normalizeSportKey(m?.sport) === selectedSport);
     }
-    return matches.slice(0, 35);
-  }, [upcomingMatches, selectedLeague, selectedSport]);
+    return matches;
+  }, [baseUpcomingMatches, selectedLeague, selectedSport, normalizeSportKey]);
 
   // ---- Toast helpers -----------------------------------------
   const showToast = useCallback((message) => {
@@ -716,7 +1004,6 @@ export default function HomePage() {
                   ) : filteredLiveMatches.length > 0 ? (
                     <MatchList
                       matches={filteredLiveMatches}
-                      isLive={true}
                       selections={selections}
                       onAddSelection={handleAddSelection}
                       onOpenMarkets={handleOpenMarkets}
@@ -776,7 +1063,6 @@ export default function HomePage() {
                   ) : filteredUpcomingMatches.length > 0 ? (
                     <MatchList
                       matches={filteredUpcomingMatches}
-                      isLive={false}
                       selections={selections}
                       onAddSelection={handleAddSelection}
                       onOpenMarkets={handleOpenMarkets}

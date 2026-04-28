@@ -20,8 +20,12 @@ interface SportsMenuProps {
 const SPORTS = [
   { key: 'soccer', name: 'Futebol', emoji: '⚽' },
   { key: 'basketball', name: 'Basquetebol', emoji: '🏀' },
-  { key: 'icehockey', name: 'Hóquei', emoji: '🏒' },
+  { key: 'ice-hockey', name: 'Hóquei', emoji: '🏒' },
   { key: 'baseball', name: 'Basebol', emoji: '⚾' },
+  { key: 'tennis', name: 'Ténis', emoji: '🎾' },
+  { key: 'cricket', name: 'Críquete', emoji: '🏏' },
+  { key: 'golf', name: 'PGA Tour', emoji: '🏌' },
+  { key: 'horse-racing', name: 'Corridas de Cavalos', emoji: '🏇' },
   { key: 'rugby', name: 'Rugby', emoji: '🏉' },
   { key: 'volleyball', name: 'Vôlei', emoji: '🏐' },
   { key: 'mma', name: 'MMA', emoji: '🥊' },
@@ -29,6 +33,23 @@ const SPORTS = [
   { key: 'afl', name: 'AFL', emoji: '🏈' },
   { key: 'formula1', name: 'F1', emoji: '🏎️' },
 ];
+
+const SPORT_ICON_URL_BY_KEY: Record<string, string> = {
+  soccer: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/26bd.svg',
+  basketball: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c0.svg',
+  'ice-hockey': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3d2.svg',
+  baseball: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/26be.svg',
+  tennis: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3be.svg',
+  cricket: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3cf.svg',
+  golf: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3cc.svg',
+  'horse-racing': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c7.svg',
+  rugby: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c9.svg',
+  volleyball: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3d0.svg',
+  mma: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f94a.svg',
+  handball: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f93e.svg',
+  afl: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c8.svg',
+  formula1: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3ce.svg',
+};
 
 // ✅ PAÍSES COM BANDEIRAS OFICIAIS (URLs de imagens redondas)
 const COUNTRY_FLAGS: Record<string, string> = {
@@ -165,7 +186,7 @@ const FOOTBALL_COUNTRIES = [
 
 // ✅ NOVO: LIGAS PRINCIPAIS PARA OUTROS DESPORTOS
 const SPORT_LEAGUES: Record<string, string[]> = {
-  icehockey: [
+  'ice-hockey': [
     'NHL',
     'KHL',
     'SHL',
@@ -284,8 +305,16 @@ export function SportsMenu({
       const sportKey = league.sport.toLowerCase()
         .replace('futebol', 'soccer')
         .replace('basquetebol', 'basketball')
-        .replace('hóquei', 'icehockey')
+        .replace('hóquei', 'ice-hockey')
         .replace('basebol', 'baseball')
+        .replace('ténis', 'tennis')
+        .replace('tênis', 'tennis')
+        .replace('críquete', 'cricket')
+        .replace('criquete', 'cricket')
+        .replace('pga tour', 'golf')
+        .replace('golfe', 'golf')
+        .replace('corridas de cavalos', 'horse-racing')
+        .replace('corrida de cavalos', 'horse-racing')
         .replace('vôlei', 'volleyball')
         .replace('voleibol', 'volleyball')
         .replace('andebol', 'handball')
@@ -425,7 +454,12 @@ export function SportsMenu({
           }`}
         >
           <div className="flex items-center gap-2.5">
-            <span className={`text-base ${!hasEvents ? 'grayscale opacity-50' : ''}`}>{sport.emoji}</span>
+            <img
+              src={SPORT_ICON_URL_BY_KEY[sport.key] || SPORT_ICON_URL_BY_KEY.soccer}
+              alt=""
+              aria-hidden={true}
+              className={`w-4 h-4 object-contain ${!hasEvents ? 'grayscale opacity-50' : ''}`}
+            />
             <span className="text-xs font-semibold">{sport.name}</span>
           </div>
           <div className="flex items-center gap-2">

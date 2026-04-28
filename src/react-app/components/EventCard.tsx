@@ -47,9 +47,35 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
 
   // Simplified data access (since we poll fresh events)
   const currentMarkets = useMemo(() => {
-      if (Array.isArray(event.markets)) return event.markets;
+      let raw: any = (event as any)?.markets ?? (event as any)?.odds;
+      if (typeof raw === 'string') {
+        const s = raw.trim();
+        if (s) {
+          if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']'))) {
+            try {
+              const j = JSON.parse(s);
+              raw = typeof j === 'string' ? JSON.parse(j) : j;
+            } catch { void 0; }
+          }
+        }
+      }
+      if (Array.isArray(raw)) return raw;
+      if (raw && typeof raw === 'object') {
+        return Object.entries(raw).map(([key, v]: [string, any]) => {
+          if (Array.isArray(v)) return { key, selections: v };
+          if (v && typeof v === 'object') {
+            const selections =
+              Array.isArray(v.selections) ? v.selections :
+              Array.isArray(v.outcomes) ? v.outcomes :
+              Array.isArray(v.values) ? v.values :
+              [];
+            return { key, ...v, selections };
+          }
+          return { key, selections: [] };
+        });
+      }
       return [];
-  }, [event.markets]);
+  }, [event]);
 
   const eventTime = useMemo(() => {
     if (!event.event_date) return '';
@@ -72,21 +98,27 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     const status = String(event?.status ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
     const liveStatuses = new Set([
       '1H', '2H', 'HT', 'ET', 'BT', 'P', 'LIVE',
+      'AT', 'ST',
       'Q1', 'Q2', 'Q3', 'Q4', 'OT',
       'P1', 'P2', 'P3',
+      'SO',
       'S1', 'S2', 'S3', 'S4', 'S5',
       'IN', 'IN1', 'IN2', 'IN3', 'IN4', 'IN5', 'IN6', 'IN7', 'IN8', 'IN9',
       'IN_PROGRESS',
+      '2MW', '2MIN',
     ]);
     return liveStatuses.has(status);
   }, [event]);
 
-  // Match-finished detection (covers FT, AET, PEN, CANC, AWD, WO, ABD, FT_PEN…)
   const isFinishedEvent = useMemo(() => {
-    const status = String(event?.status ?? event?.fixture?.status?.short ?? event?.fixture?.status?.long ?? '').toUpperCase().trim();
-    const finishedKeys = new Set(['FT', 'AET', 'PEN', 'FT_PEN', 'AWD', 'WO', 'ABD', 'CANC', 'PST', 'FINISHED', 'ENDED']);
-    if (finishedKeys.has(status)) return true;
-    if (/match.?finished|encerrad|terminad|full.?time/i.test(status)) return true;
+    const statusRaw = String(event?.status ?? event?.fixture?.status?.short ?? event?.fixture?.status?.long ?? '');
+    const statusKey = statusRaw
+      .toUpperCase()
+      .trim()
+      .replace(/[^A-Z0-9_]+/g, '');
+    const finishedKeys = new Set(['FT', 'AET', 'FT_PEN', 'FTPEN', 'AWD', 'WO', 'ABD', 'CANC', 'PST', 'FIN', 'FINAL', 'FINISHED', 'ENDED']);
+    if (finishedKeys.has(statusKey)) return true;
+    if (/MATCHFINISHED|FULLTIME|GAMEOVER|ENCERRAD|TERMINAD/.test(statusKey)) return true;
     return false;
   }, [event]);
 
@@ -95,6 +127,56 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     const head = raw.split(',')[0] || raw;
     return abbreviateTeamName(head.trim());
   };
+
+  const tennisScore = useMemo(() => {
+    if (sport !== 'tennis') return null;
+    const raw = (event as any)?.score;
+    let obj: any = null;
+    if (typeof raw === 'string') {
+      const str = raw.trim();
+      if (str && (str.startsWith('{') || str.startsWith('['))) {
+        try { obj = JSON.parse(str); } catch { obj = null; }
+      }
+    } else if (raw && typeof raw === 'object') {
+      obj = raw;
+    }
+    if (!obj || typeof obj !== 'object') return null;
+
+    const toNumOrNull = (v: any) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const readSetPair = (v: any): { home: number | null; away: number | null } => {
+      if (!v || typeof v !== 'object') return { home: null, away: null };
+      return { home: toNumOrNull(v.home), away: toNumOrNull(v.away) };
+    };
+
+    const setsRoot = obj.sets || obj.set || {};
+    const s1 = readSetPair(setsRoot.s1 || setsRoot.set1);
+    const s2 = readSetPair(setsRoot.s2 || setsRoot.set2);
+    const s3 = readSetPair(setsRoot.s3 || setsRoot.set3);
+
+    const normalizePoint = (v: any): '15' | '30' | '40' | 'AD' | null => {
+      const s = String(v ?? '').trim().toUpperCase();
+      if (s === '15' || s === '30' || s === '40') return s as any;
+      if (s === 'A' || s === 'AD' || s === 'ADV' || s === 'ADVANTAGE') return 'AD';
+      const n = Number(s);
+      if (Number.isFinite(n) && (n === 15 || n === 30 || n === 40)) return String(n) as any;
+      return null;
+    };
+
+    const pointRoot = obj.point || obj.points || obj.currentPoint || obj.current_point || {};
+    const pHome = normalizePoint(pointRoot.home ?? pointRoot.h ?? obj.pointHome ?? obj.homePoint);
+    const pAway = normalizePoint(pointRoot.away ?? pointRoot.a ?? obj.pointAway ?? obj.awayPoint);
+
+    const hasAnySet =
+      s1.home != null || s1.away != null ||
+      s2.home != null || s2.away != null ||
+      s3.home != null || s3.away != null;
+
+    return { hasAnySet, s1, s2, s3, pHome, pAway };
+  }, [event, sport]);
 
   // useTrend hook imported from @/react-app/hooks/useTrend
 
@@ -295,6 +377,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                     
                     <div className="flex items-center gap-1 ml-1 pl-1 border-l border-gray-300 dark:border-gray-600">
                         {eventDayMonth && <span className="opacity-80 text-[10px]">{eventDayMonth}</span>}
+                        {sport === 'tennis' && eventTime && <span className="opacity-80 text-[10px]">{eventTime}</span>}
                     </div>
                 </div>
             </span>
@@ -308,27 +391,161 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
           onClick={(e: ReactMouseEvent<HTMLButtonElement>) => { e.stopPropagation(); onOpenEvent(event); }} 
           className={`text-left w-full ${darkMode ? 'text-white hover:text-red-300' : 'text-gray-900 hover:text-red-700'} underline-offset-2 hover:underline overflow-hidden`} 
         > 
-          <span className="flex items-center gap-2 w-full justify-start">
-            <div className="flex items-center gap-2 min-w-0 max-w-[46%]">
-              <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(homeTeamName)}</span>
-            </div>
+          {sport === 'tennis' ? (
+            <span className="flex items-center gap-2 w-full justify-start">
+              <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                {(() => {
+                  const Row = ({ name, side }: { name: string; side: 'home' | 'away' }) => {
+                    const showSets = !!tennisScore?.hasAnySet;
+                    const sets = tennisScore ? [tennisScore.s1, tennisScore.s2, tennisScore.s3] : [];
+                    const point = side === 'home' ? tennisScore?.pHome : tennisScore?.pAway;
 
-            {(() => {
+                    return (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold truncate leading-tight min-w-0">{String(name || '').split(',')[0].trim() || '-'}</span>
+                      <div className="flex items-center gap-1.5 shrink-0 tabular-nums">
+                        {showSets && sets.map((s, idx) => {
+                          const val = side === 'home' ? s.home : s.away;
+                          return (
+                            <span key={idx} className={`w-4 text-right text-xs font-bold ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                              {val ?? ''}
+                            </span>
+                          );
+                        })}
+                        {isLiveEvent && point && (
+                          <span className={`ml-1 px-1 rounded text-[10px] font-extrabold ${darkMode ? 'bg-gray-700 text-gray-100' : 'bg-gray-200 text-gray-900'}`}>
+                            {point}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    );
+                  };
+
+                  return (
+                    <>
+                      <Row name={homeTeamName} side="home" />
+                      <Row name={awayTeamName} side="away" />
+                    </>
+                  );
+                })()}
+              </div>
+
+              {(() => {
+                if (!isLiveEvent) {
+                  return (
+                    <span className={`text-xs font-bold shrink-0 px-1 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      {'vs'}
+                    </span>
+                  );
+                }
+
+                const statusShort = String(event?.status ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
+                const statusLong = String(event?.fixture?.status?.long ?? (event as any)?.status_long ?? '').toUpperCase().trim();
+                const setNumFromStatus = (() => {
+                  const m1 = statusShort.match(/^S(\d)$/);
+                  if (m1) return Number(m1[1]);
+                  const m2 = statusLong.match(/\bSET\s*(\d)\b/);
+                  if (m2) return Number(m2[1]);
+                  const m3 = statusShort.match(/\bSET\s*(\d)\b/);
+                  if (m3) return Number(m3[1]);
+                  return 0;
+                })();
+                const setLabel = setNumFromStatus >= 1 && setNumFromStatus <= 5 ? `${setNumFromStatus}º SET` : '';
+
+                return (
+                  <span className="flex flex-col items-center shrink-0 px-1 gap-0.5">
+                    {setLabel ? (
+                      <span className="text-[10px] font-bold text-red-600 bg-red-600/10 rounded px-1 leading-tight">{setLabel}</span>
+                    ) : (
+                      <span className="text-xs font-bold text-red-600">AO VIVO</span>
+                    )}
+                  </span>
+                );
+              })()}
+            </span>
+          ) : (
+            <span className="flex items-center gap-2 w-full justify-start">
+              <div className="flex items-center gap-2 min-w-0 max-w-[46%]">
+                <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(homeTeamName)}</span>
+              </div>
+
+              {(() => {
               const rawHome = (event as any).goals?.home ?? (event as any).golsCasa ?? (event as any).score_home;
               const rawAway = (event as any).goals?.away ?? (event as any).golsFora ?? (event as any).score_away;
 
               const formatScore = (val: any) => {
                 if (val === null || val === undefined) return undefined;
-                if (typeof val === 'object') return (val as any).total ?? (val as any).score ?? (val as any).current ?? 0;
-                return val;
+                if (typeof val === 'object') {
+                  const picks = [(val as any).total, (val as any).score, (val as any).current, (val as any).goals];
+                  for (const p of picks) {
+                    if (p === null || p === undefined) continue;
+                    const n = Number(p);
+                    if (Number.isFinite(n)) return n;
+                  }
+                  return undefined;
+                }
+                const n = Number(val);
+                if (Number.isFinite(n)) return n;
+                return undefined;
               };
 
               let homeScore = formatScore(rawHome);
               let awayScore = formatScore(rawAway);
+              let minuteFromScore: number | null = null;
+              let forceTimer: string = '';
 
-              if (isLiveEvent) {
-                if (homeScore === undefined) homeScore = 0;
-                if (awayScore === undefined) awayScore = 0;
+              if (isLiveEvent && (homeScore === undefined || awayScore === undefined) && (event as any).score) {
+                const s = (event as any).score;
+                if (typeof s === 'string') {
+                  const str = s.trim();
+                  if (str) {
+                    if (str.includes('{') || str.includes(':')) {
+                      try {
+                        const j = JSON.parse(str);
+                        const hn = Number(j?.home);
+                        const an = Number(j?.away);
+                        if (homeScore === undefined && Number.isFinite(hn)) homeScore = hn;
+                        if (awayScore === undefined && Number.isFinite(an)) awayScore = an;
+                      } catch { void 0 }
+                    } else {
+                      if (/pen/i.test(str)) forceTimer = 'PEN';
+                      const m = str.match(/(\d+)\s*[-:]\s*(\d+)/);
+                      if (m) {
+                        const hs = Number(m[1]);
+                        const awayStr = String(m[2] || '').trim();
+                        let as = Number(awayStr);
+
+                        if (sport === 'soccer' && awayStr.length >= 3 && Number.isFinite(hs) && Number.isFinite(as) && as > 9) {
+                          const tryLens = [2, 3];
+                          for (const minLen of tryLens) {
+                            if (awayStr.length <= minLen) continue;
+                            const awayPart = awayStr.slice(0, -minLen);
+                            const minPart = awayStr.slice(-minLen);
+                            const awayN = Number(awayPart);
+                            const minN = Number(minPart);
+                            if (!Number.isFinite(awayN) || !Number.isFinite(minN)) continue;
+                            if (awayN < 0 || awayN > 9) continue;
+                            if (minLen === 2 && minN > 99) continue;
+                            if (minLen === 3 && minN < 100) continue;
+                            if (minN < 0 || minN > 130) continue;
+                            as = awayN;
+                            minuteFromScore = minN;
+                            break;
+                          }
+                        }
+
+                        if (homeScore === undefined && Number.isFinite(hs)) homeScore = hs;
+                        if (awayScore === undefined && Number.isFinite(as)) awayScore = as;
+                      }
+                    }
+                  }
+                } else if (typeof s === 'object') {
+                  const hn = Number((s as any)?.home);
+                  const an = Number((s as any)?.away);
+                  if (homeScore === undefined && Number.isFinite(hn)) homeScore = hn;
+                  if (awayScore === undefined && Number.isFinite(an)) awayScore = an;
+                }
               }
 
               let scoreStr = '';
@@ -339,28 +556,97 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                 if (typeof displayScore === 'string' && (displayScore.includes('{') || displayScore.includes(':'))) {
                   try {
                     const parsed = JSON.parse(displayScore);
-                    if (parsed.home !== undefined && parsed.away !== undefined) {
-                      displayScore = `${parsed.home}-${parsed.away}`;
+                    const hn = Number(parsed?.home);
+                    const an = Number(parsed?.away);
+                    if (Number.isFinite(hn) && Number.isFinite(an)) {
+                      displayScore = `${hn}-${an}`;
                     }
                   } catch {
                     displayScore = String(displayScore);
                   }
                 } else if (typeof displayScore === 'object' && displayScore?.home !== undefined) {
-                  displayScore = `${displayScore.home}-${displayScore.away}`;
+                  const hn = Number(displayScore?.home);
+                  const an = Number(displayScore?.away);
+                  if (Number.isFinite(hn) && Number.isFinite(an)) {
+                    displayScore = `${hn}-${an}`;
+                  } else {
+                    displayScore = '';
+                  }
                 }
                 scoreStr = String(displayScore);
               }
 
               const elapsed = Number((event as any).elapsed ?? (event as any).fixture?.status?.elapsed ?? (event as any).status?.elapsed ?? 0) || 0;
               const timer = String((event as any).timer || (event as any).fixture?.status?.timer || '').trim();
-              const displayTimer = timer || (elapsed > 0 ? `${elapsed}'` : '');
+              const statusShort = String((event as any).status ?? (event as any).fixture?.status?.short ?? '').trim();
+              const statusLong = String((event as any).fixture?.status?.long ?? (event as any).status_long ?? '').trim();
+              const statusU = statusShort.toUpperCase();
+
+              const derivedTimer = (() => {
+                const candidate = String(statusLong || statusShort || '').trim();
+                const cu = candidate.toUpperCase();
+
+                if (sport === 'tennis') return '';
+
+                if (sport === 'soccer') {
+                  if (forceTimer) return forceTimer;
+                  if (timer) return timer;
+                  if (statusU === 'HT') return 'HT';
+                  if (statusU === '1H' || statusU === '2H') return elapsed > 0 ? `${elapsed}'` : statusU;
+                  if (statusU === 'AT' || statusU === 'ST') return statusU;
+                  if (statusU === 'ET') return 'ET';
+                  if (statusU === 'PEN' || statusU === 'P') return 'PEN';
+                  if (elapsed > 0) return `${elapsed}'`;
+                  if (minuteFromScore !== null && minuteFromScore > 0) return `${minuteFromScore}'`;
+                  if (/HALF\s*TIME|INTERVAL|HT/.test(cu)) return 'HT';
+                  if (/PEN/.test(cu)) return 'PEN';
+                  if (/EXTRA\s*TIME|ET/.test(cu)) return 'ET';
+                  return '';
+                }
+
+                if (sport === 'basketball') {
+                  if (timer && /:/.test(timer)) return timer;
+                  if (cu === 'Q1' || cu === 'Q2' || cu === 'Q3' || cu === 'Q4' || cu === 'OT' || cu === 'HT' || cu === 'FT') return cu;
+                  if (statusU === 'Q1' || statusU === 'Q2' || statusU === 'Q3' || statusU === 'Q4' || statusU === 'OT' || statusU === 'HT') return statusU;
+                  return '';
+                }
+
+                if (sport === 'ice-hockey') {
+                  if (timer && /:/.test(timer)) return timer;
+                  if (statusU === 'P1' || statusU === 'P2' || statusU === 'P3' || statusU === 'OT' || statusU === 'SO') return statusU;
+                  if (cu === 'P1' || cu === 'P2' || cu === 'P3' || cu === 'OT' || cu === 'SO') return cu;
+                  return '';
+                }
+
+                if (sport === 'american-football') {
+                  if (timer && /:/.test(timer)) return timer;
+                  if (statusU === '2MW' || statusU === '2MIN') return '2MIN';
+                  if (statusU === 'Q1' || statusU === 'Q2' || statusU === 'Q3' || statusU === 'Q4' || statusU === 'OT' || statusU === 'HT') return statusU;
+                  if (cu === 'Q1' || cu === 'Q2' || cu === 'Q3' || cu === 'Q4' || cu === 'OT' || cu === 'HT') return cu;
+                  return '';
+                }
+
+                if (sport === 'baseball') {
+                  if (/\b(TOP|BOTTOM)\b/i.test(candidate) || /\b(1ST|2ND|3RD|4TH|5TH|6TH|7TH|8TH|9TH)\b/i.test(candidate)) return candidate;
+                  return '';
+                }
+
+                if (!candidate) return '';
+                if (cu === 'LIVE' || cu === 'INPLAY' || cu === 'IN PLAY' || cu === 'PLAYING') return '';
+                if (/\b(TOP|BOTTOM)\b/i.test(candidate) || /\b(1ST|2ND|3RD|4TH|5TH|6TH|7TH|8TH|9TH)\b/i.test(candidate)) return candidate;
+                if (cu === 'Q1' || cu === 'Q2' || cu === 'Q3' || cu === 'Q4') return candidate;
+                if (cu === 'P1' || cu === 'P2' || cu === 'P3') return candidate;
+                return candidate.length <= 8 ? candidate : '';
+              })();
+
+              const displayTimer = derivedTimer;
 
               if (isLiveEvent) {
                 return (
                   <span className="flex flex-col items-center shrink-0 px-1 gap-0.5">
                     <span className="text-xs font-bold text-red-600">{scoreStr || 'AO VIVO'}</span>
                     {displayTimer && (
-                      <span className="text-[10px] font-bold text-green-500 bg-green-500/10 rounded px-1 leading-tight">{displayTimer}</span>
+                      <span className="text-[10px] font-bold text-red-600 bg-red-600/10 rounded px-1 leading-tight">{displayTimer}</span>
                     )}
                   </span>
                 );
@@ -377,6 +663,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
               <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(awayTeamName)}</span>
             </div>
           </span>
+          )}
         </button>
         
       </div>
@@ -468,44 +755,79 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
             return (
               <div className={`grid ${gridCols} gap-2 relative transition-opacity duration-300 w-full sm:w-[320px] lg:w-[400px] ${isSuspended ? 'opacity-50 pointer-events-none select-none' : ''}`}>
                 {isSuspended && (
-                   <div className="absolute inset-0 flex items-center justify-center z-10">
-                      <span className="bg-red-600/90 text-white text-[10px] sm:text-xs px-2 py-1 rounded shadow-sm font-bold uppercase tracking-wider backdrop-blur-sm border border-red-500">
-                        {suspendReason === 'EVENT_FROZEN' ? 'GOL/VAR' : (suspendReason === 'LOW_LIQUIDITY' ? 'LIQUIDEZ' : (suspendReason === 'RISK_MARGIN' ? 'RISCO' : 'SUSPENSO'))}
-                      </span>
-                   </div>
+                  <div className="absolute inset-0 flex items-center justify-center z-10">
+                    <span className="bg-red-600/90 text-white text-[10px] sm:text-xs px-2 py-1 rounded shadow-sm font-bold uppercase tracking-wider backdrop-blur-sm border border-red-500">
+                      {suspendReason === 'EVENT_FROZEN' ? 'GOL/VAR' : (suspendReason === 'LOW_LIQUIDITY' ? 'LIQUIDEZ' : (suspendReason === 'RISK_MARGIN' ? 'RISCO' : 'SUSPENSO'))}
+                    </span>
+                  </div>
                 )}
-                {(hh > 0) ? (
-                  <OddButton 
-                    label="Casa"
-                    price={hh}
-                    trend={homeTrend}
-                    onClick={(e) => { e.stopPropagation(); addPrimary('Casa', hh, hhSelection?.suspended); }}
-                    className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                    suspended={marketSuspended || (hhSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
-                  />
-                ) : <div />}
-                
-                {showDraw && (
-                  <OddButton 
-                    label="Empate"
-                    price={dd}
-                    trend={drawTrend}
-                    onClick={(e) => { e.stopPropagation(); addPrimary('Empate', dd, ddSelection?.suspended); }}
-                    className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                    suspended={marketSuspended || (ddSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
-                  />
+
+                {sport === 'tennis' ? (
+                  <>
+                    {(hh > 0) ? (
+                      <div className="flex flex-col gap-1">
+                        <OddButton
+                          label="Casa"
+                          teamName={String(homeTeamName || '').split(',')[0].trim()}
+                          price={hh}
+                          trend={homeTrend}
+                          onClick={(e) => { e.stopPropagation(); addPrimary('Casa', hh, hhSelection?.suspended); }}
+                          className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                          suspended={marketSuspended || (hhSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                        />
+                      </div>
+                    ) : <div />}
+
+                    {(aa > 0) ? (
+                      <div className="flex flex-col gap-1">
+                        <OddButton
+                          label="Fora"
+                          teamName={String(awayTeamName || '').split(',')[0].trim()}
+                          price={aa}
+                          trend={awayTrend}
+                          onClick={(e) => { e.stopPropagation(); addPrimary('Fora', aa, aaSelection?.suspended); }}
+                          className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                          suspended={marketSuspended || (aaSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                        />
+                      </div>
+                    ) : <div />}
+                  </>
+                ) : (
+                  <>
+                    {(hh > 0) ? (
+                      <OddButton
+                        label="Casa"
+                        price={hh}
+                        trend={homeTrend}
+                        onClick={(e) => { e.stopPropagation(); addPrimary('Casa', hh, hhSelection?.suspended); }}
+                        className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                        suspended={marketSuspended || (hhSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                      />
+                    ) : <div />}
+
+                    {showDraw && (
+                      <OddButton
+                        label="Empate"
+                        price={dd}
+                        trend={drawTrend}
+                        onClick={(e) => { e.stopPropagation(); addPrimary('Empate', dd, ddSelection?.suspended); }}
+                        className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                        suspended={marketSuspended || (ddSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                      />
+                    )}
+
+                    {(aa > 0) ? (
+                      <OddButton
+                        label="Fora"
+                        price={aa}
+                        trend={awayTrend}
+                        onClick={(e) => { e.stopPropagation(); addPrimary('Fora', aa, aaSelection?.suspended); }}
+                        className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                        suspended={marketSuspended || (aaSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                      />
+                    ) : <div />}
+                  </>
                 )}
-                
-                {(aa > 0) ? (
-                  <OddButton 
-                    label="Fora"
-                    price={aa}
-                    trend={awayTrend}
-                    onClick={(e) => { e.stopPropagation(); addPrimary('Fora', aa, aaSelection?.suspended); }}
-                    className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                    suspended={marketSuspended || (aaSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
-                  />
-                ) : <div />}
               </div>
             );
           })()}

@@ -2,11 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-const LOCAL_PROXY   = 'http://127.0.0.1:8080';
-const REMOTE_WORKER = 'https://bet62apostasesportivas.bet62.workers.dev';
-
-const useLocal = process.env.USE_LOCAL_WORKER !== 'false';
-const PROXY_TARGET = useLocal ? LOCAL_PROXY : REMOTE_WORKER;
+const LOCAL_PROXY = 'http://127.0.0.1:8080';
 
 export default defineConfig({
   plugins: [react()],
@@ -26,7 +22,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: PROXY_TARGET,
+        target: LOCAL_PROXY,
         changeOrigin: true,
         secure: false,
         rewrite: (p) => p,

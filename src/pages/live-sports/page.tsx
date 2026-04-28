@@ -5,6 +5,7 @@ import { Header } from '../../components/feature/Header';
 import { Footer } from '../../components/feature/Footer';
 import { SportsMenu } from '../../components/feature/SportsMenu';
 import { useLiveMatches } from '../../hooks/useLiveMatches';
+import { useUpcomingMatches } from '../../hooks/useUpcomingMatches';
 import { OddButton } from '../../components/base/OddButton';
 import { BettingSlipSidebar } from '../../components/feature/BettingSlipSidebar';
 import { useNavigate } from 'react-router-dom';
@@ -21,8 +22,10 @@ const sportLogos: Record<string, string> = {
   football: 'https://cdn-icons-png.flaticon.com/512/1165/1165187.png',
   basketball: 'https://cdn-icons-png.flaticon.com/512/889/889455.png',
   icehockey: 'https://cdn-icons-png.flaticon.com/512/3311/3311579.png',
+  'ice-hockey': 'https://cdn-icons-png.flaticon.com/512/3311/3311579.png',
   hockey: 'https://cdn-icons-png.flaticon.com/512/3311/3311579.png',
   americanfootball: 'https://cdn-icons-png.flaticon.com/512/1165/1165120.png',
+  'american-football': 'https://cdn-icons-png.flaticon.com/512/1165/1165120.png',
   nfl: 'https://cdn-icons-png.flaticon.com/512/1165/1165120.png',
   baseball: 'https://cdn-icons-png.flaticon.com/512/889/889442.png',
   volleyball: 'https://cdn-icons-png.flaticon.com/512/889/889468.png',
@@ -109,7 +112,8 @@ function formatScoreByType(homeScore: number | undefined, awayScore: number | un
 }
 
 export default function LiveSportsPage() {
-  const { matches, loading } = useLiveMatches();
+  const { matches: liveOnlyMatches, loading } = useLiveMatches();
+  const { matches: upcomingMatches } = useUpcomingMatches({ autoRefresh: true, interval: 30000, hoursAhead: 72 });
   const [selectedSport, setSelectedSport] = useState<string>('all');
   const [isBettingSlipOpen, setIsBettingSlipOpen] = useState(false);
   const navigate = useNavigate();
@@ -133,15 +137,52 @@ export default function LiveSportsPage() {
   });
 
   // Filtrar jogos por desporto
+  const combinedMatches = useMemo(() => {
+    const now = Date.now();
+    const startSoonMin = 30 * 60 * 1000;
+    const startSoonMax = 60 * 60 * 1000;
+
+    const startTimeMs = (m: any) => {
+      const d = new Date(m?.startTime || m?.event_date || '');
+      const t = d.getTime();
+      return Number.isFinite(t) ? t : 0;
+    };
+
+    const baseLive = Array.isArray(liveOnlyMatches) ? liveOnlyMatches : [];
+    const baseUpcoming = Array.isArray(upcomingMatches) ? upcomingMatches : [];
+    const liveIds = new Set(baseLive.map((m: any) => String(m?.id || '')));
+
+    const startingSoon = baseUpcoming
+      .filter((m: any) => {
+        const t = startTimeMs(m);
+        if (!t) return false;
+        const diff = t - now;
+        return diff >= startSoonMin && diff <= startSoonMax;
+      })
+      .filter((m: any) => !liveIds.has(String(m?.id || '')));
+
+    const merged = [...baseLive, ...startingSoon].sort((a: any, b: any) => {
+      const aLive = a?.isLive ? 1 : 0;
+      const bLive = b?.isLive ? 1 : 0;
+      if (aLive !== bLive) return bLive - aLive;
+      const at = startTimeMs(a);
+      const bt = startTimeMs(b);
+      if (at && bt && at !== bt) return at - bt;
+      return String(a?.league || '').localeCompare(String(b?.league || ''), 'pt-PT');
+    });
+
+    return merged.slice(0, 150);
+  }, [liveOnlyMatches, upcomingMatches]);
+
   const filteredMatches = useMemo(() => {
-    if (selectedSport === 'all') return matches;
-    return matches.filter(m => m.sport === selectedSport);
-  }, [matches, selectedSport]);
+    if (selectedSport === 'all') return combinedMatches;
+    return combinedMatches.filter(m => m.sport === selectedSport);
+  }, [combinedMatches, selectedSport]);
 
   // Calcular ligas ativas a partir dos jogos atuais
   const activeLeagues = useMemo(() => {
     const leagueCounts: Record<string, { league: string; sport: string; count: number }> = {};
-    (matches || []).forEach((m: any) => {
+    (combinedMatches || []).forEach((m: any) => {
       const key = m.league || '';
       if (!key) return;
       if (!leagueCounts[key]) {
@@ -150,7 +191,7 @@ export default function LiveSportsPage() {
       leagueCounts[key].count += 1;
     });
     return Object.values(leagueCounts);
-  }, [matches]);
+  }, [combinedMatches]);
 
   // Agrupar por desporto
   const groupedMatches = useMemo(() => {
@@ -171,8 +212,10 @@ export default function LiveSportsPage() {
       volleyball: 'Voleibol',
       handball: 'Andebol',
       icehockey: 'Hóquei no Gelo',
+      'ice-hockey': 'Hóquei no Gelo',
       baseball: 'Basebol',
       americanfootball: 'Futebol Americano',
+      'american-football': 'Futebol Americano',
       mma: 'MMA',
       formula1: 'Fórmula 1',
       rugby: 'Rugby',
@@ -243,6 +286,11 @@ export default function LiveSportsPage() {
           {!loading && Object.entries(groupedMatches).map(([sport, sportMatches]) => (
             <div key={sport} className="mb-8">
               {/* Cabeçalho do desporto */}
+              {(() => {
+                const liveCount = sportMatches.filter((m) => !!m.isLive).length;
+                const soonCount = sportMatches.length - liveCount;
+                const badgeText = soonCount > 0 ? `${liveCount} AO VIVO + ${soonCount} A COMEÇAR` : `${sportMatches.length} AO VIVO`;
+                return (
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 flex items-center justify-center">
                   <img 
@@ -256,13 +304,18 @@ export default function LiveSportsPage() {
                 </div>
                 <h2 className="text-xl font-bold">{getSportName(sport)}</h2>
                 <span className="px-3 py-1 bg-red-100 text-red-600 rounded-full text-sm font-semibold">
-                  {sportMatches.length} AO VIVO
+                  {badgeText}
                 </span>
               </div>
+                );
+              })()}
 
               {/* Lista de jogos */}
               <div className="space-y-3">
                 {sportMatches.map(match => {
+                  const now = Date.now();
+                  const start = match.startTime ? new Date(match.startTime).getTime() : 0;
+                  const isStartingSoon = !match.isLive && start && start > now && (start - now) >= 30 * 60 * 1000 && (start - now) <= 60 * 60 * 1000;
                   const matchMinute = match.startTime ? calculateMatchMinute(match.startTime, sport) : '';
                   const formattedScore = formatScoreByType(match.homeScore, match.awayScore, sport);
                   
@@ -277,16 +330,25 @@ export default function LiveSportsPage() {
                             className="w-5 h-5 object-contain opacity-60"
                           />
                           <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 bg-red-600 rounded-full animate-pulse"></span>
-                            <span className="text-sm font-semibold text-red-600">AO VIVO</span>
+                            {isStartingSoon ? (
+                              <>
+                                <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+                                <span className="text-sm font-semibold text-amber-700">A COMEÇAR</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="w-2 h-2 bg-red-600 rounded-full animate-pulse"></span>
+                                <span className="text-sm font-semibold text-red-600">AO VIVO</span>
+                              </>
+                            )}
                           </div>
-                          {matchMinute && (
+                          {!isStartingSoon && matchMinute && (
                             <span className="text-xs font-bold text-white bg-red-600 px-2 py-0.5 rounded">
                               {matchMinute}
                             </span>
                           )}
                           {/* ✅ CORRIGIDO: Placar formatado corretamente por desporto */}
-                          {match.homeScore !== undefined && match.awayScore !== undefined && (
+                          {!isStartingSoon && match.homeScore !== undefined && match.awayScore !== undefined && (
                             <span className="text-sm font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded">
                               {formattedScore.home} - {formattedScore.away}
                             </span>

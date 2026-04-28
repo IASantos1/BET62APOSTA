@@ -1,17 +1,28 @@
-export const REMOTE_FALLBACK_BASE = 'https://bet62apostasesportivas.bet62.workers.dev';
 export const LOCAL_FALLBACK_BASE = 'http://127.0.0.1:8788';
 
 // Always use relative paths — Vite dev proxy forwards /api/* to the remote worker.
 // In production builds pointing directly at the worker, VITE_API_BASE can be set.
 function resolveApiBase() {
   const raw = (import.meta.env.VITE_API_BASE || '').trim();
-  if (raw && !import.meta.env.DEV) return raw.replace(/\/$/, '');
-  // Auto-fallback: in production builds served from a host that is NOT the worker itself
-  // (e.g. Replit deployment, custom domains), point /api/* at the worker.
   if (!import.meta.env.DEV && typeof window !== 'undefined') {
+    const forceRelative = String(import.meta.env.VITE_FORCE_RELATIVE_API || '') === '1';
+    if (forceRelative) return '';
+
     const host = window.location.hostname;
-    const onWorker = host.endsWith('.workers.dev');
-    if (!onWorker) return REMOTE_FALLBACK_BASE;
+    if (host.endsWith('.vercel.app')) return '';
+  }
+
+  if (raw && !import.meta.env.DEV) {
+    const cleaned = raw.replace(/\/$/, '');
+    if (/^https?:\/\//i.test(cleaned)) {
+      try {
+        if (!/\.workers\.dev$/i.test(new URL(cleaned).hostname)) return cleaned;
+      } catch {
+        return '';
+      }
+      return '';
+    }
+    return cleaned;
   }
   return '';
 }
@@ -21,7 +32,7 @@ if (import.meta.env.DEV) console.log('[API] Base resolved to:', API_BASE || '(re
 const __api_cache = new Map<string, any>();
 const __api_cache_ts = new Map<string, number>();
 const __api_inflight = new Map<string, Promise<any>>();
-const __api_ttl = Number(import.meta.env.VITE_API_CACHE_TTL || 15000);
+const __api_ttl = Number(import.meta.env.VITE_API_CACHE_TTL || 30000);
 
 export async function apiFetch<T = any>(
   input: RequestInfo | URL,
@@ -50,6 +61,7 @@ export async function apiFetch<T = any>(
   const method = String((rest.method || 'GET')).toUpperCase();
   const isGet = method === 'GET';
   const urlStr = typeof url === 'string' ? url : String(url);
+          const isRealtime = /[?&]realtime=1(?:&|$)/.test(urlStr);
   // Collision-resistant cache key
   const key = `${method}:${urlStr}`;
   const rawPath = typeof input === 'string' ? input : urlStr;
@@ -61,7 +73,7 @@ export async function apiFetch<T = any>(
       rawPath.startsWith('/api/dev'));
 
   try {
-    const noCache = rest.cache === 'no-store' || rest.cache === 'no-cache';
+            const noCache = isRealtime || rest.cache === 'no-store' || rest.cache === 'no-cache';
 
     if (isGet && !noCache) {
       const ts = __api_cache_ts.get(key) || 0;
@@ -159,60 +171,6 @@ export async function apiFetch<T = any>(
   } catch (e: any) {
     const msg = String(e?.message || '');
     const isAbort = e?.name === 'AbortError' || /Abort|ERR_CANCELED/i.test(msg);
-    // Improved Network Error Regex
-    const isConn = /ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|NetworkError|ERR_ABORTED|Failed to fetch/i.test(msg);
-    
-    const allowRemoteFallback = String(import.meta.env.VITE_REMOTE_FALLBACK ?? '1') === '1';
-    const isLocalBase = API_BASE.includes('127.0.0.1') || API_BASE.includes('localhost');
-    if (isConn && allowRemoteFallback && isLocalBase && typeof input === 'string' && input.startsWith('/')) {
-      try {
-        const fallbackUrl = `${REMOTE_FALLBACK_BASE}${input}`;
-        if (import.meta.env.DEV) {
-          console.warn(`[API] Local backend unreachable, retrying via remote: ${fallbackUrl}`);
-        }
-        
-        // Reconstruct headers for fallback
-        const fallbackHeaders = {
-            ...(rest.headers || {}),
-            ...(!isPublicApi && token ? { 'Authorization': `Bearer ${token}` } : {}),
-            ...(rest.body && !(rest.headers as any)?.['Content-Type'] ? { 'Content-Type': 'application/json' } : {}),
-            ...(!(rest.headers as any)?.['Accept'] ? { 'Accept': 'application/json' } : {}),
-        };
-
-        const response = await fetch(fallbackUrl, {
-          ...rest,
-          headers: fallbackHeaders,
-          credentials: 'include',
-        });
-        if (!response.ok) {
-          if (response.status === 401) {
-            window.dispatchEvent(new Event('auth:unauthorized'));
-          }
-          let errorMessage = response.statusText;
-          try {
-            const errorData = await response.json() as { error?: string, details?: string, stack?: string };
-            console.error('[API] Remote Error Detail:', errorData);
-            if (errorData && errorData.error) {
-              errorMessage = errorData.error;
-              if (errorData.details) errorMessage += ` (${errorData.details})`;
-            }
-          } catch {
-            errorMessage = response.statusText;
-          }
-          throw new Error(`Remote request failed: ${response.status} ${errorMessage}`);
-        }
-        if (response.status === 204) {
-          return {} as T;
-        }
-        return await response.json() as T;
-      } catch (fallbackError) {
-        const fMsg = String((fallbackError as any)?.message || '');
-        const fIsConn = /ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|NetworkError|ERR_ABORTED|Failed to fetch/i.test(fMsg);
-        if (!fIsConn) {
-          throw fallbackError;
-        }
-      }
-    }
     // CRITICAL FIX: Don't swallow errors silently!
     // Returning {} causes "loading forever" UI because React Query thinks it got data but it's empty.
     // We must re-throw if it's a real error, unless it's just an abort.

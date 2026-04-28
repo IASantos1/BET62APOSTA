@@ -12,6 +12,7 @@ interface BannerEvent {
   sport: string;
   time: string;
   isLive: boolean;
+  liveClock: string;
   homeLogo: string | null;
   awayLogo: string | null;
   homeOdd: number;
@@ -202,6 +203,21 @@ export function BannerCarousel() {
           const goalsHome = e.goals?.home ?? null;
           const goalsAway = e.goals?.away ?? null;
           const elapsedMin = Number(e.elapsed ?? e.fixture?.status?.elapsed ?? 0) || 0;
+          const statusShort = String(e.status ?? e.fixture?.status?.short ?? '').trim();
+          const statusLong = String(e.fixture?.status?.long ?? e.status_long ?? e.statusLong ?? '').trim();
+          const timerRaw = String(e.timer ?? e.fixture?.status?.timer ?? '').trim();
+          const statusU = statusShort.toUpperCase();
+          const liveClock = (() => {
+            if (timerRaw) return timerRaw;
+            if (statusU === 'HT') return 'HT';
+            if (statusU === 'BT' || statusU === 'INT') return 'Intervalo';
+            if (elapsedMin > 0) return `${elapsedMin}'`;
+            const cand = statusLong || statusShort;
+            if (!cand) return '';
+            if (/\b(TOP|BOTTOM)\b/i.test(cand) || /\b(1ST|2ND|3RD|4TH|5TH|6TH|7TH|8TH|9TH)\b/i.test(cand)) return cand;
+            if (statusU === 'LIVE') return '';
+            return cand.length <= 10 ? cand : '';
+          })();
 
           mapped.push({
             id: String(e.id || e.external_event_id || `${home}-${away}`),
@@ -211,6 +227,7 @@ export function BannerCarousel() {
             sport: String(e.sport || 'soccer'),
             time: timeStr,
             isLive: Number(e.is_live) === 1,
+            liveClock,
             homeLogo: e.home_team_logo || null,
             awayLogo: e.away_team_logo || null,
             homeOdd:  Number(e.home_odd) || 0,
@@ -306,8 +323,8 @@ export function BannerCarousel() {
               {ev.isLive && ev.goalsHome !== null && ev.goalsAway !== null ? (
                 <>
                   <span className="text-white text-2xl font-black tabular-nums">{ev.goalsHome} – {ev.goalsAway}</span>
-                  {ev.elapsedMin > 0 && (
-                    <span className="text-red-400 text-xs font-bold bg-black/30 px-2 py-0.5 rounded">{ev.elapsedMin}'</span>
+                  {ev.liveClock && (
+                    <span className="text-red-400 text-xs font-bold bg-black/30 px-2 py-0.5 rounded">{ev.liveClock}</span>
                   )}
                   <span className="flex h-2 w-2 relative mt-0.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -317,7 +334,11 @@ export function BannerCarousel() {
               ) : (
                 <>
                   <span className="text-white/40 text-xs font-bold tracking-widest">VS</span>
-                  {ev.isLive && <span className="text-red-400 text-xs font-bold animate-pulse">● AO VIVO</span>}
+                  {ev.isLive && (
+                    <span className="text-red-400 text-xs font-bold animate-pulse">
+                      ● {ev.liveClock || 'AO VIVO'}
+                    </span>
+                  )}
                 </>
               )}
             </div>
