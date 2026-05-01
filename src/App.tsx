@@ -5,6 +5,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { preloadLiveMatches } from './hooks/useLiveMatches';
+import { Analytics } from '@vercel/analytics/react';
 
 const CacheHealthMonitor = lazy(() => import('./components/feature/CacheHealthMonitor'));
 
@@ -24,6 +25,7 @@ function App() {
                 <CacheHealthMonitor />
               </Suspense>
             )}
+            <Analytics />
           </NotificationProvider>
         </AuthProvider>
       </ThemeProvider>
