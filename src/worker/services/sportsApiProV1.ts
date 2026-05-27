@@ -75,9 +75,48 @@ function extractLines(payload: any): any[] {
 }
 
 function parseOddDecimal(x: any): number {
-  const raw = x?.decimal ?? x?.dec ?? x?.value ?? x?.odd ?? x?.price ?? x;
-  const n = typeof raw === 'string' ? Number(raw) : Number(raw);
-  return Number.isFinite(n) ? n : 0;
+  const raw =
+    x?.decimal ??
+    x?.dec ??
+    x?.value ??
+    x?.odd ??
+    x?.price ??
+    x?.american ??
+    x?.us ??
+    x?.americanOdds ??
+    x;
+
+  if (raw === null || raw === undefined) return 0;
+
+  const toDecimalFromAmerican = (a: number) => {
+    if (!Number.isFinite(a) || a === 0) return 0;
+    if (a > 0) return 1 + a / 100;
+    return 1 + 100 / Math.abs(a);
+  };
+
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw)) return 0;
+    if (raw >= 100 || raw <= -100) return toDecimalFromAmerican(raw);
+    return raw > 1 ? raw : 0;
+  }
+
+  const s = String(raw).trim();
+  if (!s) return 0;
+
+  const frac = s.match(/^([+-]?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+  if (frac) {
+    const a = Number(frac[1]);
+    const b = Number(frac[2]);
+    if (Number.isFinite(a) && Number.isFinite(b) && b !== 0) {
+      const dec = 1 + a / b;
+      return dec > 1 ? dec : 0;
+    }
+  }
+
+  const n = Number(s);
+  if (!Number.isFinite(n)) return 0;
+  if (n >= 100 || n <= -100) return toDecimalFromAmerican(n);
+  return n > 1 ? n : 0;
 }
 
 function normalizeLineName(x: any): string {
