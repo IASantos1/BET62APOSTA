@@ -406,7 +406,13 @@ export async function fetchSportsApiProMatchOdds(
 
   for (const m of markets) {
     const mName = String(m?.name ?? m?.marketName ?? m?.key ?? '').trim();
-    const outcomes = Array.isArray(m?.outcomes) ? m.outcomes : (Array.isArray(m?.selections) ? m.selections : []);
+    const outcomes = Array.isArray(m?.outcomes)
+      ? m.outcomes
+      : Array.isArray(m?.selections)
+      ? m.selections
+      : Array.isArray(m?.choices)
+      ? m.choices
+      : [];
     append(mName, m, outcomes);
   }
 
