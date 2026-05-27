@@ -160,11 +160,6 @@ const transactionsStore: {
   updated_at: string;
 }[] = [];
 
-let liveFixturesInterval: NodeJS.Timeout | null = null;
-let liveEventsInterval: NodeJS.Timeout | null = null;
-let liveOddsInterval: NodeJS.Timeout | null = null;
-let upcomingFixturesInterval: NodeJS.Timeout | null = null;
-
 function isLeagueBlocked(name: string): boolean {
   const n = name.toLowerCase();
 
@@ -643,54 +638,6 @@ function getLatestLiveOddsSnapshotForFixture(
   return { home, draw: draw ?? 0, away };
 }
 
-function startLiveDataScheduler() {
-  if (!apiFootballKey) {
-    console.log('API-Football não configurada, scheduler LIVE desativado');
-    return;
-  }
-
-  console.log(
-    'Chave API-Football carregada:',
-    apiFootballKey ? 'SIM' : 'NÃO',
-    apiFootballKey ? apiFootballKey.slice(0, 4) + '...' : '',
-  );
-
-  if (liveFixturesInterval || liveEventsInterval || liveOddsInterval || upcomingFixturesInterval) {
-    return;
-  }
-
-  Promise.resolve()
-    .then(() => syncLiveFixturesFromApiFootball().catch(() => {}))
-    .then(() => syncUpcomingFixturesFromApiFootball().catch(() => {}))
-    .then(() => syncLiveEventsFromApiFootball().catch(() => {}))
-    .then(() => syncLiveOddsFromApiFootball().catch(() => {}));
-
-  liveFixturesInterval = setInterval(() => {
-    syncLiveFixturesFromApiFootball().catch((err) => {
-      console.error('Erro ao sincronizar fixtures LIVE da API-Football', err);
-    });
-  }, 20000);
-
-  upcomingFixturesInterval = setInterval(() => {
-    syncUpcomingFixturesFromApiFootball().catch((err) => {
-      console.error('Erro ao sincronizar fixtures UPCOMING da API-Football', err);
-    });
-  }, 60000);
-
-  liveEventsInterval = setInterval(() => {
-    syncLiveEventsFromApiFootball().catch((err) => {
-      console.error('Erro ao sincronizar eventos LIVE da API-Football', err);
-    });
-  }, 20000);
-
-  liveOddsInterval = setInterval(() => {
-    syncLiveOddsFromApiFootball().catch((err) => {
-      console.error('Erro ao sincronizar odds LIVE da API-Football', err);
-    });
-  }, 15000);
-
-  console.log('Scheduler LIVE da API-Football iniciado');
-}
 const betsStore: {
   id: string;
   user_id: string;
@@ -1356,52 +1303,6 @@ const server = http.createServer(async (req, res) => {
       ]);
 
       sendJson(res, 200, { hasKey, startDate, endDate, probes }, req);
-      return;
-    } catch (err: any) {
-      sendJson(res, 200, { ok: false, error: String(err?.message || err) }, req);
-      return;
-    }
-  }
-
-  if (req.method === 'GET' && req.url.startsWith('/api/debug/apisports')) {
-    try {
-      const key = String(apiFootballKey || '').trim();
-      const hasKey = !!key;
-      const provider = String(apiFootballProvider || '').trim();
-      const urlObj = new URL(req.url, `http://localhost:${PORT}`);
-      const rawSports = urlObj.searchParams.get('sports') || '';
-      const sports = rawSports
-        ? rawSports.split(',').map((s) => s.trim()).filter(Boolean)
-        : ['football', 'basketball', 'baseball', 'hockey', 'volleyball', 'handball'];
-
-      const withTimeout = async (sport: string, url: string) => {
-        const controller = new AbortController();
-        const t = setTimeout(() => controller.abort(), 8000);
-        try {
-          const r = await fetch(url, {
-            headers: hasKey ? (getApiFootballHeaders() as any) : ({} as any),
-            signal: controller.signal,
-          });
-          const text = await r.text().catch(() => '');
-          return { sport, url, ok: r.ok, status: r.status, bodySnippet: String(text || '').slice(0, 300) };
-        } catch (e: any) {
-          return { sport, url, ok: false, status: 0, error: String(e?.message || e) };
-        } finally {
-          clearTimeout(t);
-        }
-      };
-
-      const probes = await Promise.all(
-        sports.map(async (sport) => {
-          const baseUrl = getApiFootballBaseUrl(sport);
-          if (!baseUrl) return { sport, url: '', ok: false, status: 0, error: 'baseUrl not configured' };
-          const out = await withTimeout(sport, `${baseUrl}/status`);
-          if (out.status !== 404) return out;
-          return withTimeout(sport, `${baseUrl}/timezone`);
-        }),
-      );
-
-      sendJson(res, 200, { hasKey, provider, probes }, req);
       return;
     } catch (err: any) {
       sendJson(res, 200, { ok: false, error: String(err?.message || err) }, req);
@@ -4602,14 +4503,6 @@ const server = http.createServer(async (req, res) => {
       return;
   }
 
-  // ✅ WEBHOOK: Gatilho manual para sincronização diária
-  if (req.url === '/webhooks/sync-daily' && req.method === 'POST') {
-      console.log('🔄 [WEBHOOK] Recebido pedido de sincronização diária');
-      syncDailyEvents().catch(err => console.error('❌ [WEBHOOK] Erro na sync:', err));
-      sendJson(res, 200, { message: 'Sync started' });
-      return;
-  }
-
   if (req.method === 'GET') {
     try {
       const distDir = path.resolve(process.cwd(), 'dist');
@@ -4656,73 +4549,6 @@ const server = http.createServer(async (req, res) => {
   sendJson(res, 404, { error: 'Not found' });
 });
 
-// ==========================================
-// 🔄 DAILY SYNC CRON JOB
-// ==========================================
-
-async function syncDailyEvents() {
-  console.log('🔄 [SYNC DAILY] Iniciando sincronização diária de eventos...');
-  if (!String(apiFootballKey || '').trim()) {
-    console.log('⚠️ [SYNC DAILY] API-Football não configurado, sync diária desativada');
-    return;
-  }
-  const days = 7;
-  const sports = ['football', 'basketball', 'baseball', 'hockey', 'volleyball', 'handball'];
-  const today = new Date();
-  
-  for (let i = 0; i < days; i++) {
-    const date = new Date(today);
-    date.setDate(today.getDate() + i);
-    const dateStr = date.toISOString().split('T')[0];
-    
-    console.log(`[SYNC DAILY] Fetching fixtures for ${dateStr}`);
-    
-    for (const sport of sports) {
-      try {
-        const baseUrl = getApiFootballBaseUrl(sport);
-        if (!baseUrl) continue;
-        
-        const apiUrl = `${baseUrl}/fixtures?date=${dateStr}&timezone=Europe/Lisbon`;
-        const headers = getApiFootballHeaders(sport);
-        
-        const response = await fetch(apiUrl, { 
-            method: 'GET',
-            headers: headers as any
-        });
-        
-        if (!response.ok) {
-            console.warn(`[SYNC DAILY] Erro API ${sport} para ${dateStr}: ${response.status}`);
-            continue;
-        }
-
-        const data = await response.json();
-        
-        if (data && Array.isArray(data.response) && data.response.length > 0) {
-            const cacheKey = `${sport}:fixtures:date=${dateStr}&timezone=Europe/Lisbon`;
-            await redis.set(cacheKey, JSON.stringify(data.response), 'EX', 86400);
-            console.log(`✅ [SYNC DAILY] ${data.response.length} fixtures cacheados para ${sport} em ${dateStr}`);
-        }
-        
-        await new Promise(r => setTimeout(r, 200));
-        
-      } catch (err: any) {
-        console.error(`❌ [SYNC DAILY] Falha em ${sport} / ${dateStr}:`, err.message);
-      }
-    }
-  }
-  console.log('🏁 [SYNC DAILY] Sincronização concluída.');
-}
-
-// Agendar para rodar a cada 24 horas
-if (process.env.DISABLE_DAILY_SYNC !== '1' && String(apiFootballKey || '').trim()) {
-  setTimeout(() => {
-    syncDailyEvents();
-    setInterval(syncDailyEvents, 24 * 60 * 60 * 1000);
-  }, 60000);
-} else {
-  console.log('⚠️ [SYNC DAILY] Desativado (DISABLE_DAILY_SYNC=1 ou API_FOOTBALL_KEY ausente)');
-}
-
 function loadData(): void {}
 
 // Load persisted data on startup
@@ -4733,13 +4559,6 @@ server.listen(PORT, async () => {
     await seedAdmin();
   } catch (err) {
     console.error('seedAdmin error', err);
-  }
-  try {
-    if (process.env.DISABLE_LIVE_SCHEDULER !== '1') {
-      startLiveDataScheduler();
-    }
-  } catch (err) {
-    console.error('Erro ao iniciar scheduler LIVE da API-Football', err);
   }
   console.log(`API server running on port ${PORT}`);
 });
