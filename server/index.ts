@@ -1410,6 +1410,10 @@ const server = http.createServer(async (req, res) => {
         seen.add(id);
         return true;
       });
+      const requestedSport = sportList.length === 1 ? sportList[0] : null;
+      const mergedFiltered = requestedSport
+        ? merged.filter((e: any) => String(e?.external_event_id || '').startsWith(`${requestedSport}_`))
+        : merged;
 
       const parseScore = (raw: any) => {
         try {
@@ -1461,7 +1465,7 @@ const server = http.createServer(async (req, res) => {
       };
 
       if (wantsOdds) {
-        const targets = merged.filter((e: any) => !(Number(e.home_odd || 0) > 1)).slice(0, 40);
+        const targets = mergedFiltered.filter((e: any) => !(Number(e.home_odd || 0) > 1)).slice(0, 40);
         let idx = 0;
         const workers = Array.from({ length: 4 }, async () => {
           while (idx < targets.length) {
@@ -1479,7 +1483,7 @@ const server = http.createServer(async (req, res) => {
         await Promise.all(workers);
       }
 
-      const out = merged
+      const out = mergedFiltered
         .map(toResponse)
         .filter((e: any) => e && e.home_team && e.away_team)
         .sort((a: any, b: any) => {

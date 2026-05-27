@@ -23,6 +23,20 @@ function toSportId(sport: string): number {
   return 0;
 }
 
+function gameSportId(g: any): number {
+  const direct = g?.sportId ?? g?.sport_id ?? g?.sport?.id ?? g?.sport?.sportId;
+  const n = typeof direct === 'string' ? Number(direct) : Number(direct);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function filterBySportId(sport: string, games: any[]): any[] {
+  const expected = toSportId(sport);
+  if (!expected) return [];
+  const hasAny = games.some((g) => gameSportId(g) > 0);
+  if (!hasAny) return games;
+  return games.filter((g) => gameSportId(g) === expected);
+}
+
 function extractGames(payload: any): any[] {
   if (!payload) return [];
   if (Array.isArray(payload.games)) return payload.games;
@@ -120,7 +134,7 @@ export async function fetchSportsApiProV1Live(apiKey: string, sport: string): Pr
     ],
     apiKey,
   );
-  const games = extractGames(json);
+  const games = filterBySportId(sport, extractGames(json));
   const out: NormalizedEvent[] = [];
   for (const g of games) {
     const n = normalizeGame(sport, g);
@@ -148,7 +162,7 @@ export async function fetchSportsApiProV1GamesRange(
     ],
     apiKey,
   );
-  const games = extractGames(json);
+  const games = filterBySportId(sport, extractGames(json));
   const out: NormalizedEvent[] = [];
   for (const g of games) {
     const n = normalizeGame(sport, g);

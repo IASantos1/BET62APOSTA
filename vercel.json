@@ -2,6 +2,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/api/events/by-sport", "destination": "https://bet62aposta-production.up.railway.app/api/events/by-sport" },
     { "source": "/api/events/(.*)", "destination": "https://bet62aposta-production.up.railway.app/api/events?slug=$1" },
     { "source": "/api/events", "destination": "https://bet62aposta-production.up.railway.app/api/events" },
     { "source": "/api/(.*)", "destination": "https://bet62aposta-production.up.railway.app/api/$1" },
