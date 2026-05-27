@@ -1317,6 +1317,52 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === '/api/debug/sportsapipro' && req.method === 'GET') {
+    try {
+      const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
+      const hasKey = !!apiKey;
+
+      const withTimeout = async (url: string) => {
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 8000);
+        try {
+          const r = await fetch(url, { headers: hasKey ? { 'x-api-key': apiKey, 'accept': 'application/json' } : { 'accept': 'application/json' }, signal: controller.signal });
+          const text = await r.text().catch(() => '');
+          return {
+            url,
+            ok: r.ok,
+            status: r.status,
+            bodySnippet: String(text || '').slice(0, 300),
+          };
+        } catch (e: any) {
+          return { url, ok: false, status: 0, error: String(e?.message || e) };
+        } finally {
+          clearTimeout(t);
+        }
+      };
+
+      const today = new Date();
+      const startDate = today.toISOString().slice(0, 10);
+      const end = new Date(today);
+      end.setDate(today.getDate() + 2);
+      const endDate = end.toISOString().slice(0, 10);
+
+      const probes = await Promise.all([
+        withTimeout('https://v1.football.sportsapipro.com/account/status'),
+        withTimeout('https://v1.football.sportsapipro.com/api/v1/football/live'),
+        withTimeout('https://v1.football.sportsapipro.com/games/current'),
+        withTimeout('https://v1.football.sportsapipro.com/games/allscores'),
+        withTimeout(`https://v1.football.sportsapipro.com/api/v1/games?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&sportId=1`),
+      ]);
+
+      sendJson(res, 200, { hasKey, startDate, endDate, probes }, req);
+      return;
+    } catch (err: any) {
+      sendJson(res, 200, { ok: false, error: String(err?.message || err) }, req);
+      return;
+    }
+  }
+
   if (req.method === 'GET' && req.url.startsWith('/api/events/by-sport')) {
     try {
       const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
