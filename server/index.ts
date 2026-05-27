@@ -1395,6 +1395,91 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (req.method === 'GET' && req.url.startsWith('/api/debug/odds')) {
+    try {
+      const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
+      if (!apiKey) {
+        sendJson(res, 200, { ok: false, error: 'SPORTSAPI_PRO_KEY missing' }, req);
+        return;
+      }
+
+      const urlObj = new URL(req.url, `http://localhost:${PORT}`);
+      const sportRaw = String(urlObj.searchParams.get('sport') || 'soccer');
+      const gameId = String(urlObj.searchParams.get('gameId') || '').trim();
+      const topBookmaker = Number(urlObj.searchParams.get('topBookmaker') || '14') || 14;
+
+      const normalizeSport = (s: string) => {
+        const v = String(s || '').toLowerCase().trim();
+        if (v === 'football' || v === 'futebol') return 'soccer';
+        if (v === 'hockey' || v === 'icehockey' || v === 'ice_hockey') return 'ice-hockey';
+        return v;
+      };
+      const sport = normalizeSport(sportRaw);
+      if (!gameId) {
+        sendJson(res, 200, { ok: false, error: 'missing gameId', sport }, req);
+        return;
+      }
+
+      const toV1Sub = (s: string) => {
+        if (s === 'soccer') return 'football';
+        if (s === 'ice-hockey') return 'hockey';
+        return s;
+      };
+
+      const withTimeout = async (url: string) => {
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 8000);
+        try {
+          const r = await fetch(url, {
+            headers: { 'x-api-key': apiKey, accept: 'application/json' },
+            signal: controller.signal,
+          });
+          const text = await r.text().catch(() => '');
+          return {
+            url,
+            ok: r.ok,
+            status: r.status,
+            bodySnippet: String(text || '').slice(0, 500),
+          };
+        } catch (e: any) {
+          return { url, ok: false, status: 0, error: String(e?.message || e) };
+        } finally {
+          clearTimeout(t);
+        }
+      };
+
+      const sub = toV1Sub(sport);
+      const urlLines = `https://v1.${sub}.sportsapipro.com/bets/lines?gameId=${encodeURIComponent(gameId)}&topBookmaker=${encodeURIComponent(String(topBookmaker))}`;
+      const urlLive = `https://v1.${sub}.sportsapipro.com/live?showOdds=true&topBookmaker=${encodeURIComponent(String(topBookmaker))}`;
+      const urlGame = `https://v1.${sub}.sportsapipro.com/game?gameId=${encodeURIComponent(gameId)}`;
+
+      const [probeLines, probeLive, probeGame, parsed] = await Promise.all([
+        withTimeout(urlLines),
+        withTimeout(urlLive),
+        withTimeout(urlGame),
+        fetchSportsApiProV1OddsLines(apiKey, sport, gameId, { topBookmaker }).catch(() => null),
+      ]);
+
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          sport,
+          gameId,
+          topBookmaker,
+          parsedOdds: parsed,
+          probes: [probeLines, probeLive, probeGame],
+        },
+        req,
+      );
+      return;
+    } catch (err: any) {
+      sendJson(res, 200, { ok: false, error: String(err?.message || err) }, req);
+      return;
+    }
+  }
+
   if (req.method === 'GET' && req.url.startsWith('/api/events/by-sport')) {
     try {
       const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
