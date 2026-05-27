@@ -18,10 +18,12 @@
     "smoke": "node scripts/smoke.js",
     "e2e": "node scripts/e2e-flow.js",
     "smoke:watch": "node scripts/smoke-watch.js",
-    "generate:countries": "node scripts/generateCountries.js"
+    "generate:countries": "node scripts/generateCountries.js",
+    "db:init": "tsx scripts/init-db.ts"
   },
   "dependencies": {
     "@lucia-auth/adapter-sqlite": "^2.0.0",
+    "pg": "^8.11.3",
     "@paypal/checkout-server-sdk": "^1.0.3",
     "@paypal/react-paypal-js": "^8.9.2",
     "@sentry/cloudflare": "^10.25.0",
