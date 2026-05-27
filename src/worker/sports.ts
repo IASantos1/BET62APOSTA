@@ -154,11 +154,12 @@ function formatEvent(r: any): any {
   let draw_odd = Number(r.draw_odd) || 0;
   let away_odd = Number(r.away_odd) || 0;
 
-  const goals = { home: null as number | null, away: null as number | null };
+  let scoreObj: any = { home: null as number | null, away: null as number | null };
   try {
     const sc = r.score ? JSON.parse(r.score) : null;
-    if (sc) { goals.home = sc.home ?? null; goals.away = sc.away ?? null; }
+    if (sc && typeof sc === 'object') scoreObj = sc;
   } catch { /* empty */ }
+  const goals = { home: scoreObj.home ?? null, away: scoreObj.away ?? null };
 
   const statusShort = String(r.status || 'NS').trim();
   const id = r.external_event_id || String(r.id);
@@ -219,7 +220,7 @@ function formatEvent(r: any): any {
     elapsed:    elapsedNum,
     timer:      timerStr,
     goals,
-    score:      goals,
+    score:      scoreObj,
     home_odd,
     draw_odd,
     away_odd,

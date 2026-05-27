@@ -5,7 +5,7 @@ import path from 'path';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import Stripe from 'stripe';
 import WebSocket, { WebSocketServer } from 'ws';
-import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProSchedule } from '../src/worker/services/sportsApiPro';
+import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProMatchStatistics, fetchSportsApiProSchedule } from '../src/worker/services/sportsApiPro';
 
 const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 4000);
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
@@ -2230,7 +2230,14 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (statsMatch) {
-        sendJson(res, 200, { stats: [], events: [] }, req);
+        const matchId = String(evt.external_event_id || '').split('_').slice(1).join('_');
+        if (!matchId) {
+          sendJson(res, 200, { stats: [], events: [] }, req);
+          return;
+        }
+
+        const statsRaw = await fetchSportsApiProMatchStatistics(apiKey, sport, matchId).catch(() => null);
+        sendJson(res, 200, { stats: statsRaw || [], events: [] }, req);
         return;
       }
 

@@ -22,7 +22,7 @@ export default function EventStatsPage() {
   const [event, setEvent] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [liveStats, setLiveStats] = useState<{ stats: any[]; events: any[] }>({ stats: [], events: [] })
+  const [liveStats, setLiveStats] = useState<{ stats: any; events: any[] }>({ stats: [], events: [] })
   const [standingsData, setStandingsData] = useState<any[]>([])
   const [activeTab, setActiveTab] = useState<'dominance' | 'stats' | 'standings'>('dominance')
 
@@ -169,7 +169,7 @@ export default function EventStatsPage() {
     const fetchStats = async () => {
       try {
         const data = await apiFetch<any>(`/api/events/${id}/stats`)
-        if (data && (data.stats?.length > 0 || data.events?.length > 0)) setLiveStats(data)
+        if (data) setLiveStats({ stats: data.stats ?? [], events: data.events ?? [] })
       } catch {
         /* empty */
       }
@@ -324,15 +324,7 @@ export default function EventStatsPage() {
             <div className="space-y-3">
               <LiveMomentumSticksGraph
                 darkMode={darkMode}
-                stats={(() => {
-                  const st = liveStats.stats
-                  if (!st || st.length === 0) return null
-                  const find = (type: string) => {
-                    const row = st.find((s: any) => String(s?.type || '').toLowerCase().includes(type))
-                    return row ? { home: Number(row.home || 0), away: Number(row.away || 0) } : { home: 0, away: 0 }
-                  }
-                  return { shots: find('shot'), onTarget: find('on target'), attacks: find('attack') }
-                })()}
+                stats={liveStats.stats}
                 matchEvents={liveStats.events}
                 homeName={homeTeam}
                 awayName={awayTeam}
@@ -350,11 +342,11 @@ export default function EventStatsPage() {
                   timer={liveTimer || (liveElapsed > 0 ? `${liveElapsed}'` : isLive ? 'AO VIVO' : '')}
                   sport={(ev as any).sport || 'soccer'}
                   matchEvents={liveStats.events}
-                  liveStats={liveStats.stats}
+                  liveStats={Array.isArray(liveStats.stats) ? liveStats.stats : []}
                 />
               </div>
 
-              {!isLive && liveStats.stats.length === 0 && (
+              {!isLive && Array.isArray(liveStats.stats) && liveStats.stats.length === 0 && (
                 <div className={`text-center py-6 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                   Sem dados de domínio disponíveis.
                 </div>
@@ -365,7 +357,7 @@ export default function EventStatsPage() {
           {activeTab === 'stats' && (
             <div className={`rounded-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
               <MatchTracker
-                live={{ ...(ev as any), fixture: { ...((ev as any).fixture || {}), stats: liveStats.stats, events: liveStats.events } }}
+                live={{ ...(ev as any), fixture: { ...((ev as any).fixture || {}), stats: Array.isArray(liveStats.stats) ? liveStats.stats : [], events: liveStats.events } }}
                 homeName={(ev as any).home_team}
                 awayName={(ev as any).away_team}
                 leagueName={(ev as any).league_name}

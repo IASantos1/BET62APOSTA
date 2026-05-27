@@ -18,6 +18,54 @@ interface LiveMomentumSticksGraphProps {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+const toNum = (v: any): number | null => {
+  const n = Number(String(v ?? '').replace('%', '').replace(',', '.').trim());
+  return Number.isFinite(n) ? n : null;
+};
+
+const extractPair = (node: any): { home: number; away: number } | null => {
+  if (!node || typeof node !== 'object') return null;
+  const h = (node.home ?? node.local ?? node.team1 ?? node.t1 ?? node.a) as any;
+  const a = (node.away ?? node.visitor ?? node.team2 ?? node.t2 ?? node.b) as any;
+  const hn = typeof h === 'object' ? toNum(h.value ?? h.val ?? h.amount ?? h.count ?? h) : toNum(h);
+  const an = typeof a === 'object' ? toNum(a.value ?? a.val ?? a.amount ?? a.count ?? a) : toNum(a);
+  if (hn == null || an == null) return null;
+  return { home: hn, away: an };
+};
+
+const findPairByLabel = (root: any, labelRegex: RegExp): { home: number; away: number } | null => {
+  const stack: any[] = [root];
+  const seen = new Set<any>();
+  while (stack.length) {
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object') continue;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+
+    if (typeof (cur as any).type === 'string' && labelRegex.test(String((cur as any).type))) {
+      const p = extractPair(cur);
+      if (p) return p;
+      const p2 = extractPair((cur as any).values);
+      if (p2) return p2;
+    }
+    if (typeof (cur as any).name === 'string' && labelRegex.test(String((cur as any).name))) {
+      const p = extractPair(cur);
+      if (p) return p;
+      const p2 = extractPair((cur as any).values);
+      if (p2) return p2;
+    }
+
+    for (const [k, v] of Object.entries(cur)) {
+      if (labelRegex.test(k)) {
+        const p = extractPair(v);
+        if (p) return p;
+      }
+      if (v && typeof v === 'object') stack.push(v);
+    }
+  }
+  return null;
+};
+
 function deriveRatios(stats: any): { homeRatio: number; awayRatio: number } {
   let homeRatio = 0.5;
   let awayRatio = 0.5;
@@ -40,13 +88,25 @@ function deriveRatios(stats: any): { homeRatio: number; awayRatio: number } {
     homeRatio = (possH / 100) * 0.6 + dangBiasH * 0.4;
     awayRatio = 1 - homeRatio;
   } else if (stats && typeof stats === 'object') {
-    const homeShots = Number(stats?.shots?.home || stats?.onTarget?.home || 0);
-    const awayShots = Number(stats?.shots?.away || stats?.onTarget?.away || 0);
-    const homeAttacks = Number(stats?.attacks?.home || homeShots * 3);
-    const awayAttacks = Number(stats?.attacks?.away || awayShots * 3);
+    const poss = findPairByLabel(stats, /possession/i);
+    const attacks = findPairByLabel(stats, /dangerous.*attack|attacks?/i);
+    const shots = findPairByLabel(stats, /total.*shots|shots?\s*total|shots$/i);
+    const onTarget = findPairByLabel(stats, /shots?\s*on\s*target|on\s*target/i);
+
+    const homeShots = shots ? shots.home : Number(stats?.shots?.home || stats?.onTarget?.home || 0);
+    const awayShots = shots ? shots.away : Number(stats?.shots?.away || stats?.onTarget?.away || 0);
+    const homeAttacks = attacks ? attacks.home : Number(stats?.attacks?.home || homeShots * 3);
+    const awayAttacks = attacks ? attacks.away : Number(stats?.attacks?.away || awayShots * 3);
     const totalAttacks = homeAttacks + awayAttacks || 1;
-    homeRatio = homeAttacks / totalAttacks;
-    awayRatio = awayAttacks / totalAttacks;
+    const possH = poss ? poss.home : null;
+    const possRatio = possH != null ? clamp(possH / 100, 0.05, 0.95) : null;
+    const attackRatio = clamp(homeAttacks / totalAttacks, 0.05, 0.95);
+    const sot = onTarget ? onTarget : null;
+    const sotTotal = sot ? (sot.home + sot.away) : 0;
+    const sotRatio = sot && sotTotal > 0 ? clamp(sot.home / sotTotal, 0.05, 0.95) : attackRatio;
+
+    homeRatio = (possRatio != null ? possRatio : attackRatio) * 0.55 + attackRatio * 0.25 + sotRatio * 0.20;
+    awayRatio = 1 - homeRatio;
   }
   return { homeRatio, awayRatio };
 }
