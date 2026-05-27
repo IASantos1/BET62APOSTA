@@ -55,6 +55,88 @@ function isoDate(v: any): string {
   return Number.isFinite(d.getTime()) ? d.toISOString() : raw;
 }
 
+function extractLines(payload: any): any[] {
+  if (!payload) return [];
+  const direct = payload?.lines ?? payload?.data?.lines ?? null;
+  if (Array.isArray(direct)) return direct;
+  const nested = payload?.data?.bets?.lines ?? payload?.bets?.lines ?? null;
+  if (Array.isArray(nested)) return nested;
+  return [];
+}
+
+function parseOddDecimal(x: any): number {
+  const raw = x?.decimal ?? x?.dec ?? x?.value ?? x?.odd ?? x?.price ?? x;
+  const n = typeof raw === 'string' ? Number(raw) : Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeLineName(x: any): string {
+  return String(x ?? '').trim().toLowerCase();
+}
+
+function oddsFromLines(lines: any[], homeName: string, awayName: string): { home: number; draw: number; away: number; markets: any } | null {
+  const h = normalizeLineName(homeName);
+  const a = normalizeLineName(awayName);
+
+  for (const line of lines) {
+    const name = normalizeLineName(line?.lineTypeName ?? line?.marketName ?? line?.name ?? line?.typeName);
+    const isWinner =
+      name.includes('1x2') ||
+      name.includes('moneyline') ||
+      name.includes('match winner') ||
+      name.includes('full time result') ||
+      name.includes('match result') ||
+      name === 'winner' ||
+      name === 'result';
+    if (!isWinner) continue;
+
+    const options = Array.isArray(line?.options) ? line.options : Array.isArray(line?.outcomes) ? line.outcomes : [];
+    if (!options.length) continue;
+
+    let home = 0;
+    let draw = 0;
+    let away = 0;
+    const h2h: any[] = [];
+
+    for (const o of options) {
+      const numOpt = num(o?.num);
+      const oName = normalizeLineName(o?.name ?? o?.label ?? o?.value ?? '');
+      const odd = parseOddDecimal(o?.rate ?? o?.odd ?? o?.price ?? o);
+      if (!(odd > 1)) continue;
+
+      if (numOpt === 1 || oName === 'home' || (h && (oName === h || h.includes(oName) || oName.includes(h)))) home = home || odd;
+      else if (numOpt === 3 || oName === 'away' || (a && (oName === a || a.includes(oName) || oName.includes(a)))) away = away || odd;
+      else if (numOpt === 2 || oName === 'draw' || oName === 'x' || oName === 'tie') draw = draw || odd;
+
+      h2h.push({ value: o?.name ?? o?.label ?? o?.value ?? '', odd });
+    }
+
+    if (!(home > 1) && !(away > 1) && !(draw > 1)) continue;
+    return { home, draw, away, markets: { h2h } };
+  }
+
+  return null;
+}
+
+function extractOddsFromGame(g: any, homeName: string, awayName: string): { home: number; draw: number; away: number; markets: any } | null {
+  const candidates = [
+    g?.odds,
+    g?.bets,
+    g?.betting,
+    g?.lines,
+    g?.data,
+  ];
+
+  for (const c of candidates) {
+    const lines = extractLines(c);
+    if (!lines.length) continue;
+    const parsed = oddsFromLines(lines, homeName, awayName);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
 function normalizeGame(sport: string, g: any): NormalizedEvent | null {
   const id = g?.id != null ? String(g.id) : '';
   if (!id) return null;
@@ -85,6 +167,11 @@ function normalizeGame(sport: string, g: any): NormalizedEvent | null {
     st.includes('live') ||
     st.includes('in play') ||
     st.includes('inplay') ||
+    st.includes('half') ||
+    st.includes('1st half') ||
+    st.includes('2nd half') ||
+    st.includes('first half') ||
+    st.includes('second half') ||
     st.includes('1h') ||
     st.includes('2h') ||
     st.includes('ht') ||
@@ -102,6 +189,8 @@ function normalizeGame(sport: string, g: any): NormalizedEvent | null {
   const hs = home?.score != null ? num(home.score) : null;
   const as = away?.score != null ? num(away.score) : null;
 
+  const odds = extractOddsFromGame(g, homeName, awayName);
+
   return {
     external_event_id: `${sport}_${id}`,
     sport,
@@ -112,13 +201,13 @@ function normalizeGame(sport: string, g: any): NormalizedEvent | null {
     event_date: startTime,
     status,
     is_live,
-    home_odd: 0,
-    draw_odd: 0,
-    away_odd: 0,
+    home_odd: odds?.home ?? 0,
+    draw_odd: odds?.draw ?? 0,
+    away_odd: odds?.away ?? 0,
     elapsed: 0,
     timer: '',
     score: JSON.stringify({ home: hs, away: as }),
-    markets: '{}',
+    markets: odds?.markets ? JSON.stringify(odds.markets) : '{}',
     country,
     home_team_logo: String(home?.imageUrl || ''),
     away_team_logo: String(away?.imageUrl || ''),
@@ -160,6 +249,7 @@ export async function fetchSportsApiProV1Live(apiKey: string, sport: string): Pr
   const sub = toSubdomain(sport);
   const json = await fetchFirstOk(
     [
+      `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live?showOdds=true&topBookmaker=14`,
       `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live`,
       `https://v1.${sub}.sportsapipro.com/games/current`,
       `https://v1.${sub}.sportsapipro.com/games/allscores`,
@@ -186,6 +276,7 @@ export async function fetchSportsApiProV1GamesRange(
   const sub = toSubdomain(sport);
   const json = await fetchFirstOk(
     [
+      `https://v1.football.sportsapipro.com/api/v1/games?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&sportId=${encodeURIComponent(String(sportId))}&showOdds=true&topBookmaker=14`,
       `https://v1.football.sportsapipro.com/api/v1/games?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&sportId=${encodeURIComponent(String(sportId))}`,
       `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/all`,
       `https://v1.${sub}.sportsapipro.com/games/fixtures`,
@@ -201,4 +292,23 @@ export async function fetchSportsApiProV1GamesRange(
     if (n) out.push(n);
   }
   return out;
+}
+
+export async function fetchSportsApiProV1OddsLines(
+  apiKey: string,
+  sport: string,
+  gameId: string,
+  opts?: { topBookmaker?: number },
+): Promise<{ home: number; draw: number; away: number; markets: Record<string, any[]> } | null> {
+  const sub = toSubdomain(sport);
+  const topBookmaker = opts?.topBookmaker ?? 14;
+  const url = `https://v1.${sub}.sportsapipro.com/bets/lines?gameId=${encodeURIComponent(String(gameId))}&topBookmaker=${encodeURIComponent(String(topBookmaker))}`;
+  const json = await fetchJson(url, apiKey);
+  if (!json) return null;
+  const lines = extractLines(json);
+  if (!lines.length) return null;
+  const parsed = oddsFromLines(lines, '', '');
+  if (!parsed) return null;
+  if (!(parsed.home > 1) && !(parsed.away > 1) && !(parsed.draw > 1)) return null;
+  return { home: parsed.home, draw: parsed.draw, away: parsed.away, markets: parsed.markets };
 }

@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import Stripe from 'stripe';
-import { fetchSportsApiProV1GamesRange, fetchSportsApiProV1Live } from '../src/worker/services/sportsApiProV1';
+import { fetchSportsApiProV1GamesRange, fetchSportsApiProV1Live, fetchSportsApiProV1OddsLines } from '../src/worker/services/sportsApiProV1';
 import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProSchedule } from '../src/worker/services/sportsApiPro';
 
 const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 4000);
@@ -1524,6 +1524,30 @@ const server = http.createServer(async (req, res) => {
             const v1Id = String(ev.external_event_id || '').split('_').slice(1).join('_');
             if (!v1Id) continue;
             const sport = String(ev.sport || 'soccer');
+
+            const v1OddsCacheKey = `v1:${sport}:${v1Id}`;
+            const cachedV1 = sportsApiProOddsCache.get(v1OddsCacheKey);
+            if (cachedV1 && Date.now() - cachedV1.ts < ttlMs) {
+              const odds = cachedV1.odds;
+              if (odds && odds.home > 1) {
+                ev.home_odd = odds.home;
+                ev.draw_odd = odds.draw;
+                ev.away_odd = odds.away;
+                ev.markets = odds.markets || {};
+              }
+              continue;
+            }
+
+            const v1Odds = await fetchSportsApiProV1OddsLines(apiKey, sport, v1Id, { topBookmaker: 14 });
+            sportsApiProOddsCache.set(v1OddsCacheKey, { ts: Date.now(), odds: v1Odds ? { ...v1Odds, markets: v1Odds.markets } : null });
+            if (v1Odds && v1Odds.home > 1) {
+              ev.home_odd = v1Odds.home;
+              ev.draw_odd = v1Odds.draw;
+              ev.away_odd = v1Odds.away;
+              ev.markets = v1Odds.markets || {};
+              continue;
+            }
+
             const mapKey = `${sport}:${v1Id}`;
             const mapped = sportsApiProV2IdByV1IdCache.get(mapKey);
             const matchId =
