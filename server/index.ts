@@ -135,6 +135,7 @@ const fixturesStore: Fixture[] = [];
 const oddsHistoryStore: OddsSnapshot[] = [];
 const eventsStore: Event[] = [];
 const statisticsStore: Statistics[] = [];
+const sportsApiProOddsCache = new Map<string, { ts: number; odds: { home: number; draw: number; away: number; markets: Record<string, any[]> } | null }>();
 const kycDocuments: {
   id: string;
   user_id: string;
@@ -1413,13 +1414,27 @@ const server = http.createServer(async (req, res) => {
 
       if (wantsOdds) {
         const targets = mergedFiltered.filter((e: any) => !(Number(e.home_odd || 0) > 1)).slice(0, 40);
+        const ttlMs = 10 * 60 * 1000;
         let idx = 0;
         const workers = Array.from({ length: 4 }, async () => {
           while (idx < targets.length) {
             const ev = targets[idx++];
             const raw = String(ev.external_event_id || '').split('_').slice(1).join('_');
             if (!raw) continue;
-            const odds = await fetchSportsApiProMatchOdds(apiKey, String(ev.sport || 'soccer'), raw, { homeTeam: ev.home_team, awayTeam: ev.away_team });
+            const sport = String(ev.sport || 'soccer');
+            const cacheKey = `${sport}:${raw}`;
+            const cached = sportsApiProOddsCache.get(cacheKey);
+            if (cached && Date.now() - cached.ts < ttlMs) {
+              const odds = cached.odds;
+              if (!odds || !(odds.home > 1)) continue;
+              ev.home_odd = odds.home;
+              ev.draw_odd = odds.draw;
+              ev.away_odd = odds.away;
+              ev.markets = odds.markets || {};
+              continue;
+            }
+            const odds = await fetchSportsApiProMatchOdds(apiKey, sport, raw, { homeTeam: ev.home_team, awayTeam: ev.away_team });
+            sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
             if (!odds || !(odds.home > 1)) continue;
             ev.home_odd = odds.home;
             ev.draw_odd = odds.draw;

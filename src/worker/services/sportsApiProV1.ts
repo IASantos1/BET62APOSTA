@@ -32,8 +32,6 @@ function gameSportId(g: any): number {
 function filterBySportId(sport: string, games: any[]): any[] {
   const expected = toSportId(sport);
   if (!expected) return [];
-  const hasAny = games.some((g) => gameSportId(g) > 0);
-  if (!hasAny) return games;
   return games.filter((g) => gameSportId(g) === expected);
 }
 
@@ -74,7 +72,32 @@ function normalizeGame(sport: string, g: any): NormalizedEvent | null {
   const country = String(g?.competition?.country?.name || '').trim();
   const status = String(g?.statusText || '').trim() || 'NS';
   const statusGroup = num(g?.statusGroup);
-  const is_live = statusGroup === 1 ? 1 : 0;
+  const st = status.toLowerCase();
+  const finished =
+    st.includes('final') ||
+    st.includes('ended') ||
+    st === 'ft' ||
+    st.includes('full time') ||
+    st.includes('after') ||
+    st.includes('cancel') ||
+    st.includes('postpon');
+  const liveByText =
+    st.includes('live') ||
+    st.includes('in play') ||
+    st.includes('inplay') ||
+    st.includes('1h') ||
+    st.includes('2h') ||
+    st.includes('ht') ||
+    st.includes('et') ||
+    st.includes('pen') ||
+    st.includes('q1') ||
+    st.includes('q2') ||
+    st.includes('q3') ||
+    st.includes('q4') ||
+    st.includes('quarter') ||
+    st.includes('inning') ||
+    st.includes('set');
+  const is_live = finished ? 0 : statusGroup === 1 || liveByText ? 1 : 0;
 
   const hs = home?.score != null ? num(home.score) : null;
   const as = away?.score != null ? num(away.score) : null;

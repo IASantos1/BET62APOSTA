@@ -110,6 +110,7 @@ async function fetchJson(url: string, apiKey: string): Promise<any | null> {
     const res = await fetch(url, { headers: apiHeaders(apiKey), signal: controller.signal });
     const text = await res.text().catch(() => '');
     if (!res.ok) {
+      if (res.status === 404 && url.includes('/odds')) return null;
       console.warn('[sportsApiPro] HTTP error', res.status, url, String(text || '').slice(0, 200));
       return null;
     }
