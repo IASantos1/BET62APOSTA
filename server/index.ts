@@ -1936,13 +1936,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && (req.url === '/api/events' || req.url.startsWith('/api/events?'))) {
+  if (
+    req.method === 'GET' &&
+    (req.url === '/api/events' || req.url.startsWith('/api/events?') || req.url.startsWith('/api/events/'))
+  ) {
     try {
       const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
       const urlObj = new URL(req.url, `http://localhost:${PORT}`);
-      const slug = String(urlObj.searchParams.get('slug') || '').replace(/^\/+/, '');
+      const pathParts = urlObj.pathname.split('/').filter(Boolean);
+      const pathId = pathParts.length >= 3 && pathParts[0] === 'api' && pathParts[1] === 'events' ? pathParts[2] : '';
+      const tail = pathParts.length >= 4 ? pathParts[3] : '';
+      const pathSlug = pathId ? `${pathId}${tail ? `/${tail}` : ''}` : '';
+      const slug = String(urlObj.searchParams.get('slug') || pathSlug || '').replace(/^\/+/, '');
       const include = String(urlObj.searchParams.get('include') || '');
-      const wantsOdds = include.split(',').map((s) => s.trim()).includes('odds');
+      const wantsOdds = include.split(',').map((s) => s.trim()).includes('odds') || /\/odds$/.test(slug);
 
       if (!apiKey) {
         sendJson(res, 200, slug ? { error: 'Not found' } : { live: [], pregame: [] }, req);
@@ -2453,6 +2460,289 @@ const server = http.createServer(async (req, res) => {
       .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
       .slice(-Math.max(1, Math.min(1000, limit)));
     sendJson(res, 200, { history: list }, req);
+    return;
+  }
+
+  if (req.url === '/api/auth/me' && req.method === 'GET') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
+      return;
+    }
+    sendJson(
+      res,
+      200,
+      {
+        user: {
+          userId: user.id,
+          username: user.email,
+          is_operator: user.role === 'admin' ? 1 : 0,
+        },
+      },
+      req,
+    );
+    return;
+  }
+
+  if (req.url === '/api/auth/signup' && req.method === 'POST') {
+    const body = await parseBody(req);
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '');
+    const firstName = String(body.firstName || '').trim();
+    const lastName = String(body.lastName || '').trim();
+    const nameRaw = body.name ? String(body.name) : '';
+    const name = (nameRaw || `${firstName} ${lastName}`.trim() || undefined) as string | undefined;
+
+    if (!email || !password) {
+      sendJson(res, 400, { error: 'Email e password são obrigatórios' }, req);
+      return;
+    }
+    if (!isValidEmail(email)) {
+      logAudit('signup', req.socket.remoteAddress || 'unknown', email, false);
+      sendJson(res, 400, { error: 'Email inválido' }, req);
+      return;
+    }
+    if (!isStrongPassword(password)) {
+      logAudit('signup', req.socket.remoteAddress || 'unknown', email, false);
+      sendJson(res, 400, { error: 'Password fraca. Use 8+ caracteres com letras e números.' }, req);
+      return;
+    }
+    if (name && name.length > 80) {
+      logAudit('signup', req.socket.remoteAddress || 'unknown', email, false);
+      sendJson(res, 400, { error: 'Nome demasiado longo' }, req);
+      return;
+    }
+
+    for (const user of users.values()) {
+      if (user.email === email) {
+        logAudit('signup', req.socket.remoteAddress || 'unknown', email, false);
+        sendJson(res, 400, { error: 'Este email já está registado. Tente fazer login.' }, req);
+        return;
+      }
+    }
+
+    const id = randomBytes(16).toString('hex');
+    const { hashHex, saltHex } = hashPassword(password);
+    const user: User = {
+      id,
+      email,
+      password_hash: hashHex,
+      password_salt: saltHex,
+      role: 'user',
+      name,
+    };
+    users.set(id, user);
+    walletBalances.set(id, { balance: 0 });
+
+    const createdAt = new Date().toISOString();
+    profiles.set(id, {
+      id,
+      user_id: id,
+      email,
+      full_name: name || '',
+      name,
+      phone: '',
+      balance: 0,
+      free_bet_balance: 0,
+      is_admin: false,
+      status: 'active',
+      kyc_verified: false,
+      email_verified: false,
+      created_at: createdAt,
+    });
+
+    const token = randomBytes(24).toString('hex');
+    const nowMs = Date.now();
+    sessions.set(token, { token, userId: id, issuedAt: nowMs, expiresAt: nowMs + 15 * 60 * 1000 });
+    const rtVal = randomBytes(32).toString('hex');
+    const rtId = randomBytes(8).toString('hex');
+    const rt: RefreshToken = {
+      id: rtId,
+      userId: id,
+      tokenHash: hashToken(rtVal),
+      createdAt: new Date(nowMs).toISOString(),
+      expiresAt: new Date(nowMs + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      revoked: false,
+      userAgent: String(req.headers['user-agent'] || ''),
+      ip: String(req.socket.remoteAddress || ''),
+    };
+    refreshTokens.set(rtId, rt);
+    const idx = userRefreshIndex.get(id) || new Set<string>();
+    idx.add(rtId);
+    userRefreshIndex.set(id, idx);
+    setCookie(res, 'refresh_token', `${rtId}:${rtVal}`, 7 * 24 * 60 * 60);
+
+    const { password_hash: ___, password_salt: ____, ...safeUser } = user;
+    sendJson(res, 200, { token, refreshToken: `${rtId}:${rtVal}`, user: safeUser }, req);
+    logAudit('signup', req.socket.remoteAddress || 'unknown', email, true, id);
+    return;
+  }
+
+  if ((req.url === '/api/auth/signin' || req.url === '/api/auth/login') && req.method === 'POST') {
+    const body = await parseBody(req);
+    const email = String(body.email || body.username || '').trim().toLowerCase();
+    const password = String(body.password || '');
+
+    if (!email || !password) {
+      sendJson(res, 400, { error: 'Email e password são obrigatórios' }, req);
+      return;
+    }
+
+    const ip = req.socket.remoteAddress || 'unknown';
+    const attempt = loginAttempts.get(ip) || { count: 0, firstAttemptAt: 0, lockUntil: 0 };
+    const nowMs = Date.now();
+    if (attempt.lockUntil && nowMs < attempt.lockUntil) {
+      sendJson(res, 429, { error: 'Muitas tentativas. Tente mais tarde.' }, req);
+      return;
+    }
+
+    let found: User | null = null;
+    for (const user of users.values()) {
+      if (user.email === email) {
+        found = user;
+        break;
+      }
+    }
+
+    if (!found) {
+      attempt.count =
+        attempt.firstAttemptAt && nowMs - attempt.firstAttemptAt < 10 * 60 * 1000 ? attempt.count + 1 : 1;
+      attempt.firstAttemptAt =
+        attempt.firstAttemptAt && nowMs - attempt.firstAttemptAt < 10 * 60 * 1000 ? attempt.firstAttemptAt : nowMs;
+      if (attempt.count >= 5) attempt.lockUntil = nowMs + 15 * 60 * 1000;
+      loginAttempts.set(ip, attempt);
+      logAudit('login', ip, email, false);
+      sendJson(res, 400, { error: 'Email ou senha incorretos' }, req);
+      return;
+    }
+
+    const valid = verifyPassword(password, found.password_salt, found.password_hash);
+    if (!valid) {
+      attempt.count =
+        attempt.firstAttemptAt && nowMs - attempt.firstAttemptAt < 10 * 60 * 1000 ? attempt.count + 1 : 1;
+      attempt.firstAttemptAt =
+        attempt.firstAttemptAt && nowMs - attempt.firstAttemptAt < 10 * 60 * 1000 ? attempt.firstAttemptAt : nowMs;
+      if (attempt.count >= 5) attempt.lockUntil = nowMs + 15 * 60 * 1000;
+      loginAttempts.set(ip, attempt);
+      logAudit('login', ip, email, false, found.id);
+      sendJson(res, 400, { error: 'Email ou senha incorretos' }, req);
+      return;
+    }
+
+    loginAttempts.delete(ip);
+
+    const token = randomBytes(24).toString('hex');
+    sessions.set(token, { token, userId: found.id, issuedAt: nowMs, expiresAt: nowMs + 15 * 60 * 1000 });
+    const rtVal = randomBytes(32).toString('hex');
+    const rtId = randomBytes(8).toString('hex');
+    const rt: RefreshToken = {
+      id: rtId,
+      userId: found.id,
+      tokenHash: hashToken(rtVal),
+      createdAt: new Date(nowMs).toISOString(),
+      expiresAt: new Date(nowMs + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      revoked: false,
+      userAgent: String(req.headers['user-agent'] || ''),
+      ip: String(req.socket.remoteAddress || ''),
+    };
+    refreshTokens.set(rtId, rt);
+    const idx = userRefreshIndex.get(found.id) || new Set<string>();
+    idx.add(rtId);
+    userRefreshIndex.set(found.id, idx);
+    setCookie(res, 'refresh_token', `${rtId}:${rtVal}`, 7 * 24 * 60 * 60);
+
+    const { password_hash: ___, password_salt: ____, ...safeUser } = found;
+    sendJson(res, 200, { token, refreshToken: `${rtId}:${rtVal}`, user: safeUser }, req);
+    logAudit('login', ip, email, true, found.id);
+    return;
+  }
+
+  if (req.url === '/api/auth/logout' && req.method === 'POST') {
+    const token = getAuthToken(req);
+    if (token) {
+      const session = sessions.get(token);
+      sessions.delete(token);
+      if (session) {
+        const idx = userRefreshIndex.get(session.userId);
+        if (idx) {
+          for (const rid of idx) {
+            const rt = refreshTokens.get(rid);
+            if (rt) {
+              rt.revoked = true;
+              refreshTokens.set(rid, rt);
+            }
+          }
+          userRefreshIndex.delete(session.userId);
+        }
+      }
+    }
+    clearCookie(res, 'refresh_token');
+    sendJson(res, 200, { ok: true }, req);
+    return;
+  }
+
+  if (req.url === '/api/auth/refresh' && req.method === 'POST') {
+    const body = await parseBody(req);
+    const refreshToken = String(body.refreshToken || '').trim();
+    const cookieVal = refreshToken || getCookie(req, 'refresh_token') || '';
+    if (!cookieVal) {
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
+      return;
+    }
+
+    const [rid, rtoken] = cookieVal.split(':');
+    const rt = refreshTokens.get(rid);
+    if (!rt || rt.revoked) {
+      clearCookie(res, 'refresh_token');
+      sendJson(res, 401, { error: 'Sessão inválida' }, req);
+      return;
+    }
+    if (new Date(rt.expiresAt).getTime() <= Date.now()) {
+      rt.revoked = true;
+      refreshTokens.set(rid, rt);
+      clearCookie(res, 'refresh_token');
+      sendJson(res, 401, { error: 'Sessão expirada' }, req);
+      return;
+    }
+    if (rt.tokenHash !== hashToken(rtoken)) {
+      sendJson(res, 401, { error: 'Sessão inválida' }, req);
+      return;
+    }
+    const user = users.get(rt.userId);
+    if (!user) {
+      sendJson(res, 401, { error: 'Sessão inválida' }, req);
+      return;
+    }
+
+    rt.revoked = true;
+    refreshTokens.set(rid, rt);
+    const newRtVal = randomBytes(32).toString('hex');
+    const newRtId = randomBytes(8).toString('hex');
+    const nowMs = Date.now();
+    const newRt: RefreshToken = {
+      id: newRtId,
+      userId: rt.userId,
+      tokenHash: hashToken(newRtVal),
+      createdAt: new Date(nowMs).toISOString(),
+      expiresAt: new Date(nowMs + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      revoked: false,
+      userAgent: String(req.headers['user-agent'] || ''),
+      ip: String(req.socket.remoteAddress || ''),
+    };
+    refreshTokens.set(newRtId, newRt);
+    const idx = userRefreshIndex.get(rt.userId) || new Set<string>();
+    idx.add(newRtId);
+    userRefreshIndex.set(rt.userId, idx);
+    setCookie(res, 'refresh_token', `${newRtId}:${newRtVal}`, 7 * 24 * 60 * 60);
+    const access = randomBytes(24).toString('hex');
+    sessions.set(access, {
+      token: access,
+      userId: rt.userId,
+      issuedAt: nowMs,
+      expiresAt: nowMs + 15 * 60 * 1000,
+    });
+    const { password_hash: ___, password_salt: ____, ...safeUser } = user;
+    sendJson(res, 200, { token: access, refreshToken: `${newRtId}:${newRtVal}`, user: safeUser }, req);
     return;
   }
 
@@ -4779,7 +5069,304 @@ function loadData(): void {}
 
 // Load persisted data on startup
 loadData();
+const wsServer = new WebSocketServer({ noServer: true });
 
+function normalizeWsSport(sport: string): string {
+  const v = String(sport || '').toLowerCase().trim();
+  if (v === 'soccer' || v === 'football' || v === 'futebol') return 'football';
+  if (v === 'ice-hockey' || v === 'icehockey' || v === 'hockey') return 'hockey';
+  if (v === 'basketball') return 'basketball';
+  if (v === 'tennis') return 'tennis';
+  return '';
+}
+
+function wsReject(socket: any, statusLine: string): void {
+  try {
+    socket.write(`HTTP/1.1 ${statusLine}\r\nConnection: close\r\n\r\n`);
+  } catch { void 0; }
+  try {
+    socket.destroy();
+  } catch { void 0; }
+}
+
+server.on('upgrade', (req, socket, head) => {
+  try {
+    const urlObj = new URL(req.url || '', `http://localhost:${PORT}`);
+    const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
+    if (!apiKey) {
+      wsReject(socket, '401 Unauthorized');
+      return;
+    }
+
+    const origin = String(req.headers.origin || '');
+    const allowedOrigin = getAllowedOrigin(req);
+    if (origin && !(origin === allowedOrigin || origin.startsWith('http://localhost'))) {
+      wsReject(socket, '403 Forbidden');
+      return;
+    }
+
+    if (urlObj.pathname === '/api/live/ws') {
+      const sportParam = String(urlObj.searchParams.get('sport') || 'all').toLowerCase().trim();
+      const pollMsRaw = Number(urlObj.searchParams.get('interval') || 5000);
+      const pollMs = Number.isFinite(pollMsRaw) ? Math.max(1000, Math.min(15000, pollMsRaw)) : 5000;
+      const include = String(urlObj.searchParams.get('include') || '').toLowerCase();
+      const wantsOdds = include.includes('odds') || include.includes('markets') || include === '';
+
+      const normalizeSportListKey = (s: string) => {
+        const v = String(s || '').toLowerCase().trim();
+        if (v === 'football' || v === 'futebol') return 'soccer';
+        if (v === 'hockey' || v === 'icehockey' || v === 'ice_hockey') return 'ice-hockey';
+        return v;
+      };
+      const sportKey = normalizeSportListKey(sportParam);
+      const sportList = sportKey === 'all' ? ['soccer', 'basketball', 'tennis', 'ice-hockey'] : [normalizeSportListKey(sportKey.split(',')[0])];
+
+      const parseScore = (raw: any) => {
+        try {
+          const sc = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          return { home: sc?.home ?? null, away: sc?.away ?? null };
+        } catch {
+          return { home: null, away: null };
+        }
+      };
+      const toResponse = (e: any) => {
+        const id = String(e.external_event_id || '');
+        const goals = parseScore(e.score);
+        const date = String(e.event_date || '');
+        const ts = date ? Math.floor(new Date(date).getTime() / 1000) : 0;
+        const statusShort = String(e.status || 'LIVE').trim() || 'LIVE';
+        const elapsed = Number(e.elapsed || 0) || 0;
+        const timer = String(e.timer || '').trim();
+        const sport = String(e.sport || '');
+        return {
+          id,
+          external_event_id: id,
+          match: `${e.home_team} vs ${e.away_team}`,
+          league: e.league || '',
+          country: e.country || '',
+          home_team: e.home_team,
+          away_team: e.away_team,
+          home_odd: Number(e.home_odd || 0) || 0,
+          draw_odd: Number(e.draw_odd || 0) || 0,
+          away_odd: Number(e.away_odd || 0) || 0,
+          event_date: date,
+          is_live: Number(e.is_live || 0) || 0,
+          score: e.score || null,
+          goals,
+          elapsed,
+          timer,
+          status: { short: statusShort, long: statusShort, elapsed, timer },
+          fixture: { id, date, timestamp: ts, status: { short: statusShort, long: statusShort, elapsed, timer } },
+          teams: {
+            home: { name: e.home_team, logo: e.home_team_logo || '' },
+            away: { name: e.away_team, logo: e.away_team_logo || '' },
+          },
+          home_team_logo: e.home_team_logo || '',
+          away_team_logo: e.away_team_logo || '',
+          sport,
+          markets: e.markets || {},
+          odds: e.odds || {},
+        };
+      };
+
+      const parseMarketsKeys = (mk: any): string[] => {
+        if (!mk) return [];
+        if (typeof mk === 'string') {
+          const t = mk.trim();
+          if (!t || t === '{}' || t === 'null') return [];
+          try {
+            const o = JSON.parse(t);
+            return o && typeof o === 'object' && !Array.isArray(o) ? Object.keys(o) : [];
+          } catch {
+            return [];
+          }
+        }
+        if (typeof mk === 'object' && !Array.isArray(mk)) return Object.keys(mk);
+        return [];
+      };
+
+      wsServer.handleUpgrade(req, socket, head, (client) => {
+        let stopped = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        let lastNonEmpty: any[] = [];
+        let lastNonEmptyAt = 0;
+        let consecutiveEmpty = 0;
+
+        client.on('message', (data) => {
+          try {
+            const msg = JSON.parse(String(data || ''));
+            if (msg?.type === 'ping') {
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
+              }
+            }
+          } catch { void 0; }
+        });
+
+        const fetchSnapshot = async () => {
+          const perSport = await Promise.all(sportList.map((sp) => fetchSportsApiProLive(apiKey, sp).catch(() => [])));
+          const seen = new Set<string>();
+          const merged = perSport.flat().filter((e: any) => {
+            const id = String(e?.external_event_id || '');
+            if (!id) return false;
+            if (seen.has(id)) return false;
+            seen.add(id);
+            return true;
+          });
+
+          if (wantsOdds) {
+            const targets = merged
+              .filter((e: any) => {
+                const mkKeys = parseMarketsKeys(e?.markets);
+                const mkEmpty = mkKeys.length === 0;
+                if (Number(e.home_odd || 0) > 1 && !mkEmpty) return false;
+                return true;
+              })
+              .slice(0, 120);
+
+            const ttlMs = 5_000;
+            const missTtlMs = 1_500;
+            let idx = 0;
+            const workers = Array.from({ length: 6 }, async () => {
+              while (idx < targets.length) {
+                const ev = targets[idx++];
+                const sport = String(ev.sport || 'soccer');
+                const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
+                if (!matchId) continue;
+                const cacheKey = `v2:${sport}:${matchId}`;
+                const cached = sportsApiProOddsCache.get(cacheKey);
+                const now = Date.now();
+                if (cached) {
+                  if (cached.odds) {
+                    if (now - cached.ts < ttlMs) {
+                      const odds = cached.odds;
+                      if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
+                        ev.home_odd = odds.home;
+                        ev.draw_odd = odds.draw;
+                        ev.away_odd = odds.away;
+                        ev.markets = JSON.stringify(odds.markets || {});
+                      }
+                      continue;
+                    }
+                  } else {
+                    if (now - cached.ts < missTtlMs) continue;
+                  }
+                }
+                const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+                sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
+                if (!odds) continue;
+                if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
+                  ev.home_odd = odds.home;
+                  ev.draw_odd = odds.draw;
+                  ev.away_odd = odds.away;
+                  ev.markets = JSON.stringify(odds.markets || {});
+                }
+              }
+            });
+            await Promise.all(workers);
+          }
+
+          return merged.map(toResponse);
+        };
+
+        const sendSnapshot = async () => {
+          try {
+            const live = await fetchSnapshot();
+            const now = Date.now();
+            if (live.length > 0) {
+              lastNonEmpty = live;
+              lastNonEmptyAt = now;
+              consecutiveEmpty = 0;
+              if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'snapshot', ts: now, live }));
+              return;
+            }
+
+            consecutiveEmpty += 1;
+            const hasRecent = lastNonEmpty.length > 0 && now - lastNonEmptyAt < 30_000;
+            if (hasRecent && consecutiveEmpty < 3) {
+              if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'snapshot', ts: now, live: lastNonEmpty, stale: true }));
+              return;
+            }
+
+            if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'snapshot', ts: now, live: [] }));
+          } catch (err: any) {
+            if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'error', ts: Date.now(), message: String(err?.message || 'snapshot_failed') }));
+          }
+        };
+
+        const loop = async () => {
+          if (stopped) return;
+          await sendSnapshot();
+          if (stopped) return;
+          timer = setTimeout(loop, pollMs);
+        };
+
+        client.on('close', () => {
+          stopped = true;
+          if (timer) clearTimeout(timer);
+        });
+        client.on('error', () => {
+          stopped = true;
+          if (timer) clearTimeout(timer);
+        });
+
+        if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'connected', ts: Date.now() }));
+        timer = setTimeout(loop, 50);
+      });
+      return;
+    }
+
+    if (!urlObj.pathname.startsWith('/ws')) {
+      wsReject(socket, '404 Not Found');
+      return;
+    }
+
+    const pathParts = urlObj.pathname.split('/').filter(Boolean);
+    const sportParam = pathParts.length >= 2 ? pathParts[1] : urlObj.searchParams.get('sport') || '';
+    const sub = normalizeWsSport(sportParam);
+    if (!sub) {
+      wsReject(socket, '400 Bad Request');
+      return;
+    }
+
+    wsServer.handleUpgrade(req, socket, head, (client) => {
+      const upstreamUrl = `wss://v1.${sub}.sportsapipro.com/ws?x-api-key=${encodeURIComponent(apiKey)}`;
+      const upstream = new WebSocket(upstreamUrl);
+
+      const closeBoth = () => {
+        try {
+          client.close();
+        } catch { void 0; }
+        try {
+          upstream.close();
+        } catch { void 0; }
+      };
+
+      upstream.on('open', () => {
+        client.on('message', (data) => {
+          if (upstream.readyState === WebSocket.OPEN) upstream.send(data);
+        });
+        client.on('close', closeBoth);
+        client.on('error', closeBoth);
+
+        upstream.on('message', (data) => {
+          if (client.readyState === WebSocket.OPEN) client.send(data);
+        });
+        upstream.on('close', closeBoth);
+        upstream.on('error', closeBoth);
+      });
+
+      upstream.on('error', () => {
+        try {
+          client.close(1011);
+        } catch { void 0; }
+        closeBoth();
+      });
+    });
+  } catch {
+    wsReject(socket, '400 Bad Request');
+  }
+});
 server.listen(PORT, async () => {
   try {
     await seedAdmin();
