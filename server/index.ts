@@ -4,6 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import Stripe from 'stripe';
+import { fetchSportsApiProV1GamesRange, fetchSportsApiProV1Live } from '../src/worker/services/sportsApiProV1';
+import { fetchSportsApiProMatchOdds } from '../src/worker/services/sportsApiPro';
 
 const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 4000);
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
@@ -1277,6 +1279,177 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/health' && req.method === 'GET') {
     sendJson(res, 200, { status: 'ok' }, req);
     return;
+  }
+
+  if (req.url === '/api/health' && req.method === 'GET') {
+    sendJson(res, 200, { status: 'ok', ts: new Date().toISOString() }, req);
+    return;
+  }
+
+  if (req.url === '/api/sports' && req.method === 'GET') {
+    sendJson(
+      res,
+      200,
+      [
+        { id: 'soccer', name: 'Futebol', active: true },
+        { id: 'basketball', name: 'Basquetebol', active: true },
+        { id: 'tennis', name: 'Tênis', active: true },
+        { id: 'ice-hockey', name: 'Hóquei no Gelo', active: true },
+      ],
+      req,
+    );
+    return;
+  }
+
+  if (req.url === '/api/pricing/config' && req.method === 'GET') {
+    sendJson(
+      res,
+      200,
+      {
+        margin_pregame: 0.05,
+        margin_live: 0.08,
+        min_stake: 1,
+        max_stake: 1000,
+        currency: 'EUR',
+      },
+      req,
+    );
+    return;
+  }
+
+  if (req.method === 'GET' && req.url.startsWith('/api/events/by-sport')) {
+    try {
+      const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
+      if (!apiKey) {
+        sendJson(res, 200, [], req);
+        return;
+      }
+
+      const urlObj = new URL(req.url, `http://localhost:${PORT}`);
+      const rawSport = urlObj.searchParams.get('sports') || urlObj.searchParams.get('sport') || 'soccer';
+      const include = String(urlObj.searchParams.get('include') || '');
+      const wantsOdds = include.split(',').map((s) => s.trim()).includes('odds');
+
+      const normalizeSport = (s: string) => {
+        const v = String(s || '').toLowerCase().trim();
+        if (v === 'football' || v === 'futebol') return 'soccer';
+        if (v === 'hockey' || v === 'icehockey' || v === 'ice_hockey') return 'ice-hockey';
+        return v;
+      };
+
+      const sportList =
+        rawSport === 'all'
+          ? ['soccer', 'basketball', 'tennis', 'ice-hockey']
+          : [normalizeSport(rawSport.split(',')[0])];
+
+      const today = new Date();
+      const startDate = today.toISOString().slice(0, 10);
+      const end = new Date(today);
+      end.setDate(today.getDate() + (rawSport === 'all' ? 1 : 2));
+      const endDate = end.toISOString().slice(0, 10);
+
+      const perSport = await Promise.all(
+        sportList.map(async (sp) => {
+          const live = await fetchSportsApiProV1Live(apiKey, sp);
+          const scheduled = await fetchSportsApiProV1GamesRange(apiKey, sp, startDate, endDate);
+          return [...live, ...scheduled];
+        }),
+      );
+
+      const seen = new Set<string>();
+      const merged = perSport.flat().filter((e: any) => {
+        const id = String(e?.external_event_id || '');
+        if (!id) return false;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+
+      const parseScore = (raw: any) => {
+        try {
+          const sc = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          return { home: sc?.home ?? null, away: sc?.away ?? null };
+        } catch {
+          return { home: null, away: null };
+        }
+      };
+
+      const toResponse = (e: any) => {
+        const id = String(e.external_event_id || '');
+        const goals = parseScore(e.score);
+        const date = String(e.event_date || '');
+        const ts = date ? Math.floor(new Date(date).getTime() / 1000) : 0;
+        const statusShort = String(e.status || 'NS').trim() || 'NS';
+        const elapsed = Number(e.elapsed || 0) || 0;
+        const timer = String(e.timer || '').trim();
+        const sport = String(e.sport || '');
+        return {
+          id,
+          external_event_id: id,
+          match: `${e.home_team} vs ${e.away_team}`,
+          league: e.league || '',
+          country: e.country || '',
+          home_team: e.home_team,
+          away_team: e.away_team,
+          home_odd: Number(e.home_odd || 0) || 0,
+          draw_odd: Number(e.draw_odd || 0) || 0,
+          away_odd: Number(e.away_odd || 0) || 0,
+          event_date: date,
+          is_live: Number(e.is_live || 0) || 0,
+          score: e.score || null,
+          goals,
+          elapsed,
+          timer,
+          status: { short: statusShort, long: statusShort, elapsed, timer },
+          fixture: { id, date, timestamp: ts, status: { short: statusShort, long: statusShort, elapsed, timer } },
+          teams: {
+            home: { name: e.home_team, logo: e.home_team_logo || '' },
+            away: { name: e.away_team, logo: e.away_team_logo || '' },
+          },
+          home_team_logo: e.home_team_logo || '',
+          away_team_logo: e.away_team_logo || '',
+          sport,
+          markets: e.markets || {},
+          odds: e.odds || {},
+        };
+      };
+
+      if (wantsOdds) {
+        const targets = merged.filter((e: any) => !(Number(e.home_odd || 0) > 1)).slice(0, 40);
+        let idx = 0;
+        const workers = Array.from({ length: 4 }, async () => {
+          while (idx < targets.length) {
+            const ev = targets[idx++];
+            const raw = String(ev.external_event_id || '').split('_').slice(1).join('_');
+            if (!raw) continue;
+            const odds = await fetchSportsApiProMatchOdds(apiKey, String(ev.sport || 'soccer'), raw, { homeTeam: ev.home_team, awayTeam: ev.away_team });
+            if (!odds || !(odds.home > 1)) continue;
+            ev.home_odd = odds.home;
+            ev.draw_odd = odds.draw;
+            ev.away_odd = odds.away;
+            ev.markets = odds.markets || {};
+          }
+        });
+        await Promise.all(workers);
+      }
+
+      const out = merged
+        .map(toResponse)
+        .filter((e: any) => e && e.home_team && e.away_team)
+        .sort((a: any, b: any) => {
+          const al = Number(a.is_live) === 1 ? 1 : 0;
+          const bl = Number(b.is_live) === 1 ? 1 : 0;
+          if (al !== bl) return bl - al;
+          return String(a.event_date || '').localeCompare(String(b.event_date || ''));
+        })
+        .slice(0, 500);
+
+      sendJson(res, 200, out, req);
+      return;
+    } catch (err: any) {
+      sendJson(res, 200, [], req);
+      return;
+    }
   }
 
   if (
