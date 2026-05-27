@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import Stripe from 'stripe';
- 
+import WebSocket, { WebSocketServer } from 'ws';
 import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProSchedule } from '../src/worker/services/sportsApiPro';
 
 const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 4000);
@@ -5099,15 +5099,6 @@ function loadData(): void {}
 loadData();
 const wsServer = new WebSocketServer({ noServer: true });
 
-function normalizeWsSport(sport: string): string {
-  const v = String(sport || '').toLowerCase().trim();
-  if (v === 'soccer' || v === 'football' || v === 'futebol') return 'football';
-  if (v === 'ice-hockey' || v === 'icehockey' || v === 'hockey') return 'hockey';
-  if (v === 'basketball') return 'basketball';
-  if (v === 'tennis') return 'tennis';
-  return '';
-}
-
 function wsReject(socket: any, statusLine: string): void {
   try {
     socket.write(`HTTP/1.1 ${statusLine}\r\nConnection: close\r\n\r\n`);
@@ -5133,263 +5124,220 @@ server.on('upgrade', (req, socket, head) => {
       return;
     }
 
-    if (urlObj.pathname === '/api/live/ws') {
-      const sportParam = String(urlObj.searchParams.get('sport') || 'all').toLowerCase().trim();
-      const pollMsRaw = Number(urlObj.searchParams.get('interval') || 5000);
-      const pollMs = Number.isFinite(pollMsRaw) ? Math.max(1000, Math.min(15000, pollMsRaw)) : 5000;
-      const include = String(urlObj.searchParams.get('include') || '').toLowerCase();
-      const wantsOdds = include.includes('odds') || include.includes('markets') || include === '';
-
-      const normalizeSportListKey = (s: string) => {
-        const v = String(s || '').toLowerCase().trim();
-        if (v === 'football' || v === 'futebol') return 'soccer';
-        if (v === 'hockey' || v === 'icehockey' || v === 'ice_hockey') return 'ice-hockey';
-        return v;
-      };
-      const sportKey = normalizeSportListKey(sportParam);
-      const sportList = sportKey === 'all' ? ['soccer', 'basketball', 'tennis', 'ice-hockey'] : [normalizeSportListKey(sportKey.split(',')[0])];
-
-      const parseScore = (raw: any) => {
-        try {
-          const sc = typeof raw === 'string' ? JSON.parse(raw) : raw;
-          return { home: sc?.home ?? null, away: sc?.away ?? null };
-        } catch {
-          return { home: null, away: null };
-        }
-      };
-      const toResponse = (e: any) => {
-        const id = String(e.external_event_id || '');
-        const goals = parseScore(e.score);
-        const date = String(e.event_date || '');
-        const ts = date ? Math.floor(new Date(date).getTime() / 1000) : 0;
-        const statusShort = String(e.status || 'LIVE').trim() || 'LIVE';
-        const elapsed = Number(e.elapsed || 0) || 0;
-        const timer = String(e.timer || '').trim();
-        const sport = String(e.sport || '');
-        return {
-          id,
-          external_event_id: id,
-          match: `${e.home_team} vs ${e.away_team}`,
-          league: e.league || '',
-          country: e.country || '',
-          home_team: e.home_team,
-          away_team: e.away_team,
-          home_odd: Number(e.home_odd || 0) || 0,
-          draw_odd: Number(e.draw_odd || 0) || 0,
-          away_odd: Number(e.away_odd || 0) || 0,
-          event_date: date,
-          is_live: Number(e.is_live || 0) || 0,
-          score: e.score || null,
-          goals,
-          elapsed,
-          timer,
-          status: { short: statusShort, long: statusShort, elapsed, timer },
-          fixture: { id, date, timestamp: ts, status: { short: statusShort, long: statusShort, elapsed, timer } },
-          teams: {
-            home: { name: e.home_team, logo: e.home_team_logo || '' },
-            away: { name: e.away_team, logo: e.away_team_logo || '' },
-          },
-          home_team_logo: e.home_team_logo || '',
-          away_team_logo: e.away_team_logo || '',
-          sport,
-          markets: e.markets || {},
-          odds: e.odds || {},
-        };
-      };
-
-      const parseMarketsKeys = (mk: any): string[] => {
-        if (!mk) return [];
-        if (typeof mk === 'string') {
-          const t = mk.trim();
-          if (!t || t === '{}' || t === 'null') return [];
-          try {
-            const o = JSON.parse(t);
-            return o && typeof o === 'object' && !Array.isArray(o) ? Object.keys(o) : [];
-          } catch {
-            return [];
-          }
-        }
-        if (typeof mk === 'object' && !Array.isArray(mk)) return Object.keys(mk);
-        return [];
-      };
-
-      wsServer.handleUpgrade(req, socket, head, (client) => {
-        let stopped = false;
-        let timer: ReturnType<typeof setTimeout> | null = null;
-        let lastNonEmpty: any[] = [];
-        let lastNonEmptyAt = 0;
-        let consecutiveEmpty = 0;
-
-        client.on('message', (data) => {
-          try {
-            const msg = JSON.parse(String(data || ''));
-            if (msg?.type === 'ping') {
-              if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
-              }
-            }
-          } catch { void 0; }
-        });
-
-        const fetchSnapshot = async () => {
-          const perSport = await Promise.all(sportList.map((sp) => fetchSportsApiProLive(apiKey, sp).catch(() => [])));
-          const seen = new Set<string>();
-          const merged = perSport.flat().filter((e: any) => {
-            const id = String(e?.external_event_id || '');
-            if (!id) return false;
-            if (seen.has(id)) return false;
-            seen.add(id);
-            return true;
-          });
-
-          if (wantsOdds) {
-            const targets = merged
-              .filter((e: any) => {
-                const mkKeys = parseMarketsKeys(e?.markets);
-                const mkEmpty = mkKeys.length === 0;
-                if (Number(e.home_odd || 0) > 1 && !mkEmpty) return false;
-                return true;
-              })
-              .slice(0, 120);
-
-            const ttlMs = 5_000;
-            const missTtlMs = 1_500;
-            let idx = 0;
-            const workers = Array.from({ length: 6 }, async () => {
-              while (idx < targets.length) {
-                const ev = targets[idx++];
-                const sport = String(ev.sport || 'soccer');
-                const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
-                if (!matchId) continue;
-                const cacheKey = `v2:${sport}:${matchId}`;
-                const cached = sportsApiProOddsCache.get(cacheKey);
-                const now = Date.now();
-                if (cached) {
-                  if (cached.odds) {
-                    if (now - cached.ts < ttlMs) {
-                      const odds = cached.odds;
-                      if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
-                        ev.home_odd = odds.home;
-                        ev.draw_odd = odds.draw;
-                        ev.away_odd = odds.away;
-                        ev.markets = JSON.stringify(odds.markets || {});
-                      }
-                      continue;
-                    }
-                  } else {
-                    if (now - cached.ts < missTtlMs) continue;
-                  }
-                }
-                const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
-                sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
-                if (!odds) continue;
-                if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
-                  ev.home_odd = odds.home;
-                  ev.draw_odd = odds.draw;
-                  ev.away_odd = odds.away;
-                  ev.markets = JSON.stringify(odds.markets || {});
-                }
-              }
-            });
-            await Promise.all(workers);
-          }
-
-          return merged.map(toResponse);
-        };
-
-        const sendSnapshot = async () => {
-          try {
-            const live = await fetchSnapshot();
-            const now = Date.now();
-            if (live.length > 0) {
-              lastNonEmpty = live;
-              lastNonEmptyAt = now;
-              consecutiveEmpty = 0;
-              if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'snapshot', ts: now, live }));
-              return;
-            }
-
-            consecutiveEmpty += 1;
-            const hasRecent = lastNonEmpty.length > 0 && now - lastNonEmptyAt < 30_000;
-            if (hasRecent && consecutiveEmpty < 3) {
-              if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'snapshot', ts: now, live: lastNonEmpty, stale: true }));
-              return;
-            }
-
-            if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'snapshot', ts: now, live: [] }));
-          } catch (err: any) {
-            if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'error', ts: Date.now(), message: String(err?.message || 'snapshot_failed') }));
-          }
-        };
-
-        const loop = async () => {
-          if (stopped) return;
-          await sendSnapshot();
-          if (stopped) return;
-          timer = setTimeout(loop, pollMs);
-        };
-
-        client.on('close', () => {
-          stopped = true;
-          if (timer) clearTimeout(timer);
-        });
-        client.on('error', () => {
-          stopped = true;
-          if (timer) clearTimeout(timer);
-        });
-
-        if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'connected', ts: Date.now() }));
-        timer = setTimeout(loop, 50);
-      });
-      return;
-    }
-
-    if (!urlObj.pathname.startsWith('/ws')) {
+    if (urlObj.pathname !== '/api/live/ws') {
       wsReject(socket, '404 Not Found');
       return;
     }
 
-    const pathParts = urlObj.pathname.split('/').filter(Boolean);
-    const sportParam = pathParts.length >= 2 ? pathParts[1] : urlObj.searchParams.get('sport') || '';
-    const sub = normalizeWsSport(sportParam);
-    if (!sub) {
-      wsReject(socket, '400 Bad Request');
-      return;
-    }
+    const sportParam = String(urlObj.searchParams.get('sport') || 'all').toLowerCase().trim();
+    const pollMsRaw = Number(urlObj.searchParams.get('interval') || 5000);
+    const pollMs = Number.isFinite(pollMsRaw) ? Math.max(1000, Math.min(15000, pollMsRaw)) : 5000;
+    const include = String(urlObj.searchParams.get('include') || '').toLowerCase();
+    const wantsOdds = include.includes('odds') || include.includes('markets') || include === '';
+
+    const normalizeSportListKey = (s: string) => {
+      const v = String(s || '').toLowerCase().trim();
+      if (v === 'football' || v === 'futebol') return 'soccer';
+      if (v === 'hockey' || v === 'icehockey' || v === 'ice_hockey') return 'ice-hockey';
+      return v;
+    };
+    const sportKey = normalizeSportListKey(sportParam);
+    const sportList =
+      sportKey === 'all'
+        ? ['soccer', 'basketball', 'tennis', 'ice-hockey']
+        : [normalizeSportListKey(sportKey.split(',')[0])];
+
+    const parseScore = (raw: any) => {
+      try {
+        const sc = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return { home: sc?.home ?? null, away: sc?.away ?? null };
+      } catch {
+        return { home: null, away: null };
+      }
+    };
+    const toResponse = (e: any) => {
+      const id = String(e.external_event_id || '');
+      const goals = parseScore(e.score);
+      const date = String(e.event_date || '');
+      const ts = date ? Math.floor(new Date(date).getTime() / 1000) : 0;
+      const statusShort = String(e.status || 'LIVE').trim() || 'LIVE';
+      const elapsed = Number(e.elapsed || 0) || 0;
+      const timer = String(e.timer || '').trim();
+      const sport = String(e.sport || '');
+      return {
+        id,
+        external_event_id: id,
+        match: `${e.home_team} vs ${e.away_team}`,
+        league: e.league || '',
+        country: e.country || '',
+        home_team: e.home_team,
+        away_team: e.away_team,
+        home_odd: Number(e.home_odd || 0) || 0,
+        draw_odd: Number(e.draw_odd || 0) || 0,
+        away_odd: Number(e.away_odd || 0) || 0,
+        event_date: date,
+        is_live: Number(e.is_live || 0) || 0,
+        score: e.score || null,
+        goals,
+        elapsed,
+        timer,
+        status: { short: statusShort, long: statusShort, elapsed, timer },
+        fixture: { id, date, timestamp: ts, status: { short: statusShort, long: statusShort, elapsed, timer } },
+        teams: {
+          home: { name: e.home_team, logo: e.home_team_logo || '' },
+          away: { name: e.away_team, logo: e.away_team_logo || '' },
+        },
+        home_team_logo: e.home_team_logo || '',
+        away_team_logo: e.away_team_logo || '',
+        sport,
+        markets: e.markets || {},
+        odds: e.odds || {},
+      };
+    };
+
+    const parseMarketsKeys = (mk: any): string[] => {
+      if (!mk) return [];
+      if (typeof mk === 'string') {
+        const t = mk.trim();
+        if (!t || t === '{}' || t === 'null') return [];
+        try {
+          const o = JSON.parse(t);
+          return o && typeof o === 'object' && !Array.isArray(o) ? Object.keys(o) : [];
+        } catch {
+          return [];
+        }
+      }
+      if (typeof mk === 'object' && !Array.isArray(mk)) return Object.keys(mk);
+      return [];
+    };
 
     wsServer.handleUpgrade(req, socket, head, (client) => {
-      const upstreamUrl = `wss://v1.${sub}.sportsapipro.com/ws?x-api-key=${encodeURIComponent(apiKey)}`;
-      const upstream = new WebSocket(upstreamUrl);
+      let stopped = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      let lastNonEmpty: any[] = [];
+      let lastNonEmptyAt = 0;
+      let consecutiveEmpty = 0;
 
-      const closeBoth = () => {
+      client.on('message', (data) => {
         try {
-          client.close();
+          const msg = JSON.parse(String(data || ''));
+          if (msg?.type === 'ping') {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
+            }
+          }
         } catch { void 0; }
-        try {
-          upstream.close();
-        } catch { void 0; }
+      });
+
+      const fetchSnapshot = async () => {
+        const perSport = await Promise.all(sportList.map((sp) => fetchSportsApiProLive(apiKey, sp).catch(() => [])));
+        const seen = new Set<string>();
+        const merged = perSport.flat().filter((e: any) => {
+          const id = String(e?.external_event_id || '');
+          if (!id) return false;
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
+
+        if (wantsOdds) {
+          const targets = merged
+            .filter((e: any) => {
+              const mkKeys = parseMarketsKeys(e?.markets);
+              const mkEmpty = mkKeys.length === 0;
+              if (Number(e.home_odd || 0) > 1 && !mkEmpty) return false;
+              return true;
+            })
+            .slice(0, 120);
+
+          const ttlMs = 5_000;
+          const missTtlMs = 1_500;
+          let idx = 0;
+          const workers = Array.from({ length: 6 }, async () => {
+            while (idx < targets.length) {
+              const ev = targets[idx++];
+              const sport = String(ev.sport || 'soccer');
+              const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
+              if (!matchId) continue;
+              const cacheKey = `v2:${sport}:${matchId}`;
+              const cached = sportsApiProOddsCache.get(cacheKey);
+              const now = Date.now();
+              if (cached) {
+                if (cached.odds) {
+                  if (now - cached.ts < ttlMs) {
+                    const odds = cached.odds;
+                    if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
+                      ev.home_odd = odds.home;
+                      ev.draw_odd = odds.draw;
+                      ev.away_odd = odds.away;
+                      ev.markets = JSON.stringify(odds.markets || {});
+                    }
+                    continue;
+                  }
+                } else {
+                  if (now - cached.ts < missTtlMs) continue;
+                }
+              }
+              const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+              sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
+              if (!odds) continue;
+              if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
+                ev.home_odd = odds.home;
+                ev.draw_odd = odds.draw;
+                ev.away_odd = odds.away;
+                ev.markets = JSON.stringify(odds.markets || {});
+              }
+            }
+          });
+          await Promise.all(workers);
+        }
+
+        return merged.map(toResponse);
       };
 
-      upstream.on('open', () => {
-        client.on('message', (data) => {
-          if (upstream.readyState === WebSocket.OPEN) upstream.send(data);
-        });
-        client.on('close', closeBoth);
-        client.on('error', closeBoth);
-
-        upstream.on('message', (data) => {
-          if (client.readyState === WebSocket.OPEN) client.send(data);
-        });
-        upstream.on('close', closeBoth);
-        upstream.on('error', closeBoth);
-      });
-
-      upstream.on('error', () => {
+      const sendSnapshot = async () => {
         try {
-          client.close(1011);
-        } catch { void 0; }
-        closeBoth();
+          const live = await fetchSnapshot();
+          const now = Date.now();
+          if (live.length > 0) {
+            lastNonEmpty = live;
+            lastNonEmptyAt = now;
+            consecutiveEmpty = 0;
+            if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'snapshot', ts: now, live }));
+            return;
+          }
+
+          consecutiveEmpty += 1;
+          const hasRecent = lastNonEmpty.length > 0 && now - lastNonEmptyAt < 30_000;
+          if (hasRecent && consecutiveEmpty < 3) {
+            if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'snapshot', ts: now, live: lastNonEmpty, stale: true }));
+            return;
+          }
+
+          if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'snapshot', ts: now, live: [] }));
+        } catch (err: any) {
+          if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'error', ts: Date.now(), message: String(err?.message || 'snapshot_failed') }));
+        }
+      };
+
+      const loop = async () => {
+        if (stopped) return;
+        await sendSnapshot();
+        if (stopped) return;
+        timer = setTimeout(loop, pollMs);
+      };
+
+      client.on('close', () => {
+        stopped = true;
+        if (timer) clearTimeout(timer);
       });
+      client.on('error', () => {
+        stopped = true;
+        if (timer) clearTimeout(timer);
+      });
+
+      if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'connected', ts: Date.now() }));
+      timer = setTimeout(loop, 50);
     });
   } catch {
     wsReject(socket, '400 Bad Request');
