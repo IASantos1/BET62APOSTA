@@ -5,7 +5,6 @@ import path from 'path';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import Stripe from 'stripe';
 import WebSocket, { WebSocketServer } from 'ws';
-import { fetchSportsApiProV1GamesRange, fetchSportsApiProV1Live, fetchSportsApiProV1OddsLines } from '../src/worker/services/sportsApiProV1';
 import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProSchedule } from '../src/worker/services/sportsApiPro';
 
 const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 4000);
@@ -1370,15 +1369,18 @@ const server = http.createServer(async (req, res) => {
 
       const sportList = ['soccer', 'basketball', 'tennis', 'ice-hockey'];
       const today = new Date();
-      const startDate = today.toISOString().slice(0, 10);
-      const end = new Date(today);
-      end.setDate(today.getDate() + 2);
-      const endDate = end.toISOString().slice(0, 10);
+      const dates: string[] = [];
+      for (let d = 0; d <= 2; d++) {
+        const dt = new Date(today);
+        dt.setDate(today.getDate() + d);
+        dates.push(dt.toISOString().slice(0, 10));
+      }
 
       const perSport = await Promise.all(
         sportList.map(async (sp) => {
-          const live = await fetchSportsApiProV1Live(apiKey, sp).catch(() => []);
-          const scheduled = await fetchSportsApiProV1GamesRange(apiKey, sp, startDate, endDate).catch(() => []);
+          const live = await fetchSportsApiProLive(apiKey, sp).catch(() => []);
+          const scheduledChunks = await Promise.all(dates.map((ds) => fetchSportsApiProSchedule(apiKey, sp, ds).catch(() => [])));
+          const scheduled = scheduledChunks.flat();
           return [...live, ...scheduled];
         }),
       );
@@ -1420,14 +1422,15 @@ const server = http.createServer(async (req, res) => {
           .slice(0, 20);
         for (const ev of targets) {
           const sport = String(ev?.sport || 'soccer');
-          const v1Id = String(ev?.external_event_id || '').split('_').slice(1).join('_');
-          if (!v1Id) continue;
-          const v1Odds = await fetchSportsApiProV1OddsLines(apiKey, sport, v1Id, { topBookmaker: 14 }).catch(() => null);
-          if (v1Odds && (v1Odds.home > 1 || Object.keys(v1Odds.markets || {}).length > 0)) {
-            ev.home_odd = v1Odds.home;
-            ev.draw_odd = v1Odds.draw;
-            ev.away_odd = v1Odds.away;
-            ev.markets = v1Odds.markets || {};
+          const matchId = String(ev?.external_event_id || '').split('_').slice(1).join('_');
+          if (!matchId) continue;
+          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+          if (!odds) continue;
+          if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
+            ev.home_odd = odds.home;
+            ev.draw_odd = odds.draw;
+            ev.away_odd = odds.away;
+            ev.markets = JSON.stringify(odds.markets || {});
           }
         }
       }
@@ -1576,7 +1579,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const toV1Sub = (s: string) => {
+      const toV2Sub = (s: string) => {
         if (s === 'soccer') return 'football';
         if (s === 'ice-hockey') return 'hockey';
         return s;
@@ -1604,16 +1607,14 @@ const server = http.createServer(async (req, res) => {
         }
       };
 
-      const sub = toV1Sub(sport);
-      const urlLines = `https://v1.${sub}.sportsapipro.com/bets/lines?gameId=${encodeURIComponent(gameId)}&topBookmaker=${encodeURIComponent(String(topBookmaker))}`;
-      const urlLive = `https://v1.${sub}.sportsapipro.com/live?showOdds=true&topBookmaker=${encodeURIComponent(String(topBookmaker))}`;
-      const urlGame = `https://v1.${sub}.sportsapipro.com/game?gameId=${encodeURIComponent(gameId)}`;
+      const sub = toV2Sub(sport);
+      const urlOdds = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(gameId)}/odds?scope=featured&provider=1`;
+      const urlLive = `https://v2.${sub}.sportsapipro.com/api/live`;
 
-      const [probeLines, probeLive, probeGame, parsed] = await Promise.all([
-        withTimeout(urlLines),
+      const [probeOdds, probeLive, parsed] = await Promise.all([
+        withTimeout(urlOdds),
         withTimeout(urlLive),
-        withTimeout(urlGame),
-        fetchSportsApiProV1OddsLines(apiKey, sport, gameId, { topBookmaker }).catch(() => null),
+        fetchSportsApiProMatchOdds(apiKey, sport, gameId, { scope: 'featured', provider: 1 }).catch(() => null),
       ]);
 
       sendJson(
@@ -1625,7 +1626,7 @@ const server = http.createServer(async (req, res) => {
           gameId,
           topBookmaker,
           parsedOdds: parsed,
-          probes: [probeLines, probeLive, probeGame],
+          probes: [probeOdds, probeLive],
         },
         req,
       );
@@ -1666,15 +1667,19 @@ const server = http.createServer(async (req, res) => {
           : [normalizeSport(rawSport.split(',')[0])];
 
       const today = new Date();
-      const startDate = today.toISOString().slice(0, 10);
-      const end = new Date(today);
-      end.setDate(today.getDate() + (rawSport === 'all' ? 1 : 2));
-      const endDate = end.toISOString().slice(0, 10);
+      const dates: string[] = [];
+      const days = rawSport === 'all' ? 1 : 2;
+      for (let d = 0; d <= days; d++) {
+        const dt = new Date(today);
+        dt.setDate(today.getDate() + d);
+        dates.push(dt.toISOString().slice(0, 10));
+      }
 
       const perSport = await Promise.all(
         sportList.map(async (sp) => {
-          const live = await fetchSportsApiProV1Live(apiKey, sp);
-          const scheduled = await fetchSportsApiProV1GamesRange(apiKey, sp, startDate, endDate);
+          const live = await fetchSportsApiProLive(apiKey, sp).catch(() => []);
+          const scheduledChunks = await Promise.all(dates.map((ds) => fetchSportsApiProSchedule(apiKey, sp, ds).catch(() => [])));
+          const scheduled = scheduledChunks.flat();
           return [...live, ...scheduled];
         }),
       );
@@ -1794,15 +1799,14 @@ const server = http.createServer(async (req, res) => {
         const workers = Array.from({ length: 6 }, async () => {
           while (idx < targets.length) {
             const ev = targets[idx++];
-            const v1Id = String(ev.external_event_id || '').split('_').slice(1).join('_');
-            if (!v1Id) continue;
             const sport = String(ev.sport || 'soccer');
-
-            const v1OddsCacheKey = `v1:${sport}:${v1Id}`;
-            const cachedV1 = sportsApiProOddsCache.get(v1OddsCacheKey);
-            if (!isRealtime && cachedV1 && Date.now() - cachedV1.ts < ttlMs) {
-              const odds = cachedV1.odds;
-              if (odds && (odds.home > 1 || (odds.markets && Object.keys(odds.markets).length > 0))) {
+            const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
+            if (!matchId) continue;
+            const cacheKey = `v2:${sport}:${matchId}`;
+            const cached = sportsApiProOddsCache.get(cacheKey);
+            if (!isRealtime && cached && Date.now() - cached.ts < ttlMs) {
+              const odds = cached.odds;
+              if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
                 ev.home_odd = odds.home;
                 ev.draw_odd = odds.draw;
                 ev.away_odd = odds.away;
@@ -1810,63 +1814,15 @@ const server = http.createServer(async (req, res) => {
               }
               continue;
             }
-
-            const v1Odds = await fetchSportsApiProV1OddsLines(apiKey, sport, v1Id, { topBookmaker: 14 });
-            sportsApiProOddsCache.set(v1OddsCacheKey, { ts: Date.now(), odds: v1Odds ? { ...v1Odds, markets: v1Odds.markets } : null });
-            if (v1Odds && (v1Odds.home > 1 || Object.keys(v1Odds.markets || {}).length > 0)) {
-              ev.home_odd = v1Odds.home;
-              ev.draw_odd = v1Odds.draw;
-              ev.away_odd = v1Odds.away;
-              ev.markets = JSON.stringify(v1Odds.markets || {});
-              continue;
-            }
-
-            const mapKey = `${sport}:${v1Id}`;
-            const mapped = sportsApiProV2IdByV1IdCache.get(mapKey);
-            const matchId =
-              mapped && Date.now() - mapped.ts < ttlMs && mapped.id
-                ? mapped.id
-                : v1Id;
-
-            const cacheKey = `${sport}:${matchId}`;
-            const cached = sportsApiProOddsCache.get(cacheKey);
-            if (cached && Date.now() - cached.ts < ttlMs) {
-              const odds = cached.odds;
-              if (!odds || !(odds.home > 1)) continue;
+            const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
+            sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
+            if (!odds) continue;
+            if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
               ev.home_odd = odds.home;
               ev.draw_odd = odds.draw;
               ev.away_odd = odds.away;
               ev.markets = JSON.stringify(odds.markets || {});
-              continue;
             }
-            let odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team });
-            sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
-
-            if (!odds || !(odds.home > 1)) {
-              if (!mapped || Date.now() - mapped.ts >= ttlMs) {
-                const date = String(ev.event_date || '').slice(0, 10);
-                const live = Number(ev.is_live || 0) === 1;
-                const resolved = date
-                  ? await resolveSportsApiProV2MatchId(apiKey, sport, date, String(ev.home_team || ''), String(ev.away_team || ''), live)
-                  : null;
-                sportsApiProV2IdByV1IdCache.set(mapKey, { ts: Date.now(), id: resolved ?? null });
-                if (resolved && resolved !== v1Id) {
-                  const cacheKey2 = `${sport}:${resolved}`;
-                  const cached2 = sportsApiProOddsCache.get(cacheKey2);
-                  if (cached2 && Date.now() - cached2.ts < ttlMs) {
-                    odds = cached2.odds;
-                  } else {
-                    odds = await fetchSportsApiProMatchOdds(apiKey, sport, resolved, { homeTeam: ev.home_team, awayTeam: ev.away_team });
-                    sportsApiProOddsCache.set(cacheKey2, { ts: Date.now(), odds: odds ?? null });
-                  }
-                }
-              }
-            }
-            if (!odds || !(odds.home > 1)) continue;
-            ev.home_odd = odds.home;
-            ev.draw_odd = odds.draw;
-            ev.away_odd = odds.away;
-            ev.markets = JSON.stringify(odds.markets || {});
           }
         });
         await Promise.all(workers);
@@ -2003,10 +1959,17 @@ const server = http.createServer(async (req, res) => {
       end.setDate(today.getDate() + 7);
       const endDate = end.toISOString().slice(0, 10);
 
-      const [live, scheduled] = await Promise.all([
-        fetchSportsApiProV1Live(apiKey, sport).catch(() => []),
-        fetchSportsApiProV1GamesRange(apiKey, sport, startDate, endDate).catch(() => []),
+      const dates: string[] = [];
+      const startMs = new Date(`${startDate}T00:00:00.000Z`).getTime();
+      const endMs = new Date(`${endDate}T00:00:00.000Z`).getTime();
+      for (let t = startMs; Number.isFinite(t) && t <= endMs; t += 24 * 60 * 60 * 1000) {
+        dates.push(new Date(t).toISOString().slice(0, 10));
+      }
+      const [live, scheduledChunks] = await Promise.all([
+        fetchSportsApiProLive(apiKey, sport).catch(() => []),
+        Promise.all(dates.map((ds) => fetchSportsApiProSchedule(apiKey, sport, ds).catch(() => []))),
       ]);
+      const scheduled = scheduledChunks.flat();
 
       const all = [...live, ...scheduled];
       const evt = all.find((e: any) => String(e?.external_event_id || '') === requestedId);
@@ -2039,14 +2002,14 @@ const server = http.createServer(async (req, res) => {
           : true);
 
       if (wantsOdds && (Number(evt.home_odd || 0) <= 1 || mkEmpty)) {
-        const v1Id = String(evt.external_event_id || '').split('_').slice(1).join('_');
-        if (v1Id) {
-          const v1Odds = await fetchSportsApiProV1OddsLines(apiKey, sport, v1Id, { topBookmaker: 14 }).catch(() => null);
-          if (v1Odds && (v1Odds.home > 1 || Object.keys(v1Odds.markets || {}).length > 0)) {
-            evt.home_odd = v1Odds.home;
-            evt.draw_odd = v1Odds.draw;
-            evt.away_odd = v1Odds.away;
-            evt.markets = v1Odds.markets || {};
+        const matchId = String(evt.external_event_id || '').split('_').slice(1).join('_');
+        if (matchId) {
+          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: evt.home_team, awayTeam: evt.away_team }).catch(() => null);
+          if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
+            evt.home_odd = odds.home;
+            evt.draw_odd = odds.draw;
+            evt.away_odd = odds.away;
+            evt.markets = JSON.stringify(odds.markets || {});
           }
         }
       }

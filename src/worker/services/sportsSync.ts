@@ -23,8 +23,7 @@ import { fetchOddsApiEvents, fetchOddsApiMarketsForFixture } from './oddsApi';
 import { upsertOddsApiRaw, upsertUnifiedMatches, upsertUnifiedOddsLatest } from './unified/unifiedStore';
 import { getApiSportsKey, getOddsApiKey, getSportsApiProKey, getStatpalKey } from './env';
 import { fetchAllStatpal } from './statpalApi';
-import { fetchSportsApiProMatchOdds } from './sportsApiPro';
-import { fetchSportsApiProV1GamesRange, fetchSportsApiProV1Live } from './sportsApiProV1';
+import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProSchedule } from './sportsApiPro';
 
 const FINISHED_STATUSES = [
   'FT', 'AET', 'PEN', 'AWD', 'WO', 'ABD', 'FT_PEN', 'AOT', 'AP',
@@ -262,19 +261,19 @@ async function syncSoccer(env: Env, isFullSync: boolean): Promise<number> {
 }
 
 async function syncSoccerSportsApiPro(env: Env, apiKey: string, isFullSync: boolean): Promise<number> {
-  const live = await fetchSportsApiProV1Live(apiKey, 'soccer');
+  const live = await fetchSportsApiProLive(apiKey, 'soccer');
 
   let scheduled: NormalizedEvent[] = [];
   if (isFullSync) {
     const today = new Date();
-    const end = new Date(today);
-    end.setDate(today.getDate() + 2);
-    scheduled = await fetchSportsApiProV1GamesRange(
-      apiKey,
-      'soccer',
-      today.toISOString().slice(0, 10),
-      end.toISOString().slice(0, 10),
-    );
+    const dates: string[] = [];
+    for (let d = 0; d <= 2; d++) {
+      const dt = new Date(today);
+      dt.setDate(today.getDate() + d);
+      dates.push(dt.toISOString().slice(0, 10));
+    }
+    const chunks = await Promise.all(dates.map((ds) => fetchSportsApiProSchedule(apiKey, 'soccer', ds).catch(() => [])));
+    scheduled = chunks.flat();
   }
 
   const seen = new Set<string>();
@@ -366,17 +365,17 @@ async function syncSoccerSportsApiPro(env: Env, apiKey: string, isFullSync: bool
 }
 
 async function syncSportSportsApiPro(env: Env, apiKey: string, sport: string): Promise<number> {
-  const live = await fetchSportsApiProV1Live(apiKey, sport);
+  const live = await fetchSportsApiProLive(apiKey, sport);
 
   const today = new Date();
-  const end = new Date(today);
-  end.setDate(today.getDate() + 1);
-  const scheduled = await fetchSportsApiProV1GamesRange(
-    apiKey,
-    sport,
-    today.toISOString().slice(0, 10),
-    end.toISOString().slice(0, 10),
-  );
+  const dates: string[] = [];
+  for (let d = 0; d <= 1; d++) {
+    const dt = new Date(today);
+    dt.setDate(today.getDate() + d);
+    dates.push(dt.toISOString().slice(0, 10));
+  }
+  const chunks = await Promise.all(dates.map((ds) => fetchSportsApiProSchedule(apiKey, sport, ds).catch(() => [])));
+  const scheduled = chunks.flat();
 
   const seen = new Set<string>();
   const merged: NormalizedEvent[] = [];
