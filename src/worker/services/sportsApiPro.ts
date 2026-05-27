@@ -178,6 +178,32 @@ function extractMarkets(payload: any): any[] {
   return [];
 }
 
+function collectChoiceMarkets(payload: any): any[] {
+  const out: any[] = [];
+  const seen = new Set<any>();
+
+  const walk = (node: any) => {
+    if (!node || typeof node !== 'object') return;
+    if (seen.has(node)) return;
+    seen.add(node);
+
+    if (Array.isArray((node as any).choices) && ((node as any).marketGroup || (node as any).marketName || (node as any).marketPeriod)) {
+      out.push(node);
+      return;
+    }
+
+    if (Array.isArray(node)) {
+      for (const it of node) walk(it);
+      return;
+    }
+
+    for (const v of Object.values(node)) walk(v);
+  };
+
+  walk(payload);
+  return out;
+}
+
 function normalizeOutcomeName(x: any): string {
   return String(x ?? '').trim().toLowerCase();
 }
@@ -352,7 +378,8 @@ export async function fetchSportsApiProMatchOdds(
   if (!json) return null;
 
   const markets = extractMarkets(json);
-  if (!markets.length) return null;
+  const choiceMarkets = markets.length ? [] : collectChoiceMarkets(json);
+  if (!markets.length && !choiceMarkets.length) return null;
 
   let home = 0;
   let draw = 0;
@@ -361,23 +388,34 @@ export async function fetchSportsApiProMatchOdds(
   const outMarkets: Record<string, any[]> = {};
   let anyOdd = false;
 
-  for (const m of markets) {
-    const mName = String(m?.name ?? m?.marketName ?? m?.key ?? '').trim();
-    const key = marketKeyFromLineName(mName);
-    const outcomes = Array.isArray(m?.outcomes) ? m.outcomes : (Array.isArray(m?.selections) ? m.selections : []);
-    if (!key || !outcomes.length) continue;
-
+  const append = (marketName: string, marketNode: any, outcomes: any[]) => {
+    const key = marketKeyFromLineName(marketName);
+    if (!key || !outcomes.length) return;
     const arr = outMarkets[key] || (outMarkets[key] = []);
     for (const o of outcomes) {
       const rawName = o?.name ?? o?.label ?? o?.outcome ?? o?.value ?? '';
-      const point = pickPoint(m, o);
+      const point = pickPoint(marketNode, o);
       const value = formatSelectionName(key, String(rawName || ''), point);
-      const odd = parseOddDecimal(o?.odd ?? o?.price ?? o?.value);
+      const odd = parseOddDecimal(o?.odd ?? o?.price ?? o?.fractionalValue ?? o?.decimalValue ?? o?.value);
       if (!(odd > 1) || !value) continue;
       anyOdd = true;
       if (point) arr.push({ value, odd, point });
       else arr.push({ value, odd });
     }
+  };
+
+  for (const m of markets) {
+    const mName = String(m?.name ?? m?.marketName ?? m?.key ?? '').trim();
+    const outcomes = Array.isArray(m?.outcomes) ? m.outcomes : (Array.isArray(m?.selections) ? m.selections : []);
+    append(mName, m, outcomes);
+  }
+
+  for (const m of choiceMarkets) {
+    const period = String(m?.marketPeriod ?? '').trim();
+    const group = String(m?.marketGroup ?? m?.marketName ?? '').trim();
+    const marketName = [period, group].filter(Boolean).join(' ');
+    const outcomes = Array.isArray(m?.choices) ? m.choices : [];
+    append(marketName, m, outcomes);
   }
 
   const homeKey = normalizeTeamKey(String(opts?.homeTeam || ''));
