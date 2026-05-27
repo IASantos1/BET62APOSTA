@@ -93,10 +93,11 @@ function oddsFromLines(lines: any[], homeName: string, awayName: string): { home
     const isWinner =
       name.includes('1x2') ||
       name.includes('moneyline') ||
+      name.includes('game winner') ||
       name.includes('match winner') ||
       name.includes('full time result') ||
       name.includes('match result') ||
-      name === 'winner' ||
+      name.includes('winner') ||
       name === 'result';
     if (!isWinner) continue;
 
@@ -116,7 +117,11 @@ function oddsFromLines(lines: any[], homeName: string, awayName: string): { home
 
       if (numOpt === 1 || oName === 'home' || (h && (oName === h || h.includes(oName) || oName.includes(h)))) home = home || odd;
       else if (numOpt === 3 || oName === 'away' || (a && (oName === a || a.includes(oName) || oName.includes(a)))) away = away || odd;
-      else if (numOpt === 2 || oName === 'draw' || oName === 'x' || oName === 'tie') draw = draw || odd;
+      else if (numOpt === 2) {
+        const isDraw = oName === 'draw' || oName === 'x' || oName === 'tie';
+        if (isDraw || options.length >= 3) draw = draw || odd;
+        else away = away || odd;
+      } else if (oName === 'draw' || oName === 'x' || oName === 'tie') draw = draw || odd;
 
       h2h.push({ value: o?.name ?? o?.label ?? o?.value ?? '', odd });
     }
