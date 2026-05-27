@@ -4616,6 +4616,10 @@ const server = http.createServer(async (req, res) => {
 
 async function syncDailyEvents() {
   console.log('🔄 [SYNC DAILY] Iniciando sincronização diária de eventos...');
+  if (!String(apiFootballKey || '').trim()) {
+    console.log('⚠️ [SYNC DAILY] API-Football não configurado, sync diária desativada');
+    return;
+  }
   const days = 7;
   const sports = ['football', 'basketball', 'baseball', 'hockey', 'volleyball', 'handball'];
   const today = new Date();
@@ -4664,10 +4668,14 @@ async function syncDailyEvents() {
 }
 
 // Agendar para rodar a cada 24 horas
-setTimeout(() => {
+if (process.env.DISABLE_DAILY_SYNC !== '1' && String(apiFootballKey || '').trim()) {
+  setTimeout(() => {
     syncDailyEvents();
     setInterval(syncDailyEvents, 24 * 60 * 60 * 1000);
-}, 60000);
+  }, 60000);
+} else {
+  console.log('⚠️ [SYNC DAILY] Desativado (DISABLE_DAILY_SYNC=1 ou API_FOOTBALL_KEY ausente)');
+}
 
 function loadData(): void {}
 
