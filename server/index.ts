@@ -1307,7 +1307,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.url === '/api/health' && req.method === 'GET') {
+  if (req.method === 'GET' && req.url.startsWith('/api/health')) {
     const commit =
       process.env.RAILWAY_GIT_COMMIT_SHA ||
       process.env.GITHUB_SHA ||
