@@ -104,16 +104,25 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
 }
 
 async function fetchJson(url: string, apiKey: string): Promise<any | null> {
-  const res = await fetch(url, { headers: apiHeaders(apiKey) });
-  const text = await res.text().catch(() => '');
-  if (!res.ok) {
-    console.warn('[sportsApiPro] HTTP error', res.status, url, String(text || '').slice(0, 200));
-    return null;
-  }
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 8000);
   try {
-    return text ? JSON.parse(text) : null;
-  } catch {
+    const res = await fetch(url, { headers: apiHeaders(apiKey), signal: controller.signal });
+    const text = await res.text().catch(() => '');
+    if (!res.ok) {
+      console.warn('[sportsApiPro] HTTP error', res.status, url, String(text || '').slice(0, 200));
+      return null;
+    }
+    try {
+      return text ? JSON.parse(text) : null;
+    } catch {
+      return null;
+    }
+  } catch (e: any) {
+    console.warn('[sportsApiPro] fetch error', url, String(e?.message || e));
     return null;
+  } finally {
+    clearTimeout(t);
   }
 }
 
