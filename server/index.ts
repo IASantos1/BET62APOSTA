@@ -1078,11 +1078,18 @@ async function fetchApiFootball(
 
 function getAllowedOrigin(req?: http.IncomingMessage): string {
   const fallback = process.env.CLIENT_ORIGIN || 'http://localhost:4000';
+  const originsRaw = (process.env.CLIENT_ORIGINS || fallback).trim();
+  const allowList = originsRaw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   const origin = (req?.headers?.origin as string) || '';
   if (origin.startsWith('http://localhost')) {
     return origin;
   }
-  return fallback;
+  if (!origin) return allowList[0] || fallback;
+  if (allowList.includes(origin)) return origin;
+  return allowList[0] || fallback;
 }
 
 function sendJson(res: http.ServerResponse, status: number, data: any, req?: http.IncomingMessage) {
