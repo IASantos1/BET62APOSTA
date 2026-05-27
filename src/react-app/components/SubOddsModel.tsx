@@ -884,31 +884,74 @@ export function SubOddsModel({
       const isSoccer = s.includes('soccer') || s.includes('futebol');
       if (isSoccer) {
           const blocked = new Set(['main', '1x2', 'match_winner']);
-          const keys = Object.keys(eventOdds || {}).filter(k => !blocked.has(k));
-          const present = (k: string) => {
-              if (!keys.includes(k)) return false;
+          const allKeys = Object.keys(eventOdds || {}).filter(k => !blocked.has(k));
+          const hasContent = (k: string) => {
               const items = getMarketItems(k);
               return !!items && items.length > 0;
           };
-          const pick = (candidates: string[]) => candidates.filter(present);
+          const keys = allKeys.filter(hasContent);
+
+          const buckets: Record<string, string[]> = {
+              Todos: [],
+              Resultados: [],
+              'Dupla Chance': [],
+              Gols: [],
+              Especiais: [],
+              Handicap: [],
+              '1º Tempo': [],
+              '2º Tempo': [],
+              'HT/FT': [],
+              'Placar correto': [],
+              Escanteio: [],
+              Cartão: [],
+              Asiático: [],
+              Jogadores: [],
+          };
+
+          const assigned = new Set<string>();
+          const add = (tab: keyof typeof buckets, k: string) => {
+              if (assigned.has(k)) return;
+              buckets[tab].push(k);
+              assigned.add(k);
+          };
+
+          for (const k of keys) {
+              const lk = k.toLowerCase();
+
+              if (/corner|corners|escanteio/.test(lk)) add('Escanteio', k);
+              else if (/card|cards|yellow|red|cart[aã]o/.test(lk)) add('Cartão', k);
+              else if (/correct_score|score_exact|placar/.test(lk)) add('Placar correto', k);
+              else if (/half_time_full_time|htft|half.*full/.test(lk)) add('HT/FT', k);
+              else if (/^first_half_|firsthalf|1st_half|^1st_/.test(lk)) add('1º Tempo', k);
+              else if (/^second_half_|secondhalf|2nd_half|^2nd_/.test(lk)) add('2º Tempo', k);
+              else if (lk === 'spreads' || /asian|asi[aá]tico|ah_?/.test(lk)) add('Asiático', k);
+              else if (/handicap/.test(lk)) add('Handicap', k);
+              else if (/player_|scorer|goal_scorer|jogador/.test(lk)) add('Jogadores', k);
+              else if (/double_chance|dnb|draw_no_bet/.test(lk)) add('Dupla Chance', k);
+              else if (/totals|btts|goal|goals|team_totals|minute_goals|exact_goals|goal_range|odd_even|next_goal|first_goal|last_goal/.test(lk)) add('Gols', k);
+              else if (/h2h|result|winner|winning|margin|match_winner/.test(lk)) add('Resultados', k);
+              else add('Especiais', k);
+          }
+
+          buckets['Todos'] = keys;
+
           const FIXED_TABS: Array<{ title: string; keys: string[] }> = [
-              { title: 'Todos', keys: [] },
-              { title: 'Resultados', keys: pick(['h2h', 'result_including_extra_time', 'dnb', 'draw_no_bet', 'winning_margin', 'winning_margin_10+', 'margin']) },
-              { title: 'Dupla Chance', keys: pick(['double_chance', 'dnb', 'draw_no_bet']) },
-              { title: 'Gols', keys: pick(['totals', 'btts', 'team_totals', 'btts_first_half', 'total_goal_odd_even', 'goal_range', 'exact_goals', 'minute_goals', 'first_goal', 'last_goal', 'next_goal', 'both_teams_to_score_both_halves']) },
-              { title: 'Especiais', keys: pick(['penalty_scored', 'own_goal', 'team_clean_sheet', 'match_parlay', 'qualification', 'to_qualify', 'method', 'rounds', 'total_rounds', 'over_under_rounds']) },
-              { title: 'Handicap', keys: pick(['handicap']) },
-              { title: '1º Tempo', keys: pick(['first_half_h2h', 'first_half_totals', 'btts_first_half']) },
-              { title: '2º Tempo', keys: pick(['second_half_h2h', 'second_half_totals']) },
-              { title: 'HT/FT', keys: pick(['half_time_full_time', 'halves_h2h', 'halves_totals']) },
-              { title: 'Placar correto', keys: pick(['correct_score', 'score_exact']) },
-              { title: 'Escanteio', keys: pick(['corners_total', 'corners_totals', 'corners_team', 'corners_h2h', 'corners_btts', 'corner_handicap']) },
-              { title: 'Cartão', keys: pick(['cards_total', 'cards_totals', 'cards_h2h', 'cards_handicap', 'yellow_cards_player', 'red_cards_player']) },
-              { title: 'Asiático', keys: pick(['spreads']) },
-              { title: 'Jogadores', keys: pick(['first_goal_scorer', 'anytime_goal_scorer', 'player_goal_scorer_anytime', 'player_goals', 'player_points', 'player_rebounds', 'player_assists', 'player_props']) },
+              { title: 'Todos', keys: buckets['Todos'] },
+              { title: 'Resultados', keys: buckets['Resultados'] },
+              { title: 'Dupla Chance', keys: buckets['Dupla Chance'] },
+              { title: 'Gols', keys: buckets['Gols'] },
+              { title: 'Especiais', keys: buckets['Especiais'] },
+              { title: 'Handicap', keys: buckets['Handicap'] },
+              { title: '1º Tempo', keys: buckets['1º Tempo'] },
+              { title: '2º Tempo', keys: buckets['2º Tempo'] },
+              { title: 'HT/FT', keys: buckets['HT/FT'] },
+              { title: 'Placar correto', keys: buckets['Placar correto'] },
+              { title: 'Escanteio', keys: buckets['Escanteio'] },
+              { title: 'Cartão', keys: buckets['Cartão'] },
+              { title: 'Asiático', keys: buckets['Asiático'] },
+              { title: 'Jogadores', keys: buckets['Jogadores'] },
           ];
-          const all = Array.from(new Set(FIXED_TABS.flatMap(t => t.keys)));
-          FIXED_TABS[0].keys = all;
+
           return FIXED_TABS;
       }
 
