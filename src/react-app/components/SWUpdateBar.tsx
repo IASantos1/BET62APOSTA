@@ -8,15 +8,17 @@ export function SWUpdateBar() {
   const [updating, setUpdating] = useState(false);
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {
+    const sw = 'serviceWorker' in navigator ? navigator.serviceWorker : undefined;
+    if (!sw) return;
     const reg = (window as any).swRegistration as ServiceWorkerRegistration | undefined;
     const check = async () => {
-      const r = reg || (await navigator.serviceWorker.getRegistration().catch(() => undefined));
+      const r = reg || (await sw.getRegistration().catch(() => undefined));
       if (r && r.waiting) setReady(true);
     };
     check();
     const onController = () => { setUpdating(false); setReady(false); location.reload(); };
-    navigator.serviceWorker.addEventListener('controllerchange', onController);
-    return () => { navigator.serviceWorker.removeEventListener('controllerchange', onController); };
+    sw.addEventListener('controllerchange', onController);
+    return () => { sw.removeEventListener('controllerchange', onController); };
   }, []);
   if (!ready) return null;
   return (

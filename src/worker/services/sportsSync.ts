@@ -21,8 +21,9 @@ import {
 } from './sportsApi';
 import { fetchOddsApiEvents, fetchOddsApiMarketsForFixture } from './oddsApi';
 import { upsertOddsApiRaw, upsertUnifiedMatches, upsertUnifiedOddsLatest } from './unified/unifiedStore';
-import { getApiSportsKey, getOddsApiKey, getStatpalKey } from './env';
+import { getApiSportsKey, getOddsApiKey, getSportsApiProKey, getStatpalKey } from './env';
 import { fetchAllStatpal } from './statpalApi';
+import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProSchedule } from './sportsApiPro';
 
 const FINISHED_STATUSES = [
   'FT', 'AET', 'PEN', 'AWD', 'WO', 'ABD', 'FT_PEN', 'AOT', 'AP',
@@ -39,8 +40,9 @@ export async function runSportsSync(
   const apiKey = getApiSportsKey(env);
   const oddsKey = getOddsApiKey(env);
   const statpalKey = getStatpalKey(env);
-  if (!apiKey && !oddsKey && !statpalKey) {
-    console.log('[SportsSync] Skipped: no API_SPORTS_KEY, ODDS_API_KEY, or STATPAL_KEY');
+  const sportsApiProKey = getSportsApiProKey(env);
+  if (!apiKey && !sportsApiProKey && !oddsKey && !statpalKey) {
+    console.log('[SportsSync] Skipped: no API_SPORTS_KEY, SPORTSAPI_PRO_KEY, ODDS_API_KEY, or STATPAL_KEY');
     return { synced: 0, sports: [] };
   }
 
@@ -68,7 +70,14 @@ export async function runSportsSync(
   }
 
   // ── Soccer: eventos via API-Football (se disponível), odds complementares via odds-api.io
-  if (apiKey) {
+  if (sportsApiProKey) {
+    try {
+      const count = await syncSoccerSportsApiPro(env, sportsApiProKey, isFullSync);
+      if (count > 0) { totalSynced += count; syncedSports.push('soccer:sportsapipro'); }
+    } catch (err) {
+      console.error('[SportsSync] soccer:sportsapipro error:', err);
+    }
+  } else if (apiKey) {
     try {
       const count = await syncSoccer(env, isFullSync);
       if (count > 0) { totalSynced += count; syncedSports.push('soccer'); }
@@ -78,7 +87,16 @@ export async function runSportsSync(
   }
 
   // ── Outros desportos: só no full sync ─────────────────────────────
-  if (apiKey && isFullSync) {
+  if (sportsApiProKey && isFullSync) {
+    for (const sport of ['basketball', 'tennis', 'ice-hockey']) {
+      try {
+        const count = await syncSportSportsApiPro(env, sportsApiProKey, sport);
+        if (count > 0) { totalSynced += count; syncedSports.push(`${sport}:sportsapipro`); }
+      } catch (err) {
+        console.error(`[SportsSync] ${sport}:sportsapipro error:`, err);
+      }
+    }
+  } else if (apiKey && isFullSync) {
     for (const sport of Object.keys(SPORT_CONFIG)) {
       if (sport === 'soccer') continue;
       try {
@@ -91,7 +109,10 @@ export async function runSportsSync(
   }
 
   if (oddsKey && isFullSync) {
-    for (const sport of ['soccer', 'basketball', 'tennis', 'mma', 'boxing', 'afl', 'formula1']) {
+    const list = sportsApiProKey
+      ? ['mma', 'boxing', 'afl', 'formula1']
+      : ['soccer', 'basketball', 'tennis', 'mma', 'boxing', 'afl', 'formula1'];
+    for (const sport of list) {
       try {
         const count = await syncOddsApiOnlySport(env, sport);
         if (count > 0) { totalSynced += count; syncedSports.push(sport); }
@@ -233,6 +254,207 @@ async function syncSoccer(env: Env, isFullSync: boolean): Promise<number> {
   }
 
   console.log(`[SportsSync] soccer: ${liveWithOdds.length} live + ${scheduledWithOdds.length} scheduled → ${merged.length} unique`);
+  await upsertEvents(env, merged);
+  try { await upsertUnifiedMatches(env, merged); } catch (err) { console.warn('[SportsSync] upsertUnifiedMatches skipped:', err); }
+  try { await upsertUnifiedOddsLatest(env, merged); } catch (err) { console.warn('[SportsSync] upsertUnifiedOddsLatest skipped:', err); }
+  return merged.length;
+}
+
+async function syncSoccerSportsApiPro(env: Env, apiKey: string, isFullSync: boolean): Promise<number> {
+  const live = await fetchSportsApiProLive(apiKey, 'soccer');
+
+  let scheduled: NormalizedEvent[] = [];
+  if (isFullSync) {
+    const today = new Date();
+    const out: NormalizedEvent[] = [];
+    for (let d = 0; d <= 2; d++) {
+      const dt = new Date(today);
+      dt.setDate(today.getDate() + d);
+      const dateStr = dt.toISOString().slice(0, 10);
+      const day = await fetchSportsApiProSchedule(apiKey, 'soccer', dateStr);
+      out.push(...day);
+    }
+    scheduled = out;
+  }
+
+  const seen = new Set<string>();
+  const merged: NormalizedEvent[] = [];
+  for (const e of [...live, ...scheduled]) {
+    if (!e?.external_event_id) continue;
+    if (seen.has(e.external_event_id)) continue;
+    seen.add(e.external_event_id);
+    merged.push(e);
+  }
+
+  if (!merged.length) return 0;
+
+  try {
+    const ordered = [...merged].sort((a, b) => {
+      const al = Number(a.is_live || 0);
+      const bl = Number(b.is_live || 0);
+      if (al !== bl) return bl - al;
+      return String(a.event_date || '').localeCompare(String(b.event_date || ''));
+    });
+
+    const targets = ordered
+      .filter((e) => !(Number(e.home_odd || 0) > 1) && String(e.external_event_id || '').includes('_'))
+      .slice(0, 80);
+
+    let filled = 0;
+    let idx = 0;
+    const workers = Array.from({ length: 3 }, async () => {
+      while (idx < targets.length) {
+        const ev = targets[idx++];
+        const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
+        if (!matchId) continue;
+        const odds = await fetchSportsApiProMatchOdds(apiKey, 'soccer', matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team });
+        if (!odds || !(odds.home > 1)) continue;
+        ev.home_odd = odds.home;
+        ev.draw_odd = odds.draw;
+        ev.away_odd = odds.away;
+        ev.markets = JSON.stringify(odds.markets || {});
+        filled++;
+      }
+    });
+    await Promise.all(workers);
+    console.log(`[SportsSync] soccer:sportsapipro odds filled ${filled}/${targets.length}`);
+  } catch (err) {
+    console.error('[SportsSync] soccer:sportsapipro odds error:', err);
+  }
+
+  const oddsKey = getOddsApiKey(env);
+  if (oddsKey) {
+    try {
+      const remaining = merged
+        .filter((e) => !(Number(e.home_odd || 0) > 1))
+        .sort((a, b) => {
+          const al = Number(a.is_live || 0);
+          const bl = Number(b.is_live || 0);
+          if (al !== bl) return bl - al;
+          return String(a.event_date || '').localeCompare(String(b.event_date || ''));
+        })
+        .slice(0, 120);
+
+      const books = env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet';
+      let filled = 0;
+
+      for (const ev of remaining) {
+        const out = await fetchOddsApiMarketsForFixture(
+          oddsKey,
+          { league: ev.league, home: ev.home_team, away: ev.away_team, kickoff: ev.event_date, sport: 'soccer' },
+          books,
+          ev.is_live ? 'pending,live' : 'pending',
+        );
+        if (!out || Number(out.home_odd || 0) <= 1) continue;
+        ev.home_odd = out.home_odd;
+        ev.draw_odd = out.draw_odd;
+        ev.away_odd = out.away_odd;
+        ev.markets = JSON.stringify(out.markets || {});
+        filled++;
+      }
+
+      console.log(`[SportsSync] soccer:sportsapipro odds-api.io fallback filled ${filled}/${remaining.length}`);
+    } catch (err) {
+      console.error('[SportsSync] soccer:sportsapipro odds-api.io fallback error:', err);
+    }
+  }
+
+  await upsertEvents(env, merged);
+  try { await upsertUnifiedMatches(env, merged); } catch (err) { console.warn('[SportsSync] upsertUnifiedMatches skipped:', err); }
+  try { await upsertUnifiedOddsLatest(env, merged); } catch (err) { console.warn('[SportsSync] upsertUnifiedOddsLatest skipped:', err); }
+  return merged.length;
+}
+
+async function syncSportSportsApiPro(env: Env, apiKey: string, sport: string): Promise<number> {
+  const live = await fetchSportsApiProLive(apiKey, sport);
+
+  const today = new Date();
+  const scheduled: NormalizedEvent[] = [];
+  for (let d = 0; d <= 1; d++) {
+    const dt = new Date(today);
+    dt.setDate(today.getDate() + d);
+    const dateStr = dt.toISOString().slice(0, 10);
+    const day = await fetchSportsApiProSchedule(apiKey, sport, dateStr);
+    scheduled.push(...day);
+  }
+
+  const seen = new Set<string>();
+  const merged: NormalizedEvent[] = [];
+  for (const e of [...live, ...scheduled]) {
+    if (!e?.external_event_id) continue;
+    if (seen.has(e.external_event_id)) continue;
+    seen.add(e.external_event_id);
+    merged.push(e);
+  }
+
+  if (!merged.length) return 0;
+
+  try {
+    const ordered = [...merged].sort((a, b) => {
+      const al = Number(a.is_live || 0);
+      const bl = Number(b.is_live || 0);
+      if (al !== bl) return bl - al;
+      return String(a.event_date || '').localeCompare(String(b.event_date || ''));
+    });
+
+    const targets = ordered
+      .filter((e) => !(Number(e.home_odd || 0) > 1) && String(e.external_event_id || '').includes('_'))
+      .slice(0, 60);
+
+    let filled = 0;
+    let idx = 0;
+    const workers = Array.from({ length: 3 }, async () => {
+      while (idx < targets.length) {
+        const ev = targets[idx++];
+        const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
+        if (!matchId) continue;
+        const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team });
+        if (!odds || !(odds.home > 1)) continue;
+        ev.home_odd = odds.home;
+        ev.draw_odd = odds.draw;
+        ev.away_odd = odds.away;
+        ev.markets = JSON.stringify(odds.markets || {});
+        filled++;
+      }
+    });
+    await Promise.all(workers);
+    console.log(`[SportsSync] ${sport}:sportsapipro odds filled ${filled}/${targets.length}`);
+  } catch (err) {
+    console.error(`[SportsSync] ${sport}:sportsapipro odds error:`, err);
+  }
+
+  const oddsKey = getOddsApiKey(env);
+  if (oddsKey) {
+    try {
+      const remaining = merged
+        .filter((e) => !(Number(e.home_odd || 0) > 1))
+        .sort((a, b) => String(a.event_date || '').localeCompare(String(b.event_date || '')))
+        .slice(0, 120);
+
+      const books = env.ODDS_API_BOOKMAKERS || 'Bet365,1xbet,Betano,888Sport,SportingBet';
+      let filled = 0;
+
+      for (const ev of remaining) {
+        const out = await fetchOddsApiMarketsForFixture(
+          oddsKey,
+          { league: ev.league, home: ev.home_team, away: ev.away_team, kickoff: ev.event_date, sport },
+          books,
+          ev.is_live ? 'pending,live' : 'pending',
+        );
+        if (!out || Number(out.home_odd || 0) <= 1) continue;
+        ev.home_odd = out.home_odd;
+        ev.draw_odd = out.draw_odd;
+        ev.away_odd = out.away_odd;
+        ev.markets = JSON.stringify(out.markets || {});
+        filled++;
+      }
+
+      console.log(`[SportsSync] ${sport}:sportsapipro odds-api.io fallback filled ${filled}/${remaining.length}`);
+    } catch (err) {
+      console.error(`[SportsSync] ${sport}:sportsapipro odds-api.io fallback error:`, err);
+    }
+  }
+
   await upsertEvents(env, merged);
   try { await upsertUnifiedMatches(env, merged); } catch (err) { console.warn('[SportsSync] upsertUnifiedMatches skipped:', err); }
   try { await upsertUnifiedOddsLatest(env, merged); } catch (err) { console.warn('[SportsSync] upsertUnifiedOddsLatest skipped:', err); }

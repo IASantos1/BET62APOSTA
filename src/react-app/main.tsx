@@ -26,16 +26,17 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 )
 
 try {
-  if ('serviceWorker' in navigator) {
+  const sw = 'serviceWorker' in navigator ? navigator.serviceWorker : undefined;
+  if (sw) {
     if (import.meta.env.PROD) {
-      navigator.serviceWorker
+      sw
         .register('/sw.js')
         .then((reg) => {
           (window as any).swRegistration = reg
         })
         .catch(() => null)
     } else {
-      navigator.serviceWorker
+      sw
         .getRegistration()
         .then((reg) => {
           if (reg) reg.unregister()

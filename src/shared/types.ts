@@ -21,6 +21,7 @@ export interface Env {
   PAYPAL_CLIENT_SECRET?: string;
   PAYPAL_ENVIRONMENT?: string;
   API_SPORTS_KEY?: string;
+  SPORTSAPI_PRO_KEY?: string;
   ODDS_API_KEY?: string;
   ODDS_API_BOOKMAKERS?: string;
   ENVIRONMENT?: string;
@@ -73,6 +74,7 @@ export interface Game {
 
 export const EventSchema = z.object({
   id: z.union([z.number(), z.string()]),
+  external_event_id: z.string().optional(),
   match: z.string(),
   league: z.string(),
   home_team: z.string(),

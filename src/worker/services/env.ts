@@ -26,6 +26,15 @@ export function getOddsApiKey(env: any): string {
   ).trim();
 }
 
+export function getSportsApiProKey(env: any): string {
+  return String(
+    env?.SPORTSAPI_PRO_KEY ||
+      env?.SPORTSAPI_KEY ||
+      env?.SPORTS_API_PRO_KEY ||
+      '',
+  ).trim();
+}
+
 export function getFrontendUrl(env: any): string {
   return String(
     env?.FRONTEND_URL ||
@@ -33,4 +42,3 @@ export function getFrontendUrl(env: any): string {
       '',
   ).trim();
 }
-

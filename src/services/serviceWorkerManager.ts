@@ -18,6 +18,9 @@ class ServiceWorkerManager {
       return;
     }
 
+    const sw = navigator.serviceWorker;
+    if (!sw) return;
+
     // Verificar se está em produção
     if (import.meta.env.DEV) {
       console.log('ℹ️ Service Worker desativado em modo de desenvolvimento');
@@ -63,7 +66,7 @@ class ServiceWorkerManager {
       }
 
       // Listener para erros
-      navigator.serviceWorker.addEventListener('error', (error) => {
+      sw.addEventListener('error', (error) => {
         console.error('❌ Erro no Service Worker:', error);
       });
 
@@ -159,7 +162,8 @@ class ServiceWorkerManager {
     if (!newWorker) return;
 
     newWorker.addEventListener('statechange', () => {
-      if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+      const sw = navigator.serviceWorker;
+      if (newWorker.state === 'installed' && sw?.controller) {
         // Nova versão disponível
         console.log('🔄 Nova versão disponível');
         
