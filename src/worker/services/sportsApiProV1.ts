@@ -1,5 +1,15 @@
 import { NormalizedEvent } from './sportsApi';
 
+const lastLogAt = new Map<string, number>();
+
+function shouldLog(key: string, ttlMs: number): boolean {
+  const now = Date.now();
+  const prev = lastLogAt.get(key) || 0;
+  if (now - prev < ttlMs) return false;
+  lastLogAt.set(key, now);
+  return true;
+}
+
 function apiHeaders(apiKey: string): HeadersInit {
   return {
     'x-api-key': apiKey,
@@ -221,7 +231,17 @@ async function fetchJson(url: string, apiKey: string): Promise<any | null> {
     const res = await fetch(url, { headers: apiHeaders(apiKey), signal: controller.signal });
     const text = await res.text().catch(() => '');
     if (!res.ok) {
-      console.warn('[sportsApiProV1] HTTP error', res.status, url, String(text || '').slice(0, 200));
+      const host = (() => {
+        try {
+          return new URL(url).host;
+        } catch {
+          return '';
+        }
+      })();
+      const key = `[sportsApiProV1] http:${res.status}:${host}`;
+      if (shouldLog(key, 60_000)) {
+        console.warn('[sportsApiProV1] HTTP error', res.status, url, String(text || '').slice(0, 200));
+      }
       return null;
     }
     try {
@@ -230,7 +250,17 @@ async function fetchJson(url: string, apiKey: string): Promise<any | null> {
       return null;
     }
   } catch (e: any) {
-    console.warn('[sportsApiProV1] fetch error', url, String(e?.message || e));
+    const host = (() => {
+      try {
+        return new URL(url).host;
+      } catch {
+        return '';
+      }
+    })();
+    const key = `[sportsApiProV1] fetch:${host}`;
+    if (shouldLog(key, 60_000)) {
+      console.warn('[sportsApiProV1] fetch error', url, String(e?.message || e));
+    }
     return null;
   } finally {
     clearTimeout(t);

@@ -1,5 +1,15 @@
 import { NormalizedEvent } from './sportsApi';
 
+const lastLogAt = new Map<string, number>();
+
+function shouldLog(key: string, ttlMs: number): boolean {
+  const now = Date.now();
+  const prev = lastLogAt.get(key) || 0;
+  if (now - prev < ttlMs) return false;
+  lastLogAt.set(key, now);
+  return true;
+}
+
 function apiHeaders(apiKey: string): HeadersInit {
   return {
     'x-api-key': apiKey,
@@ -111,7 +121,17 @@ async function fetchJson(url: string, apiKey: string): Promise<any | null> {
     const text = await res.text().catch(() => '');
     if (!res.ok) {
       if (res.status === 404 && url.includes('/odds')) return null;
-      console.warn('[sportsApiPro] HTTP error', res.status, url, String(text || '').slice(0, 200));
+      const host = (() => {
+        try {
+          return new URL(url).host;
+        } catch {
+          return '';
+        }
+      })();
+      const key = `[sportsApiPro] http:${res.status}:${host}`;
+      if (shouldLog(key, 60_000)) {
+        console.warn('[sportsApiPro] HTTP error', res.status, url, String(text || '').slice(0, 200));
+      }
       return null;
     }
     try {
@@ -120,7 +140,17 @@ async function fetchJson(url: string, apiKey: string): Promise<any | null> {
       return null;
     }
   } catch (e: any) {
-    console.warn('[sportsApiPro] fetch error', url, String(e?.message || e));
+    const host = (() => {
+      try {
+        return new URL(url).host;
+      } catch {
+        return '';
+      }
+    })();
+    const key = `[sportsApiPro] fetch:${host}`;
+    if (shouldLog(key, 60_000)) {
+      console.warn('[sportsApiPro] fetch error', url, String(e?.message || e));
+    }
     return null;
   } finally {
     clearTimeout(t);
