@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import Stripe from 'stripe';
+import WebSocket, { WebSocketServer } from 'ws';
 import { fetchSportsApiProV1GamesRange, fetchSportsApiProV1Live, fetchSportsApiProV1OddsLines } from '../src/worker/services/sportsApiProV1';
 import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProSchedule } from '../src/worker/services/sportsApiPro';
 
@@ -4722,6 +4723,94 @@ function loadData(): void {}
 
 // Load persisted data on startup
 loadData();
+
+const wsServer = new WebSocketServer({ noServer: true });
+
+function normalizeWsSport(sport: string): string {
+  const v = String(sport || '').toLowerCase().trim();
+  if (v === 'soccer' || v === 'football' || v === 'futebol') return 'football';
+  if (v === 'ice-hockey' || v === 'icehockey' || v === 'hockey') return 'hockey';
+  if (v === 'basketball') return 'basketball';
+  if (v === 'tennis') return 'tennis';
+  return '';
+}
+
+function wsReject(socket: any, statusLine: string): void {
+  try {
+    socket.write(`HTTP/1.1 ${statusLine}\r\nConnection: close\r\n\r\n`);
+  } catch {}
+  try {
+    socket.destroy();
+  } catch {}
+}
+
+server.on('upgrade', (req, socket, head) => {
+  try {
+    const urlObj = new URL(req.url || '', `http://localhost:${PORT}`);
+    if (!urlObj.pathname.startsWith('/ws')) {
+      wsReject(socket, '404 Not Found');
+      return;
+    }
+
+    const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
+    if (!apiKey) {
+      wsReject(socket, '401 Unauthorized');
+      return;
+    }
+
+    const origin = String(req.headers.origin || '');
+    const allowedOrigin = getAllowedOrigin(req);
+    if (origin && !(origin === allowedOrigin || origin.startsWith('http://localhost'))) {
+      wsReject(socket, '403 Forbidden');
+      return;
+    }
+
+    const pathParts = urlObj.pathname.split('/').filter(Boolean);
+    const sportParam = pathParts.length >= 2 ? pathParts[1] : urlObj.searchParams.get('sport') || '';
+    const sub = normalizeWsSport(sportParam);
+    if (!sub) {
+      wsReject(socket, '400 Bad Request');
+      return;
+    }
+
+    wsServer.handleUpgrade(req, socket, head, (client) => {
+      const upstreamUrl = `wss://v1.${sub}.sportsapipro.com/ws?x-api-key=${encodeURIComponent(apiKey)}`;
+      const upstream = new WebSocket(upstreamUrl);
+
+      const closeBoth = () => {
+        try {
+          client.close();
+        } catch {}
+        try {
+          upstream.close();
+        } catch {}
+      };
+
+      upstream.on('open', () => {
+        client.on('message', (data) => {
+          if (upstream.readyState === WebSocket.OPEN) upstream.send(data);
+        });
+        client.on('close', closeBoth);
+        client.on('error', closeBoth);
+
+        upstream.on('message', (data) => {
+          if (client.readyState === WebSocket.OPEN) client.send(data);
+        });
+        upstream.on('close', closeBoth);
+        upstream.on('error', closeBoth);
+      });
+
+      upstream.on('error', () => {
+        try {
+          client.close(1011);
+        } catch {}
+        closeBoth();
+      });
+    });
+  } catch {
+    wsReject(socket, '400 Bad Request');
+  }
+});
 
 server.listen(PORT, async () => {
   try {
