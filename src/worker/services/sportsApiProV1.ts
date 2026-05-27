@@ -89,7 +89,15 @@ function oddsFromLines(lines: any[], homeName: string, awayName: string): { home
   const a = normalizeLineName(awayName);
 
   for (const line of lines) {
-    const name = normalizeLineName(line?.lineTypeName ?? line?.marketName ?? line?.name ?? line?.typeName);
+    const name = normalizeLineName(
+      line?.lineType?.title ??
+        line?.lineType?.name ??
+        line?.lineType?.shortName ??
+        line?.lineTypeName ??
+        line?.marketName ??
+        line?.name ??
+        line?.typeName,
+    );
     const isWinner =
       name.includes('1x2') ||
       name.includes('moneyline') ||
