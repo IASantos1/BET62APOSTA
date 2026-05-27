@@ -1,5 +1,8 @@
 import { NormalizedEvent } from './sportsApi';
 
+const SPORTSAPI_PRO_TOP_BOOKMAKER = process.env.SPORTSAPI_PRO_TOP_BOOKMAKER ? Number(process.env.SPORTSAPI_PRO_TOP_BOOKMAKER) : 14;
+const FETCH_TIMEOUT_MS = Number(process.env.SPORTSAPI_FETCH_TIMEOUT_MS || 15000); // 15 seconds
+
 const lastLogAt = new Map<string, number>();
 
 function shouldLog(key: string, ttlMs: number): boolean {
@@ -449,7 +452,7 @@ function normalizeGame(sport: string, g: any): NormalizedEvent | null {
 
 async function fetchJson(url: string, apiKey: string): Promise<any | null> {
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 8000);
+  const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(url, { headers: apiHeaders(apiKey), signal: controller.signal });
     const text = await res.text().catch(() => '');
@@ -463,7 +466,7 @@ async function fetchJson(url: string, apiKey: string): Promise<any | null> {
       })();
       const key = `[sportsApiProV1] http:${res.status}:${host}`;
       if (shouldLog(key, 60_000)) {
-        console.warn('[sportsApiProV1] HTTP error', res.status, url, String(text || '').slice(0, 200));
+        console.warn('[sportsApiProV1] HTTP error', res.status, url, `(timeout: ${FETCH_TIMEOUT_MS}ms)`, String(text || '').slice(0, 200));
       }
       return null;
     }
@@ -482,7 +485,7 @@ async function fetchJson(url: string, apiKey: string): Promise<any | null> {
     })();
     const key = `[sportsApiProV1] fetch:${host}`;
     if (shouldLog(key, 60_000)) {
-      console.warn('[sportsApiProV1] fetch error', url, String(e?.message || e));
+      console.warn('[sportsApiProV1] fetch error', url, `(timeout: ${FETCH_TIMEOUT_MS}ms)`, String(e?.message || e));
     }
     return null;
   } finally {
@@ -491,7 +494,11 @@ async function fetchJson(url: string, apiKey: string): Promise<any | null> {
 }
 
 async function fetchFirstOk(urls: string[], apiKey: string): Promise<any | null> {
-  for (const u of urls) {
+  for (let i = 0; i < urls.length; i++) {
+    const u = urls[i];
+    if (i > 0 && shouldLog(`[sportsApiProV1] retry:${u}`, 60_000)) {
+      console.warn(`[sportsApiProV1] retrying with fallback URL (attempt ${i + 1}/${urls.length}):`, u);
+    }
     const out = await fetchJson(u, apiKey);
     if (out) return out;
   }
@@ -500,15 +507,18 @@ async function fetchFirstOk(urls: string[], apiKey: string): Promise<any | null>
 
 export async function fetchSportsApiProV1Live(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const sub = toSubdomain(sport);
+  const topBookmaker = SPORTSAPI_PRO_TOP_BOOKMAKER;
   const liveUrls =
     sub === 'basketball'
       ? [
-          `https://v1.${sub}.sportsapipro.com/games/current?showOdds=true&topBookmaker=14`,
+          `https://v1.${sub}.sportsapipro.com/games/current?showOdds=true&topBookmaker=${topBookmaker}`,
+          `https://v1.${sub}.sportsapipro.com/games/current?showOdds=true`, // Fallback without topBookmaker
           `https://v1.${sub}.sportsapipro.com/games/current`,
           `https://v1.${sub}.sportsapipro.com/games/allscores`,
         ]
       : [
-          `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live?showOdds=true&topBookmaker=14`,
+          `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live?showOdds=true&topBookmaker=${topBookmaker}`,
+          `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live?showOdds=true`, // Fallback without topBookmaker
           `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live`,
           `https://v1.${sub}.sportsapipro.com/games/current`,
           `https://v1.${sub}.sportsapipro.com/games/allscores`,
@@ -535,9 +545,11 @@ export async function fetchSportsApiProV1GamesRange(
   const sportId = toSportId(sport);
   if (!sportId) return [];
   const sub = toSubdomain(sport);
+  const topBookmaker = SPORTSAPI_PRO_TOP_BOOKMAKER;
   const json = await fetchFirstOk(
     [
-      `https://v1.football.sportsapipro.com/api/v1/games?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&sportId=${encodeURIComponent(String(sportId))}&showOdds=true&topBookmaker=14`,
+      `https://v1.football.sportsapipro.com/api/v1/games?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&sportId=${encodeURIComponent(String(sportId))}&showOdds=true&topBookmaker=${topBookmaker}`,
+      `https://v1.football.sportsapipro.com/api/v1/games?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&sportId=${encodeURIComponent(String(sportId))}&showOdds=true`, // Fallback without topBookmaker
       `https://v1.football.sportsapipro.com/api/v1/games?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&sportId=${encodeURIComponent(String(sportId))}`,
       `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/all`,
       `https://v1.${sub}.sportsapipro.com/games/fixtures`,
@@ -562,9 +574,12 @@ export async function fetchSportsApiProV1OddsLines(
   opts?: { topBookmaker?: number },
 ): Promise<{ home: number; draw: number; away: number; markets: Record<string, any[]> } | null> {
   const sub = toSubdomain(sport);
-  const topBookmaker = opts?.topBookmaker ?? 14;
-  const url = `https://v1.${sub}.sportsapipro.com/bets/lines?gameId=${encodeURIComponent(String(gameId))}&topBookmaker=${encodeURIComponent(String(topBookmaker))}`;
-  const json = await fetchJson(url, apiKey);
+  const topBookmaker = opts?.topBookmaker ?? SPORTSAPI_PRO_TOP_BOOKMAKER;
+  const urls = [
+    `https://v1.${sub}.sportsapipro.com/bets/lines?gameId=${encodeURIComponent(String(gameId))}&topBookmaker=${encodeURIComponent(String(topBookmaker))}`,
+    `https://v1.${sub}.sportsapipro.com/bets/lines?gameId=${encodeURIComponent(String(gameId))}`, // Fallback without topBookmaker
+  ];
+  const json = await fetchFirstOk(urls, apiKey);
   if (!json) return null;
   const lines = extractLines(json);
   if (!lines.length) return null;
