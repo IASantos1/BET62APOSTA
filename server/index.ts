@@ -12,7 +12,7 @@ const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret =
   process.env.STRIPE_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET || '';
-const stripe = stripeSecretKey ? new Stripe(stripeSecretKey, { apiVersion: '2024-06-20' }) : null;
+const stripe = stripeSecretKey ? new Stripe(stripeSecretKey, { apiVersion: '2024-06-20' as any }) : null;
 
 type User = {
   id: string;
@@ -1561,9 +1561,13 @@ const server = http.createServer(async (req, res) => {
       const topBookmaker = Number(urlObj.searchParams.get('topBookmaker') || '14') || 14;
 
       const normalizeSport = (s: string) => {
-        const v = String(s || '').toLowerCase().trim();
-        if (v === 'football' || v === 'futebol') return 'soccer';
-        if (v === 'hockey' || v === 'icehockey' || v === 'ice_hockey') return 'ice-hockey';
+        const v0 = String(s || '').toLowerCase().trim();
+        const v1 = (v0.split(',')[0] || '').split('|')[0] || '';
+        const v = v1.replace(/[_\s]+/g, '-').trim();
+        if (v === 'football' || v === 'futebol' || v === 'soccer') return 'soccer';
+        if (v === 'hockey' || v === 'icehockey' || v === 'ice_hockey' || v === 'ice-hockey') return 'ice-hockey';
+        if (v.startsWith('basketball')) return 'basketball';
+        if (v.startsWith('tennis')) return 'tennis';
         return v;
       };
       const sport = normalizeSport(sportRaw);
@@ -1646,9 +1650,13 @@ const server = http.createServer(async (req, res) => {
       const wantsOdds = include.split(',').map((s) => s.trim()).includes('odds');
 
       const normalizeSport = (s: string) => {
-        const v = String(s || '').toLowerCase().trim();
-        if (v === 'football' || v === 'futebol') return 'soccer';
-        if (v === 'hockey' || v === 'icehockey' || v === 'ice_hockey') return 'ice-hockey';
+        const v0 = String(s || '').toLowerCase().trim();
+        const v1 = (v0.split(',')[0] || '').split('|')[0] || '';
+        const v = v1.replace(/[_\s]+/g, '-').trim();
+        if (v === 'football' || v === 'futebol' || v === 'soccer') return 'soccer';
+        if (v === 'hockey' || v === 'icehockey' || v === 'ice_hockey' || v === 'ice-hockey') return 'ice-hockey';
+        if (v.startsWith('basketball')) return 'basketball';
+        if (v.startsWith('tennis')) return 'tennis';
         return v;
       };
 
@@ -1798,7 +1806,7 @@ const server = http.createServer(async (req, res) => {
                 ev.home_odd = odds.home;
                 ev.draw_odd = odds.draw;
                 ev.away_odd = odds.away;
-                ev.markets = odds.markets || {};
+                ev.markets = JSON.stringify(odds.markets || {});
               }
               continue;
             }
@@ -1809,7 +1817,7 @@ const server = http.createServer(async (req, res) => {
               ev.home_odd = v1Odds.home;
               ev.draw_odd = v1Odds.draw;
               ev.away_odd = v1Odds.away;
-              ev.markets = v1Odds.markets || {};
+              ev.markets = JSON.stringify(v1Odds.markets || {});
               continue;
             }
 
@@ -1828,7 +1836,7 @@ const server = http.createServer(async (req, res) => {
               ev.home_odd = odds.home;
               ev.draw_odd = odds.draw;
               ev.away_odd = odds.away;
-              ev.markets = odds.markets || {};
+              ev.markets = JSON.stringify(odds.markets || {});
               continue;
             }
             let odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team });
@@ -1858,7 +1866,7 @@ const server = http.createServer(async (req, res) => {
             ev.home_odd = odds.home;
             ev.draw_odd = odds.draw;
             ev.away_odd = odds.away;
-            ev.markets = odds.markets || {};
+            ev.markets = JSON.stringify(odds.markets || {});
           }
         });
         await Promise.all(workers);

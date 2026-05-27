@@ -17,15 +17,26 @@ function apiHeaders(apiKey: string): HeadersInit {
   };
 }
 
+function normalizeSportKey(sport: string): string {
+  const raw = String(sport || '').toLowerCase().trim();
+  const primary = raw.split(',')[0]?.split('|')[0] ?? '';
+  return primary
+    .replace(/[_\s]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+}
+
 function toSubdomain(sport: string): string {
-  const s = String(sport || '').toLowerCase().trim();
-  if (s === 'soccer') return 'football';
-  if (s === 'ice-hockey') return 'hockey';
-  return s;
+  const s = normalizeSportKey(sport);
+  if (s === 'football' || s === 'futebol' || s === 'soccer') return 'football';
+  if (s === 'hockey' || s === 'icehockey' || s === 'ice-hockey') return 'hockey';
+  return s || 'football';
 }
 
 function toSportId(sport: string): number {
-  const s = String(sport || '').toLowerCase().trim();
+  const s = normalizeSportKey(sport);
   if (s === 'soccer') return 1;
   if (s === 'basketball') return 2;
   if (s === 'tennis') return 3;
