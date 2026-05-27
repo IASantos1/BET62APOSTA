@@ -88,7 +88,7 @@ export async function runSportsSync(
 
   // ── Outros desportos: só no full sync ─────────────────────────────
   if (sportsApiProKey && isFullSync) {
-    for (const sport of ['basketball', 'tennis', 'ice-hockey']) {
+    for (const sport of ['basketball', 'tennis', 'ice-hockey', 'baseball']) {
       try {
         const count = await syncSportSportsApiPro(env, sportsApiProKey, sport);
         if (count > 0) { totalSynced += count; syncedSports.push(`${sport}:sportsapipro`); }
@@ -287,6 +287,22 @@ async function syncSoccerSportsApiPro(env: Env, apiKey: string, isFullSync: bool
 
   if (!merged.length) return 0;
 
+  const providerPreferredRaw = Number((env as any)?.SPORTSAPI_PRO_TOP_BOOKMAKER ?? (env as any)?.SPORTSAPI_PRO_PROVIDER ?? 14);
+  const providerPreferred = Number.isFinite(providerPreferredRaw) && providerPreferredRaw > 0 ? providerPreferredRaw : 14;
+  const providers = Array.from(new Set([providerPreferred, 1])).filter((x) => Number.isFinite(x) && x > 0);
+  const scopes: Array<'featured' | 'all'> = ['featured', 'all'];
+  const fetchWithFallback = async (sport: string, matchId: string, ev: NormalizedEvent) => {
+    for (const provider of providers) {
+      for (const scope of scopes) {
+        const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope, provider, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+        if (!odds) continue;
+        const any = (odds.home > 1) || Object.keys(odds.markets || {}).length > 0;
+        if (any) return odds;
+      }
+    }
+    return null;
+  };
+
   try {
     const ordered = [...merged].sort((a, b) => {
       const al = Number(a.is_live || 0);
@@ -306,7 +322,7 @@ async function syncSoccerSportsApiPro(env: Env, apiKey: string, isFullSync: bool
         const ev = targets[idx++];
         const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
         if (!matchId) continue;
-        const odds = await fetchSportsApiProMatchOdds(apiKey, 'soccer', matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
+        const odds = await fetchWithFallback('soccer', matchId, ev);
         if (!odds || (!(odds.home > 1) && Object.keys(odds.markets || {}).length === 0)) continue;
         ev.home_odd = odds.home;
         ev.draw_odd = odds.draw;
@@ -388,6 +404,22 @@ async function syncSportSportsApiPro(env: Env, apiKey: string, sport: string): P
 
   if (!merged.length) return 0;
 
+  const providerPreferredRaw = Number((env as any)?.SPORTSAPI_PRO_TOP_BOOKMAKER ?? (env as any)?.SPORTSAPI_PRO_PROVIDER ?? 14);
+  const providerPreferred = Number.isFinite(providerPreferredRaw) && providerPreferredRaw > 0 ? providerPreferredRaw : 14;
+  const providers = Array.from(new Set([providerPreferred, 1])).filter((x) => Number.isFinite(x) && x > 0);
+  const scopes: Array<'featured' | 'all'> = ['featured', 'all'];
+  const fetchWithFallback = async (matchId: string, ev: NormalizedEvent) => {
+    for (const provider of providers) {
+      for (const scope of scopes) {
+        const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope, provider, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+        if (!odds) continue;
+        const any = (odds.home > 1) || Object.keys(odds.markets || {}).length > 0;
+        if (any) return odds;
+      }
+    }
+    return null;
+  };
+
   try {
     const ordered = [...merged].sort((a, b) => {
       const al = Number(a.is_live || 0);
@@ -407,7 +439,7 @@ async function syncSportSportsApiPro(env: Env, apiKey: string, sport: string): P
         const ev = targets[idx++];
         const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
         if (!matchId) continue;
-        const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
+        const odds = await fetchWithFallback(matchId, ev);
         if (!odds || (!(odds.home > 1) && Object.keys(odds.markets || {}).length === 0)) continue;
         ev.home_odd = odds.home;
         ev.draw_odd = odds.draw;

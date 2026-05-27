@@ -365,6 +365,16 @@ export function SubOddsModel({
       const raw = (eventOdds && (eventOdds as any)[key]);
       if (raw && raw.sub_category) return raw.sub_category;
 
+      const periodKey = /^period_(\d)_(h2h|totals)$/.exec(key);
+      if (periodKey) {
+        const n = Number(periodKey[1]);
+        const kind = periodKey[2];
+        if (n >= 1 && n <= 3) {
+          if (kind === 'h2h') return `${n}º Período - Vencedor`;
+          if (kind === 'totals') return `${n}º Período - Totais`;
+        }
+      }
+
       if (key === 'h2h') {
           const s = (sport || '').toLowerCase();
           if (s.includes('rugby') || s.includes('union') || s.includes('league')) return 'Vencedor da Partida';
@@ -388,7 +398,6 @@ export function SubOddsModel({
       return MARKET_CONFIG[key]?.title || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
 
-  const spreadsItems = useMemo(() => getMarketItems('spreads'), [eventOdds, markets, normalizedMarkets])
   const totalsItems = useMemo(() => getMarketItems('totals'), [eventOdds, markets, normalizedMarkets])
   const bttsItems = useMemo(() => {
     const raw = getMarketItems('btts')
@@ -621,9 +630,9 @@ export function SubOddsModel({
           );
       }
 
-      // Spreads/Handicap
-      if (key === 'spreads' || key === 'handicap') {
-          const baseItems = key === 'handicap' ? getMarketItems('handicap') : spreadsItems
+      // Spreads/Handicap (inclui Puck Line / Run Line)
+      if (key === 'spreads' || key === 'handicap' || key === 'puck_line' || key === 'run_line') {
+          const baseItems = getMarketItems(key)
           if (baseItems.length === 0) return null;
           const title = getMarketTitle(key, event?.sport);
           const susp = getSuspendedReason(key);
@@ -632,8 +641,11 @@ export function SubOddsModel({
             const l = String(s || '')
             const numM = /([+-]?\s*[0-9]+(?:\.[0-9]+)?|[+-]?\s*[0-9]+(?:,[0-9]+)?)/.exec(l)
             const val = numM ? Number(String(numM[1]).replace(',', '.').replace(/\s+/g,'')) : NaN
-            const isHome = /casa|home/i.test(l)
-            const isAway = /fora|away/i.test(l)
+            const hk = String(home || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+            const ak = String(away || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+            const lk = l.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+            const isHome = /casa|home/i.test(l) || (hk && lk.includes(hk))
+            const isAway = /fora|away/i.test(l) || (ak && lk.includes(ak))
             const team = isHome ? 'home' : (isAway ? 'away' : '')
             return { team, val }
           }
@@ -717,8 +729,8 @@ export function SubOddsModel({
           );
       }
 
-      // Totals (gols, cantos, cartões)
-      if (key === 'totals' || key === 'corners_total' || key === 'cards_total' || key === 'goals_total' || key === 'team_totals') {
+      // Totals (gols, cantos, cartões, períodos/quartos/innings)
+      if (key === 'totals' || key === 'corners_total' || key === 'cards_total' || key === 'goals_total' || key === 'team_totals' || /_totals$/.test(key) || /_total$/.test(key)) {
           if (totalsItems.length === 0 && (key !== 'totals' ? getMarketItems(key).length === 0 : true)) return null;
           
           const targetItems = key === 'totals' ? totalsItems : getMarketItems(key);
@@ -1070,6 +1082,16 @@ export function SubOddsModel({
           return FIXED_TABS;
       }
 
+      const isBasketball = s.includes('basketball') || s.includes('basquete') || s.includes('nba');
+      const isTennis = s.includes('tennis') || s.includes('tênis') || s.includes('atp') || s.includes('wta');
+      const isBaseball = s.includes('baseball') || s.includes('beisebol') || s.includes('mlb');
+      const isIceHockey = s.includes('ice hockey') || s.includes('hóquei') || s.includes('nhl');
+
+      if (isBasketball) return BASKETBALL_GROUPS;
+      if (isTennis) return TENNIS_GROUPS;
+      if (isBaseball) return BASEBALL_GROUPS;
+      if (isIceHockey) return ICE_HOCKEY_GROUPS;
+
       const keysWithCategory = Object.keys(eventOdds || {}).filter(k => {
           if (k === 'main' || k === '1x2' || k === 'match_winner' || k === 'spreads') return false;
           return !!(eventOdds as any)[k]?.category;
@@ -1108,28 +1130,20 @@ export function SubOddsModel({
           return groups;
       }
 
-      const isBasketball = s.includes('basketball') || s.includes('basquete') || s.includes('nba');
-      const isTennis = s.includes('tennis') || s.includes('tênis') || s.includes('atp') || s.includes('wta');
       const isVolleyball = s.includes('volleyball') || s.includes('vôlei') || s.includes('volei');
       const isAFL = s.includes('afl') || s.includes('australian football') || s.includes('futebol australiano');
-      const isBaseball = s.includes('baseball') || s.includes('beisebol') || s.includes('mlb');
       const isF1 = s.includes('formula 1') || s.includes('f1') || s.includes('formula one') || s.includes('automobilismo') || s.includes('motor sports');
       const isAmericanFootball = s.includes('american football') || s.includes('futebol americano') || s.includes('nfl');
       const isHandball = s.includes('handball') || s.includes('handebol');
-      const isIceHockey = s.includes('ice hockey') || s.includes('hóquei') || s.includes('nhl');
       const isMMA = s.includes('mma') || s.includes('ufc') || s.includes('mixed martial arts') || s.includes('luta');
       const isRugby = s.includes('rugby') || s.includes('union') || s.includes('league');
       
       let BASE_GROUPS = MARKET_GROUPS;
-      if (isBasketball) BASE_GROUPS = BASKETBALL_GROUPS;
-      else if (isTennis) BASE_GROUPS = TENNIS_GROUPS;
-      else if (isVolleyball) BASE_GROUPS = VOLLEYBALL_GROUPS;
+      if (isVolleyball) BASE_GROUPS = VOLLEYBALL_GROUPS;
       else if (isAFL) BASE_GROUPS = AFL_GROUPS;
-      else if (isBaseball) BASE_GROUPS = BASEBALL_GROUPS;
       else if (isF1) BASE_GROUPS = FORMULA1_GROUPS;
       else if (isAmericanFootball) BASE_GROUPS = AMERICAN_FOOTBALL_GROUPS;
       else if (isHandball) BASE_GROUPS = HANDBALL_GROUPS;
-      else if (isIceHockey) BASE_GROUPS = ICE_HOCKEY_GROUPS;
       else if (isMMA) BASE_GROUPS = MMA_GROUPS;
       else if (isRugby) BASE_GROUPS = RUGBY_GROUPS;
 

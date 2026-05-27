@@ -186,61 +186,22 @@ export const MARKET_GROUPS = [
 ];
 
 export const BASKETBALL_GROUPS = [
-    {
-        title: "Mercado Raiz",
-        keys: ["h2h", "spreads", "handicap", "totals"]
-    },
-    {
-        title: "Escada de Totais",
-        keys: ["totals"] // If specific alternative totals exist, add here. For now 'totals' covers all.
-    },
-    {
-        title: "Mercados de Pontos",
-        keys: ["team_totals", "winning_margin", "winning_margin_10+", "margin", "race_to", "first_to_score"]
-    },
-    {
-        title: "Mercados Temporais",
-        keys: ["halves_h2h", "halves_totals", "half_time_full_time", "quarters_h2h", "quarters_totals", "quarter_point_diff"]
-    },
-    {
-        title: "Mercados de Ritmo",
-        keys: ["race_to", "first_to_score", "highest_scoring_quarter", "will_there_be_overtime"]
-    },
-    {
-        title: "Mercados de Jogadores",
-        keys: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_double_double", "player_props"]
-    },
-    {
-        title: "Mercados Especiais",
-        keys: ["match_parlay", "team_parlay"]
-    }
+  { title: "Todos", keys: ["h2h","totals","team_totals","spreads","handicap","quarters_h2h","quarters_totals","quarter_point_diff","halves_h2h","halves_totals","race_to","first_to_score","player_points","player_rebounds","player_assists","player_threes","player_double_double","player_props","match_parlay","team_parlay"] },
+  { title: "Vencedor", keys: ["h2h"] },
+  { title: "Totais", keys: ["totals","team_totals"] },
+  { title: "Spread", keys: ["spreads","handicap"] },
+  { title: "Quartos", keys: ["quarters_h2h","quarters_totals","quarter_point_diff"] },
+  { title: "Times", keys: ["team_totals","race_to","first_to_score","team_parlay","match_parlay"] }
 ];
 
 export const TENNIS_GROUPS = [
-    {
-        title: "Mercado Raiz",
-        keys: ["h2h", "spreads", "handicap", "totals"]
-    },
-    {
-        title: "Escada de Totais",
-        keys: ["totals", "match_total_games"]
-    },
-    {
-        title: "Mercados de Sets",
-        keys: ["correct_score", "sets_winner", "sets_h2h", "total_sets", "over_under_sets", "player_to_win_a_set"]
-    },
-    {
-        title: "Mercados de Games por Set",
-        keys: ["first_set_winner", "second_set_winner", "set_total_games", "first_set_total", "tie_break", "tie_breaks"]
-    },
-    {
-        title: "Handicaps Estruturais",
-        keys: ["sets_handicap", "winning_margin"]
-    },
-    {
-        title: "Mercados Especiais",
-        keys: ["tie_break", "total_aces", "total_double_faults", "break_points", "to_qualify"]
-    }
+  { title: "Todos", keys: ["h2h","set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","total_sets","over_under_sets","player_to_win_a_set","to_win_a_set","spreads","handicap","sets_handicap","totals","match_total_games","set_total_games","player_games","correct_score","score_exact","tie_break","tie_breaks","total_aces","aces_total","double_faults_total","break_points","to_qualify"] },
+  { title: "Vencedor", keys: ["h2h"] },
+  { title: "Sets", keys: ["set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","total_sets","over_under_sets","player_to_win_a_set","to_win_a_set"] },
+  { title: "Handicap", keys: ["sets_handicap","spreads","handicap"] },
+  { title: "Jogos", keys: ["totals","match_total_games","set_total_games","player_games"] },
+  { title: "Placar Exato", keys: ["correct_score","score_exact"] },
+  { title: "Especiais", keys: ["tie_break","tie_breaks","total_aces","aces_total","double_faults_total","break_points","to_qualify"] }
 ];
 
 export const VOLLEYBALL_GROUPS = [
@@ -298,30 +259,10 @@ export const AFL_GROUPS = [
 ];
 
 export const BASEBALL_GROUPS = [
-    {
-        title: "Mercado Raiz",
-        keys: ["h2h", "spreads", "handicap", "totals"]
-    },
-    {
-        title: "Escada de Totais",
-        keys: ["totals"]
-    },
-    {
-        title: "Mercados de Resultado",
-        keys: ["double_chance", "winning_margin", "inning_winner", "result_1st_inning"]
-    },
-    {
-        title: "Mercados de Runs",
-        keys: ["team_totals", "race_to", "first_to_score", "extra_innings", "run_range"]
-    },
-    {
-        title: "Mercados Temporais",
-        keys: ["innings_h2h", "innings_totals", "highest_scoring_inning", "runs_per_inning"]
-    },
-    {
-        title: "Handicaps Estruturais",
-        keys: ["spreads", "handicap", "winning_margin", "inning_handicap"]
-    }
+  { title: "Todos", keys: ["h2h","totals","team_totals","run_line","spreads","handicap","innings_h2h","innings_totals","inning_winner","result_1st_inning","race_to","first_to_score","extra_innings","run_range","winning_margin","player_runs","player_hits","player_home_runs","player_strikeouts","player_rbi"] },
+  { title: "Resultado", keys: ["h2h","inning_winner","result_1st_inning","winning_margin"] },
+  { title: "Corridas", keys: ["totals","team_totals","innings_totals","race_to","run_range"] },
+  { title: "Run Line", keys: ["run_line","spreads","handicap"] }
 ];
 
 export const FORMULA1_GROUPS = [
@@ -406,30 +347,14 @@ export const HANDBALL_GROUPS = [
 ];
 
 export const ICE_HOCKEY_GROUPS = [
-    {
-        title: "Mercado Raiz",
-        keys: ["h2h", "spreads", "puck_line", "handicap", "totals"]
-    },
-    {
-        title: "Escada de Totais",
-        keys: ["totals"]
-    },
-    {
-        title: "Mercados de Resultado",
-        keys: ["h2h", "spreads", "double_chance", "periods_h2h", "half_time_full_time", "winning_margin"]
-    },
-    {
-        title: "Mercados de Gols",
-        keys: ["totals", "team_totals", "goals_range", "first_to_score", "periods_totals"]
-    },
-    {
-        title: "Mercados Temporais",
-        keys: ["periods_h2h", "periods_totals", "first_to_score", "highest_scoring_period"]
-    },
-    {
-        title: "Handicaps Estruturais",
-        keys: ["spreads", "puck_line", "handicap", "period_handicap", "winning_margin"]
-    }
+  { title: "Todos", keys: ["h2h","totals","puck_line","spreads","handicap","team_totals","period_h2h","period_totals","period_1_h2h","period_2_h2h","period_3_h2h","period_1_totals","period_2_totals","period_3_totals","double_chance","first_to_score","highest_scoring_period","shots_on_goal","penalty_minutes","power_play_goals","winning_margin"] },
+  { title: "Vencedor", keys: ["h2h"] },
+  { title: "Totais", keys: ["totals","team_totals","period_totals","period_1_totals","period_2_totals","period_3_totals"] },
+  { title: "Puck Line", keys: ["puck_line","spreads","handicap"] },
+  { title: "1º Per.", keys: ["period_1_h2h","period_1_totals"] },
+  { title: "2º Per.", keys: ["period_2_h2h","period_2_totals"] },
+  { title: "3º Per.", keys: ["period_3_h2h","period_3_totals"] },
+  { title: "Especiais", keys: ["double_chance","winning_margin","first_to_score","highest_scoring_period","shots_on_goal","penalty_minutes","power_play_goals"] }
 ];
 
 export const MMA_GROUPS = [

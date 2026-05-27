@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/react-app/contexts/AppContext'
 import { BetSlip } from '@/react-app/components/BetSlip'
 import FootballPitchAnimation from '@/react-app/components/FootballPitchAnimation'
-import LiveMomentumGraph from '@/react-app/components/LiveMomentumGraph'
+import LiveMomentumSticksGraph from '@/react-app/components/LiveMomentumSticksGraph'
 import MatchTracker from '@/react-app/components/MatchTracker'
 import { Sidebar } from '@/react-app/components/Sidebar'
 import { useLiveFeed } from '@/react-app/hooks/useLiveFeed'
@@ -322,7 +322,7 @@ export default function EventStatsPage() {
 
           {activeTab === 'dominance' && (
             <div className="space-y-3">
-              <LiveMomentumGraph
+              <LiveMomentumSticksGraph
                 darkMode={darkMode}
                 stats={(() => {
                   const st = liveStats.stats
@@ -470,4 +470,3 @@ export default function EventStatsPage() {
     </div>
   )
 }
-

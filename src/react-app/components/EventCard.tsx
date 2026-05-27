@@ -156,6 +156,8 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     const s1 = readSetPair(setsRoot.s1 || setsRoot.set1);
     const s2 = readSetPair(setsRoot.s2 || setsRoot.set2);
     const s3 = readSetPair(setsRoot.s3 || setsRoot.set3);
+    const s4 = readSetPair(setsRoot.s4 || setsRoot.set4);
+    const s5 = readSetPair(setsRoot.s5 || setsRoot.set5);
 
     const normalizePoint = (v: any): '15' | '30' | '40' | 'AD' | null => {
       const s = String(v ?? '').trim().toUpperCase();
@@ -173,9 +175,11 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     const hasAnySet =
       s1.home != null || s1.away != null ||
       s2.home != null || s2.away != null ||
-      s3.home != null || s3.away != null;
+      s3.home != null || s3.away != null ||
+      s4.home != null || s4.away != null ||
+      s5.home != null || s5.away != null;
 
-    return { hasAnySet, s1, s2, s3, pHome, pAway };
+    return { hasAnySet, s1, s2, s3, s4, s5, pHome, pAway };
   }, [event, sport]);
 
   // useTrend hook imported from @/react-app/hooks/useTrend
@@ -380,7 +384,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                 {(() => {
                   const Row = ({ name, side }: { name: string; side: 'home' | 'away' }) => {
                     const showSets = !!tennisScore?.hasAnySet;
-                    const sets = tennisScore ? [tennisScore.s1, tennisScore.s2, tennisScore.s3] : [];
+                    const sets = tennisScore ? [tennisScore.s1, tennisScore.s2, tennisScore.s3, tennisScore.s4, tennisScore.s5] : [];
                     const point = side === 'home' ? tennisScore?.pHome : tennisScore?.pAway;
 
                     return (
@@ -407,6 +411,28 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
 
                   return (
                     <>
+                      {!!tennisScore?.hasAnySet && (
+                        <div className="flex items-center justify-end gap-1.5 tabular-nums">
+                          {(() => {
+                            const sets = [tennisScore.s1, tennisScore.s2, tennisScore.s3, tennisScore.s4, tennisScore.s5];
+                            let last = 0;
+                            for (let i = 0; i < sets.length; i++) {
+                              const s = sets[i];
+                              if (!s) continue;
+                              if (s.home != null || s.away != null) last = i + 1;
+                            }
+                            const count = Math.max(2, Math.min(5, last + 1));
+                            return Array.from({ length: count }, (_, i) => i + 1);
+                          })().map((n) => (
+                            <span key={n} className={`w-4 text-right text-[10px] font-black ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                              S{n}
+                            </span>
+                          ))}
+                          {isLiveEvent && (tennisScore?.pHome || tennisScore?.pAway) && (
+                            <span className={`ml-1 text-[10px] font-black ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>PTS</span>
+                          )}
+                        </div>
+                      )}
                       <Row name={homeTeamName} side="home" />
                       <Row name={awayTeamName} side="away" />
                     </>
@@ -434,7 +460,20 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                   if (m3) return Number(m3[1]);
                   return 0;
                 })();
-                const setLabel = setNumFromStatus >= 1 && setNumFromStatus <= 5 ? `${setNumFromStatus}º SET` : '';
+                const setNumFromScore = (() => {
+                  if (!tennisScore) return 0;
+                  const sets = [tennisScore.s1, tennisScore.s2, tennisScore.s3, tennisScore.s4, tennisScore.s5];
+                  let last = 0;
+                  for (let i = 0; i < sets.length; i++) {
+                    const s = sets[i];
+                    if (!s) continue;
+                    if (s.home != null || s.away != null) last = i + 1;
+                  }
+                  if (last === 0) return 1;
+                  return Math.min(5, last + 1);
+                })();
+                const setNum = setNumFromStatus || setNumFromScore;
+                const setLabel = setNum >= 1 && setNum <= 5 ? `${setNum}º SET` : '';
 
                 return (
                   <span className="flex flex-col items-center shrink-0 px-1 gap-0.5">

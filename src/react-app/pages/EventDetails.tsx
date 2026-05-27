@@ -252,6 +252,56 @@ export default function EventDetails() {
             const g = parseGoals(displayEvent.goals);
             const homeTeam = cleanTeam(displayEvent.home_team);
             const awayTeam = cleanTeam(displayEvent.away_team);
+            const sportKey = String((displayEvent as any)?.sport || '').toLowerCase();
+            const isTennis = sportKey.includes('tennis') || sportKey.includes('tênis') || sportKey.includes('tenis');
+
+            const tennisScore = (() => {
+              if (!isTennis) return null;
+              const raw = (displayEvent as any)?.score;
+              let obj: any = null;
+              if (typeof raw === 'string') {
+                const str = raw.trim();
+                if (str && (str.startsWith('{') || str.startsWith('['))) {
+                  try { obj = JSON.parse(str); } catch { obj = null; }
+                }
+              } else if (raw && typeof raw === 'object') {
+                obj = raw;
+              }
+              if (!obj || typeof obj !== 'object') return null;
+
+              const toNumOrNull = (v: any): number | null => {
+                const n = Number(v);
+                return Number.isFinite(n) ? n : null;
+              };
+              const readSetPair = (v: any): { home: number | null; away: number | null } => {
+                if (!v || typeof v !== 'object') return { home: null, away: null };
+                return { home: toNumOrNull(v.home), away: toNumOrNull(v.away) };
+              };
+              const setsRoot = obj.sets || obj.set || {};
+              const sets = [
+                readSetPair(setsRoot.s1 || setsRoot.set1),
+                readSetPair(setsRoot.s2 || setsRoot.set2),
+                readSetPair(setsRoot.s3 || setsRoot.set3),
+                readSetPair(setsRoot.s4 || setsRoot.set4),
+                readSetPair(setsRoot.s5 || setsRoot.set5),
+              ];
+              let last = 0;
+              for (let i = 0; i < sets.length; i++) {
+                const s = sets[i];
+                if (s.home != null || s.away != null) last = i + 1;
+              }
+              const currentSet = last === 0 ? 1 : Math.min(5, last + 1);
+              const count = Math.max(2, Math.min(5, currentSet));
+              return { sets, count, currentSet };
+            })();
+
+            const tennisSetLabel = (() => {
+              if (!isTennis || !isLive) return '';
+              const m = /^S(\d)$/.exec(statusKey);
+              const fromStatus = m ? Number(m[1]) : 0;
+              const n = fromStatus || tennisScore?.currentSet || 0;
+              return n >= 1 && n <= 5 ? `${n}º SET` : '';
+            })();
             return (
               <div className={`relative rounded-xl overflow-hidden mb-4 px-4 py-5 flex flex-col items-center gap-2 ${darkMode ? 'bg-gray-800' : 'bg-white'} border ${darkMode ? 'border-gray-700' : 'border-gray-200'} shadow`}>
                 {isLive && (
@@ -260,7 +310,7 @@ export default function EventDetails() {
                       <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-red-500 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
                     </span>
-                    <span className="text-[11px] font-black text-red-600 uppercase tracking-widest">Ao Vivo</span>
+                    <span className="text-[11px] font-black text-red-600 uppercase tracking-widest">{tennisSetLabel || 'Ao Vivo'}</span>
                     {statusShort && <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'} uppercase`}>{statusShort}</span>}
                     {(liveTimer || liveElapsed > 0) && (
                       <span className="text-[11px] font-bold bg-red-600 text-white px-2 py-0.5 rounded">
@@ -296,7 +346,30 @@ export default function EventDetails() {
                   </div>
                   <div className="flex flex-col items-center">
                     {isLive ? (
-                      <span className={`font-black text-3xl md:text-4xl tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>{g.home} - {g.away}</span>
+                      isTennis && tennisScore ? (
+                        <div className={`rounded-xl overflow-hidden border ${darkMode ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'} w-full max-w-[420px]`}>
+                          <div className={`grid items-center ${tennisScore.count === 2 ? 'grid-cols-[1fr_auto_auto]' : tennisScore.count === 3 ? 'grid-cols-[1fr_auto_auto_auto]' : tennisScore.count === 4 ? 'grid-cols-[1fr_auto_auto_auto_auto]' : 'grid-cols-[1fr_auto_auto_auto_auto_auto]'} px-3 py-2 gap-x-2`}>
+                            <div />
+                            {Array.from({ length: tennisScore.count }, (_, i) => (
+                              <div key={i} className={`text-[10px] font-black text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>S{i + 1}</div>
+                            ))}
+                            <div className={`text-sm font-black truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{homeTeam}</div>
+                            {Array.from({ length: tennisScore.count }, (_, i) => (
+                              <div key={i} className={`text-sm font-black text-center tabular-nums ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                                {tennisScore.sets[i]?.home ?? ''}
+                              </div>
+                            ))}
+                            <div className={`text-sm font-black truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{awayTeam}</div>
+                            {Array.from({ length: tennisScore.count }, (_, i) => (
+                              <div key={i} className={`text-sm font-black text-center tabular-nums ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                                {tennisScore.sets[i]?.away ?? ''}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className={`font-black text-3xl md:text-4xl tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>{g.home} - {g.away}</span>
+                      )
                     ) : (
                       <span className={`font-black text-xl ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>VS</span>
                     )}

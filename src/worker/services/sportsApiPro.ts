@@ -361,6 +361,47 @@ function normalizeTeamKey(name: string): string {
     .trim();
 }
 
+function tokenizeName(input: string): string[] {
+  const s = normalizeTeamKey(input);
+  if (!s) return [];
+  return s.split(' ').filter(Boolean);
+}
+
+function tokenSetSimilarity(a: string, b: string): number {
+  const ta = new Set(tokenizeName(a));
+  const tb = new Set(tokenizeName(b));
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let inter = 0;
+  for (const t of ta) if (tb.has(t)) inter++;
+  const union = ta.size + tb.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+function canonicalTennisTeamKey(input: string): string {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+  const normalized = raw
+    .replace(/&/g, '/')
+    .replace(/\+/g, '/')
+    .replace(/\band\b/gi, '/')
+    .replace(/\s*-\s*/g, '/')
+    .replace(/\s*\/\s*/g, '/');
+  const parts = normalized.split('/').map((p) => p.trim()).filter(Boolean);
+  if (parts.length <= 1) return normalizeTeamKey(raw);
+  const playerKey = (p: string) => {
+    const s = String(p || '').trim();
+    const swapped = s.includes(',') ? s.split(',').reverse().join(' ') : s;
+    const tokens = tokenizeName(swapped);
+    if (tokens.length === 0) return '';
+    const last = tokens[tokens.length - 1];
+    const first = tokens[0];
+    const fi = first ? first[0] : '';
+    return `${last}${fi ? `_${fi}` : ''}`;
+  };
+  const keys = parts.map(playerKey).filter(Boolean).sort();
+  return keys.join('__');
+}
+
 function parseOdd(x: any): number {
   const n = typeof x === 'string' ? Number(x) : Number(x);
   return Number.isFinite(n) ? n : 0;
@@ -428,6 +469,14 @@ function marketKeyFromLineName(raw: string): string {
   const n = normalizeLineName(raw);
   if (!n) return '';
 
+  const periodNum = (() => {
+    if (!n.includes('period') && !n.includes('período') && !n.includes('periodo') && !n.includes('per')) return 0;
+    if (/\b1st\b|\bfirst\b|\b1º\b|\b1o\b/.test(n)) return 1;
+    if (/\b2nd\b|\bsecond\b|\b2º\b|\b2o\b/.test(n)) return 2;
+    if (/\b3rd\b|\bthird\b|\b3º\b|\b3o\b/.test(n)) return 3;
+    return 0;
+  })();
+
   const isWinner =
     n.includes('1x2') ||
     n.includes('moneyline') ||
@@ -464,6 +513,9 @@ function marketKeyFromLineName(raw: string): string {
   if (isTotals) return n.includes('alternate') || n.includes('alt') ? 'alternate_totals' : 'totals';
 
   if (n.includes('asian handicap')) return 'spreads';
+  if (n.includes('puck line')) return 'puck_line';
+  if (n.includes('run line')) return 'run_line';
+  if (n.includes('point spread') || n === 'spread') return 'spreads';
   if (isHandicap) return 'handicap';
 
   if (n.includes('corners') && (n.includes('total') || n.includes('over/under'))) return 'corners_totals';
@@ -474,8 +526,18 @@ function marketKeyFromLineName(raw: string): string {
   if (n.includes('total games')) return 'match_total_games';
   if (n.includes('sets handicap')) return 'sets_handicap';
 
-  if (n.includes('period') && (n.includes('winner') || n.includes('result'))) return 'period_h2h';
-  if (n.includes('period') && (n.includes('total') || n.includes('over/under'))) return 'period_totals';
+  if ((n.includes('period') || n.includes('período') || n.includes('periodo')) && (n.includes('winner') || n.includes('result'))) {
+    return periodNum >= 1 ? `period_${periodNum}_h2h` : 'period_h2h';
+  }
+  if ((n.includes('period') || n.includes('período') || n.includes('periodo')) && (n.includes('total') || n.includes('over/under'))) {
+    return periodNum >= 1 ? `period_${periodNum}_totals` : 'period_totals';
+  }
+
+  if (n.includes('quarter') && (n.includes('winner') || n.includes('result'))) return 'quarters_h2h';
+  if (n.includes('quarter') && (n.includes('total') || n.includes('over/under'))) return 'quarters_totals';
+
+  if (n.includes('inning') && (n.includes('winner') || n.includes('result'))) return 'innings_h2h';
+  if (n.includes('inning') && (n.includes('total') || n.includes('over/under'))) return 'innings_totals';
 
   return snakeKey(n);
 }
@@ -582,17 +644,24 @@ export async function fetchSportsApiProMatchOdds(
     append(marketName, m, outcomes);
   }
 
-  const homeKey = normalizeTeamKey(String(opts?.homeTeam || ''));
-  const awayKey = normalizeTeamKey(String(opts?.awayTeam || ''));
+  const isTennis = normalizeSportKey(sport) === 'tennis';
+  const homeKey = isTennis ? canonicalTennisTeamKey(String(opts?.homeTeam || '')) : normalizeTeamKey(String(opts?.homeTeam || ''));
+  const awayKey = isTennis ? canonicalTennisTeamKey(String(opts?.awayTeam || '')) : normalizeTeamKey(String(opts?.awayTeam || ''));
   const h2h = outMarkets.h2h || [];
   for (const s of h2h) {
     const n = normalizeOutcomeName(s?.value);
     const odd = parseOddDecimal(s?.odd);
     if (!(odd > 1)) continue;
-    const nk = normalizeTeamKey(String(s?.value || ''));
+    const nk = isTennis ? canonicalTennisTeamKey(String(s?.value || '')) : normalizeTeamKey(String(s?.value || ''));
     if (n === '1' || n === 'home' || (homeKey && nk && (nk === homeKey || nk.includes(homeKey) || homeKey.includes(nk)))) home = home || odd;
     else if (n === '2' || n === 'away' || (awayKey && nk && (nk === awayKey || nk.includes(awayKey) || awayKey.includes(nk)))) away = away || odd;
     else if (n === 'x' || n === 'draw' || n === 'tie') draw = draw || odd;
+    else if (isTennis && homeKey && awayKey && nk && !(home > 1 && away > 1)) {
+      const sHome = tokenSetSimilarity(nk, homeKey);
+      const sAway = tokenSetSimilarity(nk, awayKey);
+      if (sHome >= 0.75 && sHome >= sAway + 0.06) home = home || odd;
+      else if (sAway >= 0.75 && sAway >= sHome + 0.06) away = away || odd;
+    }
   }
 
   if (!(home > 1) || !(away > 1)) {
