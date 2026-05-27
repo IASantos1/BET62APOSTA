@@ -23,7 +23,7 @@ import { fetchOddsApiEvents, fetchOddsApiMarketsForFixture } from './oddsApi';
 import { upsertOddsApiRaw, upsertUnifiedMatches, upsertUnifiedOddsLatest } from './unified/unifiedStore';
 import { getApiSportsKey, getOddsApiKey, getSportsApiProKey, getStatpalKey } from './env';
 import { fetchAllStatpal } from './statpalApi';
-import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProSchedule } from './sportsApiPro';
+import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProMatchOddsAll, fetchSportsApiProSchedule } from './sportsApiPro';
 
 const FINISHED_STATUSES = [
   'FT', 'AET', 'PEN', 'AWD', 'WO', 'ABD', 'FT_PEN', 'AOT', 'AP',
@@ -292,6 +292,8 @@ async function syncSoccerSportsApiPro(env: Env, apiKey: string, isFullSync: bool
   const providers = Array.from(new Set([providerPreferred, 1])).filter((x) => Number.isFinite(x) && x > 0);
   const scopes: Array<'featured' | 'all'> = ['featured', 'all'];
   const fetchWithFallback = async (sport: string, matchId: string, ev: NormalizedEvent) => {
+    const all = await fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+    if (all && ((all.home > 1) || Object.keys(all.markets || {}).length > 0)) return all;
     for (const provider of providers) {
       for (const scope of scopes) {
         const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope, provider, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
@@ -409,6 +411,8 @@ async function syncSportSportsApiPro(env: Env, apiKey: string, sport: string): P
   const providers = Array.from(new Set([providerPreferred, 1])).filter((x) => Number.isFinite(x) && x > 0);
   const scopes: Array<'featured' | 'all'> = ['featured', 'all'];
   const fetchWithFallback = async (matchId: string, ev: NormalizedEvent) => {
+    const all = await fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+    if (all && ((all.home > 1) || Object.keys(all.markets || {}).length > 0)) return all;
     for (const provider of providers) {
       for (const scope of scopes) {
         const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope, provider, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);

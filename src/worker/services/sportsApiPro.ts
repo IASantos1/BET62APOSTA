@@ -581,6 +581,218 @@ function formatSelectionName(marketKey: string, optionName: string, point: strin
   return base;
 }
 
+function extractOddsAll(payload: any): any[] {
+  if (!payload) return [];
+  if (Array.isArray(payload.odds)) return payload.odds;
+  if (Array.isArray(payload.data?.odds)) return payload.data.odds;
+  if (Array.isArray(payload.data?.lines)) return payload.data.lines;
+  if (Array.isArray(payload.data?.providerOdds?.odds)) return payload.data.providerOdds.odds;
+  return [];
+}
+
+function normalizeLineType(x: any): string {
+  return String(x ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function pickLineValue(x: any): string | null {
+  const v =
+    x?.lineValue ??
+    x?.line_value ??
+    x?.value ??
+    x?.handicap ??
+    x?.handicapValue ??
+    x?.total ??
+    x?.totalValue ??
+    x?.spread ??
+    null;
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s ? s : null;
+}
+
+function hasNumericPointInName(name: string, point: string): boolean {
+  const m = /([+-]?\d+(?:[.,]\d+)?)/.exec(String(name || ''));
+  if (!m) return false;
+  const a = parseFloat(String(m[1]).replace(',', '.'));
+  const b = parseFloat(String(point).replace(',', '.'));
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) < 1e-9;
+}
+
+function marketKeyFromOddsAll(lineType: string, lineName: string): string {
+  const t = normalizeLineType(lineType);
+  const n = normalizeLineName(lineName);
+  if (!t && !n) return '';
+
+  if (t === '1x2' || t === 'threewaymoneyline' || t === 'fulltimeresult') return 'h2h';
+  if (t === 'moneyline' || t === 'matchwinner' || t === 'winner') return 'h2h';
+  if (t === 'doublechance') return 'double_chance';
+  if (t === 'correctscore' || t === 'scoreexact' || t === 'setbetting') return 'correct_score';
+
+  if (t === 'totalgoals' || t === 'overunder' || t === 'asianoverunder') return 'totals';
+  if (t === 'totalpoints' || t === 'totalruns') return 'totals';
+  if (t === 'teamtotalpoints' || t === 'teamtotalruns' || t === 'teamtotalgoals') return 'team_totals';
+
+  if (t === 'asianhandicap' || t === 'pointspread') return 'spreads';
+  if (t === 'handicap' || t === 'europeanhandicap') return 'handicap';
+  if (t === 'puckline') return 'puck_line';
+  if (t === 'runline') return 'run_line';
+
+  if (t === 'totalgames' || t === 'overundergames') return 'match_total_games';
+  if (t === 'gamehandicap') return 'handicap';
+  if (t === 'sethandicap') return 'sets_handicap';
+  if (t === 'totalsets' || t === 'overunderset' || t === 'overunderset' || t === 'overundersets') return 'total_sets';
+
+  const per = (() => {
+    const s = `${t} ${n}`.toLowerCase();
+    if (/firstperiod|1stperiod/.test(s)) return 1;
+    if (/secondperiod|2ndperiod/.test(s)) return 2;
+    if (/thirdperiod|3rdperiod/.test(s)) return 3;
+    return 0;
+  })();
+  if (per >= 1) {
+    if (t.includes('winner') || t.includes('result') || n.includes('winner')) return `period_${per}_h2h`;
+    if (t.includes('total') || t.includes('overunder') || n.includes('total') || n.includes('over/under')) return `period_${per}_totals`;
+  }
+
+  const q = (() => {
+    const s = `${t} ${n}`.toLowerCase();
+    if (/q1|1stquarter|firstquarter/.test(s)) return 1;
+    if (/q2|2ndquarter|secondquarter/.test(s)) return 2;
+    if (/q3|3rdquarter|thirdquarter/.test(s)) return 3;
+    if (/q4|4thquarter|fourthquarter/.test(s)) return 4;
+    return 0;
+  })();
+  if (q >= 1) {
+    if (t.includes('winner') || t.includes('result') || n.includes('winner')) return 'quarters_h2h';
+    if (t.includes('total') || t.includes('overunder') || n.includes('total') || n.includes('over/under')) return 'quarters_totals';
+  }
+
+  const inn = (() => {
+    const s = `${t} ${n}`.toLowerCase();
+    if (!/inning/.test(s)) return 0;
+    const m = /(\d+)(?:st|nd|rd|th)?\s*inning/.exec(s);
+    if (m) {
+      const k = Number(m[1]);
+      return Number.isFinite(k) ? k : 0;
+    }
+    return 1;
+  })();
+  if (inn >= 1) {
+    if (t.includes('winner') || t.includes('result') || n.includes('winner')) return 'innings_h2h';
+    if (t.includes('total') || t.includes('overunder') || n.includes('total') || n.includes('over/under')) return 'innings_totals';
+  }
+
+  return marketKeyFromLineName(`${lineType} ${lineName}`);
+}
+
+export async function fetchSportsApiProMatchOddsAll(
+  apiKey: string,
+  sport: string,
+  matchId: string,
+  opts?: { homeTeam?: string; awayTeam?: string }
+): Promise<{ home: number; draw: number; away: number; markets: Record<string, any[]> } | null> {
+  const sub = toSubdomain(sport);
+  const url = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/all`;
+  const json = await fetchJson(url, apiKey);
+  if (!json) return null;
+
+  const rows = extractOddsAll(json);
+  if (!rows.length) return null;
+
+  const perKey: Record<string, Map<string, { value: string; odd: number; point?: string }>> = {};
+
+  const addSelection = (key: string, value: string, odd: number, point?: string | null) => {
+    if (!key || !value || !(odd > 1)) return;
+    const p = point ? String(point) : '';
+    const mk = perKey[key] || (perKey[key] = new Map());
+    const k = `${normalizeLineName(value)}|${p}`;
+    const prev = mk.get(k);
+    if (!prev || odd > prev.odd) {
+      const out: any = { value, odd };
+      if (p) out.point = p;
+      mk.set(k, out);
+    }
+  };
+
+  for (const row of rows) {
+    const lineType = row?.lineType ?? row?.type ?? row?.line_type ?? '';
+    const lineName = row?.lineName ?? row?.name ?? row?.marketName ?? row?.market ?? '';
+    const key = marketKeyFromOddsAll(String(lineType || ''), String(lineName || ''));
+    if (!key) continue;
+
+    const point = pickLineValue(row);
+    const options = Array.isArray(row?.options) ? row.options : Array.isArray(row?.choices) ? row.choices : [];
+    for (const opt of options) {
+      const rawName = opt?.name ?? opt?.label ?? opt?.option ?? opt?.value ?? '';
+      const odd = parseOddDecimal(opt?.rate ?? opt?.odd ?? opt?.price ?? opt?.decimalValue ?? opt?.decimal ?? opt?.value);
+      const pointForName = point && !hasNumericPointInName(String(rawName || ''), point) ? point : null;
+      const value = formatSelectionName(key, String(rawName || ''), pointForName);
+      addSelection(key, value, odd, point);
+    }
+  }
+
+  const outMarkets: Record<string, any[]> = {};
+  let anyOdd = false;
+  for (const [key, mp] of Object.entries(perKey)) {
+    const arr = Array.from(mp.values());
+    if (arr.length) {
+      outMarkets[key] = arr;
+      anyOdd = true;
+    }
+  }
+  if (!anyOdd) return null;
+
+  let home = 0;
+  let draw = 0;
+  let away = 0;
+
+  const isTennis = normalizeSportKey(sport) === 'tennis';
+  const homeKey = isTennis ? canonicalTennisTeamKey(String(opts?.homeTeam || '')) : normalizeTeamKey(String(opts?.homeTeam || ''));
+  const awayKey = isTennis ? canonicalTennisTeamKey(String(opts?.awayTeam || '')) : normalizeTeamKey(String(opts?.awayTeam || ''));
+  const h2h = outMarkets.h2h || [];
+  for (const s of h2h) {
+    const n = normalizeOutcomeName(s?.value);
+    const odd = parseOddDecimal(s?.odd);
+    if (!(odd > 1)) continue;
+    const nk = isTennis ? canonicalTennisTeamKey(String(s?.value || '')) : normalizeTeamKey(String(s?.value || ''));
+    if (n === '1' || n === 'home' || (homeKey && nk && (nk === homeKey || nk.includes(homeKey) || homeKey.includes(nk)))) home = home || odd;
+    else if (n === '2' || n === 'away' || (awayKey && nk && (nk === awayKey || nk.includes(awayKey) || awayKey.includes(nk)))) away = away || odd;
+    else if (n === 'x' || n === 'draw' || n === 'tie') draw = draw || odd;
+    else if (isTennis && homeKey && awayKey && nk && !(home > 1 && away > 1)) {
+      const sHome = tokenSetSimilarity(nk, homeKey);
+      const sAway = tokenSetSimilarity(nk, awayKey);
+      if (sHome >= 0.75 && sHome >= sAway + 0.06) home = home || odd;
+      else if (sAway >= 0.75 && sAway >= sHome + 0.06) away = away || odd;
+    }
+  }
+
+  if (!(home > 1) || !(away > 1)) {
+    const pickTwoWay = () => {
+      const out: number[] = [];
+      for (const s of h2h) {
+        const n = normalizeOutcomeName(s?.value);
+        if (n === 'x' || n === 'draw' || n === 'tie') continue;
+        const odd = parseOddDecimal(s?.odd);
+        if (!(odd > 1)) continue;
+        out.push(odd);
+        if (out.length >= 2) break;
+      }
+      return out;
+    };
+    const two = pickTwoWay();
+    if (two.length >= 2) {
+      if (!(home > 1)) home = two[0];
+      if (!(away > 1)) away = two[1];
+    }
+  }
+
+  return { home, draw, away, markets: outMarkets };
+}
+
 export async function fetchSportsApiProMatchOdds(
   apiKey: string,
   sport: string,
