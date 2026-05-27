@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
+    "start": "tsx server/index.ts",
     "worker": "node scripts/odds-proxy.mjs",
     "worker:wrangler": "node scripts/gen-dev-vars.mjs && wrangler dev src/worker/index.ts --remote --port 8080",
     "deploy:dev": "wrangler deploy --env dev",
