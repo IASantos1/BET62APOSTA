@@ -126,7 +126,7 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
 
 async function fetchJson(url: string, apiKey: string): Promise<any | null> {
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 8000);
+  const t = setTimeout(() => controller.abort(), 15000);
   try {
     const res = await fetch(url, { headers: apiHeaders(apiKey), signal: controller.signal });
     const text = await res.text().catch(() => '');

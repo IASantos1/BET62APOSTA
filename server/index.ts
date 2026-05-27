@@ -1424,7 +1424,7 @@ const server = http.createServer(async (req, res) => {
           const sport = String(ev?.sport || 'soccer');
           const matchId = String(ev?.external_event_id || '').split('_').slice(1).join('_');
           if (!matchId) continue;
-          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'all', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
           if (!odds) continue;
           if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
             ev.home_odd = odds.home;
@@ -1562,6 +1562,8 @@ const server = http.createServer(async (req, res) => {
       const sportRaw = String(urlObj.searchParams.get('sport') || 'soccer');
       const gameId = String(urlObj.searchParams.get('gameId') || '').trim();
       const topBookmaker = Number(urlObj.searchParams.get('topBookmaker') || '14') || 14;
+      const scopeRaw = String(urlObj.searchParams.get('scope') || 'featured').toLowerCase().trim();
+      const scope = scopeRaw === 'all' ? 'all' : 'featured';
 
       const normalizeSport = (s: string) => {
         const v0 = String(s || '').toLowerCase().trim();
@@ -1608,13 +1610,13 @@ const server = http.createServer(async (req, res) => {
       };
 
       const sub = toV2Sub(sport);
-      const urlOdds = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(gameId)}/odds?scope=featured&provider=1`;
+      const urlOdds = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(gameId)}/odds?scope=${encodeURIComponent(scope)}&provider=1`;
       const urlLive = `https://v2.${sub}.sportsapipro.com/api/live`;
 
       const [probeOdds, probeLive, parsed] = await Promise.all([
         withTimeout(urlOdds),
         withTimeout(urlLive),
-        fetchSportsApiProMatchOdds(apiKey, sport, gameId, { scope: 'featured', provider: 1 }).catch(() => null),
+        fetchSportsApiProMatchOdds(apiKey, sport, gameId, { scope, provider: 1 }).catch(() => null),
       ]);
 
       sendJson(
@@ -1814,7 +1816,7 @@ const server = http.createServer(async (req, res) => {
               }
               continue;
             }
-          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'all', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
+          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
             sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
             if (!odds) continue;
             if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
