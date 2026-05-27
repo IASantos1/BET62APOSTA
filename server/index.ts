@@ -1424,7 +1424,7 @@ const server = http.createServer(async (req, res) => {
           const sport = String(ev?.sport || 'soccer');
           const matchId = String(ev?.external_event_id || '').split('_').slice(1).join('_');
           if (!matchId) continue;
-          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'all', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
           if (!odds) continue;
           if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
             ev.home_odd = odds.home;
@@ -1814,7 +1814,7 @@ const server = http.createServer(async (req, res) => {
               }
               continue;
             }
-            const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
+          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'all', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
             sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
             if (!odds) continue;
             if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
@@ -2004,7 +2004,7 @@ const server = http.createServer(async (req, res) => {
       if (wantsOdds && (Number(evt.home_odd || 0) <= 1 || mkEmpty)) {
         const matchId = String(evt.external_event_id || '').split('_').slice(1).join('_');
         if (matchId) {
-          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: evt.home_team, awayTeam: evt.away_team }).catch(() => null);
+            const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'all', provider: 1, homeTeam: evt.home_team, awayTeam: evt.away_team }).catch(() => null);
           if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
             evt.home_odd = odds.home;
             evt.draw_odd = odds.draw;

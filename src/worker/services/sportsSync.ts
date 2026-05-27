@@ -306,8 +306,8 @@ async function syncSoccerSportsApiPro(env: Env, apiKey: string, isFullSync: bool
         const ev = targets[idx++];
         const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
         if (!matchId) continue;
-        const odds = await fetchSportsApiProMatchOdds(apiKey, 'soccer', matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team });
-        if (!odds || !(odds.home > 1)) continue;
+        const odds = await fetchSportsApiProMatchOdds(apiKey, 'soccer', matchId, { scope: 'all', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
+        if (!odds || (!(odds.home > 1) && Object.keys(odds.markets || {}).length === 0)) continue;
         ev.home_odd = odds.home;
         ev.draw_odd = odds.draw;
         ev.away_odd = odds.away;
@@ -407,8 +407,8 @@ async function syncSportSportsApiPro(env: Env, apiKey: string, sport: string): P
         const ev = targets[idx++];
         const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
         if (!matchId) continue;
-        const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team });
-        if (!odds || !(odds.home > 1)) continue;
+        const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'all', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
+        if (!odds || (!(odds.home > 1) && Object.keys(odds.markets || {}).length === 0)) continue;
         ev.home_odd = odds.home;
         ev.draw_odd = odds.draw;
         ev.away_odd = odds.away;
