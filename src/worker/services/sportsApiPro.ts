@@ -80,6 +80,79 @@ function isLive(status: any): boolean {
   return false;
 }
 
+function deriveElapsedAndTimer(sport: string, e: any): { elapsed: number; timer: string } {
+  const s = String(sport || '').toLowerCase();
+
+  const takeNum = (v: any) => {
+    const n = typeof v === 'string' ? Number(v) : Number(v);
+    if (!Number.isFinite(n)) return null;
+    if (n < 0) return null;
+    if (n > 1000) return null;
+    return n;
+  };
+
+  const takeTimer = (v: any) => {
+    const t = String(v ?? '').trim();
+    if (!t) return '';
+    if (t.length > 16) return '';
+    return t;
+  };
+
+  const elapsedCandidates = [
+    e?.elapsed,
+    e?.time?.elapsed,
+    e?.time?.minute,
+    e?.minute,
+    e?.status?.elapsed,
+    e?.status?.minute,
+    e?.clock?.minute,
+    e?.clock?.minutes,
+  ];
+  let elapsed = 0;
+  for (const c of elapsedCandidates) {
+    const n = takeNum(c);
+    if (n === null) continue;
+    if (n === 0) continue;
+    elapsed = n;
+    break;
+  }
+
+  const timerCandidates = [
+    e?.timer,
+    e?.time?.timer,
+    e?.time?.clock,
+    e?.clock,
+    e?.clock?.display,
+    e?.status?.timer,
+    e?.status?.clock,
+    e?.status?.time,
+  ];
+  let timer = '';
+  for (const c of timerCandidates) {
+    const t = takeTimer(c);
+    if (!t) continue;
+    timer = t;
+    break;
+  }
+
+  if (!timer) {
+    const st = String(e?.status?.description ?? e?.status?.type ?? e?.status ?? e?.statusText ?? '').trim();
+    const m = st.match(/(\d{1,3})\s*[:']\s*(\d{2})/);
+    if (m) timer = `${m[1]}:${m[2]}`;
+  }
+
+  if (!timer && elapsed > 0) {
+    if (s.includes('soccer') || (s.includes('football') && !s.includes('american')) || s.includes('futebol')) {
+      timer = `${Math.floor(elapsed)}'`;
+    } else {
+      const mm = String(Math.floor(elapsed)).padStart(2, '0');
+      timer = `${mm}:00`;
+    }
+  }
+
+  return { elapsed: Number.isFinite(elapsed) ? elapsed : 0, timer };
+}
+
 function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   const id = e?.id != null ? String(e.id) : '';
   if (!id) return null;
@@ -97,6 +170,7 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   const statusRaw = e?.status?.description ?? e?.status?.type ?? e?.status ?? e?.statusCode ?? e?.statusText ?? '';
   const status = String(statusRaw || 'NS');
   const live = isLive(e?.status ?? status);
+  const t = live ? deriveElapsedAndTimer(sport, e) : { elapsed: 0, timer: '' };
 
   const hs = pickScore(e?.homeScore);
   const as = pickScore(e?.awayScore);
@@ -114,8 +188,8 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
     home_odd: 0,
     draw_odd: 0,
     away_odd: 0,
-    elapsed: 0,
-    timer: '',
+    elapsed: t.elapsed,
+    timer: t.timer,
     score: JSON.stringify({ home: hs, away: as }),
     markets: '{}',
     country: String(country || ''),
@@ -449,6 +523,26 @@ export async function fetchSportsApiProMatchOdds(
     if (n === '1' || n === 'home' || (homeKey && nk && (nk === homeKey || nk.includes(homeKey) || homeKey.includes(nk)))) home = home || odd;
     else if (n === '2' || n === 'away' || (awayKey && nk && (nk === awayKey || nk.includes(awayKey) || awayKey.includes(nk)))) away = away || odd;
     else if (n === 'x' || n === 'draw' || n === 'tie') draw = draw || odd;
+  }
+
+  if (!(home > 1) || !(away > 1)) {
+    const pickTwoWay = () => {
+      const out: number[] = [];
+      for (const s of h2h) {
+        const n = normalizeOutcomeName(s?.value);
+        if (n === 'x' || n === 'draw' || n === 'tie') continue;
+        const odd = parseOddDecimal(s?.odd);
+        if (!(odd > 1)) continue;
+        out.push(odd);
+        if (out.length >= 2) break;
+      }
+      return out;
+    };
+    const two = pickTwoWay();
+    if (two.length >= 2) {
+      if (!(home > 1)) home = two[0];
+      if (!(away > 1)) away = two[1];
+    }
   }
 
   if (!anyOdd) return null;

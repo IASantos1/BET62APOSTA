@@ -1828,8 +1828,31 @@ const server = http.createServer(async (req, res) => {
                 if (now - cached.ts < missTtlMs) continue;
               }
             }
-            const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
-            sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
+            const providerEnv = Number(process.env.SPORTSAPI_PRO_ODDS_PROVIDER || process.env.SPORTSAPI_PRO_PROVIDER || 1);
+            const providers = Array.from(new Set([providerEnv, 1, 14].filter((x) => Number.isFinite(Number(x)) && Number(x) > 0).map((x) => Number(x))));
+            const scope = needsMarketsEnrich(ev) ? 'all' : 'featured';
+            let odds: any = null;
+            for (const p of providers) {
+              const ck = `v2:${sport}:${matchId}:${scope}:${p}`;
+              const cached2 = sportsApiProOddsCache.get(ck);
+              const now2 = Date.now();
+              if (cached2) {
+                if (cached2.odds) {
+                  if (now2 - cached2.ts < ttlMs) {
+                    odds = cached2.odds;
+                    break;
+                  }
+                } else {
+                  if (now2 - cached2.ts < missTtlMs) continue;
+                }
+              }
+              const got = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: scope as any, provider: p, homeTeam: ev.home_team, awayTeam: ev.away_team });
+              sportsApiProOddsCache.set(ck, { ts: Date.now(), odds: got ?? null });
+              if (got && (got.home > 1 || Object.keys(got.markets || {}).length > 0)) {
+                odds = got;
+                break;
+              }
+            }
             if (!odds) continue;
             if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
               ev.home_odd = odds.home;
@@ -2222,12 +2245,17 @@ const server = http.createServer(async (req, res) => {
       if (wantsOdds && (Number(evt.home_odd || 0) <= 1 || mkEmpty)) {
         const matchId = String(evt.external_event_id || '').split('_').slice(1).join('_');
         if (matchId) {
-            const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'all', provider: 1, homeTeam: evt.home_team, awayTeam: evt.away_team }).catch(() => null);
-          if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
-            evt.home_odd = odds.home;
-            evt.draw_odd = odds.draw;
-            evt.away_odd = odds.away;
-            evt.markets = JSON.stringify(odds.markets || {});
+          const providerEnv = Number(process.env.SPORTSAPI_PRO_ODDS_PROVIDER || process.env.SPORTSAPI_PRO_PROVIDER || 1);
+          const providers = Array.from(new Set([providerEnv, 1, 14].filter((x) => Number.isFinite(Number(x)) && Number(x) > 0).map((x) => Number(x))));
+          for (const p of providers) {
+            const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'all', provider: p, homeTeam: evt.home_team, awayTeam: evt.away_team }).catch(() => null);
+            if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
+              evt.home_odd = odds.home;
+              evt.draw_odd = odds.draw;
+              evt.away_odd = odds.away;
+              evt.markets = JSON.stringify(odds.markets || {});
+              break;
+            }
           }
         }
       }
