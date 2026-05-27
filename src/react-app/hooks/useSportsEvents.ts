@@ -37,9 +37,9 @@ const scoreEvent = (e: Event) =>
 
     const startToday = new Date(now);
     startToday.setHours(0, 0, 0, 0);
-    const startAfterTomorrow = new Date(startToday.getTime() + 2 * 24 * 60 * 60 * 1000).getTime();
+    const startAfterWindow = new Date(startToday.getTime() + 8 * 24 * 60 * 60 * 1000).getTime();
 
-    return t >= startToday.getTime() && t < startAfterTomorrow;
+    return t >= startToday.getTime() && t < startAfterWindow;
   };
 
 const dedupEvents = (list: Event[]): Event[] => {
@@ -433,7 +433,7 @@ export function useSportsEvents(category: string | null) {
           const blockedSports = new Set(['horse-racing', 'esports', 'e-sports', 'e-sport', 'gaming']);
           const isAllowedSport = (e: Event) => !blockedSports.has(sportKey(e));
 
-          liveEvents = liveEvents.filter(isAllowedSport).filter(hasPrimaryOdds);
+          liveEvents = liveEvents.filter(isAllowedSport);
           pregameEvents = pregameEvents.filter(isAllowedSport);
 
           const preferOdds = (arr: Event[], max: number) => {
@@ -514,7 +514,7 @@ export function useSportsEvents(category: string | null) {
                   const pregameMax = safeCategory === 'all' ? 45 : 60;
                   const filteredPregame = limitPregameAll(pregameBase, pregameMax);
           const maxLive = safeCategory === 'all' ? 100 : 60;
-          const finalLive = preferOdds(filteredLive, maxLive * 2).filter(hasPrimaryOdds).slice(0, maxLive);
+          const finalLive = preferOdds(filteredLive, maxLive * 2).slice(0, maxLive);
           
           const finalPregame = filteredPregame;
 
@@ -596,7 +596,7 @@ export function useSportsEvents(category: string | null) {
             const isAllowedSport = (e: Event) => !blockedSports.has(sportKey(e));
 
             const maxLive = safeCategory === 'all' ? 100 : 60;
-            const finalLive = preferOdds(activeLive.filter(isAllowedSport), maxLive * 2).filter(hasPrimaryOdds).slice(0, maxLive);
+            const finalLive = preferOdds(activeLive.filter(isAllowedSport), maxLive * 2).slice(0, maxLive);
             const pregameBase = preferOdds(activePregame.filter(isTodayAdjusted), 80);
 
             const sportRank = (s: string) => {

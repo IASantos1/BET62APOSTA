@@ -1670,7 +1670,7 @@ const server = http.createServer(async (req, res) => {
 
       const today = new Date();
       const dates: string[] = [];
-      const days = rawSport === 'all' ? 1 : 2;
+      const days = 7;
       for (let d = 0; d <= days; d++) {
         const dt = new Date(today);
         dt.setDate(today.getDate() + d);
@@ -1713,6 +1713,21 @@ const server = http.createServer(async (req, res) => {
         }
       };
 
+      const toMarketsObject = (mk: any): Record<string, any[]> => {
+        if (!mk) return {};
+        if (typeof mk === 'string') {
+          const t = mk.trim();
+          if (!t || t === '{}' || t === 'null') return {};
+          try {
+            const o = JSON.parse(t);
+            return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+          } catch {
+            return {};
+          }
+        }
+        return mk && typeof mk === 'object' && !Array.isArray(mk) ? mk : {};
+      };
+
       const toResponse = (e: any) => {
         const id = String(e.external_event_id || '');
         const goals = parseScore(e.score);
@@ -1748,8 +1763,8 @@ const server = http.createServer(async (req, res) => {
           home_team_logo: e.home_team_logo || '',
           away_team_logo: e.away_team_logo || '',
           sport,
-          markets: e.markets || {},
-          odds: e.odds || {},
+          markets: toMarketsObject(e.markets),
+          odds: toMarketsObject(e.odds),
         };
       };
 
@@ -1799,7 +1814,13 @@ const server = http.createServer(async (req, res) => {
             if (finished) return false;
             return dateMs > nowMs - 6 * 60 * 60 * 1000;
           })
-          .slice(0, 120);
+          .sort((a: any, b: any) => {
+            const al = Number(a?.is_live || 0) === 1 ? 1 : 0;
+            const bl = Number(b?.is_live || 0) === 1 ? 1 : 0;
+            if (al !== bl) return bl - al;
+            return String(a?.event_date || '').localeCompare(String(b?.event_date || ''));
+          })
+          .slice(0, 240);
         const ttlMs = isRealtime ? 5_000 : 10 * 60 * 1000;
         const missTtlMs = isRealtime ? 1_500 : 10_000;
         let idx = 0;
@@ -1809,30 +1830,17 @@ const server = http.createServer(async (req, res) => {
             const sport = String(ev.sport || 'soccer');
             const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
             if (!matchId) continue;
-            const cacheKey = `v2:${sport}:${matchId}`;
-            const cached = sportsApiProOddsCache.get(cacheKey);
-            const now = Date.now();
-            if (cached) {
-              if (cached.odds) {
-                if (now - cached.ts < ttlMs) {
-                  const odds = cached.odds;
-                  if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
-                    ev.home_odd = odds.home;
-                    ev.draw_odd = odds.draw;
-                    ev.away_odd = odds.away;
-                    ev.markets = JSON.stringify(odds.markets || {});
-                  }
-                  continue;
-                }
-              } else {
-                if (now - cached.ts < missTtlMs) continue;
-              }
-            }
+            const baseKey = `v2:${sport}:${matchId}`;
             const providerEnv = Number(process.env.SPORTSAPI_PRO_ODDS_PROVIDER || process.env.SPORTSAPI_PRO_PROVIDER || 1);
             const providers = Array.from(new Set([providerEnv, 1, 14].filter((x) => Number.isFinite(Number(x)) && Number(x) > 0).map((x) => Number(x))));
             const scope = needsMarketsEnrich(ev) ? 'all' : 'featured';
             let odds: any = null;
+            const cachedBase = sportsApiProOddsCache.get(baseKey);
+            if (cachedBase?.odds && Date.now() - cachedBase.ts < ttlMs) {
+              odds = cachedBase.odds;
+            }
             for (const p of providers) {
+              if (odds) break;
               const ck = `v2:${sport}:${matchId}:${scope}:${p}`;
               const cached2 = sportsApiProOddsCache.get(ck);
               const now2 = Date.now();
@@ -1859,6 +1867,7 @@ const server = http.createServer(async (req, res) => {
               ev.draw_odd = odds.draw;
               ev.away_odd = odds.away;
               ev.markets = JSON.stringify(odds.markets || {});
+              sportsApiProOddsCache.set(baseKey, { ts: Date.now(), odds });
             }
           }
         });

@@ -303,11 +303,27 @@ export function SubOddsModel({
   }, [eventOdds, applyMarginClamp, labelOutcome, resultadoRegulamentar])
 
   // --- Generic extraction ---
+  const normalizedMarkets = useMemo(() => {
+      const mk: any = markets as any;
+      if (!mk) return null;
+      if (typeof mk === 'string') {
+        const t = mk.trim();
+        if (!t || t === '{}' || t === 'null') return null;
+        try {
+          const o = JSON.parse(t);
+          return o && typeof o === 'object' && !Array.isArray(o) ? o : null;
+        } catch {
+          return null;
+        }
+      }
+      return mk && typeof mk === 'object' && !Array.isArray(mk) ? mk : null;
+  }, [markets]);
+
   const getMarketItems = (key: string, labelKey?: string) => {
-      if (markets) {
-        if (markets[key] && markets[key]!.length > 0) return markets[key]!;
-        if (key === 'spreads' && (markets as any)['handicap'] && (markets as any)['handicap']!.length > 0) {
-          return (markets as any)['handicap']!;
+      if (normalizedMarkets) {
+        if ((normalizedMarkets as any)[key] && (normalizedMarkets as any)[key]!.length > 0) return (normalizedMarkets as any)[key]!;
+        if (key === 'spreads' && (normalizedMarkets as any)['handicap'] && (normalizedMarkets as any)['handicap']!.length > 0) {
+          return (normalizedMarkets as any)['handicap']!;
         }
       }
 
@@ -370,8 +386,8 @@ export function SubOddsModel({
       return MARKET_CONFIG[key]?.title || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
 
-  const spreadsItems = useMemo(() => getMarketItems('spreads'), [eventOdds, markets])
-  const totalsItems = useMemo(() => getMarketItems('totals'), [eventOdds, markets])
+  const spreadsItems = useMemo(() => getMarketItems('spreads'), [eventOdds, markets, normalizedMarkets])
+  const totalsItems = useMemo(() => getMarketItems('totals'), [eventOdds, markets, normalizedMarkets])
   const bttsItems = useMemo(() => {
     const raw = getMarketItems('btts')
     // 1) If API returned BTTS, force order: "Não" (esquerdo) → "Sim" (direito)
@@ -437,7 +453,7 @@ export function SubOddsModel({
       { label: 'Não', odd: Math.round(oddNao * 100) / 100 },
       { label: 'Sim', odd: Math.round(oddSim * 100) / 100 },
     ] as MarketItem[]
-  }, [eventOdds, markets, resultadoRegulamentar, totalsItems])
+  }, [eventOdds, markets, normalizedMarkets, resultadoRegulamentar, totalsItems])
 
   // ─────────────────────────────────────────────────────────────────────
   // CRITICAL EVENT STATE MACHINE — replaces 1X2 buttons during key moments

@@ -139,6 +139,17 @@ function deriveElapsedAndTimer(sport: string, e: any): { elapsed: number; timer:
     const st = String(e?.status?.description ?? e?.status?.type ?? e?.status ?? e?.statusText ?? '').trim();
     const m = st.match(/(\d{1,3})\s*[:']\s*(\d{2})/);
     if (m) timer = `${m[1]}:${m[2]}`;
+    if (!timer && (s.includes('soccer') || (s.includes('football') && !s.includes('american')) || s.includes('futebol'))) {
+      const plus = st.match(/\b(\d{1,3})\s*\+\s*(\d{1,2})\b/);
+      if (plus) {
+        const base = Number(plus[1]);
+        const add = Number(plus[2]);
+        if (Number.isFinite(base) && Number.isFinite(add) && base > 0 && add >= 0) {
+          timer = `${base}+${add}'`;
+          elapsed = Math.max(elapsed, base + add);
+        }
+      }
+    }
   }
 
   if (!timer && elapsed > 0) {
@@ -151,6 +162,51 @@ function deriveElapsedAndTimer(sport: string, e: any): { elapsed: number; timer:
   }
 
   return { elapsed: Number.isFinite(elapsed) ? elapsed : 0, timer };
+}
+
+function extractTennisSets(e: any): Record<string, { home: number | null; away: number | null }> | null {
+  const pairs: Array<{ home: number | null; away: number | null }> = [];
+
+  const toNumOrNull = (v: any): number | null => {
+    const n = typeof v === 'string' ? Number(v) : Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const fromPeriodArray = (arr: any): Array<{ home: number | null; away: number | null }> => {
+    if (!Array.isArray(arr)) return [];
+    const out: Array<{ home: number | null; away: number | null }> = [];
+    for (const it of arr) {
+      if (it == null) continue;
+      if (typeof it === 'object') {
+        const h = toNumOrNull((it as any).home ?? (it as any).homeScore ?? (it as any).home_points ?? (it as any).h);
+        const a = toNumOrNull((it as any).away ?? (it as any).awayScore ?? (it as any).away_points ?? (it as any).a);
+        if (h !== null || a !== null) out.push({ home: h, away: a });
+      }
+    }
+    return out;
+  };
+
+  const a1 = fromPeriodArray(e?.periods ?? e?.scores ?? e?.score?.periods ?? e?.score?.scores);
+  if (a1.length > 0) pairs.push(...a1);
+
+  const hPeriods = e?.homeScore?.periods ?? e?.homeScore?.periodScores ?? e?.homeScore?.scores ?? null;
+  const aPeriods = e?.awayScore?.periods ?? e?.awayScore?.periodScores ?? e?.awayScore?.scores ?? null;
+  if (Array.isArray(hPeriods) && Array.isArray(aPeriods) && hPeriods.length > 0) {
+    for (let i = 0; i < Math.max(hPeriods.length, aPeriods.length); i++) {
+      const h = toNumOrNull(hPeriods[i]);
+      const a = toNumOrNull(aPeriods[i]);
+      if (h !== null || a !== null) pairs.push({ home: h, away: a });
+    }
+  }
+
+  const limited = pairs.slice(0, 5);
+  if (limited.length === 0) return null;
+
+  const out: Record<string, { home: number | null; away: number | null }> = {};
+  for (let i = 0; i < limited.length; i++) {
+    out[`s${i + 1}`] = { home: limited[i].home, away: limited[i].away };
+  }
+  return out;
 }
 
 function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
@@ -172,8 +228,22 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   const live = isLive(e?.status ?? status);
   const t = live ? deriveElapsedAndTimer(sport, e) : { elapsed: 0, timer: '' };
 
-  const hs = pickScore(e?.homeScore);
-  const as = pickScore(e?.awayScore);
+  const sLower = String(sport || '').toLowerCase();
+  const tennisSets = sLower.includes('tennis') || sLower.includes('tênis') ? extractTennisSets(e) : null;
+  const hs =
+    tennisSets
+      ? (() => {
+          const v = pickScore(e?.homeScore?.sets ?? e?.homeScore?.set ?? e?.homeScore?.setsWon ?? e?.homeScore?.totalSets);
+          return v != null ? v : pickScore(e?.homeScore);
+        })()
+      : pickScore(e?.homeScore);
+  const as =
+    tennisSets
+      ? (() => {
+          const v = pickScore(e?.awayScore?.sets ?? e?.awayScore?.set ?? e?.awayScore?.setsWon ?? e?.awayScore?.totalSets);
+          return v != null ? v : pickScore(e?.awayScore);
+        })()
+      : pickScore(e?.awayScore);
 
   return {
     external_event_id: `${sport}_${id}`,
@@ -190,7 +260,7 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
     away_odd: 0,
     elapsed: t.elapsed,
     timer: t.timer,
-    score: JSON.stringify({ home: hs, away: as }),
+    score: JSON.stringify({ home: hs, away: as, ...(tennisSets ? { sets: tennisSets } : {}) }),
     markets: '{}',
     country: String(country || ''),
     home_team_logo: String(e?.homeTeam?.logo ?? ''),
