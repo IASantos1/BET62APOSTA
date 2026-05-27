@@ -84,61 +84,169 @@ function normalizeLineName(x: any): string {
   return String(x ?? '').trim().toLowerCase();
 }
 
-function oddsFromLines(lines: any[], homeName: string, awayName: string): { home: number; draw: number; away: number; markets: any } | null {
-  const h = normalizeLineName(homeName);
-  const a = normalizeLineName(awayName);
+function snakeKey(x: string): string {
+  return String(x || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+/, '')
+    .replace(/_+$/, '');
+}
+
+function marketKeyFromLineName(raw: string): string {
+  const n = normalizeLineName(raw);
+  if (!n) return '';
+
+  const isWinner =
+    n.includes('1x2') ||
+    n.includes('moneyline') ||
+    n.includes('game winner') ||
+    n.includes('match winner') ||
+    n.includes('full time result') ||
+    n.includes('match result') ||
+    n.includes('winner') ||
+    n === 'result';
+  if (isWinner) return 'h2h';
+
+  if (n.includes('double chance')) return 'double_chance';
+  if (n.includes('draw no bet') || n.includes('dnb') || n.includes('empate anula')) return 'dnb';
+  if (n.includes('both teams to score') || n.includes('btts') || n.includes('ambas marcam')) return 'btts';
+  if (n.includes('correct score') || n.includes('placar exato') || n.includes('score exact')) return 'correct_score';
+
+  const hasFirstHalf = n.includes('1st half') || n.includes('first half') || n.includes('1h');
+  const hasSecondHalf = n.includes('2nd half') || n.includes('second half') || n.includes('2h');
+  if (hasFirstHalf && (n.includes('total') || n.includes('over/under') || n.includes('goals') || n.includes('points'))) return 'first_half_totals';
+  if (hasSecondHalf && (n.includes('total') || n.includes('over/under') || n.includes('goals') || n.includes('points'))) return 'second_half_totals';
+  if (hasFirstHalf && (n.includes('result') || n.includes('winner') || n.includes('1x2'))) return 'first_half_h2h';
+  if (hasSecondHalf && (n.includes('result') || n.includes('winner') || n.includes('1x2'))) return 'second_half_h2h';
+
+  if (n.includes('team total') || n.includes('team totals')) return 'team_totals';
+
+  const isTotals = n.includes('total') || n.includes('over/under') || n.includes('goals') || n.includes('points');
+  if (isTotals) return n.includes('alternate') || n.includes('alt') ? 'alternate_totals' : 'totals';
+
+  if (n.includes('asian handicap')) return 'spreads';
+  if (n.includes('handicap') || n.includes('spread') || n.includes('run line') || n.includes('puck line')) return 'handicap';
+
+  if (n.includes('corners') && (n.includes('total') || n.includes('over/under'))) return 'corners_totals';
+  if (n.includes('cards') && (n.includes('total') || n.includes('over/under'))) return 'cards_totals';
+
+  if (n.includes('set winner') || n === 'set winner') return 'set_winner';
+  if (n.includes('first set winner')) return 'first_set_winner';
+  if (n.includes('total games')) return 'match_total_games';
+  if (n.includes('sets handicap')) return 'sets_handicap';
+
+  if (n.includes('period') && (n.includes('winner') || n.includes('result'))) return 'period_h2h';
+  if (n.includes('period') && (n.includes('total') || n.includes('over/under'))) return 'period_totals';
+
+  return snakeKey(n);
+}
+
+function pickPoint(line: any, option: any): string | null {
+  const raw =
+    option?.point ??
+    option?.handicap ??
+    option?.line ??
+    option?.total ??
+    option?.spread ??
+    line?.handicap ??
+    line?.point ??
+    line?.line ??
+    line?.total ??
+    line?.spread ??
+    null;
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  return s ? s : null;
+}
+
+function formatSelectionName(marketKey: string, optionName: string, point: string | null): string {
+  const base = String(optionName || '').trim();
+  if (!base) return '';
+  if (!point) return base;
+  const n = normalizeLineName(base);
+  const isTotals = marketKey.includes('total');
+  const isHandicap = marketKey.includes('handicap') || marketKey.includes('spread');
+  if (isTotals && (n.startsWith('over') || n.startsWith('under') || n.startsWith('o/') || n.startsWith('u/'))) return `${base} ${point}`;
+  if (isHandicap && (n === 'home' || n === 'away' || n === '1' || n === '2')) return `${base} ${point}`;
+  if (marketKey === 'team_totals' && (n.startsWith('over') || n.startsWith('under') || n.startsWith('o/') || n.startsWith('u/'))) return `${base} ${point}`;
+  return base;
+}
+
+function parseMarketsFromLines(lines: any[], homeName: string, awayName: string): { home: number; draw: number; away: number; markets: Record<string, any[]> } | null {
+  const markets: Record<string, any[]> = {};
 
   for (const line of lines) {
-    const name = normalizeLineName(
+    const rawName =
       line?.lineType?.title ??
-        line?.lineType?.name ??
-        line?.lineType?.shortName ??
-        line?.lineTypeName ??
-        line?.marketName ??
-        line?.name ??
-        line?.typeName,
-    );
-    const isWinner =
-      name.includes('1x2') ||
-      name.includes('moneyline') ||
-      name.includes('game winner') ||
-      name.includes('match winner') ||
-      name.includes('full time result') ||
-      name.includes('match result') ||
-      name.includes('winner') ||
-      name === 'result';
-    if (!isWinner) continue;
+      line?.lineType?.name ??
+      line?.lineType?.shortName ??
+      line?.lineTypeName ??
+      line?.marketName ??
+      line?.name ??
+      line?.typeName ??
+      '';
+    const key = marketKeyFromLineName(String(rawName || ''));
+    if (!key) continue;
 
     const options = Array.isArray(line?.options) ? line.options : Array.isArray(line?.outcomes) ? line.outcomes : [];
     if (!options.length) continue;
 
-    let home = 0;
-    let draw = 0;
-    let away = 0;
-    const h2h: any[] = [];
-
+    const arr = markets[key] || [];
     for (const o of options) {
-      const numOpt = num(o?.num);
-      const oName = normalizeLineName(o?.name ?? o?.label ?? o?.value ?? '');
       const odd = parseOddDecimal(o?.rate ?? o?.odd ?? o?.price ?? o);
       if (!(odd > 1)) continue;
-
-      if (numOpt === 1 || oName === 'home' || (h && (oName === h || h.includes(oName) || oName.includes(h)))) home = home || odd;
-      else if (numOpt === 3 || oName === 'away' || (a && (oName === a || a.includes(oName) || oName.includes(a)))) away = away || odd;
-      else if (numOpt === 2) {
-        const isDraw = oName === 'draw' || oName === 'x' || oName === 'tie';
-        if (isDraw || options.length >= 3) draw = draw || odd;
-        else away = away || odd;
-      } else if (oName === 'draw' || oName === 'x' || oName === 'tie') draw = draw || odd;
-
-      h2h.push({ value: o?.name ?? o?.label ?? o?.value ?? '', odd });
+      const numOpt = num(o?.num);
+      const rawOpt = String(o?.name ?? o?.label ?? o?.value ?? '').trim();
+      const point = pickPoint(line, o);
+      const name = formatSelectionName(key, rawOpt, point);
+      if (!name) continue;
+      const entry: any = {
+        outcome: rawOpt || name,
+        name,
+        label: name,
+        odd,
+        value: odd,
+        price: odd,
+        num: numOpt || undefined,
+      };
+      if (point) {
+        entry.point = point;
+        entry.handicap = point;
+        entry.line = point;
+        entry.total = point;
+        entry.spread = point;
+      }
+      arr.push(entry);
     }
 
-    if (!(home > 1) && !(away > 1) && !(draw > 1)) continue;
-    return { home, draw, away, markets: { h2h } };
+    if (arr.length) markets[key] = arr;
   }
 
-  return null;
+  const h2hCandidates = markets.h2h || markets.match_winner || markets['1x2'] || [];
+  const h = normalizeLineName(homeName);
+  const a = normalizeLineName(awayName);
+  let home = 0;
+  let draw = 0;
+  let away = 0;
+
+  for (const o of h2hCandidates) {
+    const numOpt = num(o?.num);
+    const oName = normalizeLineName(o?.outcome ?? o?.name ?? o?.label ?? o?.value ?? '');
+    const odd = parseOddDecimal(o?.odd ?? o?.price ?? o?.value ?? o);
+    if (!(odd > 1)) continue;
+
+    if (numOpt === 1 || oName === 'home' || oName === '1' || (h && (oName === h || h.includes(oName) || oName.includes(h)))) home = home || odd;
+    else if (numOpt === 3 || oName === 'away' || oName === '2' || (a && (oName === a || a.includes(oName) || oName.includes(a)))) away = away || odd;
+    else if (numOpt === 2) {
+      const isDraw = oName === 'draw' || oName === 'x' || oName === 'tie';
+      if (isDraw || h2hCandidates.length >= 3) draw = draw || odd;
+      else away = away || odd;
+    } else if (oName === 'draw' || oName === 'x' || oName === 'tie') draw = draw || odd;
+  }
+
+  if (!Object.keys(markets).length) return null;
+  return { home, draw, away, markets };
 }
 
 function extractOddsFromGame(g: any, homeName: string, awayName: string): { home: number; draw: number; away: number; markets: any } | null {
@@ -153,7 +261,7 @@ function extractOddsFromGame(g: any, homeName: string, awayName: string): { home
   for (const c of candidates) {
     const lines = extractLines(c);
     if (!lines.length) continue;
-    const parsed = oddsFromLines(lines, homeName, awayName);
+    const parsed = parseMarketsFromLines(lines, homeName, awayName);
     if (parsed) return parsed;
   }
 
@@ -358,8 +466,7 @@ export async function fetchSportsApiProV1OddsLines(
   if (!json) return null;
   const lines = extractLines(json);
   if (!lines.length) return null;
-  const parsed = oddsFromLines(lines, '', '');
+  const parsed = parseMarketsFromLines(lines, '', '');
   if (!parsed) return null;
-  if (!(parsed.home > 1) && !(parsed.away > 1) && !(parsed.draw > 1)) return null;
   return { home: parsed.home, draw: parsed.draw, away: parsed.away, markets: parsed.markets };
 }

@@ -1402,13 +1402,28 @@ const server = http.createServer(async (req, res) => {
       const picked = merged.slice(0, 30);
 
       if (wantsOdds) {
-        const targets = picked.filter((e: any) => Number(e?.home_odd || 0) <= 1).slice(0, 20);
+        const targets = picked
+          .filter((e: any) => {
+            const mk = (e as any)?.markets;
+            const mkEmpty =
+              !mk ||
+              (typeof mk === 'string'
+                ? (() => {
+                    const t = mk.trim();
+                    return !t || t === '{}' || t === 'null';
+                  })()
+                : typeof mk === 'object'
+                ? Object.keys(mk || {}).length === 0
+                : true);
+            return Number(e?.home_odd || 0) <= 1 || mkEmpty;
+          })
+          .slice(0, 20);
         for (const ev of targets) {
           const sport = String(ev?.sport || 'soccer');
           const v1Id = String(ev?.external_event_id || '').split('_').slice(1).join('_');
           if (!v1Id) continue;
           const v1Odds = await fetchSportsApiProV1OddsLines(apiKey, sport, v1Id, { topBookmaker: 14 }).catch(() => null);
-          if (v1Odds && v1Odds.home > 1) {
+          if (v1Odds && (v1Odds.home > 1 || Object.keys(v1Odds.markets || {}).length > 0)) {
             ev.home_odd = v1Odds.home;
             ev.draw_odd = v1Odds.draw;
             ev.away_odd = v1Odds.away;
@@ -1722,7 +1737,18 @@ const server = http.createServer(async (req, res) => {
         const nowMs = Date.now();
         const targets = mergedFiltered
           .filter((e: any) => {
-            if (Number(e.home_odd || 0) > 1) return false;
+            const mk = e?.markets;
+            const mkEmpty =
+              !mk ||
+              (typeof mk === 'string'
+                ? (() => {
+                    const t = mk.trim();
+                    return !t || t === '{}' || t === 'null';
+                  })()
+                : typeof mk === 'object'
+                ? Object.keys(mk || {}).length === 0
+                : true);
+            if (Number(e.home_odd || 0) > 1 && !mkEmpty) return false;
             const dateMs = Date.parse(String(e.event_date || ''));
             if (!Number.isFinite(dateMs)) return false;
             const st = String(e.status || '').toLowerCase();
@@ -1738,10 +1764,10 @@ const server = http.createServer(async (req, res) => {
             if (finished) return false;
             return dateMs > nowMs - 6 * 60 * 60 * 1000;
           })
-          .slice(0, 40);
+          .slice(0, 120);
         const ttlMs = 10 * 60 * 1000;
         let idx = 0;
-        const workers = Array.from({ length: 4 }, async () => {
+        const workers = Array.from({ length: 6 }, async () => {
           while (idx < targets.length) {
             const ev = targets[idx++];
             const v1Id = String(ev.external_event_id || '').split('_').slice(1).join('_');
@@ -1752,7 +1778,7 @@ const server = http.createServer(async (req, res) => {
             const cachedV1 = sportsApiProOddsCache.get(v1OddsCacheKey);
             if (cachedV1 && Date.now() - cachedV1.ts < ttlMs) {
               const odds = cachedV1.odds;
-              if (odds && odds.home > 1) {
+              if (odds && (odds.home > 1 || (odds.markets && Object.keys(odds.markets).length > 0))) {
                 ev.home_odd = odds.home;
                 ev.draw_odd = odds.draw;
                 ev.away_odd = odds.away;
@@ -1763,7 +1789,7 @@ const server = http.createServer(async (req, res) => {
 
             const v1Odds = await fetchSportsApiProV1OddsLines(apiKey, sport, v1Id, { topBookmaker: 14 });
             sportsApiProOddsCache.set(v1OddsCacheKey, { ts: Date.now(), odds: v1Odds ? { ...v1Odds, markets: v1Odds.markets } : null });
-            if (v1Odds && v1Odds.home > 1) {
+            if (v1Odds && (v1Odds.home > 1 || Object.keys(v1Odds.markets || {}).length > 0)) {
               ev.home_odd = v1Odds.home;
               ev.draw_odd = v1Odds.draw;
               ev.away_odd = v1Odds.away;
@@ -1932,7 +1958,9 @@ const server = http.createServer(async (req, res) => {
       }
 
       const oddsMatch = slug.match(/^(.+?)\/odds$/);
-      const requestedId = oddsMatch ? oddsMatch[1] : slug;
+      const statsMatch = slug.match(/^(.+?)\/stats$/);
+      const h2hMatch = slug.match(/^(.+?)\/h2h$/);
+      const requestedId = oddsMatch ? oddsMatch[1] : statsMatch ? statsMatch[1] : h2hMatch ? h2hMatch[1] : slug;
       const parts = String(requestedId || '').split('_');
       const sportRaw = parts.length >= 2 ? parts[0] : 'soccer';
       const normalizeSport = (s: string) => {
@@ -1964,11 +1992,33 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      if (wantsOdds && Number(evt.home_odd || 0) <= 1) {
+      if (statsMatch) {
+        sendJson(res, 200, { stats: [], events: [] }, req);
+        return;
+      }
+
+      if (h2hMatch) {
+        sendJson(res, 200, { h2h: [] }, req);
+        return;
+      }
+
+      const mk = (evt as any)?.markets;
+      const mkEmpty =
+        !mk ||
+        (typeof mk === 'string'
+          ? (() => {
+              const t = mk.trim();
+              return !t || t === '{}' || t === 'null';
+            })()
+          : typeof mk === 'object'
+          ? Object.keys(mk || {}).length === 0
+          : true);
+
+      if (wantsOdds && (Number(evt.home_odd || 0) <= 1 || mkEmpty)) {
         const v1Id = String(evt.external_event_id || '').split('_').slice(1).join('_');
         if (v1Id) {
           const v1Odds = await fetchSportsApiProV1OddsLines(apiKey, sport, v1Id, { topBookmaker: 14 }).catch(() => null);
-          if (v1Odds && v1Odds.home > 1) {
+          if (v1Odds && (v1Odds.home > 1 || Object.keys(v1Odds.markets || {}).length > 0)) {
             evt.home_odd = v1Odds.home;
             evt.draw_odd = v1Odds.draw;
             evt.away_odd = v1Odds.away;
@@ -2011,6 +2061,8 @@ const server = http.createServer(async (req, res) => {
             markets: toMarketsObject((evt as any).markets),
             updated_at: new Date().toISOString(),
             provider: 'sportsapipro',
+            suspended: false,
+            suspended_reason: '',
           },
           req,
         );
