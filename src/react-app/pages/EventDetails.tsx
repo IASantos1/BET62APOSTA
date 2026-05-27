@@ -333,8 +333,8 @@ export default function EventDetails() {
           <MemoSubOddsModel
             event={{ ...displayEvent, suspended: oddsSuspended, suspendReason: oddsSuspendedReason }}
             darkMode={darkMode}
-            markets={realtimeOdds || (displayEvent as any).odds || null}
-            eventOdds={realtimeOdds || (displayEvent as any).odds || null}
+            markets={realtimeOdds || (displayEvent as any).markets || (displayEvent as any).odds || null}
+            eventOdds={realtimeOdds || (displayEvent as any).markets || (displayEvent as any).odds || null}
             onSelect={onSelect}
             labelOutcome={handleLabelOutcome}
             applyMarginClamp={applyMarginClamp}
