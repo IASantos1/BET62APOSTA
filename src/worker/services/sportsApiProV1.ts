@@ -290,13 +290,21 @@ async function fetchFirstOk(urls: string[], apiKey: string): Promise<any | null>
 
 export async function fetchSportsApiProV1Live(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const sub = toSubdomain(sport);
+  const liveUrls =
+    sub === 'basketball'
+      ? [
+          `https://v1.${sub}.sportsapipro.com/games/current?showOdds=true&topBookmaker=14`,
+          `https://v1.${sub}.sportsapipro.com/games/current`,
+          `https://v1.${sub}.sportsapipro.com/games/allscores`,
+        ]
+      : [
+          `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live?showOdds=true&topBookmaker=14`,
+          `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live`,
+          `https://v1.${sub}.sportsapipro.com/games/current`,
+          `https://v1.${sub}.sportsapipro.com/games/allscores`,
+        ];
   const json = await fetchFirstOk(
-    [
-      `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live?showOdds=true&topBookmaker=14`,
-      `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live`,
-      `https://v1.${sub}.sportsapipro.com/games/current`,
-      `https://v1.${sub}.sportsapipro.com/games/allscores`,
-    ],
+    liveUrls,
     apiKey,
   );
   const games = filterBySportId(sport, extractGames(json));
