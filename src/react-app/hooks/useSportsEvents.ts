@@ -162,13 +162,62 @@ export function useSportsEvents(category: string | null) {
   };
 
   const updateState = (newLive: Event[], newPregame: Event[]) => {
-    if (!eq(newLive, lastLiveRef.current)) {
-      setLive(newLive);
-      lastLiveRef.current = newLive;
+    const key = (e: Event) => {
+      const ext = (e as any)?.external_event_id;
+      const fixId = (e as any)?.fixture?.id;
+      if (ext) return String(ext);
+      if (fixId) return String(fixId);
+      return matchUID(String(e.home_team || ''), String(e.away_team || ''), String(e.event_date || ''));
+    };
+    const mkEmpty = (raw: any) => {
+      if (!raw) return true;
+      if (typeof raw === 'string') {
+        const s = raw.trim();
+        return !s || s === '{}' || s === 'null' || s === '[]';
+      }
+      if (typeof raw === 'object') {
+        if (Array.isArray(raw)) return raw.length === 0;
+        return Object.keys(raw).length === 0;
+      }
+      return true;
+    };
+    const stabilize = (next: Event[], prev: Event[]) => {
+      if (!prev.length) return next;
+      const prevMap = new Map(prev.map((e) => [key(e), e]));
+      return next.map((e) => {
+        const p = prevMap.get(key(e));
+        if (!p) return e;
+        const hn = Number((e as any)?.home_odd || 0);
+        const dn = Number((e as any)?.draw_odd || 0);
+        const an = Number((e as any)?.away_odd || 0);
+        const hp = Number((p as any)?.home_odd || 0);
+        const dp = Number((p as any)?.draw_odd || 0);
+        const ap = Number((p as any)?.away_odd || 0);
+        const nextAny = hn > 1 || dn > 1 || an > 1;
+        const prevAny = hp > 1 || dp > 1 || ap > 1;
+        const nextMarketsEmpty = mkEmpty((e as any)?.markets ?? (e as any)?.odds);
+        const prevMarketsEmpty = mkEmpty((p as any)?.markets ?? (p as any)?.odds);
+        let out: any = e as any;
+        if (!nextAny && prevAny) {
+          out = { ...out, home_odd: (p as any).home_odd, draw_odd: (p as any).draw_odd, away_odd: (p as any).away_odd };
+        }
+        if (nextMarketsEmpty && !prevMarketsEmpty) {
+          out = { ...out, markets: (p as any).markets, odds: (p as any).odds };
+        }
+        return out as Event;
+      });
+    };
+
+    const liveStable = stabilize(newLive, lastLiveRef.current);
+    const preStable = stabilize(newPregame, lastPregameRef.current);
+
+    if (!eq(liveStable, lastLiveRef.current)) {
+      setLive(liveStable);
+      lastLiveRef.current = liveStable;
     }
-    if (!eq(newPregame, lastPregameRef.current)) {
-      setPregame(newPregame);
-      lastPregameRef.current = newPregame;
+    if (!eq(preStable, lastPregameRef.current)) {
+      setPregame(preStable);
+      lastPregameRef.current = preStable;
     }
   };
 

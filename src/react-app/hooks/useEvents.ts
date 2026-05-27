@@ -294,10 +294,52 @@ export function useEvents(category?: string) {
             return !past;
           });
           const filtered = dedupEvents(filteredRaw);
-          if (!eq(filtered, lastRef.current)) {
-            setEvents(filtered);
-            lastRef.current = filtered;
-            try { localStorage.setItem(cacheKey, JSON.stringify(filtered)); } catch { void 0 }
+          const key = (e: any) => {
+            const ext = e?.external_event_id;
+            const fixId = e?.fixture?.id;
+            if (ext) return String(ext);
+            if (fixId) return String(fixId);
+            return matchUID(String(e.home_team || ''), String(e.away_team || ''), String(e.event_date || ''));
+          };
+          const mkEmpty = (raw: any) => {
+            if (!raw) return true;
+            if (typeof raw === 'string') {
+              const s = raw.trim();
+              return !s || s === '{}' || s === 'null' || s === '[]';
+            }
+            if (typeof raw === 'object') {
+              if (Array.isArray(raw)) return raw.length === 0;
+              return Object.keys(raw).length === 0;
+            }
+            return true;
+          };
+          const prevMap = new Map(lastRef.current.map((e) => [key(e as any), e as any]));
+          const stable = filtered.map((e: any) => {
+            const p = prevMap.get(key(e));
+            if (!p) return e;
+            const hn = Number(e?.home_odd || 0);
+            const dn = Number(e?.draw_odd || 0);
+            const an = Number(e?.away_odd || 0);
+            const hp = Number(p?.home_odd || 0);
+            const dp = Number(p?.draw_odd || 0);
+            const ap = Number(p?.away_odd || 0);
+            const nextAny = hn > 1 || dn > 1 || an > 1;
+            const prevAny = hp > 1 || dp > 1 || ap > 1;
+            const nextMarketsEmpty = mkEmpty(e?.markets ?? e?.odds);
+            const prevMarketsEmpty = mkEmpty(p?.markets ?? p?.odds);
+            let out: any = e;
+            if (!nextAny && prevAny) {
+              out = { ...out, home_odd: p.home_odd, draw_odd: p.draw_odd, away_odd: p.away_odd };
+            }
+            if (nextMarketsEmpty && !prevMarketsEmpty) {
+              out = { ...out, markets: p.markets, odds: p.odds };
+            }
+            return out;
+          });
+          if (!eq(stable, lastRef.current)) {
+            setEvents(stable);
+            lastRef.current = stable;
+            try { localStorage.setItem(cacheKey, JSON.stringify(stable)); } catch { void 0 }
           }
         }
     } catch (error: any) {

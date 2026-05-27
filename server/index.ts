@@ -1695,9 +1695,13 @@ const server = http.createServer(async (req, res) => {
         return true;
       });
       const requestedSport = sportList.length === 1 ? sportList[0] : null;
-      const mergedFiltered = requestedSport
+      let mergedFiltered = requestedSport
         ? merged.filter((e: any) => String(e?.external_event_id || '').startsWith(`${requestedSport}_`))
         : merged;
+      const leagueFilter = String(urlObj.searchParams.get('league') || '').toLowerCase().trim();
+      if (leagueFilter) {
+        mergedFiltered = mergedFiltered.filter((e: any) => String(e?.league || '').toLowerCase().includes(leagueFilter));
+      }
       const isRealtime = urlObj.searchParams.get('realtime') === '1';
 
       const parseScore = (raw: any) => {
@@ -1797,6 +1801,7 @@ const server = http.createServer(async (req, res) => {
           })
           .slice(0, 120);
         const ttlMs = isRealtime ? 5_000 : 10 * 60 * 1000;
+        const missTtlMs = isRealtime ? 1_500 : 10_000;
         let idx = 0;
         const workers = Array.from({ length: 6 }, async () => {
           while (idx < targets.length) {
@@ -1806,17 +1811,24 @@ const server = http.createServer(async (req, res) => {
             if (!matchId) continue;
             const cacheKey = `v2:${sport}:${matchId}`;
             const cached = sportsApiProOddsCache.get(cacheKey);
-            if (!isRealtime && cached && Date.now() - cached.ts < ttlMs) {
-              const odds = cached.odds;
-              if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
-                ev.home_odd = odds.home;
-                ev.draw_odd = odds.draw;
-                ev.away_odd = odds.away;
-                ev.markets = JSON.stringify(odds.markets || {});
+            const now = Date.now();
+            if (cached) {
+              if (cached.odds) {
+                if (now - cached.ts < ttlMs) {
+                  const odds = cached.odds;
+                  if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
+                    ev.home_odd = odds.home;
+                    ev.draw_odd = odds.draw;
+                    ev.away_odd = odds.away;
+                    ev.markets = JSON.stringify(odds.markets || {});
+                  }
+                  continue;
+                }
+              } else {
+                if (now - cached.ts < missTtlMs) continue;
               }
-              continue;
             }
-          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
+            const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team });
             sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
             if (!odds) continue;
             if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
@@ -1830,7 +1842,7 @@ const server = http.createServer(async (req, res) => {
         await Promise.all(workers);
       }
 
-      const out = mergedFiltered
+      const outAll = mergedFiltered
         .map(toResponse)
         .filter((e: any) => e && e.home_team && e.away_team)
         .sort((a: any, b: any) => {
@@ -1839,13 +1851,16 @@ const server = http.createServer(async (req, res) => {
           if (al !== bl) return bl - al;
           return String(a.event_date || '').localeCompare(String(b.event_date || ''));
         })
-        .slice(0, 500);
+        .slice(0, 800);
 
-      sendJson(res, 200, out, req);
+      const live = outAll.filter((e: any) => Number(e?.is_live || 0) === 1).slice(0, 250);
+      const pregame = outAll.filter((e: any) => Number(e?.is_live || 0) !== 1).slice(0, 550);
+
+      sendJson(res, 200, { live, pregame }, req);
       return;
     } catch (err: any) {
       console.error('[api/events/by-sport] error:', String(err?.message || err));
-      sendJson(res, 200, [], req);
+      sendJson(res, 200, { live: [], pregame: [] }, req);
       return;
     }
   }
@@ -1935,7 +1950,201 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (!slug) {
-        sendJson(res, 200, { live: [], pregame: [] }, req);
+        const rawSport = String(urlObj.searchParams.get('sports') || urlObj.searchParams.get('sport') || 'all').toLowerCase().trim();
+        const normalizeSportListKey = (s: string) => {
+          const v = String(s || '').toLowerCase().trim();
+          if (v === 'football' || v === 'futebol') return 'soccer';
+          if (v === 'hockey' || v === 'icehockey' || v === 'ice_hockey') return 'ice-hockey';
+          return v;
+        };
+        const sportParam = normalizeSportListKey(rawSport);
+        const sportList = sportParam === 'all' ? ['soccer', 'basketball', 'tennis', 'ice-hockey'] : [normalizeSportListKey(sportParam.split(',')[0])];
+
+        const today = new Date();
+        const start = new Date(today);
+        start.setDate(today.getDate() - 1);
+        const end = new Date(today);
+        end.setDate(today.getDate() + 7);
+
+        const dates: string[] = [];
+        const startDate = start.toISOString().slice(0, 10);
+        const endDate = end.toISOString().slice(0, 10);
+        const startMs = new Date(`${startDate}T00:00:00.000Z`).getTime();
+        const endMs = new Date(`${endDate}T00:00:00.000Z`).getTime();
+        for (let t = startMs; Number.isFinite(t) && t <= endMs; t += 24 * 60 * 60 * 1000) {
+          dates.push(new Date(t).toISOString().slice(0, 10));
+        }
+
+        const perSport = await Promise.all(
+          sportList.map(async (sp) => {
+            const [live, scheduledChunks] = await Promise.all([
+              fetchSportsApiProLive(apiKey, sp).catch(() => []),
+              Promise.all(dates.map((ds) => fetchSportsApiProSchedule(apiKey, sp, ds).catch(() => []))),
+            ]);
+            return [...live, ...scheduledChunks.flat()];
+          }),
+        );
+
+        const seen = new Set<string>();
+        const merged = perSport.flat().filter((e: any) => {
+          const id = String(e?.external_event_id || '');
+          if (!id) return false;
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
+
+        if (wantsOdds) {
+          const nowMs = Date.now();
+          const parseMarketsKeys = (mk: any): string[] => {
+            if (!mk) return [];
+            if (typeof mk === 'string') {
+              const t = mk.trim();
+              if (!t || t === '{}' || t === 'null') return [];
+              try {
+                const o = JSON.parse(t);
+                return o && typeof o === 'object' && !Array.isArray(o) ? Object.keys(o) : [];
+              } catch {
+                return [];
+              }
+            }
+            if (typeof mk === 'object' && !Array.isArray(mk)) return Object.keys(mk);
+            return [];
+          };
+          const needsMarketsEnrich = (e: any) => {
+            const keys = parseMarketsKeys(e?.markets);
+            if (!keys.length) return true;
+            const extras = ['totals', 'alternate_totals', 'btts', 'double_chance', 'dnb', 'handicap', 'spreads'];
+            return !keys.some((k) => extras.includes(String(k || '').toLowerCase()));
+          };
+
+          const targets = merged
+            .filter((e: any) => {
+              const mkKeys = parseMarketsKeys(e?.markets);
+              const mkEmpty = mkKeys.length === 0;
+              const needMore = needsMarketsEnrich(e);
+              if (Number(e.home_odd || 0) > 1 && !mkEmpty && !needMore) return false;
+              const dateMs = Date.parse(String(e.event_date || ''));
+              if (!Number.isFinite(dateMs)) return false;
+              const st = String(e.status || '').toLowerCase();
+              const finished =
+                st.includes('final') ||
+                st.includes('ended') ||
+                st === 'ft' ||
+                st.includes('full time') ||
+                st.includes('cancel') ||
+                st.includes('postpon') ||
+                st.includes('aband') ||
+                st.includes('suspend');
+              if (finished) return false;
+              return dateMs > nowMs - 6 * 60 * 60 * 1000;
+            })
+            .slice(0, 160);
+
+          const ttlMs = 5_000;
+          const missTtlMs = 2_000;
+          let idx = 0;
+          const workers = Array.from({ length: 6 }, async () => {
+            while (idx < targets.length) {
+              const ev = targets[idx++];
+              const sport = String(ev.sport || 'soccer');
+              const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
+              if (!matchId) continue;
+              const cacheKey = `v2:${sport}:${matchId}`;
+              const cached = sportsApiProOddsCache.get(cacheKey);
+              const now = Date.now();
+              if (cached) {
+                if (cached.odds) {
+                  if (now - cached.ts < ttlMs) {
+                    const odds = cached.odds;
+                    if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
+                      ev.home_odd = odds.home;
+                      ev.draw_odd = odds.draw;
+                      ev.away_odd = odds.away;
+                      ev.markets = JSON.stringify(odds.markets || {});
+                    }
+                    continue;
+                  }
+                } else {
+                  if (now - cached.ts < missTtlMs) continue;
+                }
+              }
+              const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+              sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
+              if (!odds) continue;
+              if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
+                ev.home_odd = odds.home;
+                ev.draw_odd = odds.draw;
+                ev.away_odd = odds.away;
+                ev.markets = JSON.stringify(odds.markets || {});
+              }
+            }
+          });
+          await Promise.all(workers);
+        }
+
+        const parseScore = (raw: any) => {
+          try {
+            const sc = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return { home: sc?.home ?? null, away: sc?.away ?? null };
+          } catch {
+            return { home: null, away: null };
+          }
+        };
+        const toResponse = (e: any) => {
+          const id = String(e.external_event_id || '');
+          const goals = parseScore(e.score);
+          const date = String(e.event_date || '');
+          const ts = date ? Math.floor(new Date(date).getTime() / 1000) : 0;
+          const statusShort = String(e.status || 'NS').trim() || 'NS';
+          const elapsed = Number(e.elapsed || 0) || 0;
+          const timer = String(e.timer || '').trim();
+          const sport = String(e.sport || '');
+          return {
+            id,
+            external_event_id: id,
+            match: `${e.home_team} vs ${e.away_team}`,
+            league: e.league || '',
+            country: e.country || '',
+            home_team: e.home_team,
+            away_team: e.away_team,
+            home_odd: Number(e.home_odd || 0) || 0,
+            draw_odd: Number(e.draw_odd || 0) || 0,
+            away_odd: Number(e.away_odd || 0) || 0,
+            event_date: date,
+            is_live: Number(e.is_live || 0) || 0,
+            score: e.score || null,
+            goals,
+            elapsed,
+            timer,
+            status: { short: statusShort, long: statusShort, elapsed, timer },
+            fixture: { id, date, timestamp: ts, status: { short: statusShort, long: statusShort, elapsed, timer } },
+            teams: {
+              home: { name: e.home_team, logo: e.home_team_logo || '' },
+              away: { name: e.away_team, logo: e.away_team_logo || '' },
+            },
+            home_team_logo: e.home_team_logo || '',
+            away_team_logo: e.away_team_logo || '',
+            sport,
+            markets: e.markets || {},
+            odds: e.odds || {},
+          };
+        };
+
+        const outAll = merged
+          .map(toResponse)
+          .filter((e: any) => e && e.home_team && e.away_team)
+          .sort((a: any, b: any) => {
+            const al = Number(a.is_live) === 1 ? 1 : 0;
+            const bl = Number(b.is_live) === 1 ? 1 : 0;
+            if (al !== bl) return bl - al;
+            return String(a.event_date || '').localeCompare(String(b.event_date || ''));
+          })
+          .slice(0, 1200);
+
+        const live = outAll.filter((e: any) => Number(e?.is_live || 0) === 1).slice(0, 250);
+        const pregame = outAll.filter((e: any) => Number(e?.is_live || 0) !== 1).slice(0, 850);
+        sendJson(res, 200, { live, pregame }, req);
         return;
       }
 

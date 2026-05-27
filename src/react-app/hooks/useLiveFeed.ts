@@ -259,7 +259,36 @@ export function useLiveFeed(sport?: string) {
                       const id = String(parsed.id || parsed.external_event_id || parsed.fixture?.id);
                       if (!id) return;
                       const prevVal = next.get(id);
-                      next.set(id, { ...(prevVal || {}), ...parsed, __lastSeenAt: now });
+                      const merged = { ...(prevVal || {}), ...parsed, __lastSeenAt: now };
+                      const pn = Number((parsed as any)?.home_odd || 0);
+                      const qn = Number((parsed as any)?.draw_odd || 0);
+                      const rn = Number((parsed as any)?.away_odd || 0);
+                      const nextAny = pn > 1 || qn > 1 || rn > 1;
+                      const ph = Number((prevVal as any)?.home_odd || 0);
+                      const qh = Number((prevVal as any)?.draw_odd || 0);
+                      const rh = Number((prevVal as any)?.away_odd || 0);
+                      const prevAny = ph > 1 || qh > 1 || rh > 1;
+                      if (!nextAny && prevAny) {
+                        merged.home_odd = (prevVal as any).home_odd;
+                        merged.draw_odd = (prevVal as any).draw_odd;
+                        merged.away_odd = (prevVal as any).away_odd;
+                      }
+                      const mkEmpty = (m: any) => {
+                        if (!m) return true;
+                        if (typeof m === 'string') {
+                          const s = m.trim();
+                          return !s || s === '{}' || s === 'null' || s === '[]';
+                        }
+                        if (typeof m === 'object') {
+                          if (Array.isArray(m)) return m.length === 0;
+                          return Object.keys(m).length === 0;
+                        }
+                        return true;
+                      };
+                      if (mkEmpty((parsed as any).markets) && !mkEmpty((prevVal as any)?.markets)) {
+                        merged.markets = (prevVal as any).markets;
+                      }
+                      next.set(id, merged);
                       seen.add(id);
                   }
               });
@@ -346,7 +375,36 @@ export function useLiveFeed(sport?: string) {
                   const id = String(parsed.id || parsed.external_event_id || parsed.fixture?.id);
                   if (!id) return;
                   const prevVal = next.get(id);
-                  next.set(id, { ...(prevVal || {}), ...parsed, __lastSeenAt: now });
+                  const merged = { ...(prevVal || {}), ...parsed, __lastSeenAt: now };
+                  const pn = Number((parsed as any)?.home_odd || 0);
+                  const qn = Number((parsed as any)?.draw_odd || 0);
+                  const rn = Number((parsed as any)?.away_odd || 0);
+                  const nextAny = pn > 1 || qn > 1 || rn > 1;
+                  const ph = Number((prevVal as any)?.home_odd || 0);
+                  const qh = Number((prevVal as any)?.draw_odd || 0);
+                  const rh = Number((prevVal as any)?.away_odd || 0);
+                  const prevAny = ph > 1 || qh > 1 || rh > 1;
+                  if (!nextAny && prevAny) {
+                    merged.home_odd = (prevVal as any).home_odd;
+                    merged.draw_odd = (prevVal as any).draw_odd;
+                    merged.away_odd = (prevVal as any).away_odd;
+                  }
+                  const mkEmpty = (m: any) => {
+                    if (!m) return true;
+                    if (typeof m === 'string') {
+                      const s = m.trim();
+                      return !s || s === '{}' || s === 'null' || s === '[]';
+                    }
+                    if (typeof m === 'object') {
+                      if (Array.isArray(m)) return m.length === 0;
+                      return Object.keys(m).length === 0;
+                    }
+                    return true;
+                  };
+                  if (mkEmpty((parsed as any).markets) && !mkEmpty((prevVal as any)?.markets)) {
+                    merged.markets = (prevVal as any).markets;
+                  }
+                  next.set(id, merged);
                   seen.add(id);
                 }
               });
