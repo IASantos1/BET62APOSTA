@@ -5,7 +5,7 @@ import path from 'path';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import Stripe from 'stripe';
 import { fetchSportsApiProV1GamesRange, fetchSportsApiProV1Live } from '../src/worker/services/sportsApiProV1';
-import { fetchSportsApiProMatchOdds } from '../src/worker/services/sportsApiPro';
+import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProSchedule } from '../src/worker/services/sportsApiPro';
 
 const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 4000);
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
@@ -136,6 +136,84 @@ const oddsHistoryStore: OddsSnapshot[] = [];
 const eventsStore: Event[] = [];
 const statisticsStore: Statistics[] = [];
 const sportsApiProOddsCache = new Map<string, { ts: number; odds: { home: number; draw: number; away: number; markets: Record<string, any[]> } | null }>();
+const sportsApiProV2IdByV1IdCache = new Map<string, { ts: number; id: string | null }>();
+const sportsApiProV2ScheduleIndexCache = new Map<string, { ts: number; index: Map<string, string> }>();
+const sportsApiProV2LiveIndexCache = new Map<string, { ts: number; index: Map<string, string> }>();
+
+function normalizeTeamKey(name: string): string {
+  return String(name || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function matchupKey(home: string, away: string): string {
+  return `${normalizeTeamKey(home)}__${normalizeTeamKey(away)}`;
+}
+
+async function getSportsApiProV2ScheduleIndex(apiKey: string, sport: string, date: string): Promise<Map<string, string>> {
+  const ttlMs = 10 * 60 * 1000;
+  const k = `${sport}:${date}`;
+  const cached = sportsApiProV2ScheduleIndexCache.get(k);
+  if (cached && Date.now() - cached.ts < ttlMs) return cached.index;
+
+  const index = new Map<string, string>();
+  const items = await fetchSportsApiProSchedule(apiKey, sport, date).catch(() => []);
+  for (const e of items) {
+    const id = String(e?.external_event_id || '').split('_').slice(1).join('_');
+    if (!id) continue;
+    const mk = matchupKey(String(e?.home_team || ''), String(e?.away_team || ''));
+    if (!mk || mk === '__') continue;
+    if (!index.has(mk)) index.set(mk, id);
+  }
+
+  sportsApiProV2ScheduleIndexCache.set(k, { ts: Date.now(), index });
+  return index;
+}
+
+async function getSportsApiProV2LiveIndex(apiKey: string, sport: string): Promise<Map<string, string>> {
+  const ttlMs = 2 * 60 * 1000;
+  const cached = sportsApiProV2LiveIndexCache.get(sport);
+  if (cached && Date.now() - cached.ts < ttlMs) return cached.index;
+
+  const index = new Map<string, string>();
+  const items = await fetchSportsApiProLive(apiKey, sport).catch(() => []);
+  for (const e of items) {
+    const id = String(e?.external_event_id || '').split('_').slice(1).join('_');
+    if (!id) continue;
+    const mk = matchupKey(String(e?.home_team || ''), String(e?.away_team || ''));
+    if (!mk || mk === '__') continue;
+    if (!index.has(mk)) index.set(mk, id);
+  }
+
+  sportsApiProV2LiveIndexCache.set(sport, { ts: Date.now(), index });
+  return index;
+}
+
+async function resolveSportsApiProV2MatchId(
+  apiKey: string,
+  sport: string,
+  date: string,
+  homeTeam: string,
+  awayTeam: string,
+  live: boolean,
+): Promise<string | null> {
+  const mk = matchupKey(homeTeam, awayTeam);
+  if (!mk || mk === '__') return null;
+
+  const scheduleIndex = await getSportsApiProV2ScheduleIndex(apiKey, sport, date);
+  const direct = scheduleIndex.get(mk) || scheduleIndex.get(matchupKey(awayTeam, homeTeam)) || null;
+  if (direct) return direct;
+
+  if (live) {
+    const liveIndex = await getSportsApiProV2LiveIndex(apiKey, sport);
+    return liveIndex.get(mk) || liveIndex.get(matchupKey(awayTeam, homeTeam)) || null;
+  }
+
+  return null;
+}
 const kycDocuments: {
   id: string;
   user_id: string;
@@ -1230,7 +1308,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.url === '/api/health' && req.method === 'GET') {
-    sendJson(res, 200, { status: 'ok', ts: new Date().toISOString() }, req);
+    const commit =
+      process.env.RAILWAY_GIT_COMMIT_SHA ||
+      process.env.GITHUB_SHA ||
+      process.env.VERCEL_GIT_COMMIT_SHA ||
+      '';
+    sendJson(res, 200, { status: 'ok', ts: new Date().toISOString(), commit: String(commit || '') }, req);
     return;
   }
 
@@ -1413,16 +1496,42 @@ const server = http.createServer(async (req, res) => {
       };
 
       if (wantsOdds) {
-        const targets = mergedFiltered.filter((e: any) => !(Number(e.home_odd || 0) > 1)).slice(0, 40);
+        const nowMs = Date.now();
+        const targets = mergedFiltered
+          .filter((e: any) => {
+            if (Number(e.home_odd || 0) > 1) return false;
+            const dateMs = Date.parse(String(e.event_date || ''));
+            if (!Number.isFinite(dateMs)) return false;
+            const st = String(e.status || '').toLowerCase();
+            const finished =
+              st.includes('final') ||
+              st.includes('ended') ||
+              st === 'ft' ||
+              st.includes('full time') ||
+              st.includes('cancel') ||
+              st.includes('postpon') ||
+              st.includes('aband') ||
+              st.includes('suspend');
+            if (finished) return false;
+            return dateMs > nowMs - 6 * 60 * 60 * 1000;
+          })
+          .slice(0, 40);
         const ttlMs = 10 * 60 * 1000;
         let idx = 0;
         const workers = Array.from({ length: 4 }, async () => {
           while (idx < targets.length) {
             const ev = targets[idx++];
-            const raw = String(ev.external_event_id || '').split('_').slice(1).join('_');
-            if (!raw) continue;
+            const v1Id = String(ev.external_event_id || '').split('_').slice(1).join('_');
+            if (!v1Id) continue;
             const sport = String(ev.sport || 'soccer');
-            const cacheKey = `${sport}:${raw}`;
+            const mapKey = `${sport}:${v1Id}`;
+            const mapped = sportsApiProV2IdByV1IdCache.get(mapKey);
+            const matchId =
+              mapped && Date.now() - mapped.ts < ttlMs && mapped.id
+                ? mapped.id
+                : v1Id;
+
+            const cacheKey = `${sport}:${matchId}`;
             const cached = sportsApiProOddsCache.get(cacheKey);
             if (cached && Date.now() - cached.ts < ttlMs) {
               const odds = cached.odds;
@@ -1433,8 +1542,29 @@ const server = http.createServer(async (req, res) => {
               ev.markets = odds.markets || {};
               continue;
             }
-            const odds = await fetchSportsApiProMatchOdds(apiKey, sport, raw, { homeTeam: ev.home_team, awayTeam: ev.away_team });
+            let odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team });
             sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
+
+            if (!odds || !(odds.home > 1)) {
+              if (!mapped || Date.now() - mapped.ts >= ttlMs) {
+                const date = String(ev.event_date || '').slice(0, 10);
+                const live = Number(ev.is_live || 0) === 1;
+                const resolved = date
+                  ? await resolveSportsApiProV2MatchId(apiKey, sport, date, String(ev.home_team || ''), String(ev.away_team || ''), live)
+                  : null;
+                sportsApiProV2IdByV1IdCache.set(mapKey, { ts: Date.now(), id: resolved ?? null });
+                if (resolved && resolved !== v1Id) {
+                  const cacheKey2 = `${sport}:${resolved}`;
+                  const cached2 = sportsApiProOddsCache.get(cacheKey2);
+                  if (cached2 && Date.now() - cached2.ts < ttlMs) {
+                    odds = cached2.odds;
+                  } else {
+                    odds = await fetchSportsApiProMatchOdds(apiKey, sport, resolved, { homeTeam: ev.home_team, awayTeam: ev.away_team });
+                    sportsApiProOddsCache.set(cacheKey2, { ts: Date.now(), odds: odds ?? null });
+                  }
+                }
+              }
+            }
             if (!odds || !(odds.home > 1)) continue;
             ev.home_odd = odds.home;
             ev.draw_odd = odds.draw;
