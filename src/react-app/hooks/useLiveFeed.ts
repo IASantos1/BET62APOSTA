@@ -244,24 +244,34 @@ export function useLiveFeed(sport?: string) {
           const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1`;
           const data = await apiFetch<any>(url, { cache: 'no-store' });
           
-          if (data && Array.isArray(data.live)) {
-              setEventsMap(() => {
-                  const next = new Map<string, any>();
-                  // Rebuild map from scratch to ensure freshness, 
-                  // but we could merge if we wanted to keep some state.
-                  // For now, replacing is safer to remove stale events.
-                  
-                  data.live.forEach((raw: any) => {
-                      const parsed = parseLiveEvent(raw);
-                      if (parsed) {
-                          const id = String(parsed.id || parsed.external_event_id || parsed.fixture?.id);
-                          next.set(id, parsed);
-                      }
-                  });
-                  return next;
+          const list = Array.isArray(data) ? data : (data && Array.isArray(data.live) ? data.live : null);
+          if (!list) return;
+
+          const now = Date.now();
+          const graceMs = 15_000;
+          setEventsMap((prev) => {
+              const next = new Map<string, any>(prev);
+              const seen = new Set<string>();
+
+              list.forEach((raw: any) => {
+                  const parsed = parseLiveEvent(raw);
+                  if (parsed) {
+                      const id = String(parsed.id || parsed.external_event_id || parsed.fixture?.id);
+                      if (!id) return;
+                      const prevVal = next.get(id);
+                      next.set(id, { ...(prevVal || {}), ...parsed, __lastSeenAt: now });
+                      seen.add(id);
+                  }
               });
-              setLastUpdatedAt(Date.now());
-          }
+
+              for (const [id, ev] of next.entries()) {
+                  const lastSeen = Number((ev as any)?.__lastSeenAt || 0);
+                  if (!lastSeen) continue;
+                  if (now - lastSeen > graceMs) next.delete(id);
+              }
+              return next;
+          });
+          setLastUpdatedAt(now);
       } catch (err) {
           console.error('[useLiveFeed] Polling error:', err);
           // Don't disconnect, just retry next time
@@ -271,9 +281,10 @@ export function useLiveFeed(sport?: string) {
   useEffect(() => {
     let cancelled = false;
     let inflight = false;
-    let timeoutId: NodeJS.Timeout | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let ws: WebSocket | null = null;
     let wsOk = false;
+    let pingId: ReturnType<typeof setInterval> | null = null;
 
     const loop = async () => {
       if (cancelled) return;
@@ -303,33 +314,50 @@ export function useLiveFeed(sport?: string) {
       ws.onopen = () => {
         wsOk = true;
         setIsConnected(true);
+        if (pingId) clearInterval(pingId);
+        pingId = setInterval(() => {
+          try { ws?.send(JSON.stringify({ type: 'ping', ts: Date.now() })); } catch { void 0; }
+        }, 15_000);
       };
       ws.onclose = () => {
         wsOk = false;
         setIsConnected(false);
+        if (pingId) { clearInterval(pingId); pingId = null; }
         loop();
       };
       ws.onerror = () => {
         wsOk = false;
         setIsConnected(false);
+        if (pingId) { clearInterval(pingId); pingId = null; }
         loop();
       };
       ws.onmessage = (evt) => {
         try {
           const msg = JSON.parse(String((evt as any)?.data || ''));
           if (msg?.type === 'snapshot' && Array.isArray(msg?.live)) {
-            setEventsMap(() => {
-              const next = new Map<string, any>();
+            const now = Date.now();
+            const graceMs = 15_000;
+            setEventsMap((prev) => {
+              const next = new Map<string, any>(prev);
+              const seen = new Set<string>();
               msg.live.forEach((raw: any) => {
                 const parsed = parseLiveEvent(raw);
                 if (parsed) {
                   const id = String(parsed.id || parsed.external_event_id || parsed.fixture?.id);
-                  next.set(id, parsed);
+                  if (!id) return;
+                  const prevVal = next.get(id);
+                  next.set(id, { ...(prevVal || {}), ...parsed, __lastSeenAt: now });
+                  seen.add(id);
                 }
               });
+              for (const [id, ev] of next.entries()) {
+                const lastSeen = Number((ev as any)?.__lastSeenAt || 0);
+                if (!lastSeen) continue;
+                if (now - lastSeen > graceMs) next.delete(id);
+              }
               return next;
             });
-            setLastUpdatedAt(Date.now());
+            setLastUpdatedAt(now);
             return;
           }
           if (msg?.type === 'pong') return;
@@ -343,6 +371,7 @@ export function useLiveFeed(sport?: string) {
     return () => {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
+      if (pingId) clearInterval(pingId);
       if (ws) {
         try { ws.close(); } catch { void 0; }
         ws = null;

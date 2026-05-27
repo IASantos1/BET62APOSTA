@@ -553,6 +553,7 @@ app.get('/api/live/ws', upgradeWebSocket((c) => {
         event_date,
         status,
         is_live,
+        updated_at,
         elapsed,
         timer,
         score,
@@ -567,13 +568,14 @@ app.get('/api/live/ws', upgradeWebSocket((c) => {
       q += ` AND lower(sport) = ?`;
       params.push(sport);
     }
-    q += ` ORDER BY updated_at DESC LIMIT 150`;
+    q += ` ORDER BY event_date ASC, updated_at DESC LIMIT 300`;
     const res = await c.env.DB.prepare(q).bind(...params).all();
     return (res.results || []).map((r: any) => ({
       ...r,
       id: String(r.external_event_id || r.id || ''),
       external_event_id: String(r.external_event_id || ''),
       is_live: Number(r.is_live || 0),
+      updated_at: String(r.updated_at || ''),
       elapsed: Number(r.elapsed || 0),
       timer: String(r.timer || ''),
       home_odd: Number(r.home_odd || 0),
@@ -587,11 +589,30 @@ app.get('/api/live/ws', upgradeWebSocket((c) => {
   return {
     async onOpen(_evt: unknown, ws: { send: (d: string) => void }) {
       ws.send(JSON.stringify({ type: 'connected', ts: Date.now() }));
+      let lastNonEmpty: any[] = [];
+      let lastNonEmptyAt = 0;
+      let consecutiveEmpty = 0;
 
       const sendSnapshot = async () => {
         try {
           const live = await fetchSnapshot();
-          ws.send(JSON.stringify({ type: 'snapshot', ts: Date.now(), live }));
+          const now = Date.now();
+          if (live.length > 0) {
+            lastNonEmpty = live;
+            lastNonEmptyAt = now;
+            consecutiveEmpty = 0;
+            ws.send(JSON.stringify({ type: 'snapshot', ts: now, live }));
+            return;
+          }
+
+          consecutiveEmpty += 1;
+          const hasRecent = lastNonEmpty.length > 0 && now - lastNonEmptyAt < 30_000;
+          if (hasRecent && consecutiveEmpty < 3) {
+            ws.send(JSON.stringify({ type: 'snapshot', ts: now, live: lastNonEmpty, stale: true }));
+            return;
+          }
+
+          ws.send(JSON.stringify({ type: 'snapshot', ts: now, live: [] }));
         } catch (err: any) {
           ws.send(JSON.stringify({ type: 'error', ts: Date.now(), message: String(err?.message || 'snapshot_failed') }));
         }

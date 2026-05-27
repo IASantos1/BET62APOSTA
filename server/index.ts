@@ -4558,7 +4558,7 @@ const server = http.createServer(async (req, res) => {
         fs.createReadStream(indexPath).pipe(res);
         return;
       }
-    } catch {}
+    } catch { void 0; }
   }
 
   sendJson(res, 404, { error: 'Not found' });
@@ -4583,10 +4583,10 @@ function normalizeWsSport(sport: string): string {
 function wsReject(socket: any, statusLine: string): void {
   try {
     socket.write(`HTTP/1.1 ${statusLine}\r\nConnection: close\r\n\r\n`);
-  } catch {}
+  } catch { void 0; }
   try {
     socket.destroy();
-  } catch {}
+  } catch { void 0; }
 }
 
 server.on('upgrade', (req, socket, head) => {
@@ -4625,10 +4625,10 @@ server.on('upgrade', (req, socket, head) => {
       const closeBoth = () => {
         try {
           client.close();
-        } catch {}
+        } catch { void 0; }
         try {
           upstream.close();
-        } catch {}
+        } catch { void 0; }
       };
 
       upstream.on('open', () => {
@@ -4648,7 +4648,7 @@ server.on('upgrade', (req, socket, head) => {
       upstream.on('error', () => {
         try {
           client.close(1011);
-        } catch {}
+        } catch { void 0; }
         closeBoth();
       });
     });
