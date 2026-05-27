@@ -4515,7 +4515,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET') {
     try {
-      const distDir = path.resolve(__dirname, '../dist');
+      const distDir = path.resolve(process.cwd(), 'dist');
       const url = new URL(req.url, `http://localhost:${PORT}`);
       const pathname = url.pathname === '/' ? '/index.html' : url.pathname;
       const safePath = pathname.replace(/^\/+/, '');
@@ -4553,7 +4553,7 @@ const server = http.createServer(async (req, res) => {
         fs.createReadStream(indexPath).pipe(res);
         return;
       }
-    } catch { return; }
+    } catch {}
   }
 
   sendJson(res, 404, { error: 'Not found' });
