@@ -102,10 +102,24 @@ async function fetchJson(url: string, apiKey: string): Promise<any | null> {
   }
 }
 
+async function fetchFirstOk(urls: string[], apiKey: string): Promise<any | null> {
+  for (const u of urls) {
+    const out = await fetchJson(u, apiKey);
+    if (out) return out;
+  }
+  return null;
+}
+
 export async function fetchSportsApiProV1Live(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const sub = toSubdomain(sport);
-  const url = `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live`;
-  const json = await fetchJson(url, apiKey);
+  const json = await fetchFirstOk(
+    [
+      `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/live`,
+      `https://v1.${sub}.sportsapipro.com/games/current`,
+      `https://v1.${sub}.sportsapipro.com/games/allscores`,
+    ],
+    apiKey,
+  );
   const games = extractGames(json);
   const out: NormalizedEvent[] = [];
   for (const g of games) {
@@ -123,8 +137,17 @@ export async function fetchSportsApiProV1GamesRange(
 ): Promise<NormalizedEvent[]> {
   const sportId = toSportId(sport);
   if (!sportId) return [];
-  const url = `https://v1.football.sportsapipro.com/api/v1/games?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&sportId=${encodeURIComponent(String(sportId))}`;
-  const json = await fetchJson(url, apiKey);
+  const sub = toSubdomain(sport);
+  const json = await fetchFirstOk(
+    [
+      `https://v1.football.sportsapipro.com/api/v1/games?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&sportId=${encodeURIComponent(String(sportId))}`,
+      `https://v1.${sub}.sportsapipro.com/api/v1/${sub}/all`,
+      `https://v1.${sub}.sportsapipro.com/games/fixtures`,
+      `https://v1.${sub}.sportsapipro.com/games/results`,
+      `https://v1.${sub}.sportsapipro.com/games/allscores`,
+    ],
+    apiKey,
+  );
   const games = extractGames(json);
   const out: NormalizedEvent[] = [];
   for (const g of games) {
@@ -133,4 +156,3 @@ export async function fetchSportsApiProV1GamesRange(
   }
   return out;
 }
-

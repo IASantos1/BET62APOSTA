@@ -1447,6 +1447,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, out, req);
       return;
     } catch (err: any) {
+      console.error('[api/events/by-sport] error:', String(err?.message || err));
       sendJson(res, 200, [], req);
       return;
     }
