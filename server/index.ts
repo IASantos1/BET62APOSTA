@@ -1683,6 +1683,7 @@ const server = http.createServer(async (req, res) => {
       const mergedFiltered = requestedSport
         ? merged.filter((e: any) => String(e?.external_event_id || '').startsWith(`${requestedSport}_`))
         : merged;
+      const isRealtime = urlObj.searchParams.get('realtime') === '1';
 
       const parseScore = (raw: any) => {
         try {
@@ -1735,20 +1736,35 @@ const server = http.createServer(async (req, res) => {
 
       if (wantsOdds) {
         const nowMs = Date.now();
+        const parseMarketsKeys = (mk: any): string[] => {
+          if (!mk) return [];
+          if (typeof mk === 'string') {
+            const t = mk.trim();
+            if (!t || t === '{}' || t === 'null') return [];
+            try {
+              const o = JSON.parse(t);
+              return o && typeof o === 'object' && !Array.isArray(o) ? Object.keys(o) : [];
+            } catch {
+              return [];
+            }
+          }
+          if (typeof mk === 'object' && !Array.isArray(mk)) return Object.keys(mk);
+          return [];
+        };
+
+        const needsMarketsEnrich = (e: any) => {
+          const keys = parseMarketsKeys(e?.markets);
+          if (!keys.length) return true;
+          const extras = ['totals', 'alternate_totals', 'btts', 'double_chance', 'dnb', 'handicap', 'spreads'];
+          return !keys.some((k) => extras.includes(String(k || '').toLowerCase()));
+        };
+
         const targets = mergedFiltered
           .filter((e: any) => {
-            const mk = e?.markets;
-            const mkEmpty =
-              !mk ||
-              (typeof mk === 'string'
-                ? (() => {
-                    const t = mk.trim();
-                    return !t || t === '{}' || t === 'null';
-                  })()
-                : typeof mk === 'object'
-                ? Object.keys(mk || {}).length === 0
-                : true);
-            if (Number(e.home_odd || 0) > 1 && !mkEmpty) return false;
+            const mkKeys = parseMarketsKeys(e?.markets);
+            const mkEmpty = mkKeys.length === 0;
+            const needMore = needsMarketsEnrich(e);
+            if (Number(e.home_odd || 0) > 1 && !mkEmpty && !needMore) return false;
             const dateMs = Date.parse(String(e.event_date || ''));
             if (!Number.isFinite(dateMs)) return false;
             const st = String(e.status || '').toLowerCase();
@@ -1765,7 +1781,7 @@ const server = http.createServer(async (req, res) => {
             return dateMs > nowMs - 6 * 60 * 60 * 1000;
           })
           .slice(0, 120);
-        const ttlMs = 10 * 60 * 1000;
+        const ttlMs = isRealtime ? 5_000 : 10 * 60 * 1000;
         let idx = 0;
         const workers = Array.from({ length: 6 }, async () => {
           while (idx < targets.length) {
@@ -1776,7 +1792,7 @@ const server = http.createServer(async (req, res) => {
 
             const v1OddsCacheKey = `v1:${sport}:${v1Id}`;
             const cachedV1 = sportsApiProOddsCache.get(v1OddsCacheKey);
-            if (cachedV1 && Date.now() - cachedV1.ts < ttlMs) {
+            if (!isRealtime && cachedV1 && Date.now() - cachedV1.ts < ttlMs) {
               const odds = cachedV1.odds;
               if (odds && (odds.home > 1 || (odds.markets && Object.keys(odds.markets).length > 0))) {
                 ev.home_odd = odds.home;

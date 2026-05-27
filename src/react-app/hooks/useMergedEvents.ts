@@ -29,8 +29,27 @@ const mergeKeyOf = (e: any) => {
 };
 
 const isNonEmptyObj = (v: any) => !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0;
-const isNonEmptyMarkets = (v: any) =>
-  Array.isArray(v) ? v.length > 0 : isNonEmptyObj(v);
+const isNonEmptyMarkets = (v: any) => (Array.isArray(v) ? v.length > 0 : isNonEmptyObj(v));
+
+const isNonEmptyString = (v: any) => typeof v === 'string' && v.trim().length > 0;
+
+const pickTimer = (wsTimer: any, httpTimer: any) => {
+  if (isNonEmptyString(wsTimer)) return String(wsTimer).trim();
+  if (isNonEmptyString(httpTimer)) return String(httpTimer).trim();
+  return '';
+};
+
+const pickElapsed = (wsElapsed: any, httpElapsed: any) => {
+  const w = Number(wsElapsed);
+  const h = Number(httpElapsed);
+  const wOk = Number.isFinite(w) && w > 0;
+  const hOk = Number.isFinite(h) && h > 0;
+  if (wOk) return w;
+  if (hOk) return h;
+  if (Number.isFinite(w)) return w;
+  if (Number.isFinite(h)) return h;
+  return 0;
+};
 
 const statusKeyOf = (e: any) => {
   const raw =
@@ -81,7 +100,7 @@ export function useMergedEvents(
       indexAliases(canonical, e);
     });
     
-    // Overlay: WS Events (Priority)
+    // Overlay: WS Events (Prefer HTTP for odds/markets)
     wsEvents.forEach(e => {
       const canonical =
         index.get(String(e?.id || '').trim()) ||
@@ -93,17 +112,30 @@ export function useMergedEvents(
 
       const httpEvt = map.get(canonical);
       
+      const httpMarkets = (httpEvt as any)?.markets ?? (httpEvt as any)?.odds;
+      const wsMarkets = (e as any)?.markets ?? (e as any)?.odds;
+      const markets =
+        isNonEmptyMarkets(httpMarkets) ? httpMarkets : isNonEmptyMarkets(wsMarkets) ? wsMarkets : (httpEvt as any)?.odds ?? {};
+
+      const httpHomeOdd = Number((httpEvt as any)?.home_odd || 0);
+      const httpDrawOdd = Number((httpEvt as any)?.draw_odd || 0);
+      const httpAwayOdd = Number((httpEvt as any)?.away_odd || 0);
+      const wsHomeOdd = Number((e as any)?.home_odd || 0);
+      const wsDrawOdd = Number((e as any)?.draw_odd || 0);
+      const wsAwayOdd = Number((e as any)?.away_odd || 0);
+
       const mergedEvt: Event = {
         ...(httpEvt || {}),
         ...e,
         id: (httpEvt as any)?.id || (e as any)?.id || (e as any)?.external_event_id || (e as any)?.fixture?.id,
         external_event_id: (httpEvt as any)?.external_event_id || (e as any)?.external_event_id || (httpEvt as any)?.id || (e as any)?.id,
-        // Preserve odds fields from HTTP if WS doesn't have them
-        odds: isNonEmptyObj((e as any).odds) ? (e as any).odds : ((httpEvt as any)?.odds ?? {}),
-        home_odd: (e as any).home_odd > 0 ? (e as any).home_odd : ((httpEvt as any)?.home_odd ?? 0),
-        draw_odd: (e as any).draw_odd > 0 ? (e as any).draw_odd : ((httpEvt as any)?.draw_odd ?? 0),
-        away_odd: (e as any).away_odd > 0 ? (e as any).away_odd : ((httpEvt as any)?.away_odd ?? 0),
-        markets: isNonEmptyMarkets((e as any).markets) ? (e as any).markets : ((httpEvt as any)?.markets ?? (httpEvt as any)?.odds ?? {}),
+        odds: isNonEmptyObj((httpEvt as any)?.odds) ? (httpEvt as any)?.odds : isNonEmptyObj((e as any).odds) ? (e as any).odds : {},
+        home_odd: httpHomeOdd > 1 ? httpHomeOdd : wsHomeOdd > 1 ? wsHomeOdd : httpHomeOdd || wsHomeOdd || 0,
+        draw_odd: httpDrawOdd > 1 ? httpDrawOdd : wsDrawOdd > 1 ? wsDrawOdd : httpDrawOdd || wsDrawOdd || 0,
+        away_odd: httpAwayOdd > 1 ? httpAwayOdd : wsAwayOdd > 1 ? wsAwayOdd : httpAwayOdd || wsAwayOdd || 0,
+        markets,
+        elapsed: pickElapsed((e as any)?.elapsed ?? (e as any)?.fixture?.status?.elapsed, (httpEvt as any)?.elapsed ?? (httpEvt as any)?.fixture?.status?.elapsed),
+        timer: pickTimer((e as any)?.timer ?? (e as any)?.fixture?.status?.timer, (httpEvt as any)?.timer ?? (httpEvt as any)?.fixture?.status?.timer),
       } as Event;
 
       map.set(canonical, mergedEvt);

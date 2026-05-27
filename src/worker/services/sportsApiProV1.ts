@@ -123,6 +123,57 @@ function normalizeLineName(x: any): string {
   return String(x ?? '').trim().toLowerCase();
 }
 
+function deriveElapsedAndTimer(sport: string, g: any): { elapsed: number; timer: string } {
+  const st = String(g?.statusText ?? g?.status ?? g?.statusName ?? '').trim();
+  const stLower = st.toLowerCase();
+
+  const fromNumber = (v: any) => {
+    const n = num(v);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+
+  const elapsedCandidates = [
+    g?.elapsed,
+    g?.minute,
+    g?.time,
+    g?.clock,
+    g?.matchTime,
+    g?.gameTime,
+    g?.timer,
+    g?.statusMinute,
+    g?.status?.elapsed,
+    g?.status?.minute,
+    g?.status?.time,
+  ];
+
+  for (const c of elapsedCandidates) {
+    const n = fromNumber(c);
+    if (n > 0) {
+      const timer = sport === 'soccer' ? `${n}'` : String(n);
+      return { elapsed: n, timer };
+    }
+  }
+
+  if (stLower.includes('ht') || stLower.includes('half time') || stLower.includes('halftime') || stLower.includes('interval')) {
+    return { elapsed: 45, timer: 'HT' };
+  }
+
+  const m = st.match(/(\d{1,3})\s*(?:'|m|min)?/);
+  if (m) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n > 0 && n <= 200) {
+      const timer = sport === 'soccer' ? `${n}'` : String(n);
+      return { elapsed: n, timer };
+    }
+  }
+
+  if (stLower.includes('live') || stLower.includes('in play') || stLower.includes('inplay')) {
+    return { elapsed: 0, timer: 'LIVE' };
+  }
+
+  return { elapsed: 0, timer: '' };
+}
+
 function snakeKey(x: string): string {
   return String(x || '')
     .toLowerCase()
@@ -360,6 +411,7 @@ function normalizeGame(sport: string, g: any): NormalizedEvent | null {
   const as = away?.score != null ? num(away.score) : null;
 
   const odds = extractOddsFromGame(g, homeName, awayName);
+  const time = deriveElapsedAndTimer(sport, g);
 
   return {
     external_event_id: `${sport}_${id}`,
@@ -374,8 +426,8 @@ function normalizeGame(sport: string, g: any): NormalizedEvent | null {
     home_odd: odds?.home ?? 0,
     draw_odd: odds?.draw ?? 0,
     away_odd: odds?.away ?? 0,
-    elapsed: 0,
-    timer: '',
+    elapsed: time.elapsed,
+    timer: time.timer,
     score: JSON.stringify({ home: hs, away: as }),
     markets: odds?.markets ? JSON.stringify(odds.markets) : '{}',
     country,
