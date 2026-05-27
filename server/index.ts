@@ -4445,6 +4445,8 @@ setTimeout(() => {
     setInterval(syncDailyEvents, 24 * 60 * 60 * 1000);
 }, 60000);
 
+function loadData(): void {}
+
 // Load persisted data on startup
 loadData();
 
