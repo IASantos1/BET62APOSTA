@@ -880,6 +880,38 @@ export function SubOddsModel({
 
   // --- Group logic ---
   const finalGroups = useMemo(() => {
+      const s = (event?.sport || '').toLowerCase();
+      const isSoccer = s.includes('soccer') || s.includes('futebol');
+      if (isSoccer) {
+          const blocked = new Set(['main', '1x2', 'match_winner']);
+          const keys = Object.keys(eventOdds || {}).filter(k => !blocked.has(k));
+          const present = (k: string) => {
+              if (!keys.includes(k)) return false;
+              const items = getMarketItems(k);
+              return !!items && items.length > 0;
+          };
+          const pick = (candidates: string[]) => candidates.filter(present);
+          const FIXED_TABS: Array<{ title: string; keys: string[] }> = [
+              { title: 'Todos', keys: [] },
+              { title: 'Resultados', keys: pick(['h2h', 'result_including_extra_time', 'dnb', 'draw_no_bet', 'winning_margin', 'winning_margin_10+', 'margin']) },
+              { title: 'Dupla Chance', keys: pick(['double_chance', 'dnb', 'draw_no_bet']) },
+              { title: 'Gols', keys: pick(['totals', 'btts', 'team_totals', 'btts_first_half', 'total_goal_odd_even', 'goal_range', 'exact_goals', 'minute_goals', 'first_goal', 'last_goal', 'next_goal', 'both_teams_to_score_both_halves']) },
+              { title: 'Especiais', keys: pick(['penalty_scored', 'own_goal', 'team_clean_sheet', 'match_parlay', 'qualification', 'to_qualify', 'method', 'rounds', 'total_rounds', 'over_under_rounds']) },
+              { title: 'Handicap', keys: pick(['handicap']) },
+              { title: '1º Tempo', keys: pick(['first_half_h2h', 'first_half_totals', 'btts_first_half']) },
+              { title: '2º Tempo', keys: pick(['second_half_h2h', 'second_half_totals']) },
+              { title: 'HT/FT', keys: pick(['half_time_full_time', 'halves_h2h', 'halves_totals']) },
+              { title: 'Placar correto', keys: pick(['correct_score', 'score_exact']) },
+              { title: 'Escanteio', keys: pick(['corners_total', 'corners_totals', 'corners_team', 'corners_h2h', 'corners_btts', 'corner_handicap']) },
+              { title: 'Cartão', keys: pick(['cards_total', 'cards_totals', 'cards_h2h', 'cards_handicap', 'yellow_cards_player', 'red_cards_player']) },
+              { title: 'Asiático', keys: pick(['spreads']) },
+              { title: 'Jogadores', keys: pick(['first_goal_scorer', 'anytime_goal_scorer', 'player_goal_scorer_anytime', 'player_goals', 'player_points', 'player_rebounds', 'player_assists', 'player_props']) },
+          ];
+          const all = Array.from(new Set(FIXED_TABS.flatMap(t => t.keys)));
+          FIXED_TABS[0].keys = all;
+          return FIXED_TABS;
+      }
+
       const keysWithCategory = Object.keys(eventOdds || {}).filter(k => {
           if (k === 'main' || k === '1x2' || k === 'match_winner' || k === 'spreads') return false;
           return !!(eventOdds as any)[k]?.category;
@@ -918,7 +950,6 @@ export function SubOddsModel({
           return groups;
       }
 
-      const s = (event?.sport || '').toLowerCase();
       const isBasketball = s.includes('basketball') || s.includes('basquete') || s.includes('nba');
       const isTennis = s.includes('tennis') || s.includes('tênis') || s.includes('atp') || s.includes('wta');
       const isVolleyball = s.includes('volleyball') || s.includes('vôlei') || s.includes('volei');
@@ -949,6 +980,7 @@ export function SubOddsModel({
 
   const [activeTab, setActiveTab] = useState(() => {
      const s = (event?.sport || '').toLowerCase();
+     const isSoccer = s.includes('soccer') || s.includes('futebol');
      const isBasketball = s.includes('basketball') || s.includes('basquete') || s.includes('nba');
      const isTennis = s.includes('tennis') || s.includes('tênis') || s.includes('atp') || s.includes('wta');
      const isVolleyball = s.includes('volleyball') || s.includes('vôlei') || s.includes('volei');
@@ -960,6 +992,7 @@ export function SubOddsModel({
      const isIceHockey = s.includes('ice hockey') || s.includes('hóquei') || s.includes('nhl');
      const isMMA = s.includes('mma') || s.includes('ufc') || s.includes('mixed martial arts') || s.includes('luta');
      
+     if (isSoccer) return 'Todos';
      if (isBasketball) return BASKETBALL_GROUPS[0].title;
      if (isTennis) return TENNIS_GROUPS[0].title;
      if (isVolleyball) return VOLLEYBALL_GROUPS[0].title;
@@ -984,19 +1017,26 @@ export function SubOddsModel({
       
       {/* Navigation Tabs */}
       <div className="flex overflow-x-auto pb-2 mb-4 gap-2 no-scrollbar">
-         {finalGroups.filter(group => group.keys.some(k => renderMarketContent(k) !== null)).map((group) => (
-             <button
-                key={group.title}
-                onClick={() => setActiveTab(group.title)}
-                className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
-                    activeTab === group.title
-                    ? 'bg-red-600 text-white'
-                    : (darkMode ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200')
-                }`}
-             >
-                {group.title}
-             </button>
-         ))}
+         {(() => {
+             const s = (event?.sport || '').toLowerCase();
+             const isSoccer = s.includes('soccer') || s.includes('futebol');
+             const groups = isSoccer
+                 ? finalGroups
+                 : finalGroups.filter(group => group.keys.some(k => renderMarketContent(k) !== null));
+             return groups.map((group) => (
+                 <button
+                     key={group.title}
+                     onClick={() => setActiveTab(group.title)}
+                     className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                         activeTab === group.title
+                             ? 'bg-red-600 text-white'
+                             : (darkMode ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200')
+                     }`}
+                 >
+                     {group.title}
+                 </button>
+             ));
+         })()}
       </div>
 
       <div className="space-y-3">

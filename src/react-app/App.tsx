@@ -21,6 +21,7 @@ import TermsPage from "./pages/TermsPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import WalletPage from "./pages/WalletPage";
 import EventDetails from "./pages/EventDetails";
+import EventStatsPage from "./pages/EventStatsPage";
 import Promotions from "./pages/Promotions";
 import ProfilePage from "./pages/ProfilePage";
 import MyBetsPage from "./pages/MyBetsPage";
@@ -137,6 +138,7 @@ function AppContent() {
         <Route path="/" element={<HomePage mode="home" />} />
         <Route path="/live" element={<HomePage mode="live" />} />
         {/* <Route path="/live-odds" element={<LiveOddsPage />} /> Removed */}
+        <Route path="/event/:id/stats" element={<EventStatsPage />} />
         <Route path="/event/:id" element={<EventDetails />} />
         <Route path="/deposit" element={<PaymentsPage />} />
         <Route path="/withdraw" element={<WithdrawPage />} />
