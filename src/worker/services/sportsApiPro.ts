@@ -289,6 +289,8 @@ function marketKeyFromLineName(raw: string): string {
     n.includes('moneyline') ||
     n.includes('game winner') ||
     n.includes('match winner') ||
+    n.includes('home/away') ||
+    n.includes('home away') ||
     n.includes('full time result') ||
     n.includes('match result') ||
     n.includes('winner') ||
