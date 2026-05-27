@@ -338,13 +338,22 @@ function pickPoint(market: any, outcome: any): string | null {
   const raw =
     outcome?.point ??
     outcome?.handicap ??
+    outcome?.handicapValue ??
     outcome?.line ??
+    outcome?.lineValue ??
     outcome?.total ??
+    outcome?.totalValue ??
+    outcome?.points ??
+    outcome?.value2 ??
     outcome?.spread ??
     market?.handicap ??
+    market?.handicapValue ??
     market?.point ??
     market?.line ??
+    market?.lineValue ??
     market?.total ??
+    market?.totalValue ??
+    market?.points ??
     market?.spread ??
     null;
   if (raw == null) return null;
@@ -405,7 +414,10 @@ export async function fetchSportsApiProMatchOdds(
   };
 
   for (const m of markets) {
-    const mName = String(m?.name ?? m?.marketName ?? m?.key ?? '').trim();
+    const baseName = String(m?.name ?? m?.marketName ?? m?.key ?? '').trim();
+    const period = String(m?.marketPeriod ?? '').trim();
+    const group = String(m?.marketGroup ?? '').trim();
+    const mName = [period, baseName, group].filter(Boolean).join(' ');
     const outcomes = Array.isArray(m?.outcomes)
       ? m.outcomes
       : Array.isArray(m?.selections)
