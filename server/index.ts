@@ -1363,6 +1363,52 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (req.method === 'GET' && req.url.startsWith('/api/debug/apisports')) {
+    try {
+      const key = String(apiFootballKey || '').trim();
+      const hasKey = !!key;
+      const provider = String(apiFootballProvider || '').trim();
+      const urlObj = new URL(req.url, `http://localhost:${PORT}`);
+      const rawSports = urlObj.searchParams.get('sports') || '';
+      const sports = rawSports
+        ? rawSports.split(',').map((s) => s.trim()).filter(Boolean)
+        : ['football', 'basketball', 'baseball', 'hockey', 'volleyball', 'handball'];
+
+      const withTimeout = async (sport: string, url: string) => {
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 8000);
+        try {
+          const r = await fetch(url, {
+            headers: hasKey ? (getApiFootballHeaders() as any) : ({} as any),
+            signal: controller.signal,
+          });
+          const text = await r.text().catch(() => '');
+          return { sport, url, ok: r.ok, status: r.status, bodySnippet: String(text || '').slice(0, 300) };
+        } catch (e: any) {
+          return { sport, url, ok: false, status: 0, error: String(e?.message || e) };
+        } finally {
+          clearTimeout(t);
+        }
+      };
+
+      const probes = await Promise.all(
+        sports.map(async (sport) => {
+          const baseUrl = getApiFootballBaseUrl(sport);
+          if (!baseUrl) return { sport, url: '', ok: false, status: 0, error: 'baseUrl not configured' };
+          const out = await withTimeout(sport, `${baseUrl}/status`);
+          if (out.status !== 404) return out;
+          return withTimeout(sport, `${baseUrl}/timezone`);
+        }),
+      );
+
+      sendJson(res, 200, { hasKey, provider, probes }, req);
+      return;
+    } catch (err: any) {
+      sendJson(res, 200, { ok: false, error: String(err?.message || err) }, req);
+      return;
+    }
+  }
+
   if (req.method === 'GET' && req.url.startsWith('/api/events/by-sport')) {
     try {
       const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
