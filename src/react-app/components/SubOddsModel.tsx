@@ -1,5 +1,6 @@
 import { useMemo, memo, useState, useEffect, useRef } from 'react'
 import { fairOddsTwoWay, formatFairOdd } from '@/shared/fairOdds'
+import { OddButton } from './OddButton'
 import { 
   MARKET_CONFIG, 
   MARKET_GROUPS, 
@@ -19,6 +20,7 @@ import {
 export interface MarketItem {
   label: string
   odd: number
+  selection?: string
   name?: string
   header?: string
   handicap?: string
@@ -40,7 +42,7 @@ const OddRow = memo(({ item, onSelect, suspended, compact }: {
 
   const val = Number(item.odd);
   const isSusp = !!suspended;
-  const priceStr = val > 0 ? val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+  const priceStr = val > 0 ? val.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
 
   if (val !== prevRef.current) {
     setTrend(val > prevRef.current ? 'up' : 'down');
@@ -61,7 +63,7 @@ const OddRow = memo(({ item, onSelect, suspended, compact }: {
       </span>
       <div className="relative flex-shrink-0">
         <button
-          onClick={isSusp ? undefined : () => onSelect(item.label, val)}
+          onClick={isSusp ? undefined : () => onSelect(String(item.selection || item.label), val)}
           disabled={isSusp}
           className={`
             min-w-[72px] md:min-w-[80px] h-11 px-3 rounded-lg font-bold text-sm tabular-nums
@@ -365,7 +367,7 @@ export function SubOddsModel({
 
       if (key === 'h2h') {
           const s = (sport || '').toLowerCase();
-          if (s.includes('rugby') || s.includes('union') || s.includes('league')) return 'Vencedor da Partida (Match Winner)';
+          if (s.includes('rugby') || s.includes('union') || s.includes('league')) return 'Vencedor da Partida';
           if (s.includes('tennis') || s.includes('tênis')) return 'Vencedor da Partida';
           if (s.includes('basketball') || s.includes('basquete')) return 'Vencedor';
           if (s.includes('mma') || s.includes('ufc') || s.includes('mixed martial arts') || s.includes('luta')) return 'Vencedor da Luta';
@@ -375,13 +377,13 @@ export function SubOddsModel({
           const s = (sport || '').toLowerCase();
           if (s.includes('tennis') || s.includes('tênis')) return 'Total de Games na Partida';
           if (s.includes('basketball') || s.includes('basquete')) return 'Total de Pontos';
-          if (s.includes('ice-hockey') || s.includes('hockey') || s.includes('hóquei')) return 'Total de Gols';
+          if (s.includes('ice-hockey') || s.includes('hockey') || s.includes('hóquei')) return 'Total de Golos';
       }
       if (key === 'spreads') {
           const s = (sport || '').toLowerCase();
-          if (s.includes('basketball') || s.includes('basquete')) return 'Point Spread';
-          if (s.includes('american') || s.includes('nfl') || s.includes('football')) return 'Spread';
-          if (s.includes('baseball') || s.includes('mlb')) return 'Run Line';
+          if (s.includes('basketball') || s.includes('basquete')) return 'Handicap de Pontos';
+          if (s.includes('american') || s.includes('nfl') || s.includes('football')) return 'Handicap';
+          if (s.includes('baseball') || s.includes('mlb')) return 'Linha de Corrida';
       }
       return MARKET_CONFIG[key]?.title || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
@@ -562,7 +564,7 @@ export function SubOddsModel({
           if (apostaJaActive && !isSusp) {
             const fav = resultadoRegulamentar.reduce((m, x) => (Number(x.odd) > 0 && Number(x.odd) < Number(m.odd) ? x : m), resultadoRegulamentar[0]);
             const favOdd = Number(fav?.odd) || 0;
-            const favStr = favOdd > 0 ? favOdd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+            const favStr = favOdd > 0 ? favOdd.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
             const disabled = !(favOdd > 0);
             return (
               <MarketCard title={title} darkMode={darkMode} noPad>
@@ -586,33 +588,20 @@ export function SubOddsModel({
           // ── Normal 3-column layout ────────────────────────────────────
           return (
             <MarketCard title={title} darkMode={darkMode} noPad>
-              <div className="grid grid-cols-3 gap-0 divide-x divide-gray-100 dark:divide-gray-700 p-0">
+              <div className="grid grid-cols-3 gap-2 p-3">
                 {resultadoRegulamentar.map((item, i) => {
                   const val = Number(item.odd);
-                  const priceStr = val > 0 ? val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
                   const disabled = isSusp || !(val > 0);
                   return (
-                    <div key={i} className="flex flex-col items-center gap-1.5 py-3 px-2">
-                      <span className={`text-[11px] font-extrabold uppercase tracking-wider ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        {item.label}
-                      </span>
-                      <button
-                        onClick={disabled ? undefined : () => onSelect(item.label, val)}
-                        disabled={disabled}
-                        className={`w-full h-14 rounded-lg font-black text-lg tabular-nums transition-all duration-200 shadow-sm
-                          ${disabled
-                            ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
-                            : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'
-                          }`}
-                      >
-                        {disabled
-                          ? <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mx-auto text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                            </svg>
-                          : priceStr
-                        }
-                      </button>
-                    </div>
+                    <OddButton
+                      key={i}
+                      label={String(item.label || '')}
+                      price={val}
+                      trend="stable"
+                      onClick={() => onSelect(String(item.selection || item.label), val)}
+                      className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                      suspended={disabled ? { reason: susp === 'EVENT_FROZEN' ? 'GOL/VAR' : 'SUSPENSO' } : undefined}
+                    />
                   );
                 })}
               </div>
@@ -657,28 +646,75 @@ export function SubOddsModel({
             if (!(Number(x.odd) > 1.01 && Number(x.odd) < 25)) return null
             const signLabel = `${p.val >= 0 ? '+' : ''}${p.val}`
             const lbl = signLabel.replace(',', '.')
-            return { team: p.team, item: { label: lbl, odd: x.odd } as MarketItem }
-          }).filter(Boolean) as { team: 'home'|'away'; item: MarketItem }[]
-          
-          const homeItems = parsed.filter((p) => p.team === 'home').map((p) => p.item).sort((a,b)=> Number(a.label)-Number(b.label))
-          const awayItems = parsed.filter((p) => p.team === 'away').map((p) => p.item).sort((a,b)=> Number(a.label)-Number(b.label))
-          
-          if (homeItems.length === 0 && awayItems.length === 0) return null;
+            const teamName = p.team === 'home' ? (home || 'Casa') : (away || 'Fora')
+            const absKey = String(Math.abs(p.val)).replace(',', '.')
+            return { team: p.team as 'home' | 'away', absKey, line: lbl, odd: x.odd, selection: `${teamName} ${lbl}` }
+          }).filter(Boolean) as { team: 'home'|'away'; absKey: string; line: string; odd: number; selection: string }[]
+
+          const homeMap = new Map<string, { line: string; odd: number; selection: string }>();
+          const awayMap = new Map<string, { line: string; odd: number; selection: string }>();
+
+          for (const p of parsed) {
+            const rec = { line: p.line, odd: p.odd, selection: p.selection };
+            if (p.team === 'home') homeMap.set(p.absKey, rec);
+            else awayMap.set(p.absKey, rec);
+          }
+
+          const allLines = Array.from(new Set([...homeMap.keys(), ...awayMap.keys()]))
+            .filter((x) => Number.isFinite(Number(String(x).replace(',', '.'))))
+            .sort((a, b) => Number(String(a).replace(',', '.')) - Number(String(b).replace(',', '.')));
+
+          if (allLines.length === 0) return null;
+
+          const renderBtn = (item: { line: string; odd: number; selection: string } | undefined) => {
+            if (!item) return <div className="w-28" />;
+            const priceStr = Number(item.odd) > 0
+              ? Number(item.odd).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+              : '--';
+            const blocked = !!susp;
+            return (
+              <button
+                onClick={blocked ? undefined : () => onSelect(item.selection, item.odd)}
+                disabled={blocked}
+                className={`w-28 h-12 rounded-lg font-bold tabular-nums transition-all duration-200 relative
+                  ${blocked ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
+                    : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
+              >
+                <div className="flex flex-col items-center justify-center leading-[1.05]">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider">
+                    {item.line}
+                  </span>
+                  <span className="text-sm font-black">{priceStr}</span>
+                </div>
+              </button>
+            );
+          };
 
           return (
             <MarketCard title={title} darkMode={darkMode} noPad>
-              <div className="grid grid-cols-2 divide-x divide-gray-100 dark:divide-gray-700">
-                <div className="px-3 py-2">
-                  <div className={`text-[11px] font-extrabold uppercase tracking-wider mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{home || 'Casa'}</div>
-                  <MarketButtonGroup items={homeItems} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
-                </div>
-                <div className="px-3 py-2">
-                  <div className={`text-[11px] font-extrabold uppercase tracking-wider mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{away || 'Fora'}</div>
-                  <MarketButtonGroup items={awayItems} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
-                </div>
+              <div className={`grid grid-cols-[1fr_auto_auto] items-center`}>
+                <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Linha</div>
+                <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{home || 'Casa'}</div>
+                <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{away || 'Fora'}</div>
+                {allLines.map((absKey, i) => {
+                  const h = homeMap.get(absKey);
+                  const a = awayMap.get(absKey);
+                  const rowBg = i % 2 === 0
+                    ? (darkMode ? 'bg-gray-800/30' : 'bg-gray-50/80')
+                    : '';
+                  return (
+                    <div key={absKey} className="contents">
+                      <div className={`px-3 py-2 text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-700'} ${rowBg}`}>
+                        {absKey}
+                      </div>
+                      <div className={`px-2 py-2 flex justify-center ${rowBg}`}>{renderBtn(h)}</div>
+                      <div className={`px-2 py-2 flex justify-center ${rowBg}`}>{renderBtn(a)}</div>
+                    </div>
+                  );
+                })}
               </div>
             </MarketCard>
-          )
+          );
       }
 
       // Totals (gols, cantos, cartões)
@@ -709,17 +745,30 @@ export function SubOddsModel({
             return true;
           };
 
+          const isOver = (lbl: string) => /acima|over|mais/i.test(String(lbl || ''))
+          const isUnder = (lbl: string) => /abaixo|under|menos/i.test(String(lbl || ''))
+          const toLine = (x: MarketItem) => {
+            const line = String(x.handicap || formatTotalNumber(x.label) || '').trim()
+            return line
+          }
+
           const over = targetItems
-            .filter((x: MarketItem) => /acima|over|mais/i.test(String(x.label)))
-            .map((x: MarketItem) => ({ ...x, label: formatTotalNumber(x.label) }))
-            .filter((x: MarketItem) => okLine(String(x.label)) && Number(x.odd) > 1.01 && Number(x.odd) < 25)
-            .sort((a: MarketItem, b: MarketItem) => Number(a.label) - Number(b.label));
+            .filter((x: MarketItem) => isOver(String(x.label)))
+            .map((x: MarketItem) => {
+              const line = toLine(x)
+              return { ...x, handicap: line, selection: line ? `Acima de ${line}` : x.label } as MarketItem
+            })
+            .filter((x: MarketItem) => okLine(String(x.handicap || '')) && Number(x.odd) > 1.01 && Number(x.odd) < 25)
+            .sort((a: MarketItem, b: MarketItem) => Number(a.handicap) - Number(b.handicap));
 
           const under = targetItems
-            .filter((x: MarketItem) => /abaixo|under|menos/i.test(String(x.label)))
-            .map((x: MarketItem) => ({ ...x, label: formatTotalNumber(x.label) }))
-            .filter((x: MarketItem) => okLine(String(x.label)) && Number(x.odd) > 1.01 && Number(x.odd) < 25)
-            .sort((a: MarketItem, b: MarketItem) => Number(a.label) - Number(b.label));
+            .filter((x: MarketItem) => isUnder(String(x.label)))
+            .map((x: MarketItem) => {
+              const line = toLine(x)
+              return { ...x, handicap: line, selection: line ? `Abaixo de ${line}` : x.label } as MarketItem
+            })
+            .filter((x: MarketItem) => okLine(String(x.handicap || '')) && Number(x.odd) > 1.01 && Number(x.odd) < 25)
+            .sort((a: MarketItem, b: MarketItem) => Number(a.handicap) - Number(b.handicap));
              
           if (over.length === 0 && under.length === 0) return null;
 
@@ -727,17 +776,17 @@ export function SubOddsModel({
           const susp = getSuspendedReason(key);
 
           // Pair over/under by line value
-          const overMap = new Map<string, MarketItem>(over.map((x: MarketItem) => [x.label, x] as [string, MarketItem]));
-          const underMap = new Map<string, MarketItem>(under.map((x: MarketItem) => [x.label, x] as [string, MarketItem]));
-          const allLines = Array.from(new Set([...over.map((x: MarketItem) => x.label), ...under.map((x: MarketItem) => x.label)]))
+          const overMap = new Map<string, MarketItem>(over.map((x: MarketItem) => [String(x.handicap || ''), x] as [string, MarketItem]));
+          const underMap = new Map<string, MarketItem>(under.map((x: MarketItem) => [String(x.handicap || ''), x] as [string, MarketItem]));
+          const allLines = Array.from(new Set([...over.map((x: MarketItem) => String(x.handicap || '')), ...under.map((x: MarketItem) => String(x.handicap || ''))]))
             .sort((a, b) => Number(a) - Number(b));
 
           return (
             <MarketCard title={title} darkMode={darkMode} noPad>
               <div className={`grid grid-cols-[1fr_auto_auto] items-center`}>
                 <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Linha</div>
-                <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Mais</div>
-                <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Menos</div>
+                <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Acima</div>
+                <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Abaixo</div>
                 {allLines.map((line, i) => {
                   const o = overMap.get(line);
                   const u = underMap.get(line);
@@ -749,20 +798,27 @@ export function SubOddsModel({
                     ? (darkMode ? 'bg-gray-800/30' : 'bg-gray-50/80')
                     : '';
                   const renderBtn = (item: MarketItem | undefined, side: 'a' | 'b') => {
-                    if (!item) return <div className="w-20" />;
+                    if (!item) return <div className="w-24" />;
                     const f = fair ? fair[side] : null;
+                    const sideLabel = side === 'a' ? 'Acima de' : 'Abaixo de';
+                    const priceStr = Number(item.odd) > 0 ? Number(item.odd).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
                     return (
                       <button
-                        onClick={susp ? undefined : () => onSelect(item.label, item.odd)}
+                        onClick={susp ? undefined : () => onSelect(String(item.selection || item.label), item.odd)}
                         disabled={!!susp}
                         title={f ? `Odd justa: ${formatFairOdd(f.fair)}${f.isValue ? ` · valor +${(f.edge * 100).toFixed(1)}%` : ''}` : undefined}
-                        className={`w-20 h-10 rounded-lg font-bold text-sm tabular-nums transition-all duration-200 relative
+                        className={`w-24 h-12 rounded-lg font-bold tabular-nums transition-all duration-200 relative
                           ${susp ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
                             : f?.isValue
                               ? 'bg-emerald-600 text-white hover:bg-emerald-500 active:scale-95 ring-1 ring-emerald-300'
                               : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
                       >
-                        <span>{item.odd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <div className="flex flex-col items-center justify-center leading-[1.05]">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider">
+                            {sideLabel} {line}
+                          </span>
+                          <span className="text-sm font-black">{priceStr}</span>
+                        </div>
                         {f?.isValue && (
                           <span className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-black text-[8px] font-black px-1 py-0.5 rounded-full leading-none shadow">
                             ★
@@ -851,7 +907,7 @@ export function SubOddsModel({
                       const item = col.items[i];
                       if (!item) return <div key={i} className="h-10 border-b border-gray-50 dark:border-gray-800/50 last:border-0" />;
                       const val = Number(item.odd);
-                      const priceStr = val > 0 ? val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+                      const priceStr = val > 0 ? val.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
                       // Block scores that are impossible given the current live score
                       const parsedLabel = parseScore(String(item.label));
                       const isImpossible = !isSusp && currentGoals !== null && parsedLabel !== null &&
@@ -886,6 +942,49 @@ export function SubOddsModel({
 
       const title = getMarketTitle(key, event?.sport);
       const susp = getSuspendedReason(key);
+      const isSusp = !!susp;
+
+      const looksThreeWay = (() => {
+        if (items.length !== 3) return false;
+        const ls = items.map((x: MarketItem) => String(x.label || '').toLowerCase());
+        const hasHome = ls.some((x: string) => x === 'casa' || x.includes('casa') || x === 'home' || x === '1');
+        const hasDraw = ls.some((x: string) => x === 'empate' || x.includes('empate') || x === 'draw' || x === 'x' || x === 'tie');
+        const hasAway = ls.some((x: string) => x === 'fora' || x.includes('fora') || x === 'away' || x === '2');
+        const keyOk = key === 'h2h' || /(^|_)h2h($|_)/.test(key) || key.includes('result');
+        return keyOk && hasHome && hasDraw && hasAway;
+      })();
+
+      if (looksThreeWay) {
+        const order = (lbl: string) => {
+          const l = String(lbl || '').toLowerCase();
+          if (l === 'casa' || l.includes('casa') || l === 'home' || l === '1') return 1;
+          if (l === 'empate' || l.includes('empate') || l === 'draw' || l === 'x' || l === 'tie') return 2;
+          if (l === 'fora' || l.includes('fora') || l === 'away' || l === '2') return 3;
+          return 9;
+        };
+        const ordered = [...items].sort((a, b) => order(a.label) - order(b.label));
+        return (
+          <MarketCard title={title} darkMode={darkMode} noPad>
+            <div className="grid grid-cols-3 gap-2 p-3">
+              {ordered.map((item, i) => {
+                const val = Number(item.odd);
+                const disabled = isSusp || !(val > 0);
+                return (
+                  <OddButton
+                    key={i}
+                    label={String(item.label || '')}
+                    price={val}
+                    trend="stable"
+                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    suspended={disabled ? { reason: isSusp ? (susp === 'EVENT_FROZEN' ? 'GOL/VAR' : 'SUSPENSO') : 'SUSPENSO' } : undefined}
+                  />
+                );
+              })}
+            </div>
+          </MarketCard>
+        );
+      }
       
       return (
         <MarketCard key={key} title={title} darkMode={darkMode}>

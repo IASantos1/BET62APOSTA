@@ -37,7 +37,7 @@ const scoreEvent = (e: Event) =>
 
     const startToday = new Date(now);
     startToday.setHours(0, 0, 0, 0);
-    const startAfterWindow = new Date(startToday.getTime() + 8 * 24 * 60 * 60 * 1000).getTime();
+    const startAfterWindow = new Date(startToday.getTime() + 14 * 24 * 60 * 60 * 1000).getTime();
 
     return t >= startToday.getTime() && t < startAfterWindow;
   };
@@ -354,11 +354,7 @@ export function useSportsEvents(category: string | null) {
         if (!isActive) return; 
 
         const hasStructured = Array.isArray(data?.live) || Array.isArray(data?.pregame);
-        const hasAnyStructured = liveCount > 0 || pregameCount > 0;
-
-        // Só consideramos o formato estruturado se houver pelo menos 1 evento.
-        // Caso venha { live: [], pregame: [] }, caímos para os fallbacks legados (/api/events, featured, etc).
-        if (hasStructured && hasAnyStructured) { 
+        if (hasStructured) { 
           const rawLive = (data.live || []) as Event[];
           const rawPregame = (data.pregame || []) as Event[];
           

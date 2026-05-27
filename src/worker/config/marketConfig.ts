@@ -2,16 +2,16 @@
 export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   // Soccer / Generic
   h2h: { title: 'Resultado Final' },
-  totals: { title: 'Gols/Pontos Totais' },
+  totals: { title: 'Golos/Pontos Totais' },
   spreads: { title: 'Handicap' },
   handicap: { title: 'Handicap' }, // Added for consistency with backend
   btts: { title: 'Ambas Marcam' },
-  correct_score: { title: 'Placar Exato', grid: 'grid-cols-3 md:grid-cols-4' },
+  correct_score: { title: 'Resultado Exacto', grid: 'grid-cols-3 md:grid-cols-4' },
   double_chance: { title: 'Dupla Chance' },
   dnb: { title: 'Empate Anula Aposta' },
 
   // AFL
-  player_goals: { title: 'Gols do Jogador' },
+  player_goals: { title: 'Golos do Jogador' },
   player_points: { title: 'Pontos do Jogador' },
   player_props: { title: 'Props de Jogador' }, // Generic player props
   quarters_h2h: { title: 'Vencedor do Quarto' },
@@ -27,11 +27,11 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   // Basketball
   player_rebounds: { title: 'Rebotes do Jogador' },
   player_assists: { title: 'Assistências do Jogador' },
-  team_totals: { title: 'Total da Equipe' },
+  team_totals: { title: 'Total da Equipa' },
   first_to_score: { title: 'Primeiro a Marcar' },
   quarter_point_diff: { title: 'Diferença de Pontos no Quarto' },
   team_parlay: { title: 'Parlay da Equipe' },
-  player_double_double: { title: 'Double-Double do Jogador' },
+  player_double_double: { title: 'Duplo-Duplo do Jogador' },
 
   // Baseball
   player_runs: { title: 'Corridas do Jogador' },
@@ -49,7 +49,7 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   race_winner: { title: 'Vencedor da Corrida' },
   podium_finish: { title: 'Pódio' },
   top_10_finish: { title: 'Top 10' },
-  safety_car: { title: 'Safety Car' },
+  safety_car: { title: 'Carro de Segurança' },
   pole_position: { title: 'Pole Position' },
   fastest_lap: { title: 'Volta Mais Rápida' },
   constructor_winner: { title: 'Construtor Vencedor' },
@@ -61,31 +61,31 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   retirement: { title: 'Abandono' },
 
   // Soccer (Additional)
-  corners_team: { title: 'Escanteios por Equipe' },
-  corners_total: { title: 'Total de Escanteios' },
-  corners_totals: { title: 'Total de Escanteios' },
+  corners_team: { title: 'Cantos por Equipa' },
+  corners_total: { title: 'Total de Cantos' },
+  corners_totals: { title: 'Total de Cantos' },
   cards_total: { title: 'Total de Cartões' },
   cards_totals: { title: 'Total de Cartões' },
-  corners_btts: { title: 'Escanteios e Ambas Marcam' },
+  corners_btts: { title: 'Cantos e Ambas Marcam' },
   yellow_cards_player: { title: 'Cartão Amarelo para Jogador' },
   red_cards_player: { title: 'Cartão Vermelho para Jogador' },
-  minute_goals: { title: 'Gol no Minuto' },
-  score_exact: { title: 'Placar Exato' },
+  minute_goals: { title: 'Golo no Minuto' },
+  score_exact: { title: 'Resultado Exacto' },
   first_goal_scorer: { title: 'Primeiro Marcador' },
   player_goal_scorer_anytime: { title: 'Jogador a Marcar a Qualquer Momento' },
-  penalty_scored: { title: 'Pênalti Marcado' },
-  own_goal: { title: 'Gol Contra' },
-  team_clean_sheet: { title: 'Clean Sheet da Equipe' },
-  corner_handicap: { title: 'Handicap de Escanteios' },
-  total_goal_odd_even: { title: 'Total de Gols (Par/Ímpar)' },
+  penalty_scored: { title: 'Penálti Marcado' },
+  own_goal: { title: 'Auto-golo' },
+  team_clean_sheet: { title: 'Baliza a Zero da Equipa' },
+  corner_handicap: { title: 'Handicap de Cantos' },
+  total_goal_odd_even: { title: 'Total de Golos (Par/Ímpar)' },
   half_time_full_time: { title: 'Intervalo / Final de Jogo' },
 
   // American Football
   player_touchdowns: { title: 'Touchdowns do Jogador' },
   player_yards: { title: 'Jardas do Jogador' },
   first_score_type: { title: 'Tipo de Primeira Pontuação' },
-  team_to_score_first: { title: 'Equipe a Marcar Primeiro' },
-  team_to_score_last: { title: 'Equipe a Marcar por Último' },
+  team_to_score_first: { title: 'Equipa a Marcar Primeiro' },
+  team_to_score_last: { title: 'Equipa a Marcar por Último' },
   player_receptions: { title: 'Recepções do Jogador' },
 
   // Handball
@@ -97,19 +97,19 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   // Hockey
   period_h2h: { title: 'Vencedor do Período' },
   period_totals: { title: 'Total do Período' },
-  shots_on_goal: { title: 'Chutes a Gol' },
-  penalty_minutes: { title: 'Minutos de Penalidade' },
-  power_play_goals: { title: 'Gols em Power Play' },
+  shots_on_goal: { title: 'Remates à Baliza' },
+  penalty_minutes: { title: 'Minutos de Penalização' },
+  power_play_goals: { title: 'Golos em Power Play' },
   puck_possession: { title: 'Posse do Puck' },
 
   // MMA
   method: { title: 'Método de Vitória' },
-  rounds: { title: 'Rounds' },
-  total_rounds: { title: 'Total de Rounds' },
-  over_under_rounds: { title: 'Mais/Menos Rounds' },
-  finish_method_round: { title: 'Método de Finalização e Round' },
+  rounds: { title: 'Rondas' },
+  total_rounds: { title: 'Total de Rondas' },
+  over_under_rounds: { title: 'Mais/Menos Rondas' },
+  finish_method_round: { title: 'Método de Finalização e Ronda' },
   knockout_draw: { title: 'Nocaute ou Empate' },
-  first_round_finish: { title: 'Finalização no 1º Round' },
+  first_round_finish: { title: 'Finalização na 1ª Ronda' },
   submission_only: { title: 'Apenas Finalização' },
   decision_type: { title: 'Tipo de Decisão' },
   total_strikes: { title: 'Total de Golpes' },
@@ -117,27 +117,27 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   // Rugby
   player_tries: { title: 'Tries do Jogador' },
   conversion_success: { title: 'Conversão Bem-sucedida' },
-  penalty_goals: { title: 'Gols de Pênalti' },
+  penalty_goals: { title: 'Golos de Penálti' },
   "winning_margin_15+": { title: 'Margem de Vitória 15+' },
 
   // Tennis
   sets_handicap: { title: 'Handicap de Sets' },
-  player_games: { title: 'Games do Jogador' },
+  player_games: { title: 'Jogos do Jogador' },
   set_winner: { title: 'Vencedor do Set' },
   sets_h2h: { title: 'Vencedor do Set' }, // Mapped from set_winner
   tie_breaks: { title: 'Tie-breaks' },
   tie_break: { title: 'Tie-break' }, // Singular mapped
-  match_total_games: { title: 'Total de Games na Partida' },
+  match_total_games: { title: 'Total de Jogos na Partida' },
   first_set_winner: { title: 'Vencedor do 1º Set' },
   first_serve_winner: { title: 'Vencedor do 1º Saque' },
-  aces_total: { title: 'Total de Aces' },
+  aces_total: { title: 'Total de Ases' },
   double_faults_total: { title: 'Total de Duplas Faltas' },
-  break_points: { title: 'Break Points' },
+  break_points: { title: 'Pontos de Break' },
 
   // Volleyball
   sets_winner: { title: 'Vencedor do Set' },
   set_total_points: { title: 'Total de Pontos no Set' },
-  total_aces: { title: 'Total de Aces' },
+  total_aces: { title: 'Total de Ases' },
   total_blocks: { title: 'Total de Bloqueios' },
   set_point_diff: { title: 'Diferença de Pontos no Set' }
 };
@@ -145,7 +145,7 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
 // Configuração de Ordem e Mercados por Esporte
 export const MARKET_GROUPS = [
   {
-    title: "Mercado Raiz",
+    title: "Mercado Base",
     keys: ["h2h", "spreads", "handicap", "totals"]
   },
   {
@@ -153,7 +153,7 @@ export const MARKET_GROUPS = [
     keys: ["double_chance", "dnb", "draw_no_bet", "halves_h2h", "half_time_full_time", "winning_margin", "winning_margin_10+", "margin"]
   },
   {
-    title: "Mercados de Gols",
+    title: "Mercados de Golos",
     keys: ["btts", "team_totals", "correct_score", "score_exact", "first_to_score", "team_to_score_first", "team_to_score_last", "race_to", "goal_range", "exact_goals", "minute_goals", "first_goal", "last_goal", "total_goal_odd_even", "both_teams_to_score_both_halves"]
   },
   {

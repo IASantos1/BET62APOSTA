@@ -12,7 +12,7 @@ interface OddButtonProps {
 
 export function OddButton({ label, price, onClick, className = '', teamName, suspended, trend = 'stable' }: OddButtonProps) {
   const isSuspended = !!suspended;
-  const priceStr = Number.isFinite(price) && price > 0 ? price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+  const priceStr = Number.isFinite(price) && price > 0 ? price.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
 
   return (
     <div className="relative w-full h-full">
