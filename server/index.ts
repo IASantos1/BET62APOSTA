@@ -1356,6 +1356,136 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && req.url.startsWith('/api/featured-games')) {
+    try {
+      const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
+      if (!apiKey) {
+        sendJson(res, 200, [], req);
+        return;
+      }
+
+      const urlObj = new URL(req.url, `http://localhost:${PORT}`);
+      const include = String(urlObj.searchParams.get('include') || '');
+      const wantsOdds = include.split(',').map((s) => s.trim()).includes('odds');
+
+      const sportList = ['soccer', 'basketball', 'tennis', 'ice-hockey'];
+      const today = new Date();
+      const startDate = today.toISOString().slice(0, 10);
+      const end = new Date(today);
+      end.setDate(today.getDate() + 2);
+      const endDate = end.toISOString().slice(0, 10);
+
+      const perSport = await Promise.all(
+        sportList.map(async (sp) => {
+          const live = await fetchSportsApiProV1Live(apiKey, sp).catch(() => []);
+          const scheduled = await fetchSportsApiProV1GamesRange(apiKey, sp, startDate, endDate).catch(() => []);
+          return [...live, ...scheduled];
+        }),
+      );
+
+      const seen = new Set<string>();
+      const merged = perSport.flat().filter((e: any) => {
+        const id = String(e?.external_event_id || '');
+        if (!id) return false;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+
+      merged.sort((a: any, b: any) => {
+        const al = Number(a?.is_live || 0) === 1 ? 1 : 0;
+        const bl = Number(b?.is_live || 0) === 1 ? 1 : 0;
+        if (al !== bl) return bl - al;
+        return String(a?.event_date || '').localeCompare(String(b?.event_date || ''));
+      });
+
+      const picked = merged.slice(0, 30);
+
+      if (wantsOdds) {
+        const targets = picked.filter((e: any) => Number(e?.home_odd || 0) <= 1).slice(0, 20);
+        for (const ev of targets) {
+          const sport = String(ev?.sport || 'soccer');
+          const v1Id = String(ev?.external_event_id || '').split('_').slice(1).join('_');
+          if (!v1Id) continue;
+          const v1Odds = await fetchSportsApiProV1OddsLines(apiKey, sport, v1Id, { topBookmaker: 14 }).catch(() => null);
+          if (v1Odds && v1Odds.home > 1) {
+            ev.home_odd = v1Odds.home;
+            ev.draw_odd = v1Odds.draw;
+            ev.away_odd = v1Odds.away;
+            ev.markets = v1Odds.markets || {};
+          }
+        }
+      }
+
+      const parseScore = (raw: any) => {
+        try {
+          const sc = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          return { home: sc?.home ?? null, away: sc?.away ?? null };
+        } catch {
+          return { home: null, away: null };
+        }
+      };
+
+      const toMarketsObject = (raw: any) => {
+        if (!raw) return {};
+        if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+        if (typeof raw === 'string') {
+          try {
+            const o = JSON.parse(raw);
+            return o && typeof o === 'object' ? o : {};
+          } catch {
+            return {};
+          }
+        }
+        return {};
+      };
+
+      const out = picked.map((e: any) => {
+        const id = String(e.external_event_id || '');
+        const goals = parseScore(e.score);
+        const date = String(e.event_date || '');
+        const ts = date ? Math.floor(new Date(date).getTime() / 1000) : 0;
+        const statusShort = String(e.status || 'NS').trim() || 'NS';
+        const elapsed = Number(e.elapsed || 0) || 0;
+        const timer = String(e.timer || '').trim();
+        return {
+          id,
+          external_event_id: id,
+          match: `${e.home_team} vs ${e.away_team}`,
+          league: e.league || '',
+          country: e.country || '',
+          home_team: e.home_team,
+          away_team: e.away_team,
+          home_odd: Number(e.home_odd || 0) || 0,
+          draw_odd: Number(e.draw_odd || 0) || 0,
+          away_odd: Number(e.away_odd || 0) || 0,
+          event_date: date,
+          is_live: Number(e.is_live || 0) || 0,
+          score: e.score || null,
+          goals,
+          elapsed,
+          timer,
+          status: { short: statusShort, long: statusShort, elapsed, timer },
+          fixture: { id, date, timestamp: ts, status: { short: statusShort, long: statusShort, elapsed, timer } },
+          teams: {
+            home: { name: e.home_team, logo: e.home_team_logo || '' },
+            away: { name: e.away_team, logo: e.away_team_logo || '' },
+          },
+          home_team_logo: e.home_team_logo || '',
+          away_team_logo: e.away_team_logo || '',
+          sport: String(e.sport || ''),
+          markets: toMarketsObject((e as any).markets),
+        };
+      });
+
+      sendJson(res, 200, out, req);
+      return;
+    } catch (err: any) {
+      sendJson(res, 200, [], req);
+      return;
+    }
+  }
+
   if (req.url === '/api/debug/sportsapipro' && req.method === 'GET') {
     try {
       const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
@@ -1762,389 +1892,177 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if ((req.url.startsWith('/sports/api-football-proxy') || req.url.startsWith('/api/sports/api-football-proxy')) && req.method === 'GET') {
-    const url = new URL(req.url, `http://localhost:${PORT}`);
-    const sport = url.searchParams.get('sport');
-    const endpoint = url.searchParams.get('endpoint');
-
-    if (!sport || !endpoint) {
-      // Nunca rebentar no frontend; devolver lista vazia
-      sendJson(res, 200, { response: [] });
-      return;
-    }
-
-    const baseUrl = sport ? getApiFootballBaseUrl(sport) : null;
-    if (!baseUrl || !sport || !apiFootballKey) {
-      const ep = String(endpoint || '').toLowerCase();
-      const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
-      if (sport === 'football' && isFixturesLive) {
-        const data = buildApiFootballFixturesFromStore(true);
-        sendJson(res, 200, data);
-      } else {
-        sendJson(res, 200, { response: [] });
-      }
-      return;
-    }
-
-    const rateLimit = checkApiFootballRateLimit(sport);
-    if (!rateLimit.allowed) {
-      const ep = String(endpoint || '').toLowerCase();
-      const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
-      if (sport === 'football' && isFixturesLive) {
-        const data = buildApiFootballFixturesFromStore(true);
-        sendJson(res, 200, data);
-      } else {
-        sendJson(res, 200, { response: [] });
-      }
-      return;
-    }
-
-    const apiUrl = new URL(`${baseUrl}/${endpoint}`);
-    url.searchParams.forEach((value, key) => {
-      if (key !== 'sport' && key !== 'endpoint') {
-        apiUrl.searchParams.append(key, value);
-      }
-    });
-
-    const requestOptions: https.RequestOptions = {
-      method: 'GET',
-      headers: getApiFootballHeaders(),
-    };
-
-    const client = apiUrl.protocol === 'https:' ? https : http;
-
-    const externalReq = client.request(apiUrl.toString(), requestOptions, (externalRes) => {
-      const chunks: Buffer[] = [];
-      externalRes.on('data', (chunk) => chunks.push(chunk));
-      externalRes.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf8');
-        try {
-          const data = raw ? JSON.parse(raw) : {};
-          if (data.errors && Object.keys(data.errors).length > 0) {
-            const ep = String(endpoint || '').toLowerCase();
-            const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
-            if (sport === 'football' && isFixturesLive) {
-              const fallback = buildApiFootballFixturesFromStore(true);
-              sendJson(res, 200, fallback);
-            } else {
-              sendJson(res, 200, { response: [] });
-            }
-            return;
-          }
-          const ep = String(endpoint || '').toLowerCase();
-          const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
-          if (sport === 'football' && isFixturesLive && (!data || !Array.isArray((data as any).response) || (data as any).response.length === 0)) {
-            const fallback = buildApiFootballFixturesFromStore(true);
-            sendJson(res, 200, fallback);
-          } else {
-            sendJson(res, 200, data);
-          }
-        } catch {
-          const ep = String(endpoint || '').toLowerCase();
-          const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
-          if (sport === 'football' && isFixturesLive) {
-            const fallback = buildApiFootballFixturesFromStore(true);
-            sendJson(res, 200, fallback);
-          } else {
-            sendJson(res, 200, { response: [] });
-          }
-        }
-      });
-    });
-
-    externalReq.on('error', (err) => {
-      console.error('Erro ao chamar API-Football:', String(err));
-      const ep = String(endpoint || '').toLowerCase();
-      const isFixturesLive = ep.startsWith('fixtures') && (ep.includes('live=all') || url.searchParams.get('live') === 'all');
-      if (sport === 'football' && isFixturesLive) {
-        const fallback = buildApiFootballFixturesFromStore(true);
-        sendJson(res, 200, fallback);
-      } else {
-        sendJson(res, 200, { response: [] });
-      }
-    });
-
-    externalReq.end();
-    return;
-  }
-
   if (
     req.method === 'GET' &&
-    (req.url === '/football/odds/live' ||
+    (req.url.startsWith('/sports/api-football-proxy') ||
+      req.url.startsWith('/api/sports/api-football-proxy') ||
+      req.url === '/football/odds/live' ||
       req.url === '/api/football/odds/live' ||
-      (req.url && req.url.startsWith('/football/odds/live?')) ||
-      (req.url && req.url.startsWith('/api/football/odds/live?')))
-  ) {
-    console.log('[ENDPOINT /odds/live] Pedido recebido - construindo resposta');
-
-    const result: { matchId: string; odds: { home: number; draw: number; away: number } }[] = [];
-
-    const relevantFixtures = fixturesStore.filter((f) => {
-      if (f.sport !== 'football') return false;
-      const league = leaguesStore.find((l) => l.id === f.league_id);
-      if (league && isLeagueBlocked(league.name)) return false;
-      const status = String(f.status || '').toUpperCase();
-      const kickoffTs = f.kickoff ? Date.parse(f.kickoff) : 0;
-      const isRecent = kickoffTs > Date.now() - 24 * 60 * 60 * 1000;
-      return (
-        isRecent &&
-        (status.includes('LIVE') ||
-          status === '1H' ||
-          status === '2H' ||
-          f.minute != null)
-      );
-    });
-
-    console.log(`[ENDPOINT] ${relevantFixtures.length} jogos relevantes encontrados`);
-
-    for (const fixture of relevantFixtures) {
-      let odds = getLatestLiveOddsSnapshotForFixture(fixture.id);
-
-      if (
-        !odds ||
-        !Number.isFinite(odds.home) ||
-        odds.home <= 1.01 ||
-        !Number.isFinite(odds.away) ||
-        odds.away <= 1.01
-      ) {
-        console.log(
-          `[ENDPOINT] Cache vazio ou inválido para ${fixture.id_api} → fetch direto`,
-        );
-        try {
-          const data = await fetchApiFootball('football', 'odds/live', {
-            fixture: fixture.id_api,
-          });
-          if (
-            !data ||
-            !Array.isArray(data.response) ||
-            !data.response[0] ||
-            !data.response[0].bookmakers ||
-            !data.response[0].bookmakers[0] ||
-            !Array.isArray(data.response[0].bookmakers[0].bets)
-          ) {
-            odds = null;
-          } else {
-            const item = data.response[0];
-            const bookmaker = item.bookmakers[0];
-            const bets = bookmaker.bets;
-            const matchWinner = bets.find((b: any) => {
-              const name = String(b.name || '').toLowerCase();
-              return (
-                b.id === 1 ||
-                name.includes('1x2') ||
-                name.includes('match winner') ||
-                name.includes('matchwinner') ||
-                name.includes('fulltime result') ||
-                name.includes('full time result') ||
-                name.includes('resultado final')
-              );
-            });
-
-            if (matchWinner && Array.isArray(matchWinner.values)) {
-              let home: number | null = null;
-              let draw: number | null = null;
-              let away: number | null = null;
-
-              for (const v of matchWinner.values) {
-                const label = String(v.value || '').toLowerCase().trim();
-                const odd = Number(v.odd);
-                if (!Number.isFinite(odd) || odd <= 1.01) continue;
-                if ((label === 'home' || label === '1') && home == null) home = odd;
-                if ((label === 'draw' || label === 'x') && draw == null) draw = odd;
-                if ((label === 'away' || label === '2') && away == null) away = odd;
-              }
-
-              if (home && away) {
-                const bookmakerName = String(
-                  bookmaker.name || bookmaker.bookmaker || 'api-football',
-                );
-
-                odds = {
-                  home,
-                  draw: draw ?? 0,
-                  away,
-                };
-
-                registerOddsSnapshot(
-                  fixture.id,
-                  bookmakerName,
-                  '1X2',
-                  'match_winner',
-                  'home',
-                  0,
-                  home,
-                  'api-football',
-                );
-                if (draw) {
-                  registerOddsSnapshot(
-                    fixture.id,
-                    bookmakerName,
-                    '1X2',
-                    'match_winner',
-                    'draw',
-                    0,
-                    draw,
-                    'api-football',
-                  );
-                }
-                registerOddsSnapshot(
-                  fixture.id,
-                  bookmakerName,
-                  '1X2',
-                  'match_winner',
-                  'away',
-                  0,
-                  away,
-                  'api-football',
-                );
-
-                console.log(
-                  `[SYNC OK] ${fixture.id_api} → ${home} / ${draw || '-'} / ${away}`,
-                );
-              } else {
-                odds = null;
-              }
-            } else {
-              odds = null;
-            }
-          }
-        } catch (err) {
-          console.error(`Fetch direto falhou para ${fixture.id_api}:`, err);
-          odds = null;
-        }
-      }
-
-      if (
-        odds &&
-        Number.isFinite(odds.home) &&
-        Number.isFinite(odds.away) &&
-        odds.home > 1.01 &&
-        odds.away > 1.01
-      ) {
-        const home = Number(odds.home.toFixed(2));
-        const away = Number(odds.away.toFixed(2));
-        const draw =
-          odds.draw && odds.draw > 1.01 ? Number(odds.draw.toFixed(2)) : 0;
-
-        result.push({
-          matchId: fixture.id_api,
-          odds: {
-            home,
-            draw,
-            away,
-          },
-        });
-
-        console.log(
-          `[ENDPOINT OK] ${fixture.id_api} → ${home} / ${
-            draw > 1.01 ? draw : '-'
-          } / ${away}`,
-        );
-      }
-    }
-
-    console.log(`[ENDPOINT] Resposta final: ${result.length} jogos com odds`);
-
-    sendJson(res, 200, result, req);
-    return;
-  }
-
-  if (
-    req.method === 'GET' &&
-    (req.url === '/football/odds/upcoming' ||
+      req.url.startsWith('/football/odds/live?') ||
+      req.url.startsWith('/api/football/odds/live?') ||
+      req.url === '/football/odds/upcoming' ||
       req.url === '/api/football/odds/upcoming' ||
-      (req.url && req.url.startsWith('/football/odds/upcoming?')) ||
-      (req.url && req.url.startsWith('/api/football/odds/upcoming?')))
+      req.url.startsWith('/football/odds/upcoming?') ||
+      req.url.startsWith('/api/football/odds/upcoming?') ||
+      req.url === '/basketball/odds/live' ||
+      req.url === '/api/basketball/odds/live' ||
+      req.url.startsWith('/basketball/odds/live?') ||
+      req.url.startsWith('/api/basketball/odds/live?'))
   ) {
-    const upcomingFixtures = fixturesStore.filter((f) => {
-      if (f.sport !== 'football') return false;
-      const league = leaguesStore.find((l) => l.id === f.league_id);
-      if (league && isLeagueBlocked(league.name)) return false;
-      const status = String(f.status || '').toUpperCase();
-      const isNotStarted =
-        (f.minute == null || f.minute === 0) &&
-        (!status || ['NS', 'TBD', 'PST'].includes(status));
-      if (!isNotStarted) return false;
-      const kickoffTs = f.kickoff ? Date.parse(f.kickoff) : Date.now();
-      return Number.isFinite(kickoffTs) && kickoffTs >= Date.now();
-    });
-
-    const result: { matchId: string; odds: { home: number; draw: number; away: number } }[] = [];
-    const toFetch: typeof upcomingFixtures = [];
-
-    for (const fixture of upcomingFixtures) {
-      const odds = getLatestLiveOddsSnapshotForFixture(fixture.id);
-      if (odds) {
-        result.push({ matchId: fixture.id_api, odds });
-      } else {
-        toFetch.push(fixture);
-      }
-    }
-
-    const limited = toFetch.slice(0, 40);
-    for (const fixture of limited) {
-      try {
-        const data = await fetchApiFootball('football', 'odds', {
-          fixture: fixture.id_api,
-        });
-        if (!data || !Array.isArray(data.response) || data.response.length === 0) {
-          continue;
-        }
-        const item = data.response[0];
-        const bookmakers = Array.isArray(item.bookmakers) ? item.bookmakers : [];
-        if (!bookmakers.length) continue;
-        const mainBookmaker = bookmakers[0];
-        const bets = Array.isArray(mainBookmaker.bets) ? mainBookmaker.bets : [];
-        const matchWinner = bets.find((b: any) => {
-          const betName = String(b?.name || '');
-          const betId =
-            typeof b?.id === 'number' ? b.id : parseInt(String(b?.id || ''), 10);
-          const n = betName.toLowerCase();
-          return (
-            betId === 1 ||
-            n.includes('match winner') ||
-            n.includes('matchwinner') ||
-            n.includes('1x2') ||
-            n.includes('fulltime result') ||
-            n.includes('full time result') ||
-            n.includes('resultado final')
-          );
-        });
-        if (!matchWinner || !Array.isArray(matchWinner.values)) continue;
-
-        let home: number | null = null;
-        let draw: number | null = null;
-        let away: number | null = null;
-        for (const v of matchWinner.values) {
-          const label = String(v?.value || '').toLowerCase();
-          const odd = v?.odd != null ? Number(v.odd) : NaN;
-          if (!Number.isFinite(odd) || odd <= 1.01) continue;
-          if ((label === 'home' || label === '1') && home == null) home = odd;
-          if ((label === 'draw' || label === 'x') && draw == null) draw = odd;
-          if ((label === 'away' || label === '2') && away == null) away = odd;
-        }
-        if (home != null && away != null) {
-          result.push({
-            matchId: fixture.id_api,
-            odds: { home: home, draw: draw ?? 0, away: away },
-          });
-        }
-      } catch { continue; }
-    }
-
-    sendJson(res, 200, result, req);
+    sendJson(res, 200, { response: [] }, req);
     return;
   }
 
-  if (
-    req.method === 'GET' &&
-    (req.url === '/basketball/odds/live' ||
-      req.url === '/api/basketball/odds/live' ||
-      (req.url && req.url.startsWith('/basketball/odds/live?')) ||
-      (req.url && req.url.startsWith('/api/basketball/odds/live?')))
-  ) {
-    sendJson(res, 200, [], req);
-    return;
+  if (req.method === 'GET' && (req.url === '/api/events' || req.url.startsWith('/api/events?'))) {
+    try {
+      const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
+      const urlObj = new URL(req.url, `http://localhost:${PORT}`);
+      const slug = String(urlObj.searchParams.get('slug') || '').replace(/^\/+/, '');
+      const include = String(urlObj.searchParams.get('include') || '');
+      const wantsOdds = include.split(',').map((s) => s.trim()).includes('odds');
+
+      if (!apiKey) {
+        sendJson(res, 200, slug ? { error: 'Not found' } : { live: [], pregame: [] }, req);
+        return;
+      }
+
+      if (!slug) {
+        sendJson(res, 200, { live: [], pregame: [] }, req);
+        return;
+      }
+
+      const oddsMatch = slug.match(/^(.+?)\/odds$/);
+      const requestedId = oddsMatch ? oddsMatch[1] : slug;
+      const parts = String(requestedId || '').split('_');
+      const sportRaw = parts.length >= 2 ? parts[0] : 'soccer';
+      const normalizeSport = (s: string) => {
+        const v = String(s || '').toLowerCase().trim();
+        if (v === 'football' || v === 'futebol') return 'soccer';
+        if (v === 'hockey' || v === 'icehockey' || v === 'ice_hockey') return 'ice-hockey';
+        return v;
+      };
+      const sport = normalizeSport(sportRaw);
+
+      const today = new Date();
+      const start = new Date(today);
+      start.setDate(today.getDate() - 1);
+      const startDate = start.toISOString().slice(0, 10);
+      const end = new Date(today);
+      end.setDate(today.getDate() + 7);
+      const endDate = end.toISOString().slice(0, 10);
+
+      const [live, scheduled] = await Promise.all([
+        fetchSportsApiProV1Live(apiKey, sport).catch(() => []),
+        fetchSportsApiProV1GamesRange(apiKey, sport, startDate, endDate).catch(() => []),
+      ]);
+
+      const all = [...live, ...scheduled];
+      const evt = all.find((e: any) => String(e?.external_event_id || '') === requestedId);
+
+      if (!evt) {
+        sendJson(res, 404, { error: 'Not found' }, req);
+        return;
+      }
+
+      if (wantsOdds && Number(evt.home_odd || 0) <= 1) {
+        const v1Id = String(evt.external_event_id || '').split('_').slice(1).join('_');
+        if (v1Id) {
+          const v1Odds = await fetchSportsApiProV1OddsLines(apiKey, sport, v1Id, { topBookmaker: 14 }).catch(() => null);
+          if (v1Odds && v1Odds.home > 1) {
+            evt.home_odd = v1Odds.home;
+            evt.draw_odd = v1Odds.draw;
+            evt.away_odd = v1Odds.away;
+            evt.markets = v1Odds.markets || {};
+          }
+        }
+      }
+
+      const parseScore = (raw: any) => {
+        try {
+          const sc = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          return { home: sc?.home ?? null, away: sc?.away ?? null };
+        } catch {
+          return { home: null, away: null };
+        }
+      };
+
+      const toMarketsObject = (raw: any) => {
+        if (!raw) return {};
+        if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+        if (typeof raw === 'string') {
+          try {
+            const o = JSON.parse(raw);
+            return o && typeof o === 'object' ? o : {};
+          } catch {
+            return {};
+          }
+        }
+        return {};
+      };
+
+      if (oddsMatch) {
+        sendJson(
+          res,
+          200,
+          {
+            home_odd: Number(evt.home_odd || 0),
+            draw_odd: Number(evt.draw_odd || 0),
+            away_odd: Number(evt.away_odd || 0),
+            markets: toMarketsObject((evt as any).markets),
+            updated_at: new Date().toISOString(),
+            provider: 'sportsapipro',
+          },
+          req,
+        );
+        return;
+      }
+
+      const goals = parseScore(evt.score);
+      const date = String(evt.event_date || '');
+      const ts = date ? Math.floor(new Date(date).getTime() / 1000) : 0;
+      const statusShort = String(evt.status || 'NS').trim() || 'NS';
+      const elapsed = Number(evt.elapsed || 0) || 0;
+      const timer = String(evt.timer || '').trim();
+
+      sendJson(
+        res,
+        200,
+        {
+          id: String(evt.external_event_id || ''),
+          external_event_id: String(evt.external_event_id || ''),
+          match: `${evt.home_team} vs ${evt.away_team}`,
+          league: evt.league || '',
+          country: evt.country || '',
+          home_team: evt.home_team,
+          away_team: evt.away_team,
+          home_odd: Number(evt.home_odd || 0) || 0,
+          draw_odd: Number(evt.draw_odd || 0) || 0,
+          away_odd: Number(evt.away_odd || 0) || 0,
+          event_date: date,
+          is_live: Number(evt.is_live || 0) || 0,
+          score: evt.score || null,
+          goals,
+          elapsed,
+          timer,
+          status: { short: statusShort, long: statusShort, elapsed, timer },
+          fixture: { id: String(evt.external_event_id || ''), date, timestamp: ts, status: { short: statusShort, long: statusShort, elapsed, timer } },
+          teams: {
+            home: { name: evt.home_team, logo: evt.home_team_logo || '' },
+            away: { name: evt.away_team, logo: evt.away_team_logo || '' },
+          },
+          home_team_logo: evt.home_team_logo || '',
+          away_team_logo: evt.away_team_logo || '',
+          sport: String(evt.sport || sport),
+          markets: toMarketsObject((evt as any).markets),
+          odds: (evt as any).odds || {},
+        },
+        req,
+      );
+      return;
+    } catch (err: any) {
+      sendJson(res, 500, { error: String(err?.message || err) }, req);
+      return;
+    }
   }
 
   if (req.url === '/odds/sports' && req.method === 'GET') {
@@ -4234,161 +4152,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.url?.startsWith('/stats/standings') && req.method === 'GET') {
-    try {
-      const u = new URL(req.url!, 'http://localhost');
-      const sport = u.searchParams.get('sport') || 'football';
-      const league = u.searchParams.get('league');
-      const season = u.searchParams.get('season') || String(new Date().getFullYear());
-
-      if (!league) {
-        sendJson(res, 400, { error: 'Parâmetro league é obrigatório' });
-        return;
-      }
-
-      const baseUrl = getApiFootballBaseUrl(sport);
-      if (!baseUrl) {
-        sendJson(res, 400, { error: `Desporto não suportado: ${sport}` });
-        return;
-      }
-
-      if (!apiFootballKey) {
-        sendJson(res, 500, { error: 'API_FOOTBALL_KEY não configurada' });
-        return;
-      }
-
-      const rateLimit = checkApiFootballRateLimit(sport);
-      if (!rateLimit.allowed) {
-        sendJson(res, 429, {
-          error: 'Rate limit excedido',
-          sport,
-          message: `Limite de 1200 requisições/minuto para ${sport} excedido`,
-          resetIn: rateLimit.resetIn,
-        });
-        return;
-      }
-
-      const apiUrl = new URL(`${baseUrl}/standings`);
-      apiUrl.searchParams.set('league', String(league));
-      apiUrl.searchParams.set('season', String(season));
-
-      const requestOptions: https.RequestOptions = {
-        method: 'GET',
-        headers: getApiFootballHeaders(),
-      };
-
-      const client = apiUrl.protocol === 'https:' ? https : http;
-
-      const externalReq = client.request(apiUrl.toString(), requestOptions, (externalRes) => {
-        const chunks: Buffer[] = [];
-        externalRes.on('data', (chunk) => chunks.push(chunk));
-        externalRes.on('end', () => {
-          const raw = Buffer.concat(chunks).toString('utf8');
-          try {
-            const data = raw ? JSON.parse(raw) : {};
-            if (data.errors && Object.keys(data.errors).length > 0) {
-              sendJson(res, 400, { error: 'API-Football retornou erro', details: data.errors });
-              return;
-            }
-
-            const standings =
-              Array.isArray(data.response) &&
-              data.response[0] &&
-              Array.isArray(data.response[0].league?.standings)
-                ? data.response[0].league.standings[0] || []
-                : [];
-
-            sendJson(res, 200, {
-              sport,
-              league,
-              season,
-              standings,
-            });
-          } catch {
-            sendJson(res, 502, { error: 'Resposta inválida da API-Football' });
-          }
-        });
-      });
-
-      externalReq.on('error', (err) => {
-        sendJson(res, 502, { error: 'Erro ao chamar API-Football', details: String(err) });
-      });
-
-      externalReq.end();
-    } catch (e) {
-      sendJson(res, 500, { error: 'Falha ao obter standings' });
-    }
+    const u = new URL(req.url!, 'http://localhost');
+    const sport = u.searchParams.get('sport') || 'football';
+    const league = u.searchParams.get('league');
+    const season = u.searchParams.get('season') || String(new Date().getFullYear());
+    sendJson(res, 200, { sport, league, season, standings: [] }, req);
     return;
   }
 
   if (req.url?.startsWith('/stats/proxy') && req.method === 'GET') {
-    const u = new URL(req.url!, 'http://localhost');
-    const sport = u.searchParams.get('sport') || 'football';
-    const endpoint = u.searchParams.get('endpoint');
-
-    if (!endpoint) {
-      sendJson(res, 400, { error: 'Parâmetro endpoint é obrigatório' });
-      return;
-    }
-
-    const baseUrl = getApiFootballBaseUrl(sport);
-    if (!baseUrl) {
-      sendJson(res, 400, { error: `Desporto não suportado: ${sport}` });
-      return;
-    }
-
-    if (!apiFootballKey) {
-      sendJson(res, 500, { error: 'API_FOOTBALL_KEY não configurada' });
-      return;
-    }
-
-    const rateLimit = checkApiFootballRateLimit(sport);
-    if (!rateLimit.allowed) {
-      sendJson(res, 429, {
-        error: 'Rate limit excedido',
-        sport,
-        message: `Limite de 1200 requisições/minuto para ${sport} excedido`,
-        resetIn: rateLimit.resetIn,
-      });
-      return;
-    }
-
-    const apiUrl = new URL(`${baseUrl}/${endpoint}`);
-    u.searchParams.forEach((value, key) => {
-      if (key !== 'sport' && key !== 'endpoint') {
-        apiUrl.searchParams.append(key, value);
-      }
-    });
-
-    const requestOptions: https.RequestOptions = {
-      method: 'GET',
-      headers: getApiFootballHeaders(),
-    };
-
-    const client = apiUrl.protocol === 'https:' ? https : http;
-
-    const externalReq = client.request(apiUrl.toString(), requestOptions, (externalRes) => {
-      const chunks: Buffer[] = [];
-      externalRes.on('data', (chunk) => chunks.push(chunk));
-      externalRes.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf8');
-        try {
-          const data = raw ? JSON.parse(raw) : {};
-          if (data.errors && Object.keys(data.errors).length > 0) {
-            sendJson(res, 200, { error: 'API-Football retornou erro', details: data.errors });
-            return;
-          }
-          sendJson(res, 200, data);
-        } catch {
-          sendJson(res, 502, { error: 'Resposta inválida da API-Football' });
-        }
-      });
-    });
-
-    externalReq.on('error', (err) => {
-      sendJson(res, 502, { error: 'Erro ao chamar API-Football', details: String(err) });
-    });
-
-    externalReq.end();
+    sendJson(res, 200, {}, req);
     return;
   }
   if (req.url === '/payments/paypal/create-order' && req.method === 'POST') {
@@ -4695,74 +4468,15 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // ✅ NOVO: Rota para Odds-API.io (Lista de Eventos)
   if (req.url?.startsWith('/odds/events') && req.method === 'GET') {
-      const url = new URL(req.url, `http://localhost:${PORT}`);
-      const sport = url.searchParams.get('sport') || 'football';
-      
-      try {
-          console.log(`[PROXY] Fetching Odds-API.io events for ${sport}`);
-          const events = await fetchOddsFromOddsApiIo(sport);
-          
-          if (events) {
-              sendJson(res, 200, events);
-          } else {
-              sendJson(res, 200, []);
-          }
-      } catch (err: any) {
-          console.error('[PROXY] Error fetching Odds-API.io events:', err.message);
-          sendJson(res, 500, { error: 'Failed to fetch odds events' });
-      }
-      return;
+    sendJson(res, 200, [], req);
+    return;
   }
 
-  // ✅ NOVO: Rota para API-Football Odds Live (Lista Completa)
   const liveOddsMatch = req.url?.match(/^\/([a-zA-Z0-9]+)\/odds\/live$/);
   if (liveOddsMatch && req.method === 'GET') {
-      const sport = liveOddsMatch[1];
-      
-      if (sport !== 'football') {
-          sendJson(res, 200, []);
-          return;
-      }
-
-      try {
-          const cacheKey = `live:odds:${sport}`;
-          const cached = await redis.get(cacheKey);
-          
-          if (cached) {
-              sendJson(res, 200, JSON.parse(cached));
-              return;
-          }
-
-          console.log(`[PROXY] Fetching LIVE ODDS list for ${sport}`);
-          const baseUrl = getApiFootballBaseUrl(sport);
-          if (!baseUrl) throw new Error(`No base URL for sport ${sport}`);
-          
-          const headers = getApiFootballHeaders(sport);
-          
-          const response = await fetch(`${baseUrl}/odds/live`, { 
-              method: 'GET',
-              headers: headers as any
-          });
-          
-          if (!response.ok) {
-              throw new Error(`API returned ${response.status}`);
-          }
-
-          const data = await response.json();
-          
-          if (data && Array.isArray(data.response)) {
-              await redis.set(cacheKey, JSON.stringify(data.response), 'EX', 10);
-              sendJson(res, 200, data.response);
-          } else {
-              sendJson(res, 200, []);
-          }
-      } catch (err: any) {
-          console.error(`[PROXY] Error fetching live odds for ${sport}:`, err.message);
-          sendJson(res, 200, []);
-      }
-      return;
+    sendJson(res, 200, [], req);
+    return;
   }
 
   if (req.method === 'GET') {
