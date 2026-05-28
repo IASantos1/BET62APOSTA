@@ -14,9 +14,17 @@ const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.
 const pool = createPool();
 await ensureSchema(pool);
 
-const sportsApiKey = String(process.env.SPORTS_API_PRO_KEY || process.env.SPORTS_API_KEY || '').trim();
+const sportsApiKey = String(
+  process.env.SPORTS_API_PRO_KEY ||
+    process.env.SPORTSAPIPRO_KEY ||
+    process.env.SPORTSAPI_PRO_KEY ||
+    process.env.SPORTS_API_KEY ||
+    '',
+).trim();
 if (!sportsApiKey) {
-  throw new Error('SPORTS_API_PRO_KEY is not set');
+  throw new Error(
+    'Missing SportsAPI Pro key. Set one of: SPORTS_API_PRO_KEY, SPORTSAPIPRO_KEY, SPORTSAPI_PRO_KEY, SPORTS_API_KEY',
+  );
 }
 
 const events = createEventsService(pool, sportsApiKey);
@@ -73,4 +81,3 @@ server.on('upgrade', (req, socket, head) => {
 server.listen(PORT, () => {
   console.log(`[server] listening on :${PORT}`);
 });
-
