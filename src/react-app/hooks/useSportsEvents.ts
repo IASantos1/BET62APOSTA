@@ -318,16 +318,13 @@ export function useSportsEvents(category: string | null) {
           const cleanLeague = leagueFilter.replace(/-+/g, ' ').replace(/\s+/g, ' ').trim();
           params.set('league', cleanLeague);
         }
-                params.set('include', 'odds'); 
+                params.set('include', 'odds');
+                params.set('markets', 'full');
                 params.set('realtime', '0');
         params.set('days', '7');
-        // params.set('_ts', Date.now().toString()); // Disabled for aggressive caching as requested
- 
+
                 const url = `/api/events/by-sport?${params.toString()}`;
-        // console.log('FETCH URL', url);
-        // Disable cache to ensure fresh data
         let data = await apiFetch<any>(url, { signal: controller.signal, timeout: 12000 });
-        // console.log('API DATA RAW:', data);
 
         let liveCount = Array.isArray(data?.live) ? data.live.length : 0;
         let pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
@@ -339,6 +336,7 @@ export function useSportsEvents(category: string | null) {
           const p2 = new URLSearchParams();
           p2.set('sports', 'all');
           p2.set('include', 'odds');
+          p2.set('markets', 'full');
           p2.set('realtime', '0');
           data = await apiFetch<any>(`/api/events/by-sport?${p2.toString()}`, { signal: controller.signal });
           liveCount = Array.isArray(data?.live) ? data.live.length : 0;
