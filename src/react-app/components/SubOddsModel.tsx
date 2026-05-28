@@ -729,8 +729,9 @@ export function SubOddsModel({
           );
       }
 
-      // Totals (gols, cantos, cartões, períodos/quartos/innings)
-      if (key === 'totals' || key === 'corners_total' || key === 'cards_total' || key === 'goals_total' || key === 'team_totals' || /_totals$/.test(key) || /_total$/.test(key)) {
+      // Totals (gols, cantos, cartões, períodos/quartos/innings/sets/games)
+      const TOTALS_KEYS = new Set(['totals','corners_total','cards_total','goals_total','team_totals','match_goals','match_total_games','total_sets','current_set_totals','set_1_totals','set_2_totals','set_3_totals','corners_2_way','cards_in_match','innings_totals','inning_totals']);
+      if (TOTALS_KEYS.has(key) || /_totals$/.test(key) || /_total$/.test(key) || /^total_/.test(key) || /over.under/i.test(key)) {
           if (totalsItems.length === 0 && (key !== 'totals' ? getMarketItems(key).length === 0 : true)) return null;
           
           const targetItems = key === 'totals' ? totalsItems : getMarketItems(key);
