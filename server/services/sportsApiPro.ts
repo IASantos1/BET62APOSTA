@@ -676,6 +676,15 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   if (g === 'draw no bet' || g === 'drawnabet') return 'draw_no_bet';
   if (g === 'puck line' || g === 'puckline') return 'puck_line';
   if (g === 'run line' || g === 'runline') return 'run_line';
+  // Soccer-specific groups from SportsApiPro v2
+  if (g === 'match goals' || g.includes('match goals')) return 'totals';
+  if (g === 'total cards' || g === 'cards in match' || g.includes('total cards') || g.includes('cards in match')) return 'cards_total';
+  if (g === 'corners 2 way' || g === 'corners 2way' || g.includes('corners 2') || g.includes('corner 2')) return 'corners_total';
+  if (g === 'first team to score' || g.includes('first team to score') || g.includes('first to score')) return 'first_team_to_score';
+  if (g.includes('corner') && (g.includes('total') || g.includes('over') || g.includes('under'))) return 'corners_total';
+  if (g.includes('corner') && !g.includes('total')) return 'corners_h2h';
+  if (g.includes('card') && (g.includes('total') || g.includes('over') || g.includes('under'))) return 'cards_total';
+  if (g.includes('btts') || g.includes('both team')) return 'btts';
   // Name check before group for "total games won" to avoid misclassifying as total_sets
   if (n === 'total games won' || n === 'total games') return 'match_total_games';
   if (g.includes('total sets') || g.includes('total set') || g.includes('total sets games')) return 'total_sets';
