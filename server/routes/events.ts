@@ -160,6 +160,15 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     return last || id;
   };
 
+  const normalizeIdLoose = (rawId: string): string => {
+    const id = String(rawId || '').trim();
+    if (!id) return '';
+    if (!id.includes('_')) return id;
+    const parts = id.split('_').filter(Boolean);
+    if (parts.length < 2) return id;
+    return parts[parts.length - 1] || id;
+  };
+
   const matchIdOf = (e: AnyEvent): string => {
     const sport = String((e as any)?.sport || '').trim();
     const idRaw = String((e as any)?.id || (e as any)?.external_event_id || '').trim();
@@ -496,10 +505,11 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       if (!token || token !== tokenEnv) return sendJson(res, 403, { error: 'Forbidden' }), true;
 
       const sport = String(url.searchParams.get('sport') || '').trim() || 'soccer';
-      const id = String(url.searchParams.get('id') || '').trim();
+      const idRaw = String(url.searchParams.get('id') || '').trim();
       const mode = String(url.searchParams.get('mode') || 'all').trim().toLowerCase();
-      if (!id) return sendJson(res, 400, { error: 'Missing id' }), true;
+      if (!idRaw) return sendJson(res, 400, { error: 'Missing id' }), true;
       if (mode !== 'all' && mode !== 'live' && mode !== 'pre-match') return sendJson(res, 400, { error: 'Invalid mode' }), true;
+      const id = normalizeMatchId(sport, idRaw) || normalizeIdLoose(idRaw);
 
       const normalizeSportKey = (s: string): string =>
         String(s || '')
@@ -533,6 +543,8 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
           url: targetUrl,
           status: r.status,
           ok: r.ok,
+          idRaw,
+          idUsed: id,
           topKeys,
           bodyPreview: String(text || '').slice(0, 1600),
         });
@@ -544,7 +556,8 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
 
     const evMatch = path.match(/^\/api\/events\/([^/]+)$/);
     if (evMatch && req.method === 'GET') {
-      const id = decodeURIComponent(evMatch[1] || '');
+      const idRaw = decodeURIComponent(evMatch[1] || '');
+      const id = normalizeIdLoose(idRaw);
       const cached = lastEventById.get(id);
       if (cached && ttlOk(cached.ts, 30 * 60_000)) {
         sendJson(res, 200, cached.data);
@@ -564,7 +577,8 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
 
     const oddsMatch = path.match(/^\/api\/events\/([^/]+)\/odds$/);
     if (oddsMatch && req.method === 'GET') {
-      const id = decodeURIComponent(oddsMatch[1] || '');
+      const idRaw = decodeURIComponent(oddsMatch[1] || '');
+      const id = normalizeIdLoose(idRaw);
       const sport = await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
       const odds = await fetchOddsStrict(sport, id, { forceAll: true }).catch(() => null);
@@ -575,7 +589,8 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
 
     const statsMatch = path.match(/^\/api\/events\/([^/]+)\/stats$/);
     if (statsMatch && req.method === 'GET') {
-      const id = decodeURIComponent(statsMatch[1] || '');
+      const idRaw = decodeURIComponent(statsMatch[1] || '');
+      const id = normalizeIdLoose(idRaw);
       const sport = await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
       const statsRaw = await fetchSportsApiProMatchStatistics(apiKey, sport, id).catch(() => null);
