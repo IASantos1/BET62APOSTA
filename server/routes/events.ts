@@ -464,23 +464,62 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       return arr.filter((e: any) => String(e?.league || '').toLowerCase().includes(cleanLeague));
     };
 
-    const isBlockedLeague = (leagueName: string): boolean => {
+    const isBlockedLeague = (leagueName: string, country?: string): boolean => {
       const l = leagueName.toLowerCase();
+      const c = (country || '').toLowerCase();
+
+      // Block women's leagues
       if (l.includes("women") || l.includes("woman") || l.includes("feminino") ||
           l.includes("femenino") || l.includes("damen") || l.includes("nwsl") ||
           l.includes("saff women") || l.includes("damallsvenskan") || l.includes("liga f ") ||
           l.includes("women's") || l.includes("womens") || l.includes("féminin") ||
-          l.includes("feminine") || l.includes("femmes")) return true;
+          l.includes("feminine") || l.includes("femmes") || l.includes("feminin") ||
+          l.includes("toppserien") || l.includes("wsl")) return true;
+
+      // Block youth / junior / reserve
       if (/\bu\d{2}\b/.test(l) || l.includes("youth") || l.includes("junior") ||
           l.includes("u-17") || l.includes("u-21") || l.includes("u-23") ||
           l.includes("under-17") || l.includes("under-21") || l.includes("under-23") ||
-          l.includes("primavera") || l.includes("nextgen") || l.includes("reserve") ||
-          l.includes("akademi")) return true;
+          l.includes("under 17") || l.includes("under 21") || l.includes("under 23") ||
+          l.includes("revelacao") || l.includes("primavera") || l.includes("nextgen") ||
+          l.includes("reserve") || l.includes("akademi") || l.includes("juvenil") ||
+          l.includes("sub-17") || l.includes("sub-20") || l.includes("sub-21") ||
+          l.includes("sub-23")) return true;
+
+      // Block amateur leagues
+      if (l.includes("amateur") || l.includes("amateure") || l.includes("amador") ||
+          l.includes("amatör")) return true;
+
+      // Block very low-tier / regional leagues
+      if (l.includes("regionalliga") || l.includes("kakkonen") || l.includes("gamma ethniki") ||
+          l.includes("esiliiga") || l.includes("derde divisie") || l.includes("vierde") ||
+          l.includes("quinta") || l.includes("6th division") || l.includes("7th division")) return true;
+
+      // Block friendly / test matches
+      if (l.includes("friendly") || l.includes("amistoso") || l.includes("amical") ||
+          l.includes("testspiel")) return true;
+
+      // Block Middle East / MENA countries — EXCEPT Saudi Arabia, Egypt, Israel, Turkey, Greece
+      const ALLOWED_MENA = ["saudi", "saudi arabia", "egypt", "egyptian", "israel", "israeli", "turkey", "turkish", "greece", "greek"];
+      const BLOCKED_MENA = [
+        "qatar", "qatari", "uae", "united arab", "kuwait", "kuwaiti",
+        "bahrain", "bahraini", "oman", "omani", "jordan", "jordanian",
+        "iraq", "iraqi", "syria", "syrian", "lebanon", "lebanese",
+        "palestine", "palestinian", "yemen", "yemeni", "iran", "iranian",
+        "libya", "libyan", "algeria", "algerian", "morocco", "moroccan",
+        "tunisia", "tunisian", "sudan", "sudanese", "uzbek", "uzbekistan",
+        "tajik", "kyrgyz", "afghan", "pakistan", "pakistan",
+      ];
+      const leagueAndCountry = l + ' ' + c;
+      const isAllowed = ALLOWED_MENA.some(a => leagueAndCountry.includes(a));
+      const isBlocked = BLOCKED_MENA.some(b => leagueAndCountry.includes(b));
+      if (isBlocked && !isAllowed) return true;
+
       return false;
     };
 
-    const live = filterLeague(liveAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''))).slice(0, 120);
-    const pregame = filterLeague(preAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''))).slice(0, 120);
+    const live = filterLeague(liveAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || ''))).slice(0, 120);
+    const pregame = filterLeague(preAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || ''))).slice(0, 120);
 
     if (!includeOdds) {
       return { live, pregame };
@@ -636,7 +675,34 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       const sport = await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
       const statsRaw = await fetchSportsApiProMatchStatistics(apiKey, sport, id).catch(() => null);
-      sendJson(res, 200, { stats: statsRaw || [], events: [] });
+      // Extract stats from various SportsApiPro response formats
+      const extractStats = (raw: any): any[] => {
+        if (!raw) return [];
+        if (Array.isArray(raw)) return raw;
+        if (Array.isArray(raw.data?.statistics)) return raw.data.statistics;
+        if (Array.isArray(raw.statistics)) return raw.statistics;
+        if (Array.isArray(raw.data?.stats)) return raw.data.stats;
+        if (Array.isArray(raw.stats)) return raw.stats;
+        if (raw.data && typeof raw.data === 'object') {
+          const d = raw.data;
+          // API-Football style: { response: [{ statistics: [...] }] }
+          if (Array.isArray(d.response?.[0]?.statistics)) return d.response[0].statistics;
+          if (Array.isArray(d.response)) return d.response;
+        }
+        return [];
+      };
+      const extractMatchEvents = (raw: any): any[] => {
+        if (!raw) return [];
+        if (Array.isArray(raw.data?.events)) return raw.data.events;
+        if (Array.isArray(raw.events)) return raw.events;
+        if (Array.isArray(raw.data?.matchEvents)) return raw.data.matchEvents;
+        if (Array.isArray(raw.matchEvents)) return raw.matchEvents;
+        if (Array.isArray(raw.data?.response)) return raw.data.response;
+        return [];
+      };
+      const stats = extractStats(statsRaw);
+      const events = extractMatchEvents(statsRaw);
+      sendJson(res, 200, { stats, events, _debug: statsRaw ? Object.keys(statsRaw) : [] });
       return true;
     }
 
