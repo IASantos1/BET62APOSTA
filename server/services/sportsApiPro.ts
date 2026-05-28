@@ -839,7 +839,7 @@ async function fetchSportsApiProMatchOddsGeneric(
   const rows = extractOddsAll(json);
   if (!rows.length) return null;
 
-  const perKey: Record<string, Map<string, { value: string; odd: number; point?: string }>> = {};
+  const perKey: Record<string, Map<string, { label: string; odd: number; point?: string }>> = {};
   const addSelection = (key: string, value: string, odd: number, point?: string | null) => {
     if (!key || !value || !(odd > 1)) return;
     const p = point ? String(point) : '';
@@ -847,7 +847,7 @@ async function fetchSportsApiProMatchOddsGeneric(
     const k = `${normalizeLineName(value)}|${p}`;
     const prev = mk.get(k);
     if (!prev || odd > prev.odd) {
-      const out: any = { value, odd };
+      const out: any = { label: value, odd };
       if (p) out.point = p;
       mk.set(k, out);
     }
