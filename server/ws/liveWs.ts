@@ -82,7 +82,7 @@ export function createLiveWs(apiKey: string) {
     u.stopped = false;
     upstreams.set(localSport, u);
 
-    const url = `wss://v2.football.sportsapipro.com/ws?x-api-key=${encodeURIComponent(apiKey)}`;
+    const url = `wss://v2.${wsSport}.sportsapipro.com/ws?x-api-key=${encodeURIComponent(apiKey)}`;
     const ws = new WebSocket(url, { headers: { 'x-sport': wsSport } as any });
     u.ws = ws;
 

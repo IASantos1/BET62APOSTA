@@ -217,9 +217,28 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     return Number.isFinite(n) ? n : 0;
   };
 
-  const hh = pickOdd(hhSelection?.odd || hhSelection?.price || hhSelection?.value) || pickOdd((event as any)?.home_odd);
-  const dd = pickOdd(ddSelection?.odd || ddSelection?.price || ddSelection?.value) || pickOdd((event as any)?.draw_odd);
-  const aa = pickOdd(aaSelection?.odd || aaSelection?.price || aaSelection?.value) || pickOdd((event as any)?.away_odd);
+  const rawHh = pickOdd(hhSelection?.odd || hhSelection?.price || hhSelection?.value) || pickOdd((event as any)?.home_odd);
+  const rawDd = pickOdd(ddSelection?.odd || ddSelection?.price || ddSelection?.value) || pickOdd((event as any)?.draw_odd);
+  const rawAa = pickOdd(aaSelection?.odd || aaSelection?.price || aaSelection?.value) || pickOdd((event as any)?.away_odd);
+
+  const capOdd = (v: number): number => {
+    if (!(v > 0)) return v;
+    const elapsed = Number((event as any).elapsed ?? (event as any).fixture?.status?.elapsed ?? 0) || 0;
+    const timerStr = String((event as any).timer || (event as any).fixture?.status?.timer || '');
+    const minute = parseInt(timerStr.replace(/[^\d]/g, ''), 10) || elapsed;
+    let cap = 40;
+    if (isLiveEvent) {
+      if (minute < 70) cap = 20;
+      else if (minute < 80) cap = 28;
+      else if (minute < 85) cap = 33;
+      else cap = 40;
+    }
+    return Math.min(v, cap);
+  };
+
+  const hh = capOdd(rawHh);
+  const dd = capOdd(rawDd);
+  const aa = capOdd(rawAa);
 
   const homeTrend = useTrend(hh);
   const drawTrend = useTrend(dd);
@@ -302,23 +321,14 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     }
   }, [liveEventList, isLiveEvent]);
 
-  // "Aposta Já" trigger: any odd ≤ 1.01, score 2-0 at min 80+, or diff ≥ 3
+  // "Aposta Já" trigger: ONLY when any 1X2 odd ≤ 1.01 (match practically decided)
   const apostaJaActive = useMemo(() => {
     if (!isLiveEvent) return false;
-    const goals: any = (event as any)?.goals;
-    let h = 0, a = 0;
-    if (goals && typeof goals === 'object') { h = Number(goals.home ?? 0); a = Number(goals.away ?? 0); }
-    const diff = Math.abs(h - a);
-    if (diff >= 3) return true;
-    const elapsed = Number((event as any).elapsed ?? (event as any).fixture?.status?.elapsed ?? 0) || 0;
-    const timerStr = String((event as any).timer || (event as any).fixture?.status?.timer || '');
-    const minute = parseInt(timerStr.replace(/[^\d]/g, ''), 10) || elapsed;
-    if (diff >= 2 && minute >= 80) return true;
     if (hh > 0 && hh <= 1.01) return true;
     if (dd > 0 && dd <= 1.01) return true;
     if (aa > 0 && aa <= 1.01) return true;
     return false;
-  }, [isLiveEvent, event, hh, dd, aa]);
+  }, [isLiveEvent, hh, dd, aa]);
 
   // Choose the favourite (lowest non-zero odd) for one-tap betting
   const favBet = useMemo(() => {
@@ -774,20 +784,16 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
               );
             }
 
-            if (apostaJaActive && !isSuspended && favBet) {
-              const favStr = favBet.odd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            if (apostaJaActive && !isSuspended) {
               return (
                 <div className="w-full sm:w-[320px] lg:w-[400px]">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); addPrimary(favBet.label, favBet.odd); }}
+                  <div
                     className="w-full h-12 rounded-lg font-black text-sm uppercase tracking-wider text-white shadow-lg
                       bg-gradient-to-r from-red-600 to-rose-700 ring-2 ring-red-400 ring-opacity-50 animate-pulse
-                      transition-all duration-200 hover:scale-[1.02] active:scale-95
-                      flex items-center justify-center gap-2"
+                      flex items-center justify-center gap-2 cursor-default select-none"
                   >
                     <span>⚡ APOSTA JÁ</span>
-                    <span className="text-xs opacity-90">· {favBet.label} @ {favStr}</span>
-                  </button>
+                  </div>
                 </div>
               );
             }

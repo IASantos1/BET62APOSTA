@@ -83,7 +83,25 @@ export default function EventDetails() {
     return labelOutcome(market, name, displayEvent?.home_team, displayEvent?.away_team);
   }, [displayEvent]);
 
-  const applyMarginClamp = useCallback((_mk: string, v: number) => v, [])
+  const applyMarginClamp = useCallback((_mk: string, v: number) => {
+    if (!(v > 0)) return v;
+    const isLive = Number(displayEvent?.is_live || 0) === 1 ||
+      ['1H','2H','HT','ET','BT','P','LIVE','AT','ST','Q1','Q2','Q3','Q4','OT'].includes(
+        String(displayEvent?.status ?? displayEvent?.fixture?.status?.short ?? '').toUpperCase().trim()
+      );
+    const elapsed = Number(displayEvent?.elapsed ?? displayEvent?.fixture?.status?.elapsed ?? 0) || 0;
+    const timerStr = String((displayEvent as any)?.timer || displayEvent?.fixture?.status?.timer || '');
+    const minute = parseInt(timerStr.replace(/[^\d]/g, ''), 10) || elapsed;
+    let cap = 40;
+    if (isLive) {
+      if (minute < 60) cap = 20;
+      else if (minute < 70) cap = 20;
+      else if (minute < 80) cap = 28;
+      else if (minute < 85) cap = 33;
+      else cap = 40;
+    }
+    return Math.min(v, cap);
+  }, [displayEvent])
   const cleanTeam = (name: string) => String(name || '').replace(/\sU\d+$/, '').trim()
   const formatScore = (val: any) => {
     if (val == null) return 0;

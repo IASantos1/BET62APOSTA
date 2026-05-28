@@ -72,8 +72,12 @@ interface EventListeners {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const CONFIG = {
-  // URLs de WebSocket (simulado localmente, pode ser substituído por servidor real)
-  WS_URL: 'wss://api.example.com/live-scores', // Placeholder - usar simulação local
+  // URL do WebSocket (usa o servidor próprio /api/live/ws que depois liga ao SportsAPI Pro V2)
+  get WS_URL(): string {
+    if (typeof window === 'undefined') return '';
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${proto}://${window.location.host}/api/live/ws?sport=all`;
+  },
   
   // Reconexão
   RECONNECT_INITIAL_DELAY: 1000,
@@ -85,9 +89,9 @@ const CONFIG = {
   HEARTBEAT_INTERVAL: 25000,
   HEARTBEAT_TIMEOUT: 35000,
   
-  // ✅ ATUALIZAÇÃO A CADA 15 SEGUNDOS
-  USE_LOCAL_SIMULATION: true,
-  SIMULATION_INTERVAL: 15000, // ✅ 15 segundos para odds e eventos ao vivo
+  // Simulação desactivada — usa dados reais do servidor
+  USE_LOCAL_SIMULATION: false,
+  SIMULATION_INTERVAL: 15000,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -139,17 +143,18 @@ class LiveScoresWebSocket {
   }
 
   private connectToServer(): void {
+    const url = CONFIG.WS_URL;
+    if (!url) { this.scheduleReconnect(); return; }
     try {
-      console.log('🔌 [WebSocket] Conectando ao servidor...');
+      console.log('🔌 [LiveScoresWS] Conectando ao servidor em tempo real...');
       
-      this.ws = new WebSocket(CONFIG.WS_URL);
+      this.ws = new WebSocket(url);
       
       this.ws.onopen = () => {
-        console.log('✅ [WebSocket] Conectado!');
+        console.log('✅ [LiveScoresWS] Conectado!');
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.reconnectDelay = CONFIG.RECONNECT_INITIAL_DELAY;
-        
         this.startHeartbeat();
         this.emit('connection_change', { connected: true });
       };
@@ -158,12 +163,12 @@ class LiveScoresWebSocket {
         this.handleMessage(event.data);
       };
 
-      this.ws.onerror = (error) => {
-        console.error('❌ [WebSocket] Erro:', error);
+      this.ws.onerror = () => {
+        // Handled in onclose
       };
 
       this.ws.onclose = () => {
-        console.log('🔌 [WebSocket] Desconectado');
+        console.log('🔌 [LiveScoresWS] Desconectado, a reconectar...');
         this.isConnected = false;
         this.stopHeartbeat();
         this.emit('connection_change', { connected: false });
@@ -171,7 +176,7 @@ class LiveScoresWebSocket {
       };
 
     } catch (error) {
-      console.error('❌ [WebSocket] Erro ao conectar:', error);
+      console.error('❌ [LiveScoresWS] Erro ao conectar:', error);
       this.scheduleReconnect();
     }
   }
@@ -416,7 +421,7 @@ class LiveScoresWebSocket {
 
   private handleMessage(data: string): void {
     try {
-      const message: WebSocketMessage = JSON.parse(data);
+      const message = JSON.parse(data);
 
       // Reset heartbeat timeout
       if (this.heartbeatTimeoutTimer) {
@@ -424,6 +429,16 @@ class LiveScoresWebSocket {
         this.heartbeatTimeoutTimer = null;
       }
 
+      // Handle server snapshot messages (type: 'snapshot', live: [...])
+      if (message?.type === 'snapshot' && Array.isArray(message?.live)) {
+        this.processSnapshot(message.live);
+        return;
+      }
+
+      // Handle pong from server
+      if (message?.type === 'pong') return;
+
+      // Handle legacy granular message types
       switch (message.type) {
         case 'score_update':
           this.emit('score_update', message.data as LiveScoreUpdate);
@@ -444,11 +459,81 @@ class LiveScoresWebSocket {
           this.emit('initial_data', message.data as Match[]);
           break;
         case 'heartbeat':
-          // Heartbeat recebido - conexão OK
           break;
       }
     } catch (error) {
-      console.error('❌ [WebSocket] Erro ao processar mensagem:', error);
+      console.error('❌ [LiveScoresWS] Erro ao processar mensagem:', error);
+    }
+  }
+
+  /**
+   * Processa um snapshot da API e gera eventos granulares por diff
+   */
+  private processSnapshot(live: any[]): void {
+    const now = Date.now();
+
+    for (const item of live) {
+      const matchId = String(item?.id || item?.external_event_id || '');
+      if (!matchId) continue;
+
+      const prev = this.liveMatches.get(matchId) as any;
+
+      // Parse scores
+      const goals = item?.goals ?? item?.score;
+      const newH = Number((goals && typeof goals === 'object' ? goals.home : null) ?? item?.home_score ?? 0);
+      const newA = Number((goals && typeof goals === 'object' ? goals.away : null) ?? item?.away_score ?? 0);
+      const minute = Number(item?.elapsed ?? item?.fixture?.status?.elapsed ?? item?.timer ?? 0);
+
+      // Score update if changed
+      const prevScore = this.lastScores.get(matchId);
+      if (!prevScore || prevScore.home !== newH || prevScore.away !== newA) {
+        if (prevScore && (prevScore.home !== newH || prevScore.away !== newA)) {
+          // Goal detected
+          const scoringTeam: 'home' | 'away' = newH > prevScore.home ? 'home' : 'away';
+          const incident: LiveIncident = {
+            matchId, type: 'goal', team: scoringTeam,
+            minute, timestamp: now,
+          };
+          this.emit('incident', incident);
+        }
+        this.lastScores.set(matchId, { home: newH, away: newA });
+        const scoreUpdate: LiveScoreUpdate = {
+          matchId, homeScore: newH, awayScore: newA, minute,
+          period: minute <= 45 ? 'P1' : 'P2',
+          statusShort: String(item?.status ?? item?.fixture?.status?.short ?? 'LIVE'),
+          timestamp: now,
+        };
+        this.emit('score_update', scoreUpdate);
+      }
+
+      // Odds update if changed
+      const markets = item?.markets ?? item?.odds;
+      const oddsKey = markets && typeof markets === 'object'
+        ? (markets['h2h'] || markets['1x2'] || markets['match_winner'] || markets['main'])
+        : null;
+      if (oddsKey) {
+        const outcomes = Array.isArray(oddsKey) ? oddsKey : (oddsKey?.outcomes ?? oddsKey?.selections ?? []);
+        const getO = (keys: string[]) => {
+          const o = outcomes.find((x: any) => keys.includes(String(x?.label ?? x?.name ?? x?.outcome ?? x?.id ?? '').toLowerCase()));
+          return o ? Number(o?.odd ?? o?.price ?? o?.value ?? 0) : 0;
+        };
+        const newHome = getO(['home','1','casa']);
+        const newDraw = getO(['draw','x','empate']);
+        const newAway = getO(['away','2','fora']);
+        if (newHome > 0 || newDraw > 0 || newAway > 0) {
+          const prevMatch = prev as any;
+          const prevOdds = prevMatch?.odds;
+          if (!prevOdds || prevOdds.home !== newHome || prevOdds.draw !== newDraw || prevOdds.away !== newAway) {
+            const oddsUpdate: LiveOddsUpdate = {
+              matchId, odds: { home: newHome, draw: newDraw, away: newAway }, timestamp: now,
+            };
+            this.emit('odds_update', oddsUpdate);
+          }
+        }
+      }
+
+      // Update local cache
+      this.liveMatches.set(matchId, { ...((prev as any) || {}), ...item, id: matchId } as Match);
     }
   }
 
