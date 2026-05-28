@@ -141,6 +141,31 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
   const lastEventById = new Map<string, CacheEntry<AnyEvent>>();
   const overridesCache = new Map<string, CacheEntry<{ home_odd: number | null; draw_odd: number | null; away_odd: number | null }>>();
 
+  const normalizeMatchId = (sport: string, rawId: string): string => {
+    const id = String(rawId || '').trim();
+    if (!id) return '';
+    if (!id.includes('_')) return id;
+    const parts = id.split('_').filter(Boolean);
+    if (parts.length < 2) return id;
+    const last = parts[parts.length - 1] || '';
+    const first = parts[0] || '';
+    const s = String(sport || '').toLowerCase().trim();
+    const f = String(first || '').toLowerCase().trim();
+    if (!s) return last || id;
+    if (f === s) return last || id;
+    if (f === 'football' && s === 'soccer') return last || id;
+    if (f === 'soccer' && s === 'football') return last || id;
+    if (f === 'hockey' && s === 'ice-hockey') return last || id;
+    if (f === 'ice-hockey' && s === 'hockey') return last || id;
+    return last || id;
+  };
+
+  const matchIdOf = (e: AnyEvent): string => {
+    const sport = String((e as any)?.sport || '').trim();
+    const idRaw = String((e as any)?.id || (e as any)?.external_event_id || '').trim();
+    return normalizeMatchId(sport, idRaw);
+  };
+
   const getSports = (sportsParam: string | null): string[] => {
     const raw = String(sportsParam || '').trim();
     if (!raw || raw === 'all') return SPORTS_DEFAULT.slice();
@@ -175,7 +200,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
 
   const queueOddsRefresh = (sport: string, matchId: string) => {
     const s = String(sport || '').trim();
-    const id = String(matchId || '').trim();
+    const id = normalizeMatchId(s, String(matchId || '').trim());
     if (!s || !id) return;
     const key = `${s}:${id}`;
     const cached = oddsCache.get(key);
@@ -255,19 +280,20 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     matchId: string,
     ctx: { isLive?: boolean; homeTeam?: string; awayTeam?: string; forceAll?: boolean } = {},
   ): Promise<any | null> => {
-    const key = `${sport}:${matchId}`;
+    const normalizedId = normalizeMatchId(sport, matchId);
+    const key = `${sport}:${normalizedId}`;
     const inflight = oddsInflight.get(key);
     if (inflight) return inflight;
     const p = (async () => {
       const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam };
-      const all = await fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, opts).catch(() => null);
+      const all = await fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts).catch(() => null);
       if (all) return all;
       if (ctx.forceAll) return null;
       if (ctx.isLive) {
-        const live = await fetchSportsApiProMatchOddsLive(apiKey, sport, matchId, opts).catch(() => null);
+        const live = await fetchSportsApiProMatchOddsLive(apiKey, sport, normalizedId, opts).catch(() => null);
         if (live) return live;
       } else {
-        const pre = await fetchSportsApiProMatchOddsPreMatch(apiKey, sport, matchId, opts).catch(() => null);
+        const pre = await fetchSportsApiProMatchOddsPreMatch(apiKey, sport, normalizedId, opts).catch(() => null);
         if (pre) return pre;
       }
       return null;
@@ -321,7 +347,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     refreshBudget: { remaining: number } | null,
     fullMarkets: boolean,
   ): Promise<AnyEvent> => {
-    const id = String(e?.id || '').trim();
+    const id = matchIdOf(e);
     const sport = String(e?.sport || '').trim();
     if (!id || !sport) return e;
 
@@ -343,6 +369,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         : pruneMarketsForList(sport, (marketsAll && typeof marketsAll === 'object') ? marketsAll : {});
     const base = {
       ...e,
+      id,
       home_odd: odds?.home ? Number(odds.home) : Number((e as any).home_odd || 0),
       draw_odd: odds?.draw ? Number(odds.draw) : Number((e as any).draw_odd || 0),
       away_odd: odds?.away ? Number(odds.away) : Number((e as any).away_odd || 0),
