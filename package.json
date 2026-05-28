@@ -15,7 +15,8 @@
     "e2e": "node scripts/e2e-flow.js",
     "smoke:watch": "node scripts/smoke-watch.js",
     "generate:countries": "node scripts/generateCountries.js",
-    "db:init": "tsx scripts/init-db.ts"
+    "db:init": "tsx scripts/init-db.ts",
+    "push": "node scripts/github-api-push.mjs"
   },
   "dependencies": {
     "@lucia-auth/adapter-sqlite": "^2.0.0",
