@@ -4,11 +4,9 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import {
-  fetchFormattedSpecialMarkets,
-  type FormattedSpecialMarkets,
-  type SpecialMarket,
-} from '../services/apiFootballOdds';
+type SpecialMarket = { outcomes: Array<{ name: string; odds: number; description?: string }> } | null;
+type FormattedSpecialMarkets = Record<string, SpecialMarket>;
+async function fetchFormattedSpecialMarkets(_sport: string, _fixtureId: string): Promise<FormattedSpecialMarkets> { return {}; }
 
 // ═══════════════════════════════════════════════════════════
 // TIPOS

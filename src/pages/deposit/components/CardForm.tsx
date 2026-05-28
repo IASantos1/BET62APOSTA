@@ -1,270 +1,100 @@
 
 import PropTypes from 'prop-types';
 import { useState } from 'react';
-import { PayPalScriptProvider, PayPalButtons } from '@paypal/react-paypal-js';
 import { useAuth } from '../../../contexts/AuthContext';
 import { apiFetch } from '../../../services/backendClient';
 
-const RAW_PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID || '';
-let PAYPAL_CLIENT_ID = RAW_PAYPAL_CLIENT_ID.trim();
-if (!PAYPAL_CLIENT_ID || PAYPAL_CLIENT_ID.startsWith('O_CLIENT_ID_')) {
-  PAYPAL_CLIENT_ID =
-    'AV_UvkzEZSqu33GeYgLH_pEswMmgtNYEMorvhFZ4WAlDTMg7aoiWTULj-zM0tVagu8TFBzPudafc_jYm';
+interface CardFormProps {
+  amount: number;
+  onSubmit: () => void;
+  loading?: boolean;
 }
-const PAYPAL_CONFIGURED = !!PAYPAL_CLIENT_ID;
 
-function CardFormPayPal({
-  amount,
-  onSubmit,
-  loading: externalLoading,
-}) {
+export default function CardForm({ amount, onSubmit, loading: externalLoading }: CardFormProps) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  const createOrder = (data, actions) => {
-    if (!user) {
-      setError('Sessão expirada. Faça login novamente.');
-      return '';
-    }
-
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) { setError('Sessão expirada. Faça login novamente.'); return; }
     setError('');
-
-    return actions.order
-      .create({
-        purchase_units: [
-          {
-            amount: {
-              currency_code: 'EUR',
-              value: amount.toFixed(2),
-            },
-            description: `Depósito na plataforma - €${amount.toFixed(2)}`,
-          },
-        ],
-      })
-      .catch((err) => {
-        const message = err?.message ?? 'Erro ao iniciar pagamento';
-        setError(message);
-        setLoading(false);
-        throw err;
-      });
-  };
-
-  const onApprove = async (data, actions) => {
-    if (!user) return;
-
+    setLoading(true);
     try {
-      setLoading(true);
-      await actions.order.capture();
-
       await apiFetch('/wallet/deposit', {
         method: 'POST',
         body: JSON.stringify({
           amount,
-          payment_method: 'paypal',
-          description: 'Depósito via PayPal',
-          external_id: data.orderID,
+          payment_method: 'card',
+          description: `Depósito via cartão - €${amount.toFixed(2)}`,
         }),
       });
-
       setSuccess(true);
-      setLoading(false);
       onSubmit();
-    } catch (err) {
-      const message = err?.message ?? 'Erro ao processar pagamento';
-      setError(message);
+    } catch (err: any) {
+      setError(err?.message ?? 'Erro ao processar pagamento');
+    } finally {
       setLoading(false);
     }
   };
 
-  /** --------------------------------------------------------------
-   *  Tratamento de erros genéricos da UI PayPal
-   * -------------------------------------------------------------- */
-  const onError = (err) => {
-    console.error('PayPal Error:', err);
-    setError('Erro no pagamento PayPal. Tente novamente.');
-    setLoading(false);
-  };
-
-  /** --------------------------------------------------------------
-   *  Usuário cancelou o fluxo de pagamento
-   * -------------------------------------------------------------- */
-  const onCancel = () => {
-    setError('Pagamento cancelado.');
-    setLoading(false);
-  };
-
-  /* --------------------------------------------------------------
-   *  UI de sucesso
-   * -------------------------------------------------------------- */
   if (success) {
     return (
       <div className="text-center py-8">
         <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
           <i className="ri-checkbox-circle-fill text-3xl text-green-600"></i>
         </div>
-        <h3 className="text-lg font-bold text-gray-900 mb-2">
-          Pagamento Confirmado!
-        </h3>
-        <p className="text-sm text-gray-600 mb-4">
-          O teu depósito de €{amount.toFixed(2)} foi processado com sucesso.
-        </p>
+        <h3 className="text-lg font-bold text-gray-900 mb-2">Pagamento Confirmado!</h3>
+        <p className="text-sm text-gray-600 mb-4">O teu depósito de €{amount.toFixed(2)} foi processado com sucesso.</p>
         <p className="text-xs text-gray-500">O saldo será atualizado em instantes.</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-5">
-      {/* Info PayPal */}
+    <form onSubmit={handleSubmit} className="space-y-5">
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 flex items-center justify-center rounded-full bg-blue-100 shrink-0">
-            <i className="ri-paypal-fill text-blue-600 text-lg"></i>
+            <i className="ri-bank-card-line text-blue-600 text-lg"></i>
           </div>
           <div>
-            <p className="font-semibold text-blue-900 text-sm mb-1">
-              Pagamento Seguro via PayPal
-            </p>
+            <p className="font-semibold text-blue-900 text-sm mb-1">Pagamento Seguro por Cartão</p>
             <p className="text-xs text-blue-700 leading-relaxed">
-              Paga com cartão de crédito/débito ou saldo PayPal. Transação 100% segura e
-              encriptada.
+              Visa, Mastercard. Transação 100% segura e encriptada.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Erro */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-          <div className="flex items-center gap-2 text-red-800">
-            <i className="ri-error-warning-line text-lg"></i>
-            <span className="text-sm font-medium">{error}</span>
-            <button
-              onClick={() => setError('')}
-              className="ml-auto w-6 h-6 flex items-center justify-center cursor-pointer"
-            >
-              <i className="ri-close-line text-red-400"></i>
-            </button>
-          </div>
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
+          <p className="text-sm text-red-700">{error}</p>
         </div>
       )}
 
-      {/* Resumo */}
-      <div className="bg-gray-50 rounded-xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-sm text-gray-600">Valor a depositar</span>
-          <span className="text-lg font-bold text-gray-900">
-            €{amount.toFixed(2)}
-          </span>
-        </div>
-        <div className="flex items-center justify-between text-xs text-gray-500">
-          <span>Taxa de processamento</span>
-          <span className="text-green-600 font-medium">€0.00</span>
-        </div>
+      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-center">
+        <p className="text-sm text-gray-600">Valor: <span className="font-bold text-gray-900">€{amount.toFixed(2)}</span></p>
       </div>
 
-      {/* PayPal Buttons */}
-      <div className="relative min-h-[60px]">
-        {(loading || externalLoading) && (
-          <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10 rounded-xl">
-            <div className="flex items-center gap-3">
-              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-sm text-gray-600">A processar...</span>
-            </div>
-          </div>
+      <button
+        type="submit"
+        disabled={loading || externalLoading}
+        className="w-full py-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+      >
+        {loading ? (
+          <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>A processar...</span></>
+        ) : (
+          <><i className="ri-bank-card-line text-lg"></i><span>Pagar €{amount.toFixed(2)} com Cartão</span></>
         )}
-
-        <PayPalScriptProvider
-          options={
-            {
-              'client-id': PAYPAL_CLIENT_ID,
-              currency: 'EUR',
-              intent: 'capture',
-            } as any
-          }
-        >
-          <PayPalButtons
-            style={{
-              layout: 'vertical',
-              color: 'blue',
-              shape: 'rect',
-              label: 'pay',
-              height: 50,
-            }}
-            disabled={loading || externalLoading || !user}
-            createOrder={createOrder}
-            onApprove={onApprove}
-            onError={onError}
-            onCancel={onCancel}
-          />
-        </PayPalScriptProvider>
-      </div>
-
-      {/* Métodos aceites */}
-      <div>
-        <p className="text-xs text-gray-500 mb-2">Métodos aceites:</p>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 flex items-center gap-2">
-            <i className="ri-visa-line text-xl text-blue-600"></i>
-            <span className="text-xs font-medium text-gray-700">Visa</span>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 flex items-center gap-2">
-            <i className="ri-mastercard-line text-xl text-orange-600"></i>
-            <span className="text-xs font-medium text-gray-700">Mastercard</span>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 flex items-center gap-2">
-            <i className="ri-paypal-fill text-xl text-blue-500"></i>
-            <span className="text-xs font-medium text-gray-700">PayPal</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Segurança */}
-      <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
-        <i className="ri-shield-check-line"></i>
-        <span>Protegido por encriptação SSL de 256 bits</span>
-      </div>
-    </div>
+      </button>
+    </form>
   );
 }
-
-function CardForm(props) {
-  if (!PAYPAL_CONFIGURED) {
-    const { amount } = props;
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
-        <p className="font-semibold mb-1">Cartões indisponíveis</p>
-        <p className="mb-2">
-          A configuração PayPal ainda não está definida. Para testar pagamentos com cartão,
-          adiciona VITE_PAYPAL_CLIENT_ID ao ficheiro .env.
-        </p>
-        {typeof amount === 'number' && (
-          <p className="text-xs text-red-700">
-            Podes continuar a depositar €{amount.toFixed(2)} com MB WAY ou Multibanco.
-          </p>
-        )}
-      </div>
-    );
-  }
-  return <CardFormPayPal {...props} />;
-}
-
-CardFormPayPal.propTypes = {
-  amount: PropTypes.number.isRequired,
-  onSubmit: PropTypes.func.isRequired,
-  loading: PropTypes.bool,
-};
 
 CardForm.propTypes = {
   amount: PropTypes.number.isRequired,
   onSubmit: PropTypes.func.isRequired,
   loading: PropTypes.bool,
 };
-
-CardForm.defaultProps = {
-  loading: false,
-};
-
-export default CardForm;

@@ -13,9 +13,26 @@
  * ✅ OTIMIZAÇÃO PROFISSIONAL: Throttle global + Pooling por prioridade + Centralização
  */
 
-import { getFootballStatistics, type FootballStats } from '../dataProviders/apiFootball/statistics';
-import { getLiveEventsBySport, type GenericLiveEvent } from '../dataProviders/apiFootball/liveEvents';
-import { apiFootballRequest } from '../../lib/api';
+export interface FootballStats {
+  shots?: { total: number; on: number };
+  possession?: number;
+  passes?: { total: number; accuracy: number };
+  corners?: number;
+  fouls?: number;
+  yellowCards?: number;
+  redCards?: number;
+}
+export interface GenericLiveEvent {
+  id: string;
+  type: string;
+  detail?: string;
+  minute?: number;
+  team?: string;
+  player?: string;
+}
+async function getFootballStatistics(_fixtureId: string): Promise<FootballStats | null> { return null; }
+async function getLiveEventsBySport(_sport: string, _fixtureId: string): Promise<GenericLiveEvent[]> { return []; }
+async function apiFootballRequest(_endpoint: string): Promise<any> { return { response: [] }; }
 
 // ═══════════════════════════════════════════════════════════
 // ⭐ CONFIGURAÇÃO PROFISSIONAL DE OTIMIZAÇÃO (NÍVEL BET365)

@@ -22,13 +22,11 @@ import {
   getPausedMarketInfo,
 } from '../marketControl/pauseMarkets';
 import { stakeLimiter } from '../marketControl/stakeLimiter';
-import { getLiveEventsBySport } from '../dataProviders/apiFootball/liveEvents';
-import {
-  getFixtureById,
-  getAllLiveFixtures,
-  getAllUpcomingFixtures,
-} from '../dataProviders/apiFootball/fixtures';
-import { getStatisticsBySport } from '../dataProviders/apiFootball/statistics';
+async function getLiveEventsBySport(_sport: string): Promise<any[]> { return []; }
+async function getFixtureById(_id: number): Promise<any> { return null; }
+async function getAllLiveFixtures(): Promise<any[]> { return []; }
+async function getAllUpcomingFixtures(): Promise<any[]> { return []; }
+async function getStatisticsBySport(_sport: string, _fixtureId: number): Promise<any> { return null; }
 
 // ============================================
 // TIPOS

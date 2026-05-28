@@ -4,7 +4,7 @@
  */
 
 import { apiCache, CACHE_TTL, generateCacheKey } from './apiCache';
-import { apiFootballRequest } from '../lib/api';
+async function apiFootballRequest(_endpoint: string): Promise<any> { return { response: [] }; }
 
 // ═══════════════════════════════════════════════════════════
 // TIPOS

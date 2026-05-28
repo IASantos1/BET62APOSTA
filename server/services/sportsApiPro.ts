@@ -492,10 +492,29 @@ function extractOddsAll(payload: any): any[] {
   if (Array.isArray(payload.data?.odds)) return payload.data.odds;
   if (Array.isArray(payload.markets)) return payload.markets;
   if (Array.isArray(payload.data?.markets)) return payload.data.markets;
+  // Handle providerOdds as object with markets array
   if (Array.isArray(payload.providerOdds?.markets)) return payload.providerOdds.markets;
   if (Array.isArray(payload.data?.providerOdds?.markets)) return payload.data.providerOdds.markets;
+  // Handle providerOdds as array of provider objects (common SportsApiPro format)
+  if (Array.isArray(payload.providerOdds)) {
+    for (const p of payload.providerOdds) {
+      if (Array.isArray(p?.markets) && p.markets.length > 0) return p.markets;
+      if (Array.isArray(p?.odds) && p.odds.length > 0) return p.odds;
+      if (Array.isArray(p?.lines) && p.lines.length > 0) return p.lines;
+    }
+  }
+  if (Array.isArray(payload.data?.providerOdds)) {
+    for (const p of payload.data.providerOdds) {
+      if (Array.isArray(p?.markets) && p.markets.length > 0) return p.markets;
+      if (Array.isArray(p?.odds) && p.odds.length > 0) return p.odds;
+      if (Array.isArray(p?.lines) && p.lines.length > 0) return p.lines;
+    }
+  }
   if (Array.isArray(payload.data?.lines)) return payload.data.lines;
   if (Array.isArray(payload.data?.providerOdds?.odds)) return payload.data.providerOdds.odds;
+  // Handle top-level lines or selections array
+  if (Array.isArray(payload.lines)) return payload.lines;
+  if (Array.isArray(payload.data?.selections)) return payload.data.selections;
   return [];
 }
 

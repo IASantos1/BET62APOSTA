@@ -3,8 +3,6 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { useLiveOddsEngine } from '../../../hooks/useLiveOddsEngine';
 import { useMatchIncidents } from '../../../hooks/useMatchIncidents';
 import OddsBlockedOverlay from '../../../components/feature/OddsBlockedOverlay';
-import { fetchEventOdds } from '../../../services/apiFootballService';
-import { fetchLiveOdds as fetchLiveOddsList } from '../../../services/oddsService';
 type SportType =
   | 'football'
   | 'basketball'

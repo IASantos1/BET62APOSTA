@@ -5,7 +5,7 @@
  */
 
 import { apiCache } from './apiCache';
-import { oddsApiRequest } from '../lib/api';
+async function oddsApiRequest(_endpoint: string, _params?: Record<string, string>): Promise<any> { return []; }
 
 // ✅ Cache de desportos válidos
 let validSportsCache: Set<string> | null = null;

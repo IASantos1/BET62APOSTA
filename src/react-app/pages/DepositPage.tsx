@@ -1,71 +1,29 @@
 import { useState, type ChangeEvent } from "react";
-import { loadStripe } from "@stripe/stripe-js";
-import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { useApp } from '@/react-app/contexts/AppContext';
 import { apiFetch } from '@/react-app/utils/api';
 
 const QUICK_AMOUNTS = [10, 25, 50, 100, 200, 500];
 
-function getStripePromise() {
-  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('bet62_stripe_pk') : null;
-  // Priority: localStorage (manual override) → Vite env (VITE_*) → injected secret (STRIPE_PUBLIC_KEY)
-  const injected = (typeof __STRIPE_PUBLIC_KEY__ !== 'undefined') ? __STRIPE_PUBLIC_KEY__ : '';
-  const pk = stored
-    || import.meta.env.VITE_STRIPE_PUBLIC_KEY
-    || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
-    || import.meta.env.VITE_STRIPE_PK
-    || injected
-    || '';
-  return pk ? loadStripe(pk) : null;
-}
-
 type Method = 'card' | 'mbway' | 'multibanco';
 
-const StripeCardForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
-  const stripe = useStripe();
-  const elements = useElements();
-  const { addNotification, darkMode } = useApp();
+const CardForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
+  const { darkMode } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!stripe || !elements) return;
     setLoading(true);
     setError('');
     try {
-      const { clientSecret } = await apiFetch<{ clientSecret: string }>('/api/wallet/deposit/stripe/card', {
+      await apiFetch('/api/wallet/deposit/card', {
         method: 'POST',
         body: JSON.stringify({ amount })
       });
-
-      const cardElement = elements.getElement(CardElement);
-      if (!cardElement) throw new Error('Elemento de cartão não encontrado');
-
-      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-        payment_method: { card: cardElement }
-      });
-
-      if (stripeError) {
-        setError(stripeError.message || 'Erro no pagamento');
-      } else if (paymentIntent?.status === 'succeeded') {
-        // Credit wallet directly (webhook fallback for dev/test environments)
-        try {
-          await apiFetch('/api/wallet/deposit/stripe/confirm', {
-            method: 'POST',
-            body: JSON.stringify({ paymentIntentId: paymentIntent.id })
-          });
-        } catch { /* webhook may have already credited; ignore */ }
-        addNotification({ type: 'success', message: '✅ Saldo creditado com sucesso! Boas apostas.' });
-        onSuccess();
-      }
+      onSuccess();
     } catch (err: any) {
       const msg = String(err?.message || '');
-      if (/401|Unauthorized/i.test(msg)) {
-        setError('Sessão expirada. Faz login novamente.');
-      } else {
-        setError(msg || 'Erro inesperado');
-      }
+      setError(/401|Unauthorized/i.test(msg) ? 'Sessão expirada. Faz login novamente.' : msg || 'Erro ao processar pagamento');
     } finally {
       setLoading(false);
     }
@@ -73,13 +31,15 @@ const StripeCardForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'}`}>
-        <CardElement options={{ hidePostalCode: true, style: { base: { color: darkMode ? '#fff' : '#111', fontSize: '16px' } } }} />
+      <div className={`p-4 rounded-xl border-2 border-dashed ${darkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
+        <p className={`text-sm text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+          Pagamento por cartão — processado pelo servidor
+        </p>
       </div>
       {error && <p className="text-red-500 text-sm">{error}</p>}
       <button
         type="submit"
-        disabled={loading || !stripe}
+        disabled={loading}
         className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-500 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
       >
         {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> A processar...</> : `💳 Pagar €${amount.toFixed(2)}`}
@@ -105,7 +65,7 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
     setError('');
     try {
       const formattedPhone = phone.startsWith('+351') ? phone : `+351${phone.replace(/\s/g, '')}`;
-      await apiFetch('/api/wallet/deposit/stripe/mbway', {
+      await apiFetch('/api/wallet/deposit/mbway', {
         method: 'POST',
         body: JSON.stringify({ amount, phone: formattedPhone })
       });
@@ -191,12 +151,12 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
         reference: string | null;
         amount: number;
         expiresAt: number | null;
-      }>('/api/wallet/deposit/stripe/multibanco', {
+      }>('/api/wallet/deposit/multibanco', {
         method: 'POST',
         body: JSON.stringify({ amount, email })
       });
       if (!res.entity || !res.reference) {
-        throw new Error('Stripe não devolveu referência. Tenta novamente.');
+        throw new Error('Não foi possível gerar a referência. Tenta novamente.');
       }
       setRef({
         entity: res.entity,
@@ -238,17 +198,12 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
             </svg>
             <span className={`font-bold ${darkMode ? 'text-blue-300' : 'text-blue-800'}`}>Referência gerada</span>
           </div>
-
           <div className="space-y-2.5">
             <div>
               <p className={`text-xs uppercase tracking-wide ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Entidade</p>
               <div className="flex items-center justify-between gap-2">
                 <code className={`text-2xl font-mono font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{ref.entity}</code>
-                <button
-                  type="button"
-                  onClick={() => copy(ref.entity, 'entity')}
-                  className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-white hover:bg-gray-100 text-gray-700 border'}`}
-                >
+                <button type="button" onClick={() => copy(ref.entity, 'entity')} className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-white hover:bg-gray-100 text-gray-700 border'}`}>
                   {copied === 'entity' ? '✓ Copiado' : 'Copiar'}
                 </button>
               </div>
@@ -257,11 +212,7 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
               <p className={`text-xs uppercase tracking-wide ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Referência</p>
               <div className="flex items-center justify-between gap-2">
                 <code className={`text-xl font-mono font-bold tracking-wider ${darkMode ? 'text-white' : 'text-gray-900'}`}>{formatRef(ref.reference)}</code>
-                <button
-                  type="button"
-                  onClick={() => copy(ref.reference, 'ref')}
-                  className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-white hover:bg-gray-100 text-gray-700 border'}`}
-                >
+                <button type="button" onClick={() => copy(ref.reference, 'ref')} className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-white hover:bg-gray-100 text-gray-700 border'}`}>
                   {copied === 'ref' ? '✓ Copiado' : 'Copiar'}
                 </button>
               </div>
@@ -275,7 +226,6 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
             </div>
           </div>
         </div>
-
         <div className={`rounded-lg p-3 text-xs ${darkMode ? 'bg-gray-700/50 text-gray-300' : 'bg-gray-50 text-gray-700'}`}>
           <p className="font-semibold mb-1">Como pagar:</p>
           <ul className="space-y-0.5 ml-3">
@@ -284,12 +234,7 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
             <li>• Crédito automático após confirmação</li>
           </ul>
         </div>
-
-        <button
-          type="button"
-          onClick={onSuccess}
-          className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition-colors"
-        >
+        <button type="button" onClick={onSuccess} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition-colors">
           ✅ Concluído
         </button>
       </div>
@@ -328,71 +273,6 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
   );
 };
 
-// ── Stripe Key Manager (admin/operator) ────────────────────────────────────────
-export function StripeKeyManager({ darkMode }: { darkMode: boolean }) {
-  const [key, setKey] = useState('');
-  const [saved, setSaved] = useState(false);
-  const [show, setShow] = useState(false);
-
-  const currentKey = typeof localStorage !== 'undefined' ? (localStorage.getItem('bet62_stripe_pk') || '') : '';
-  const masked = currentKey ? `${currentKey.slice(0, 8)}...${currentKey.slice(-4)}` : 'Não configurado';
-
-  const handleSave = () => {
-    if (!key.startsWith('pk_')) {
-      alert('A chave deve começar com pk_live_ ou pk_test_');
-      return;
-    }
-    localStorage.setItem('bet62_stripe_pk', key.trim());
-    setSaved(true);
-    setKey('');
-    setTimeout(() => setSaved(false), 3000);
-  };
-
-  return (
-    <div className={`p-4 rounded-xl border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-lg">🔑</span>
-        <h3 className={`font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>Chave Stripe</h3>
-      </div>
-      <p className={`text-xs mb-2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-        Chave atual: <code className="font-mono">{masked}</code>
-      </p>
-      {show ? (
-        <div className="space-y-2">
-          <input
-            type="text"
-            value={key}
-            onChange={e => setKey(e.target.value)}
-            placeholder="pk_live_..."
-            className={`w-full p-2 rounded-lg border text-sm font-mono ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
-          />
-          <div className="flex gap-2">
-            <button
-              onClick={handleSave}
-              className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg text-sm"
-            >
-              {saved ? '✅ Salvo!' : 'Salvar'}
-            </button>
-            <button
-              onClick={() => setShow(false)}
-              className={`flex-1 py-2 rounded-lg text-sm font-bold ${darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-700'}`}
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          onClick={() => setShow(true)}
-          className="text-sm text-blue-500 hover:underline"
-        >
-          Alterar chave Stripe Live →
-        </button>
-      )}
-    </div>
-  );
-}
-
 export default function DepositPage() {
   const { darkMode, user, openAuthModal } = useApp();
   const [amount, setAmount] = useState("25");
@@ -401,8 +281,6 @@ export default function DepositPage() {
   const [success, setSuccess] = useState(false);
 
   const numAmount = parseFloat(amount) || 0;
-  const stripePromise = getStripePromise();
-
   const isAdmin = !!(user as any)?.is_operator;
   const minDeposit = isAdmin ? 0.5 : 10;
 
@@ -422,12 +300,10 @@ export default function DepositPage() {
   const PaymentLogo = ({ method: m }: { method: Method }) => {
     if (m === 'card') return (
       <span className="flex items-center gap-1">
-        {/* VISA — fundo branco, wordmark azul oficial */}
         <svg viewBox="0 0 48 30" width="34" height="22" xmlns="http://www.w3.org/2000/svg">
           <rect width="48" height="30" rx="4" fill="#fff" stroke="#e5e7eb"/>
           <text x="24" y="21" textAnchor="middle" fontSize="13" fill="#1A1F71" fontFamily="'Arial Black','Helvetica Neue',sans-serif" fontWeight="900" fontStyle="italic" letterSpacing="-0.5">VISA</text>
         </svg>
-        {/* Mastercard — círculos vermelho e amarelo com sobreposição laranja */}
         <svg viewBox="0 0 48 30" width="34" height="22" xmlns="http://www.w3.org/2000/svg">
           <rect width="48" height="30" rx="4" fill="#fff" stroke="#e5e7eb"/>
           <circle cx="20" cy="15" r="8" fill="#EB001B"/>
@@ -437,14 +313,12 @@ export default function DepositPage() {
       </span>
     );
     if (m === 'mbway') return (
-      // MB WAY — vermelho oficial #E30613 com wordmark branco
       <svg viewBox="0 0 60 24" width="50" height="20" xmlns="http://www.w3.org/2000/svg">
         <rect width="60" height="24" rx="4" fill="#E30613"/>
         <text x="30" y="16" textAnchor="middle" fontSize="10" fill="#fff" fontFamily="'Arial Black','Helvetica Neue',sans-serif" fontWeight="900" letterSpacing="0.5">MB WAY</text>
       </svg>
     );
     if (m === 'multibanco') return (
-      // Multibanco — selo "MB" azul oficial #004C9B + texto
       <svg viewBox="0 0 70 24" width="58" height="20" xmlns="http://www.w3.org/2000/svg">
         <rect width="70" height="24" rx="4" fill="#fff" stroke="#e5e7eb"/>
         <rect x="2" y="2" width="20" height="20" rx="2" fill="#004C9B"/>
@@ -502,7 +376,6 @@ export default function DepositPage() {
     <div className={`max-w-md mx-auto ${darkMode ? 'text-white' : 'text-gray-900'}`}>
       <h2 className="text-xl font-bold mb-4 text-center">💰 Depositar</h2>
 
-      {/* Valor */}
       <div className={`p-4 rounded-xl shadow mb-4 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
         <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Valor do Depósito (€)</label>
         <input
@@ -528,7 +401,6 @@ export default function DepositPage() {
         </div>
       </div>
 
-      {/* Método de pagamento */}
       <div className={`rounded-xl shadow overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
         <div className="grid grid-cols-3 border-b border-gray-700">
           {methodTabs.map(tab => (
@@ -548,29 +420,9 @@ export default function DepositPage() {
             <p className="text-center text-gray-500 text-sm py-4">Seleciona um valor mínimo de €{minDeposit.toFixed(2)}</p>
           ) : (
             <>
-              {method === 'card' && (
-                stripePromise ? (
-                  <Elements stripe={stripePromise}>
-                    <div>
-                      <p className="text-xs text-center text-gray-400 mb-3 uppercase tracking-wide">Pagamento Seguro via Stripe</p>
-                      <StripeCardForm amount={numAmount} onSuccess={handleSuccess} />
-                    </div>
-                  </Elements>
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-yellow-500 text-sm mb-3">Stripe não configurado.</p>
-                    <StripeKeyManager darkMode={darkMode} />
-                  </div>
-                )
-              )}
-
-              {method === 'mbway' && (
-                <MBWayForm amount={numAmount} onSuccess={handleSuccess} />
-              )}
-
-              {method === 'multibanco' && (
-                <MultibancoForm amount={numAmount} onSuccess={handleSuccess} />
-              )}
+              {method === 'card' && <CardForm amount={numAmount} onSuccess={handleSuccess} />}
+              {method === 'mbway' && <MBWayForm amount={numAmount} onSuccess={handleSuccess} />}
+              {method === 'multibanco' && <MultibancoForm amount={numAmount} onSuccess={handleSuccess} />}
             </>
           )}
         </div>

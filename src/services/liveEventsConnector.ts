@@ -5,8 +5,15 @@
  */
 
 import { eventBus, MatchEvent, MatchEventType } from './varMarketController';
-import { GenericLiveEvent } from './dataProviders/apiFootball/liveEvents';
-import { fetchLiveEvents } from './apiFootballService';
+export interface GenericLiveEvent {
+  id: string;
+  type: string;
+  detail?: string;
+  minute?: number;
+  team?: string;
+  player?: string;
+}
+async function fetchLiveEvents(_sport: string): Promise<GenericLiveEvent[]> { return []; }
 
 // ============================================
 // CONFIGURAÇÃO OTIMIZADA

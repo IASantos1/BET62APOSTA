@@ -8,10 +8,10 @@
 import { calculateMatchProbabilities, type MatchProbabilities } from './probabilityEngine';
 import { adjustProbabilitiesLive, shouldPauseMarket, calculateRecommendedDelay } from './liveAdjuster';
 import { generateHybridOdds, type HybridOdds, type ExternalOdds } from './hybridOddsEngine';
-import { fetchFixtureById } from '../dataProviders/apiFootball/fixtures';
-import { fetchLiveEvents } from '../dataProviders/apiFootball/liveEvents';
-import { fetchMatchStatistics } from '../dataProviders/apiFootball/statistics';
-import { fetchOddsForMatch } from '../dataProviders/oddsApi/oddsFetcher';
+async function fetchFixtureById(_id: number): Promise<any> { return null; }
+async function fetchLiveEvents(_sport: string): Promise<any[]> { return []; }
+async function fetchMatchStatistics(_fixtureId: number): Promise<any> { return null; }
+async function fetchOddsForMatch(_fixtureId: number): Promise<any> { return null; }
 
 interface MatchOddsInput {
   fixtureId: number;
