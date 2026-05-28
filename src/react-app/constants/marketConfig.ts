@@ -33,6 +33,25 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   quarter_point_diff: { title: 'Diferença de Pontos no Quarto' },
   team_parlay: { title: 'Parlay da Equipa' },
   player_double_double: { title: 'Duplo-Duplo do Jogador' },
+  q1_h2h: { title: '1º Quarto - Vencedor' },
+  q2_h2h: { title: '2º Quarto - Vencedor' },
+  q3_h2h: { title: '3º Quarto - Vencedor' },
+  q4_h2h: { title: '4º Quarto - Vencedor' },
+  q1_totals: { title: '1º Quarto - Totais' },
+  q2_totals: { title: '2º Quarto - Totais' },
+  q3_totals: { title: '3º Quarto - Totais' },
+  q4_totals: { title: '4º Quarto - Totais' },
+
+  // Soccer extra
+  '1st_half': { title: '1º Tempo - Resultado' },
+  '2nd_half': { title: '2º Tempo - Resultado' },
+  '1st_half_totals': { title: '1º Tempo - Totais' },
+  '2nd_half_totals': { title: '2º Tempo - Totais' },
+  draw_no_bet: { title: 'Empate Anula Aposta' },
+  match_goals: { title: 'Total de Golos' },
+  corners_2_way: { title: 'Total de Cantos (2 opções)' },
+  first_team_to_score: { title: 'Primeira Equipa a Marcar' },
+  cards_in_match: { title: 'Total de Cartões' },
 
   // Baseball
   player_runs: { title: 'Corridas do Jogador' },
@@ -40,6 +59,8 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   player_home_runs: { title: 'Home Runs do Jogador' },
   inning_h2h: { title: 'Vencedor do Inning' },
   inning_totals: { title: 'Total do Inning' },
+  innings_h2h: { title: 'Vencedor do Inning' },
+  innings_totals: { title: 'Total do Inning' },
   first_inning_h2h: { title: 'Vencedor do 1º Inning' },
   first_inning_totals: { title: 'Total do 1º Inning' },
   player_strikeouts: { title: 'Strikeouts do Jogador' },
@@ -135,10 +156,19 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   sets_handicap: { title: 'Handicap de Sets' },
   player_games: { title: 'Jogos do Jogador' },
   set_winner: { title: 'Vencedor do Set' },
-  sets_h2h: { title: 'Vencedor do Set' }, // Mapped from set_winner
+  sets_h2h: { title: 'Vencedor do Set' },
   tie_breaks: { title: 'Tie-breaks' },
-  tie_break: { title: 'Tie-break' }, // Singular mapped
+  tie_break: { title: 'Tie-break' },
   match_total_games: { title: 'Total de Jogos na Partida' },
+  total_sets: { title: 'Total de Sets' },
+  current_set_winner: { title: 'Vencedor do Set Atual' },
+  current_set_totals: { title: 'Total do Set Atual' },
+  set_1_h2h: { title: '1º Set - Vencedor' },
+  set_2_h2h: { title: '2º Set - Vencedor' },
+  set_3_h2h: { title: '3º Set - Vencedor' },
+  set_1_totals: { title: '1º Set - Total de Jogos' },
+  set_2_totals: { title: '2º Set - Total de Jogos' },
+  set_3_totals: { title: '3º Set - Total de Jogos' },
   first_set_winner: { title: 'Vencedor do 1º Set' },
   first_serve_winner: { title: 'Vencedor do 1º Saque' },
   aces_total: { title: 'Total de Ases' },
@@ -186,21 +216,24 @@ export const MARKET_GROUPS = [
 ];
 
 export const BASKETBALL_GROUPS = [
-  { title: "Todos", keys: ["h2h","totals","team_totals","spreads","handicap","quarters_h2h","quarters_totals","quarter_point_diff","halves_h2h","halves_totals","race_to","first_to_score","player_points","player_rebounds","player_assists","player_threes","player_double_double","player_props","match_parlay","team_parlay"] },
+  { title: "Todos", keys: ["h2h","totals","team_totals","spreads","handicap","q1_h2h","q2_h2h","q3_h2h","q4_h2h","q1_totals","q2_totals","q3_totals","q4_totals","quarters_h2h","quarters_totals","quarter_point_diff","halves_h2h","halves_totals","race_to","first_to_score","player_points","player_rebounds","player_assists","player_threes","player_double_double","player_props","match_parlay","team_parlay"] },
   { title: "Vencedor", keys: ["h2h"] },
   { title: "Totais", keys: ["totals","team_totals"] },
   { title: "Spread", keys: ["spreads","handicap"] },
-  { title: "Quartos", keys: ["quarters_h2h","quarters_totals","quarter_point_diff"] },
+  { title: "1º Q", keys: ["q1_h2h","q1_totals"] },
+  { title: "2º Q", keys: ["q2_h2h","q2_totals"] },
+  { title: "3º Q", keys: ["q3_h2h","q3_totals"] },
+  { title: "4º Q", keys: ["q4_h2h","q4_totals"] },
   { title: "Times", keys: ["team_totals","race_to","first_to_score","team_parlay","match_parlay"] }
 ];
 
 export const TENNIS_GROUPS = [
-  { title: "Todos", keys: ["h2h","set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","total_sets","over_under_sets","player_to_win_a_set","to_win_a_set","spreads","handicap","sets_handicap","totals","match_total_games","set_total_games","player_games","correct_score","score_exact","tie_break","tie_breaks","total_aces","aces_total","double_faults_total","break_points","to_qualify"] },
+  { title: "Todos", keys: ["h2h","current_set_winner","set_1_h2h","set_2_h2h","set_3_h2h","total_sets","current_set_totals","set_1_totals","set_2_totals","set_3_totals","set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","over_under_sets","player_to_win_a_set","to_win_a_set","spreads","handicap","sets_handicap","totals","match_total_games","set_total_games","player_games","correct_score","score_exact","tie_break","tie_breaks","total_aces","aces_total","double_faults_total","break_points","to_qualify"] },
   { title: "Vencedor", keys: ["h2h"] },
-  { title: "Sets", keys: ["set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","total_sets","over_under_sets","player_to_win_a_set","to_win_a_set"] },
+  { title: "Set Atual", keys: ["current_set_winner","current_set_totals"] },
+  { title: "Sets", keys: ["total_sets","set_1_h2h","set_2_h2h","set_3_h2h","set_1_totals","set_2_totals","set_3_totals","set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","over_under_sets"] },
   { title: "Handicap", keys: ["sets_handicap","spreads","handicap"] },
   { title: "Jogos", keys: ["totals","match_total_games","set_total_games","player_games"] },
-  { title: "Placar Exato", keys: ["correct_score","score_exact"] },
   { title: "Especiais", keys: ["tie_break","tie_breaks","total_aces","aces_total","double_faults_total","break_points","to_qualify"] }
 ];
 
