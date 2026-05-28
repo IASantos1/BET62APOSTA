@@ -7,6 +7,8 @@ export interface NormalizedEvent {
   team_match: string;
   event_date: string;
   status: string;
+  status_short?: string;
+  status_long?: string;
   is_live: number;
   home_odd: number;
   draw_odd: number;
@@ -18,6 +20,9 @@ export interface NormalizedEvent {
   country: string;
   home_team_logo: string;
   away_team_logo: string;
+  fixture?: any;
+  teams?: any;
+  goals?: any;
 }
 
 export interface OddsResult {
@@ -88,8 +93,55 @@ function pickScore(x: any): number | null {
   return null;
 }
 
+function statusText(status: any): string {
+  return String(status?.description ?? status?.type ?? status ?? '').trim();
+}
+
+function statusKey(status: any): string {
+  return statusText(status)
+    .toUpperCase()
+    .trim()
+    .replace(/[^A-Z0-9_]+/g, '_')
+    .replace(/^_+/, '')
+    .replace(/_+$/, '');
+}
+
+function isFinishedStatus(status: any): boolean {
+  const k = statusKey(status);
+  if (!k) return false;
+  if (
+    k === 'FT' ||
+    k === 'FINAL' ||
+    k === 'FINISHED' ||
+    k === 'ENDED' ||
+    k === 'END' ||
+    k === 'FULL_TIME' ||
+    k === 'MATCH_FINISHED' ||
+    k === 'COMPLETED' ||
+    k === 'CANCELLED' ||
+    k === 'CANCELED' ||
+    k === 'POSTPONED' ||
+    k === 'SUSPENDED' ||
+    k === 'ABANDONED' ||
+    k === 'WALKOVER' ||
+    k === 'WO'
+  ) return true;
+  if (/FINISH|ENDED|FINAL|FULLTIME|GAMEOVER|CANCEL|POSTPON|ABANDON|WALKOVER/.test(k)) return true;
+  return false;
+}
+
+function isNotStartedStatus(status: any): boolean {
+  const k = statusKey(status);
+  if (!k) return true;
+  if (k === 'NS' || k === 'SCHEDULED' || k === 'UPCOMING' || k === 'NOT_STARTED' || k === 'PRE_MATCH') return true;
+  if (/NOT_STARTED|SCHEDUL|UPCOMING|TIMED|PRE_MATCH/.test(k)) return true;
+  return false;
+}
+
 function isLive(status: any): boolean {
-  const s = String(status?.description ?? status?.type ?? status ?? '').toLowerCase();
+  if (isFinishedStatus(status)) return false;
+  if (isNotStartedStatus(status)) return false;
+  const s = statusText(status).toLowerCase();
   if (!s) return false;
   if (s.includes('inprogress') || s.includes('in progress') || s.includes('live')) return true;
   if (s.includes('half') || s.includes('quarter') || s.includes('inning') || s.includes('set')) return true;
@@ -169,6 +221,28 @@ function extractTennisSets(e: any): Record<string, { home: number | null; away: 
     const n = typeof v === 'string' ? Number(v) : Number(v);
     return Number.isFinite(n) ? n : null;
   };
+  const fromSetsObject = (obj: any): Array<{ home: number | null; away: number | null }> => {
+    if (!obj || typeof obj !== 'object') return [];
+    const out: Array<{ home: number | null; away: number | null }> = [];
+    const read = (k: string) => {
+      const v = (obj as any)[k];
+      if (!v || typeof v !== 'object') return null;
+      const h = toNumOrNull((v as any).home ?? (v as any).h ?? (v as any).homeScore);
+      const a = toNumOrNull((v as any).away ?? (v as any).a ?? (v as any).awayScore);
+      if (h === null && a === null) return null;
+      return { home: h, away: a };
+    };
+    for (let i = 1; i <= 5; i++) {
+      const cands = [`s${i}`, `set${i}`, `set_${i}`, `SET${i}`, `SET_${i}`, `period${i}`, `p${i}`];
+      let found: { home: number | null; away: number | null } | null = null;
+      for (const k of cands) {
+        found = read(k);
+        if (found) break;
+      }
+      if (found) out.push(found);
+    }
+    return out;
+  };
   const fromPeriodArray = (arr: any): Array<{ home: number | null; away: number | null }> => {
     if (!Array.isArray(arr)) return [];
     const out: Array<{ home: number | null; away: number | null }> = [];
@@ -182,6 +256,12 @@ function extractTennisSets(e: any): Record<string, { home: number | null; away: 
     }
     return out;
   };
+  const s0 =
+    fromSetsObject(e?.score?.sets) ||
+    fromSetsObject(e?.sets) ||
+    fromSetsObject(e?.setScores) ||
+    fromSetsObject(e?.periodScores);
+  if (s0.length > 0) pairs.push(...s0);
   const a1 = fromPeriodArray(e?.periods ?? e?.scores ?? e?.score?.periods ?? e?.score?.scores);
   if (a1.length > 0) pairs.push(...a1);
   const hPeriods = e?.homeScore?.periods ?? e?.homeScore?.periodScores ?? e?.homeScore?.scores ?? null;
@@ -202,6 +282,47 @@ function extractTennisSets(e: any): Record<string, { home: number | null; away: 
   return out;
 }
 
+function deriveTennisSetNumber(status: any, tennisSets: Record<string, { home: number | null; away: number | null }> | null): number | null {
+  const s = statusText(status).toUpperCase();
+  const m1 = s.match(/\bS(?:ET)?\s*(\d)\b/);
+  if (m1) {
+    const n = Number(m1[1]);
+    if (Number.isFinite(n) && n >= 1 && n <= 5) return n;
+  }
+  const m2 = s.match(/\b(\d)(?:ST|ND|RD|TH)\s+SET\b/);
+  if (m2) {
+    const n = Number(m2[1]);
+    if (Number.isFinite(n) && n >= 1 && n <= 5) return n;
+  }
+  if (tennisSets) {
+    let last = 0;
+    for (let i = 1; i <= 5; i++) {
+      const x = (tennisSets as any)[`s${i}`];
+      if (!x) continue;
+      if (x.home != null || x.away != null) last = i;
+    }
+    if (last > 0) return Math.min(5, last + 1);
+  }
+  return null;
+}
+
+function deriveStatusShort(sport: string, status: any, elapsed: number, tennisSets: Record<string, { home: number | null; away: number | null }> | null): string {
+  if (isFinishedStatus(status)) return 'FT';
+  if (isNotStartedStatus(status)) return 'NS';
+  const sKey = normalizeSportKey(sport);
+  if (sKey.includes('tennis')) {
+    const n = deriveTennisSetNumber(status, tennisSets);
+    if (n) return `S${n}`;
+    return 'LIVE';
+  }
+  if (sKey === 'soccer' || sKey === 'football') {
+    if (elapsed >= 46) return '2H';
+    if (elapsed > 0) return '1H';
+    return 'LIVE';
+  }
+  return 'LIVE';
+}
+
 function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   const id = e?.id != null ? String(e.id) : '';
   if (!id) return null;
@@ -218,7 +339,8 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   const country = e?.tournament?.category?.name ?? e?.category?.name ?? e?.country?.name ?? '';
   const statusRaw = e?.status?.description ?? e?.status?.type ?? e?.status ?? e?.statusCode ?? e?.statusText ?? '';
   const status = String(statusRaw || 'NS');
-  const live = isLive(e?.status ?? status);
+  const statusObj = e?.status ?? status;
+  const live = isLive(statusObj);
   const t = live ? deriveElapsedAndTimer(sport, e) : { elapsed: 0, timer: '' };
 
   const sLower = String(sport || '').toLowerCase();
@@ -238,6 +360,23 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
         })()
       : pickScore(e?.awayScore);
 
+  const short = deriveStatusShort(sport, statusObj, t.elapsed, tennisSets);
+  const fixture = {
+    id,
+    date,
+    status: {
+      short,
+      long: status,
+      elapsed: t.elapsed,
+      timer: t.timer,
+    },
+  };
+  const teams = {
+    home: { name: homeName, logo: String(e?.homeTeam?.logo ?? '') },
+    away: { name: awayName, logo: String(e?.awayTeam?.logo ?? '') },
+  };
+  const goals = { home: hs, away: as };
+
   return {
     external_event_id: `${sport}_${id}`,
     sport,
@@ -247,6 +386,8 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
     team_match: `${homeName} vs ${awayName}`,
     event_date: date,
     status,
+    status_short: short,
+    status_long: status,
     is_live: live ? 1 : 0,
     home_odd: 0,
     draw_odd: 0,
@@ -258,6 +399,9 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
     country: String(country || ''),
     home_team_logo: String(e?.homeTeam?.logo ?? ''),
     away_team_logo: String(e?.awayTeam?.logo ?? ''),
+    fixture,
+    teams,
+    goals,
   };
 }
 
@@ -558,4 +702,3 @@ export async function fetchSportsApiProMatchStatistics(apiKey: string, sport: st
   const json = await fetchJson(url, apiKey);
   return json || null;
 }
-

@@ -126,6 +126,10 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
   const oddsCache = new Map<string, CacheEntry<any>>();
   const oddsInflight = new Map<string, Promise<any | null>>();
   const bySportCache = new Map<string, CacheEntry<{ live: AnyEvent[]; pregame: AnyEvent[] }>>();
+  const oddsQueue: Array<{ sport: string; matchId: string }> = [];
+  const oddsQueued = new Set<string>();
+  let oddsQueueInFlight = 0;
+  let oddsQueueStarted = false;
   const idToSport = new Map<string, CacheEntry<string>>();
   const lastEventById = new Map<string, CacheEntry<AnyEvent>>();
   const overridesCache = new Map<string, CacheEntry<{ home_odd: number | null; draw_odd: number | null; away_odd: number | null }>>();
@@ -160,6 +164,36 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       }
     }
     return null;
+  };
+
+  const queueOddsRefresh = (sport: string, matchId: string) => {
+    const s = String(sport || '').trim();
+    const id = String(matchId || '').trim();
+    if (!s || !id) return;
+    const key = `${s}:${id}`;
+    const cached = oddsCache.get(key);
+    if (cached && ttlOk(cached.ts, ODDS_FRESH_TTL_MS)) return;
+    if (oddsQueued.has(key)) return;
+    oddsQueued.add(key);
+    oddsQueue.push({ sport: s, matchId: id });
+  };
+
+  const startOddsQueue = () => {
+    if (oddsQueueStarted) return;
+    oddsQueueStarted = true;
+    setInterval(() => {
+      if (oddsQueueInFlight >= 2) return;
+      const next = oddsQueue.shift();
+      if (!next) return;
+      const key = `${next.sport}:${next.matchId}`;
+      oddsQueueInFlight += 1;
+      fetchOddsStrict(next.sport, next.matchId)
+        .catch(() => null)
+        .finally(() => {
+          oddsQueueInFlight -= 1;
+          oddsQueued.delete(key);
+        });
+    }, 250);
   };
 
   const fetchLive = async (sport: string): Promise<AnyEvent[]> => {
@@ -242,11 +276,14 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       if (refreshBudget && refreshBudget.remaining > 0 && !oddsInflight.has(key)) {
         refreshBudget.remaining -= 1;
         fetchOddsStrict(sport, matchId).catch(() => null);
+      } else {
+        queueOddsRefresh(sport, matchId);
       }
       return cached.data;
     }
 
     if (refreshBudget && refreshBudget.remaining <= 0) {
+      queueOddsRefresh(sport, matchId);
       return cached ? cached.data : null;
     }
 
@@ -314,6 +351,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     realtime: boolean,
     fullMarkets: boolean,
   ): Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }> => {
+    startOddsQueue();
     const sports = getSports(sportsParam);
     const liveAll: AnyEvent[] = [];
     const preAll: AnyEvent[] = [];
@@ -344,6 +382,9 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     if (!includeOdds) {
       return { live, pregame };
     }
+
+    for (const e of live) queueOddsRefresh(String((e as any)?.sport || ''), String((e as any)?.id || ''));
+    for (const e of pregame) queueOddsRefresh(String((e as any)?.sport || ''), String((e as any)?.id || ''));
 
     const refreshBudget = { remaining: realtime ? 12 : 24 };
     const liveEnriched = await mapLimit(live, 6, (x) => enrichEventOdds(x, refreshBudget, fullMarkets));
