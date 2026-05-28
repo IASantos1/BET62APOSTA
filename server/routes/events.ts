@@ -8,6 +8,8 @@ type CacheEntry<T> = { ts: number; data: T };
 type AnyEvent = any;
 
 const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball'];
+const ODDS_FRESH_TTL_MS = 90_000;
+const ODDS_STALE_TTL_MS = 15 * 60_000;
 
 function nowMs(): number {
   return Date.now();
@@ -59,6 +61,8 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
   const liveCache = new Map<string, CacheEntry<AnyEvent[]>>();
   const scheduleCache = new Map<string, CacheEntry<AnyEvent[]>>();
   const oddsCache = new Map<string, CacheEntry<any>>();
+  const oddsInflight = new Map<string, Promise<any | null>>();
+  const bySportCache = new Map<string, CacheEntry<{ live: AnyEvent[]; pregame: AnyEvent[] }>>();
   const idToSport = new Map<string, CacheEntry<string>>();
   const lastEventById = new Map<string, CacheEntry<AnyEvent>>();
   const overridesCache = new Map<string, CacheEntry<{ home_odd: number | null; draw_odd: number | null; away_odd: number | null }>>();
@@ -142,22 +146,58 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     return data;
   };
 
-  const fetchOdds = async (sport: string, matchId: string): Promise<any | null> => {
+  const fetchOddsStrict = async (sport: string, matchId: string): Promise<any | null> => {
     const key = `${sport}:${matchId}`;
-    const cached = oddsCache.get(key);
-    if (cached && ttlOk(cached.ts, 90_000)) return cached.data;
-    const odds = await fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, {}).catch(() => null);
-    oddsCache.set(key, { ts: nowMs(), data: odds });
-    return odds;
+    const inflight = oddsInflight.get(key);
+    if (inflight) return inflight;
+    const p = fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, {})
+      .then((odds) => {
+        oddsCache.set(key, { ts: nowMs(), data: odds });
+        return odds;
+      })
+      .catch(() => null)
+      .finally(() => {
+        oddsInflight.delete(key);
+      });
+    oddsInflight.set(key, p);
+    return p;
   };
 
-  const enrichEventOdds = async (e: AnyEvent): Promise<AnyEvent> => {
+  const fetchOddsBestEffort = async (
+    sport: string,
+    matchId: string,
+    refreshBudget: { remaining: number } | null,
+  ): Promise<any | null> => {
+    const key = `${sport}:${matchId}`;
+    const cached = oddsCache.get(key);
+
+    if (cached && ttlOk(cached.ts, ODDS_FRESH_TTL_MS)) {
+      return cached.data;
+    }
+
+    if (cached && ttlOk(cached.ts, ODDS_STALE_TTL_MS)) {
+      if (refreshBudget && refreshBudget.remaining > 0 && !oddsInflight.has(key)) {
+        refreshBudget.remaining -= 1;
+        fetchOddsStrict(sport, matchId).catch(() => null);
+      }
+      return cached.data;
+    }
+
+    if (refreshBudget && refreshBudget.remaining <= 0) {
+      return cached ? cached.data : null;
+    }
+
+    if (refreshBudget) refreshBudget.remaining -= 1;
+    return fetchOddsStrict(sport, matchId);
+  };
+
+  const enrichEventOdds = async (e: AnyEvent, refreshBudget: { remaining: number } | null): Promise<AnyEvent> => {
     const id = String(e?.id || '').trim();
     const sport = String(e?.sport || '').trim();
     if (!id || !sport) return e;
 
     const override = await getOverride(id).catch(() => null);
-    const odds = await fetchOdds(sport, id).catch(() => null);
+    const odds = await fetchOddsBestEffort(sport, id, refreshBudget).catch(() => null);
     const markets = odds?.markets ? odds.markets : parseMarkets((e as any).markets);
     const base = {
       ...e,
@@ -195,7 +235,12 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     return out;
   };
 
-  const buildBySport = async (sportsParam: string | null, includeOdds: boolean, league: string | null): Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }> => {
+  const buildBySport = async (
+    sportsParam: string | null,
+    includeOdds: boolean,
+    league: string | null,
+    realtime: boolean,
+  ): Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }> => {
     const sports = getSports(sportsParam);
     const liveAll: AnyEvent[] = [];
     const preAll: AnyEvent[] = [];
@@ -227,8 +272,9 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       return { live, pregame };
     }
 
-    const liveEnriched = await mapLimit(live, 6, enrichEventOdds);
-    const preEnriched = await mapLimit(pregame, 6, enrichEventOdds);
+    const refreshBudget = { remaining: realtime ? 12 : 24 };
+    const liveEnriched = await mapLimit(live, 6, (x) => enrichEventOdds(x, refreshBudget));
+    const preEnriched = await mapLimit(pregame, 6, (x) => enrichEventOdds(x, refreshBudget));
     return { live: liveEnriched, pregame: preEnriched };
   };
 
@@ -250,7 +296,16 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       const include = url.searchParams.get('include');
       const includeOdds = String(include || '').toLowerCase().includes('odds');
       const league = url.searchParams.get('league');
-      const data = await buildBySport(sports, includeOdds, league).catch(() => ({ live: [], pregame: [] }));
+      const realtime = String(url.searchParams.get('realtime') || '') === '1';
+      const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}`;
+      const cached = bySportCache.get(cacheKey);
+      const ttl = realtime ? 2_000 : includeOdds ? 12_000 : 25_000;
+      if (cached && ttlOk(cached.ts, ttl)) {
+        sendJson(res, 200, cached.data);
+        return true;
+      }
+      const data = await buildBySport(sports, includeOdds, league, realtime).catch(() => ({ live: [], pregame: [] }));
+      bySportCache.set(cacheKey, { ts: nowMs(), data });
       sendJson(res, 200, data);
       return true;
     }
@@ -280,7 +335,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       const id = decodeURIComponent(oddsMatch[1] || '');
       const sport = await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
-      const odds = await fetchSportsApiProMatchOddsAll(apiKey, sport, id, {}).catch(() => null);
+      const odds = await fetchOddsStrict(sport, id).catch(() => null);
       const markets = odds?.markets || {};
       sendJson(res, 200, { home: odds?.home || 0, draw: odds?.draw || 0, away: odds?.away || 0, markets });
       return true;
@@ -305,7 +360,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
   };
 
   const getAdminOddsEvents = async (): Promise<any[]> => {
-    const data = await buildBySport('all', true, null);
+    const data = await buildBySport('all', true, null, false);
     const all = [...data.live, ...data.pregame];
     return all.map((e: any) => ({
       id: String(e.id),
@@ -338,4 +393,3 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
 
   return { handleEventsRoutes, getAdminOddsEvents, setOddsOverride };
 }
-
