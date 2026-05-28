@@ -944,6 +944,10 @@ export const labelOutcome = (market: string, name: string, homeTeam?: string, aw
     const m = String(market || '').toLowerCase();
     const n = safeName.toLowerCase();
     
+    // For tennis/basketball/baseball 2-way h2h: show player/team names when available
+    if ((n === '1' || n === 'home' || n === 'home team') && homeTeam) return homeTeam;
+    if ((n === '2' || n === 'away' || n === 'away team') && awayTeam) return awayTeam;
+
     // Global translation for Home/Draw/Away (generic matches)
     if (n === 'home' || n === '1' || n === 'casa' || n === 'home team') return 'Casa';
     if (n === 'draw' || n === 'x' || n === 'empate' || n === 'tie') return 'Empate';
