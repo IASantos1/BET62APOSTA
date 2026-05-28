@@ -312,9 +312,11 @@ function deriveTennisSetNumber(status: any, tennisSets: Record<string, { home: n
     for (let i = 1; i <= 5; i++) {
       const x = (tennisSets as any)[`s${i}`];
       if (!x) continue;
-      if (x.home != null || x.away != null) last = i;
+      if (x.home == null && x.away == null) continue;
+      const sum = Number(x.home ?? 0) + Number(x.away ?? 0);
+      if (sum > 0) last = i;
     }
-    if (last > 0) return Math.min(5, last + 1);
+    return Math.max(1, Math.min(5, last || 1));
   }
   return null;
 }
@@ -374,6 +376,28 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
       : pickScore(e?.awayScore);
 
   const short = deriveStatusShort(sport, statusObj, t.elapsed, tennisSets);
+  const sanitizedSets = (() => {
+    if (!tennisSets) return null;
+    const m = String(short || '').match(/^S(\d)$/);
+    const n = m ? Number(m[1]) : 0;
+    if (!(n >= 1 && n <= 5)) return tennisSets;
+    const out: Record<string, { home: number | null; away: number | null }> = {};
+    for (let i = 1; i <= 5; i++) {
+      const x = (tennisSets as any)[`s${i}`];
+      if (!x) continue;
+      let home = x.home ?? null;
+      let away = x.away ?? null;
+      if (i > n) {
+        home = null;
+        away = null;
+      } else if (i < n && home === 0 && away === 0) {
+        home = null;
+        away = null;
+      }
+      out[`s${i}`] = { home, away };
+    }
+    return out;
+  })();
   const fixture = {
     id,
     date,
@@ -407,7 +431,7 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
     away_odd: 0,
     elapsed: t.elapsed,
     timer: t.timer,
-    score: JSON.stringify({ home: hs, away: as, ...(tennisSets ? { sets: tennisSets } : {}) }),
+    score: JSON.stringify({ home: hs, away: as, ...(sanitizedSets ? { sets: sanitizedSets } : {}) }),
     markets: '{}',
     country: String(country || ''),
     home_team_logo: String(e?.homeTeam?.logo ?? ''),
