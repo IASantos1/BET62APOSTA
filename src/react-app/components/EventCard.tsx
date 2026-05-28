@@ -643,17 +643,19 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
 
                 if (sport === 'soccer') {
                   if (forceTimer) return forceTimer;
-                  if (timer) return timer;
+                  // Status checks FIRST — never override HT/PEN/ET with a raw timer string
                   if (statusU === 'HT') return 'HT';
-                  if (statusU === '1H' || statusU === '2H') return elapsed > 0 ? `${elapsed}'` : statusU;
-                  if (statusU === 'AT' || statusU === 'ST') return statusU;
                   if (statusU === 'ET') return 'ET';
                   if (statusU === 'PEN' || statusU === 'P') return 'PEN';
+                  if (statusU === 'AT' || statusU === 'ST') return statusU;
+                  if (/HALF\s*TIME|INTERVAL/.test(cu)) return 'HT';
+                  if (/EXTRA\s*TIME/.test(cu)) return 'ET';
+                  if (/PEN/.test(cu)) return 'PEN';
+                  // Now use raw timer from API (already validated as running period)
+                  if (timer) return timer;
+                  if (statusU === '1H' || statusU === '2H') return elapsed > 0 ? `${elapsed}'` : statusU;
                   if (elapsed > 0) return `${elapsed}'`;
                   if (minuteFromScore !== null && minuteFromScore > 0) return `${minuteFromScore}'`;
-                  if (/HALF\s*TIME|INTERVAL|HT/.test(cu)) return 'HT';
-                  if (/PEN/.test(cu)) return 'PEN';
-                  if (/EXTRA\s*TIME|ET/.test(cu)) return 'ET';
                   return '';
                 }
 

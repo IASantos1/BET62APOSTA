@@ -220,17 +220,21 @@ export default function EventDetails() {
     'IN_PROGRESS',
   ]);
   const isLive = displayEvent.is_live === 1 || liveStatuses.has(statusKey);
-  const liveTimerRaw = String((displayEvent as any)?.timer || displayEvent?.fixture?.status?.timer || '').trim();
-  const liveTimer = liveTimerRaw
-    ? (liveTimerRaw.includes(':')
-        ? liveTimerRaw
-        : (() => {
-            const n = Number(liveTimerRaw);
-            if (!Number.isFinite(n) || n < 0) return '';
-            const mm = String(Math.floor(n)).padStart(2, '0');
-            return `${mm}:00`;
-          })())
-    : '';
+  // Status checks take priority: HT/ET/PEN must never show a running minute
+  const liveTimer = (() => {
+    if (statusKey === 'HT') return 'HT';
+    if (statusKey === 'ET') return 'ET';
+    if (statusKey === 'PEN' || statusKey === 'P') return 'PEN';
+    const statusLongRaw = String((displayEvent as any)?.fixture?.status?.long ?? (displayEvent as any)?.status_long ?? '').toUpperCase();
+    if (/HALF\s*TIME|INTERVAL/.test(statusLongRaw)) return 'HT';
+    if (/EXTRA\s*TIME/.test(statusLongRaw)) return 'ET';
+    const raw = String((displayEvent as any)?.timer || displayEvent?.fixture?.status?.timer || '').trim();
+    if (!raw) return '';
+    if (raw.includes(':')) return raw;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) return '';
+    return `${Math.floor(n)}'`;
+  })();
   const liveElapsed = Number((displayEvent as any)?.elapsed ?? displayEvent?.fixture?.status?.elapsed ?? 0) || 0;
 
   return (

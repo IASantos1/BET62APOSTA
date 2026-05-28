@@ -299,9 +299,14 @@ class LiveScoresWebSocket {
         }
       }
 
-      // Atualizar minuto (incrementar 1)
+      // Atualizar minuto: parar em 45 (intervalo) e em 90 (fim)
       const currentMinute = match.elapsed || 0;
-      const newMinute = Math.min(currentMinute + 1, 90);
+      // Pausar durante o intervalo: entre 45 e 46 fica em HT
+      const newMinute = currentMinute < 45
+        ? currentMinute + 1
+        : currentMinute === 45
+          ? 45  // manter em 45 = HT
+          : Math.min(currentMinute + 1, 90);
 
       // Emitir atualização de placar
       const scoreUpdate: LiveScoreUpdate = {
@@ -340,14 +345,14 @@ class LiveScoresWebSocket {
   }
 
   private getPeriodFromMinute(minute: number): string {
-    if (minute <= 45) return 'P1';
+    if (minute < 45) return 'P1';
     if (minute === 45) return 'INT';
     if (minute <= 90) return 'P2';
     return 'PRO';
   }
 
   private getStatusFromMinute(minute: number): string {
-    if (minute <= 45) return '1H';
+    if (minute < 45) return '1H';
     if (minute === 45) return 'HT';
     if (minute <= 90) return '2H';
     return 'ET';
