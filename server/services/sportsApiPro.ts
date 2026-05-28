@@ -431,7 +431,18 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
     away_odd: 0,
     elapsed: t.elapsed,
     timer: t.timer,
-    score: JSON.stringify({ home: hs, away: as, ...(sanitizedSets ? { sets: sanitizedSets } : {}) }),
+    score: JSON.stringify({
+      home: hs,
+      away: as,
+      ...(sanitizedSets ? { sets: sanitizedSets } : {}),
+      ...((() => {
+        if (!sLower.includes('tennis') && !sLower.includes('tênis')) return {};
+        const ph = e?.homeScore?.point ?? e?.homeScore?.currentPoint ?? e?.homeScore?.game ?? e?.homeScore?.points ?? e?.homeScore?.current;
+        const pa = e?.awayScore?.point ?? e?.awayScore?.currentPoint ?? e?.awayScore?.game ?? e?.awayScore?.points ?? e?.awayScore?.current;
+        if (ph == null && pa == null) return {};
+        return { point: { home: ph, away: pa } };
+      })()),
+    }),
     markets: '{}',
     country: String(country || ''),
     home_team_logo: String(e?.homeTeam?.logo ?? ''),
@@ -601,6 +612,21 @@ function formatSelectionName(marketKey: string, optionName: string, point: strin
 function marketKeyFromOddsAll(lineType: string, lineName: string): string {
   const t = normalizeLineType(lineType);
   const n = normalizeLineName(lineName);
+
+  // Half-time markets (must be checked BEFORE generic 1X2 detection)
+  if (n === '1st half' || n === 'first half' || n.includes('1st half') || n.includes('first half')) return '1st_half';
+  if (n === '2nd half' || n === 'second half' || n.includes('2nd half') || n.includes('second half')) return '2nd_half';
+
+  // Tennis set winner markets
+  if ((n.includes('first set') || n.includes('1st set')) && n.includes('winner')) return 'first_set_h2h';
+  if ((n.includes('second set') || n.includes('2nd set')) && n.includes('winner')) return 'second_set_h2h';
+  if ((n.includes('third set') || n.includes('3rd set')) && n.includes('winner')) return 'third_set_h2h';
+  if (n.includes('set winner') && !n.includes('first') && !n.includes('second') && !n.includes('third')) return 'current_set_winner';
+
+  // Tennis total games
+  if (n === 'total games won' || n === 'total games' || (n.includes('total') && n.includes('games'))) return 'match_total_games';
+  if (n.includes('total sets') || n === 'number of sets') return 'total_sets';
+
   if (n === '1x2' || n === 'full time result' || n === 'fulltime result') return 'h2h';
   if (n === 'full time' || n === 'fulltime' || n === 'match result' || n === 'match winner') return 'h2h';
   if (n.includes('1x2') || n.includes('full time result') || n.includes('fulltime result')) return 'h2h';
