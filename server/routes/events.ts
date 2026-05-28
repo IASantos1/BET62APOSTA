@@ -289,6 +289,39 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     return data;
   };
 
+  const mergeOddsResults = (results: any[]): any | null => {
+    const valid = results.filter(r => r != null);
+    if (valid.length === 0) return null;
+    if (valid.length === 1) return valid[0];
+    const merged: Record<string, any[]> = {};
+    for (const r of valid) {
+      const markets = r.markets && typeof r.markets === 'object' ? r.markets : {};
+      for (const [key, lines] of Object.entries(markets)) {
+        if (!Array.isArray(lines) || lines.length === 0) continue;
+        if (!merged[key]) {
+          merged[key] = lines;
+        } else {
+          const existing = merged[key];
+          const existingSet = new Set(existing.map((l: any) => `${String(l.value || '')}|${String(l.point || '')}`));
+          for (const line of lines) {
+            const k = `${String(line.value || '')}|${String(line.point || '')}`;
+            if (!existingSet.has(k)) {
+              existing.push(line);
+              existingSet.add(k);
+            }
+          }
+        }
+      }
+    }
+    const primary = valid[0];
+    return {
+      home: primary.home || 0,
+      draw: primary.draw || 0,
+      away: primary.away || 0,
+      markets: merged,
+    };
+  };
+
   const fetchOddsStrict = async (
     sport: string,
     matchId: string,
@@ -300,17 +333,14 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     if (inflight) return inflight;
     const p = (async () => {
       const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam };
-      const all = await fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts).catch(() => null);
-      if (all) return all;
-      if (ctx.forceAll) return null;
-      if (ctx.isLive) {
-        const live = await fetchSportsApiProMatchOddsLive(apiKey, sport, normalizedId, opts).catch(() => null);
-        if (live) return live;
-      } else {
-        const pre = await fetchSportsApiProMatchOddsPreMatch(apiKey, sport, normalizedId, opts).catch(() => null);
-        if (pre) return pre;
-      }
-      return null;
+      // Fetch all 3 endpoints in parallel to get maximum market coverage
+      const [allResult, liveResult, preResult] = await Promise.all([
+        fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts).catch(() => null),
+        fetchSportsApiProMatchOddsLive(apiKey, sport, normalizedId, opts).catch(() => null),
+        fetchSportsApiProMatchOddsPreMatch(apiKey, sport, normalizedId, opts).catch(() => null),
+      ]);
+      const merged = mergeOddsResults([allResult, liveResult, preResult].filter(Boolean));
+      return merged;
     })()
       .then((odds) => {
         oddsCache.set(key, { ts: nowMs(), data: odds });
@@ -660,7 +690,8 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     if (oddsMatch && req.method === 'GET') {
       const idRaw = decodeURIComponent(oddsMatch[1] || '');
       const id = normalizeIdLoose(idRaw);
-      const sport = await resolveSport(id);
+      const sportParam = String(url.searchParams.get('sport') || '').trim();
+      const sport = sportParam || await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
       const odds = await fetchOddsStrict(sport, id, { forceAll: true }).catch(() => null);
       const markets = odds?.markets || {};
@@ -672,22 +703,70 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     if (statsMatch && req.method === 'GET') {
       const idRaw = decodeURIComponent(statsMatch[1] || '');
       const id = normalizeIdLoose(idRaw);
-      const sport = await resolveSport(id);
+      const sportParam = String(url.searchParams.get('sport') || '').trim();
+      const sport = sportParam || await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
       const statsRaw = await fetchSportsApiProMatchStatistics(apiKey, sport, id).catch(() => null);
+
+      // Normalise a SportsApiPro v2 home/away object into API-Football statistics array
+      const normalizeStatsObject = (obj: any, teamLabel: string): any[] => {
+        if (!obj || typeof obj !== 'object') return [];
+        const map: Record<string, string> = {
+          possession: 'Ball Possession',
+          ball_possession: 'Ball Possession',
+          shots_on_target: 'Shots on Goal',
+          on_target: 'Shots on Goal',
+          total_shots: 'Total Shots',
+          shots_total: 'Total Shots',
+          shots_off_target: 'Shots off Goal',
+          corners: 'Corner Kicks',
+          corner_kicks: 'Corner Kicks',
+          yellow_cards: 'Yellow Cards',
+          red_cards: 'Red Cards',
+          fouls: 'Fouls',
+          offsides: 'Offsides',
+          saves: 'Goalkeeper Saves',
+          attacks: 'Total Attacks',
+          dangerous_attacks: 'Dangerous Attacks',
+          passes: 'Total passes',
+          pass_accuracy: 'Passes accurate',
+          free_kicks: 'Free Kicks',
+          goal_kicks: 'Goal Kicks',
+          throw_ins: 'Throw-in',
+        };
+        return Object.entries(obj)
+          .filter(([k]) => map[k.toLowerCase()])
+          .map(([k, v]) => ({ type: map[k.toLowerCase()], value: v, team: { name: teamLabel } }));
+      };
+
       // Extract stats from various SportsApiPro response formats
       const extractStats = (raw: any): any[] => {
         if (!raw) return [];
+        // Direct array
         if (Array.isArray(raw)) return raw;
+        // API-Football style: { data: { response: [{ statistics: [...] }] } }
+        if (Array.isArray(raw.data?.response?.[0]?.statistics)) return raw.data.response[0].statistics;
+        if (Array.isArray(raw.data?.response)) return raw.data.response;
         if (Array.isArray(raw.data?.statistics)) return raw.data.statistics;
         if (Array.isArray(raw.statistics)) return raw.statistics;
         if (Array.isArray(raw.data?.stats)) return raw.data.stats;
         if (Array.isArray(raw.stats)) return raw.stats;
-        if (raw.data && typeof raw.data === 'object') {
-          const d = raw.data;
-          // API-Football style: { response: [{ statistics: [...] }] }
-          if (Array.isArray(d.response?.[0]?.statistics)) return d.response[0].statistics;
-          if (Array.isArray(d.response)) return d.response;
+        // SportsApiPro v2: { data: { home: {...}, away: {...} } }
+        const d = raw.data ?? raw;
+        if (d && typeof d === 'object' && !Array.isArray(d)) {
+          const homeStats = d.home ?? d.home_team ?? d.homeTeam;
+          const awayStats = d.away ?? d.away_team ?? d.awayTeam;
+          if (homeStats || awayStats) {
+            return [
+              ...normalizeStatsObject(homeStats, 'home'),
+              ...normalizeStatsObject(awayStats, 'away'),
+            ];
+          }
+          // Flat object with direct stat keys
+          const flatKeys = ['possession', 'ball_possession', 'shots', 'corners', 'yellow_cards'];
+          if (flatKeys.some(k => k in d)) {
+            return normalizeStatsObject(d, 'home');
+          }
         }
         return [];
       };
@@ -697,12 +776,14 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         if (Array.isArray(raw.events)) return raw.events;
         if (Array.isArray(raw.data?.matchEvents)) return raw.data.matchEvents;
         if (Array.isArray(raw.matchEvents)) return raw.matchEvents;
+        if (Array.isArray(raw.data?.incidents)) return raw.data.incidents;
+        if (Array.isArray(raw.incidents)) return raw.incidents;
         if (Array.isArray(raw.data?.response)) return raw.data.response;
         return [];
       };
       const stats = extractStats(statsRaw);
       const events = extractMatchEvents(statsRaw);
-      sendJson(res, 200, { stats, events, _debug: statsRaw ? Object.keys(statsRaw) : [] });
+      sendJson(res, 200, { stats, events, _debug: statsRaw ? Object.keys(statsRaw) : [], _rawKeys: statsRaw?.data ? Object.keys(statsRaw.data) : [] });
       return true;
     }
 
