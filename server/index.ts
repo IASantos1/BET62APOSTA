@@ -9,9 +9,11 @@ import { handleBetRoutes } from './routes/bets';
 import { handleFavoriteRoutes } from './routes/favorites';
 import { createEventsService } from './routes/events';
 import { handleAdminRoutes } from './routes/admin';
+import { handleSportsRoutes } from './routes/sports';
+import { handlePaymentRoutes } from './routes/payments';
 import { createLiveWs } from './ws/liveWs';
 
-const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 4000);
+const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 3000);
 
 const loadEnvFile = (filePath: string) => {
   try {
@@ -47,8 +49,8 @@ const sportsApiKey = String(
     '',
 ).trim();
 if (!sportsApiKey) {
-  throw new Error(
-    'Missing SportsAPI Pro key. Set one of: SPORTS_API_PRO_KEY, SPORTSAPIPRO_KEY, SPORTSAPI_PRO_KEY, SPORTS_API_KEY',
+  console.warn(
+    '[server] WARNING: No SportsAPI Pro key found. Sports data endpoints will return empty. Set SPORTS_API_KEY to enable.',
   );
 }
 
@@ -144,6 +146,8 @@ const server = http.createServer(async (req, res) => {
     if (await handleBetRoutes(pool, req, res, url)) return;
     if (await handleFavoriteRoutes(pool, req, res, url)) return;
     if (await handleAdminRoutes(pool, events, req, res, url)) return;
+    if (await handleSportsRoutes(req, res, url)) return;
+    if (await handlePaymentRoutes(pool, req, res, url)) return;
 
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '')) {
       sendJson(res, 200, { ok: true, service: 'api' });
