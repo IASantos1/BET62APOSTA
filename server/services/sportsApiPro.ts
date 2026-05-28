@@ -556,6 +556,9 @@ function formatSelectionName(marketKey: string, optionName: string, point: strin
 function marketKeyFromOddsAll(lineType: string, lineName: string): string {
   const t = normalizeLineType(lineType);
   const n = normalizeLineName(lineName);
+  if (n === '1x2' || n === 'full time result' || n === 'fulltime result') return 'h2h';
+  if (n.includes('1x2') || n.includes('full time result') || n.includes('fulltime result')) return 'h2h';
+  if (n.includes('moneyline') || n.includes('match winner') || n === 'winner') return 'h2h';
   if (t === '1x2' || t === 'threewaymoneyline' || t === 'fulltimeresult') return 'h2h';
   if (t === 'moneyline' || t === 'matchwinner' || t === 'winner') return 'h2h';
   if (t === 'doublechance') return 'double_chance';

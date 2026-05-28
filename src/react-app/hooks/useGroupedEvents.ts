@@ -23,7 +23,35 @@ export function useGroupedEvents(events: Event[], query: string) {
             g[k].push(e);
         }
 
+        const normalizeSportKey = (sport: any): string => {
+            const s = String(sport || '').toLowerCase().trim();
+            if (!s) return '';
+            if (s.includes('football') && !s.includes('american')) return 'soccer';
+            if (s.includes('futebol')) return 'soccer';
+            if (s.includes('soccer')) return 'soccer';
+            if (s.includes('tennis') || s.includes('ténis') || s.includes('tenis')) return 'tennis';
+            if (s.includes('basketball') || s.includes('basquete') || s.includes('basquet')) return 'basketball';
+            if (s.includes('ice') && s.includes('hockey')) return 'ice-hockey';
+            if (s.includes('hockey') || s.includes('hóquei')) return 'ice-hockey';
+            if (s.includes('baseball') || s.includes('beisebol')) return 'baseball';
+            return s.replace(/\s+/g, '-');
+        };
+
+        const sportPrio = (sport: any): number => {
+            const k = normalizeSportKey(sport);
+            if (k === 'soccer') return 0;
+            if (k === 'tennis') return 1;
+            if (k === 'basketball') return 2;
+            if (k === 'ice-hockey') return 3;
+            if (k === 'baseball') return 4;
+            return 9;
+        };
+
         return Object.entries(g).sort((a, b) => {
+            const aSport = sportPrio((a[1] && a[1][0] ? (a[1][0] as any).sport : ''));
+            const bSport = sportPrio((b[1] && b[1][0] ? (b[1][0] as any).sport : ''));
+            if (aSport !== bSport) return aSport - bSport;
+
             const prio = (s: string) => {
                 const l = s.toLowerCase();
                 // User Request: Prioritize UEFA Champions League & Europa League
@@ -37,7 +65,9 @@ export function useGroupedEvents(events: Event[], query: string) {
                 if (l.includes('ligue 1')) return 6;
                 return 1;
             };
-            return prio(b[0]) - prio(a[0]);
+            const diff = prio(b[0]) - prio(a[0]);
+            if (diff) return diff;
+            return String(a[0]).localeCompare(String(b[0]));
         });
     }, [filtered]);
 
