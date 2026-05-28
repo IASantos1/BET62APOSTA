@@ -528,8 +528,20 @@ function pickLineValue(x: any): string | null {
 }
 
 function parseOddDecimal(v: any): number {
-  const n = typeof v === 'string' ? Number(v) : Number(v);
-  return Number.isFinite(n) ? n : 0;
+  if (v == null) return 0;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (typeof v === 'string') {
+    const s = String(v).trim().replace(',', '.');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+  const cands = [v.decimal, v.dec, v.value, v.odd, v.price, v.rate, v.decimalValue, v.decimal_value];
+  for (const c of cands) {
+    if (c == null) continue;
+    const n = typeof c === 'string' ? parseFloat(String(c).trim().replace(',', '.')) : Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
 }
 
 function hasNumericPointInName(name: string, point: string): boolean {
