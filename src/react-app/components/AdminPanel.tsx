@@ -4,7 +4,7 @@ import { useApp } from '@/react-app/contexts/AppContext';
 import { Settings } from '@/react-app/components/Settings';
 import { apiFetch } from '@/react-app/utils/api';
 
-type Tab = 'overview' | 'risk' | 'users' | 'bets' | 'payments' | 'reports' | 'odds' | 'settings';
+type Tab = 'overview' | 'risk' | 'users' | 'bets' | 'payments' | 'reports' | 'odds' | 'settings' | 'api';
 
 interface User { id: string; email: string; is_operator: number }
 interface Bet { id: string; user_id: string; amount: number; potential_win: number; status: string; created_at: string }
@@ -14,6 +14,7 @@ interface Withdrawal { id: string; user_id: string; amount: number; status: stri
 const NAV: { key: Tab; label: string; icon: string }[] = [
   { key: 'overview',  label: 'Visão Geral',          icon: '📊' },
   { key: 'odds',      label: 'Painel de Odds',        icon: '🎯' },
+  { key: 'api',       label: 'API Diagnóstico',       icon: '🔑' },
   { key: 'bets',      label: 'Apostas em Tempo Real', icon: '⚡' },
   { key: 'risk',      label: 'Gestão de Risco',       icon: '🛡️' },
   { key: 'users',     label: 'Utilizadores',          icon: '👥' },
@@ -38,6 +39,197 @@ function StatCard({ label, value, sub, color = 'blue' }: { label: string; value:
       <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">{label}</div>
       <div className="text-2xl font-bold text-gray-900 dark:text-white">{value}</div>
       {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+const SPORTS = ['soccer', 'basketball', 'tennis', 'ice-hockey', 'baseball'];
+
+type ProbeResult = {
+  label: string;
+  url: string;
+  status: number;
+  ok: boolean;
+  ms: number;
+  keys: string[];
+  sample: string;
+  error?: string;
+};
+
+function ApiDiagTab({ darkMode }: { darkMode: boolean }) {
+  const [apiKey, setApiKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [sport, setSport] = useState('soccer');
+  const [matchId, setMatchId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<ProbeResult[]>([]);
+  const [error, setError] = useState('');
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+
+  const runTests = async () => {
+    const key = apiKey.trim();
+    if (!key) { setError('Insere a chave API antes de testar.'); return; }
+    setError('');
+    setResults([]);
+    setLoading(true);
+    try {
+      const data = await apiFetch<{ results: ProbeResult[] }>('/api/admin/test-sports-key', {
+        method: 'POST',
+        body: JSON.stringify({ key, sport, matchId: matchId.trim() || undefined }),
+      });
+      setResults(data?.results || []);
+    } catch (e: any) {
+      setError(e?.message || 'Erro ao contactar o servidor.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const card = `rounded-xl border p-4 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} shadow-sm`;
+
+  return (
+    <div className="space-y-5 max-w-3xl">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">🔑 API Diagnóstico — SportsApiPro</h1>
+      </div>
+
+      {/* Key input */}
+      <div className={card}>
+        <h2 className="font-semibold mb-3 text-sm uppercase tracking-wide text-gray-400">Chave API (x-api-key)</h2>
+        <div className="flex gap-2 items-center">
+          <div className="relative flex-1">
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder="Cole a tua chave SportsApiPro aqui…"
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm font-mono pr-10 ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-red-500`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(s => !s)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+            >
+              {showKey ? '🙈' : '👁️'}
+            </button>
+          </div>
+        </div>
+        <p className={`mt-2 text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+          A chave é enviada ao backend (Railway) para testar os endpoints. Não é guardada no browser.
+        </p>
+      </div>
+
+      {/* Sport + Match ID */}
+      <div className={`${card} grid grid-cols-1 sm:grid-cols-2 gap-4`}>
+        <div>
+          <label className="block text-xs font-semibold mb-1 text-gray-400 uppercase tracking-wide">Desporto</label>
+          <select
+            value={sport}
+            onChange={e => setSport(e.target.value)}
+            className={`w-full px-3 py-2.5 rounded-lg border text-sm ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-red-500`}
+          >
+            {SPORTS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold mb-1 text-gray-400 uppercase tracking-wide">Match ID <span className="normal-case font-normal">(opcional — para testar odds)</span></label>
+          <input
+            type="text"
+            value={matchId}
+            onChange={e => setMatchId(e.target.value)}
+            placeholder="Ex: 1234567"
+            className={`w-full px-3 py-2.5 rounded-lg border text-sm font-mono ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-red-500`}
+          />
+          <p className={`mt-1 text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Copia um ID de evento do Painel de Odds acima para testar odds específicas.</p>
+        </div>
+      </div>
+
+      {/* Run button */}
+      <button
+        onClick={runTests}
+        disabled={loading}
+        className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+      >
+        {loading
+          ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>A testar endpoints…</span></>
+          : '▶  Testar Todos os Endpoints'}
+      </button>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>
+      )}
+
+      {/* Results */}
+      {results.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="font-semibold text-sm uppercase tracking-wide text-gray-400">Resultados</h2>
+          {results.map((r, i) => (
+            <div key={i} className={`rounded-xl border overflow-hidden ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+              <button
+                type="button"
+                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                className={`w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-left ${darkMode ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-gray-50'}`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className={`shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-xs font-bold ${r.ok ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {r.ok ? '✓' : '✗'}
+                  </span>
+                  <span className="truncate font-semibold">{r.label}</span>
+                </div>
+                <div className="flex items-center gap-3 shrink-0 ml-3">
+                  <span className={`text-xs font-mono px-2 py-0.5 rounded ${r.ok ? (darkMode ? 'bg-green-900/40 text-green-300' : 'bg-green-50 text-green-700') : (darkMode ? 'bg-red-900/40 text-red-300' : 'bg-red-50 text-red-700')}`}>
+                    HTTP {r.status || 'ERR'}
+                  </span>
+                  <span className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{r.ms}ms</span>
+                  <span className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{expandedIdx === i ? '▲' : '▼'}</span>
+                </div>
+              </button>
+
+              {expandedIdx === i && (
+                <div className={`px-4 pb-4 border-t text-xs space-y-3 ${darkMode ? 'bg-gray-900 border-gray-700' : 'bg-gray-50 border-gray-100'}`}>
+                  <div className="pt-3">
+                    <span className="font-semibold text-gray-400 uppercase tracking-wide">URL</span>
+                    <p className={`mt-1 font-mono break-all ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{r.url}</p>
+                  </div>
+                  {r.error && (
+                    <div>
+                      <span className="font-semibold text-red-400 uppercase tracking-wide">Erro</span>
+                      <p className="mt-1 text-red-500 font-mono">{r.error}</p>
+                    </div>
+                  )}
+                  {r.keys.length > 0 && (
+                    <div>
+                      <span className="font-semibold text-gray-400 uppercase tracking-wide">Chaves JSON topo</span>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {r.keys.map(k => (
+                          <span key={k} className={`px-2 py-0.5 rounded font-mono ${darkMode ? 'bg-gray-700 text-teal-300' : 'bg-teal-50 text-teal-700 border border-teal-200'}`}>{k}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {r.sample && (
+                    <div>
+                      <span className="font-semibold text-gray-400 uppercase tracking-wide">Prévia da resposta</span>
+                      <pre className={`mt-1 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap break-all leading-relaxed ${darkMode ? 'bg-gray-800 text-gray-300' : 'bg-white text-gray-700 border border-gray-200'}`}>
+                        {r.sample}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* Summary */}
+          <div className={`rounded-xl p-4 text-sm ${darkMode ? 'bg-gray-800' : 'bg-gray-50 border border-gray-200'}`}>
+            <div className="flex gap-6">
+              <span><span className="font-bold text-green-600">{results.filter(r => r.ok).length}</span> <span className={darkMode ? 'text-gray-400' : 'text-gray-500'}>OK</span></span>
+              <span><span className="font-bold text-red-600">{results.filter(r => !r.ok).length}</span> <span className={darkMode ? 'text-gray-400' : 'text-gray-500'}>Erro</span></span>
+              <span><span className="font-bold">{Math.round(results.reduce((s, r) => s + r.ms, 0) / results.length)}ms</span> <span className={darkMode ? 'text-gray-400' : 'text-gray-500'}>média</span></span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -367,6 +559,8 @@ const AdminPanel: React.FC = () => {
               </div>
             </div>
           )}
+
+          {tab === 'api' && <ApiDiagTab darkMode={darkMode} />}
 
           {tab === 'settings' && (
             <div>

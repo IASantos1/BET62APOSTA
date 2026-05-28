@@ -4,6 +4,32 @@ import { readJsonBody, sendJson, badRequest, unauthorized, forbid } from '../lib
 import { requireUser, isAdmin } from '../lib/auth';
 import type { EventsService } from './events';
 
+interface TestKeyBody { key: string; sport?: string; matchId?: string }
+
+function toSub(sport: string): string {
+  const s = String(sport || '').toLowerCase().replace(/[_\s]+/g, '-').replace(/[^a-z0-9-]/g, '');
+  if (s === 'football' || s === 'futebol' || s === 'soccer') return 'football';
+  if (s === 'ice-hockey' || s === 'hockey' || s === 'icehockey') return 'hockey';
+  return s || 'football';
+}
+
+async function probeUrl(url: string, key: string): Promise<{ url: string; status: number; ok: boolean; ms: number; keys: string[]; sample: string; error?: string }> {
+  const t0 = Date.now();
+  try {
+    const r = await fetch(url, { headers: { 'x-api-key': key, accept: 'application/json' }, signal: AbortSignal.timeout(10000) });
+    const text = await r.text().catch(() => '');
+    const ms = Date.now() - t0;
+    let keys: string[] = [];
+    try {
+      const j = JSON.parse(text);
+      if (j && typeof j === 'object') keys = Object.keys(j).slice(0, 20);
+    } catch { /* not json */ }
+    return { url, status: r.status, ok: r.ok, ms, keys, sample: text.slice(0, 400) };
+  } catch (e: any) {
+    return { url, status: 0, ok: false, ms: Date.now() - t0, keys: [], sample: '', error: String(e?.message || e) };
+  }
+}
+
 type ToggleOperatorBody = { is_operator?: boolean };
 type EditOddsBody = { home_odd?: number; draw_odd?: number; away_odd?: number };
 
@@ -114,6 +140,29 @@ export async function handleAdminRoutes(
     const eventsCount = eventsList.length;
     const withH2h = eventsList.filter((e: any) => Number(e.home_odd || 0) > 1 && Number(e.away_odd || 0) > 1).length;
     sendJson(res, 200, { events: eventsCount, imported_odds: withH2h, live: eventsList.filter((e: any) => Number(e.is_live || 0) === 1).length, bets: 0 });
+    return true;
+  }
+
+  if (req.method === 'POST' && path === '/api/admin/test-sports-key') {
+    const body = await readJsonBody<TestKeyBody>(req).catch(() => null);
+    if (!body?.key) return badRequest(res, 'Missing key'), true;
+    const key = String(body.key).trim();
+    const sport = String(body.sport || 'soccer').trim() || 'soccer';
+    const matchId = String(body.matchId || '').trim();
+    const sub = toSub(sport);
+    const today = new Date().toISOString().slice(0, 10);
+    const probes: Array<{ label: string; url: string }> = [
+      { label: `Schedule (${sport} - hoje)`,    url: `https://v2.${sub}.sportsapipro.com/api/events/schedule?date=${today}` },
+      { label: `Live events (${sport})`,         url: `https://v2.${sub}.sportsapipro.com/api/events/live` },
+    ];
+    if (matchId) {
+      probes.push({ label: `Odds All   (id=${matchId})`,       url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/all` });
+      probes.push({ label: `Odds Live  (id=${matchId})`,       url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/live` });
+      probes.push({ label: `Odds PreMatch (id=${matchId})`,    url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/pre-match` });
+      probes.push({ label: `Match Stats (id=${matchId})`,      url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/statistics` });
+    }
+    const results = await Promise.all(probes.map(async (p) => ({ label: p.label, ...(await probeUrl(p.url, key)) })));
+    sendJson(res, 200, { results });
     return true;
   }
 
