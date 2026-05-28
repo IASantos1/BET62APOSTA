@@ -309,7 +309,7 @@ export function useSportsEvents(category: string | null) {
         } else if (rawSport.includes('afl')) { 
           sportParam = 'afl'; 
         } else { 
-          sportParam = rawSport === 'soccer-all' || rawSport === 'todos' ? 'soccer' : rawSport; 
+          sportParam = rawSport === 'soccer-all' || rawSport === 'todos' ? 'all' : rawSport; 
         } 
  
         params.set('sports', sportParam); 
@@ -320,7 +320,7 @@ export function useSportsEvents(category: string | null) {
         }
                 params.set('include', 'odds'); 
                 params.set('realtime', '0');
-        params.set('days', '3');
+        params.set('days', '7');
         // params.set('_ts', Date.now().toString()); // Disabled for aggressive caching as requested
  
                 const url = `/api/events/by-sport?${params.toString()}`;
