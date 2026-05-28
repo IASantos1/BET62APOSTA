@@ -494,7 +494,10 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const preBudget = { remaining: realtime ? 0 : pregame.length };
     const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
     const preEnriched = await mapLimit(pregame, 10, (x) => enrichEventOdds(x, preBudget, fullMarkets));
-    return { live: liveEnriched, pregame: preEnriched };
+
+    // Block events without odds — only show events that have at least h2h odds
+    const hasOdds = (e: any) => Number(e?.home_odd) > 1 && Number(e?.away_odd) > 1;
+    return { live: liveEnriched.filter(hasOdds), pregame: preEnriched.filter(hasOdds) };
   };
 
   const handleEventsRoutes = async (req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<boolean> => {
