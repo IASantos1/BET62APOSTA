@@ -13,6 +13,29 @@ import { createLiveWs } from './ws/liveWs';
 
 const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 4000);
 
+const loadEnvFile = (filePath: string) => {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    for (const line of raw.split('\n')) {
+      const s = line.trim();
+      if (!s || s.startsWith('#')) continue;
+      const idx = s.indexOf('=');
+      if (idx <= 0) continue;
+      const k = s.slice(0, idx).trim();
+      let v = s.slice(idx + 1).trim();
+      if (!k) continue;
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+      if (process.env[k] == null || process.env[k] === '') process.env[k] = v;
+    }
+  } catch {
+    void 0;
+  }
+};
+
+loadEnvFile(path.resolve(process.cwd(), 'env', '.env'));
+loadEnvFile(path.resolve(process.cwd(), '.env'));
+
 const pool = createPool();
 await ensureSchema(pool);
 
