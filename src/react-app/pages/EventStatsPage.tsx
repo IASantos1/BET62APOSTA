@@ -168,7 +168,8 @@ export default function EventStatsPage() {
 
     const fetchStats = async () => {
       try {
-        const data = await apiFetch<any>(`/api/events/${id}/stats`)
+        const sportArg = (event as any)?.sport ? `?sport=${encodeURIComponent(String((event as any).sport))}` : '';
+        const data = await apiFetch<any>(`/api/events/${id}/stats${sportArg}`)
         if (data) setLiveStats({ stats: data.stats ?? [], events: data.events ?? [] })
       } catch {
         /* empty */
