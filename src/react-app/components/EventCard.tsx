@@ -402,18 +402,53 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                   return (
                     <div className="flex flex-col gap-1">
                       {(() => {
-                        const showSets = !!tennisScore?.hasAnySet;
+                        const statusShort = String(event?.status ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
+                        const statusLong = String(event?.fixture?.status?.long ?? (event as any)?.status_long ?? '').toUpperCase().trim();
+                        const setNumFromStatus = (() => {
+                          const m1 = statusShort.match(/^S(\d)$/);
+                          if (m1) return Number(m1[1]);
+                          const m2 = statusLong.match(/\bSET\s*(\d)\b/);
+                          if (m2) return Number(m2[1]);
+                          const m3 = statusShort.match(/\bSET\s*(\d)\b/);
+                          if (m3) return Number(m3[1]);
+                          const m4 = statusShort.match(/\b(\d)(?:ST|ND|RD|TH)\s+SET\b/);
+                          if (m4) return Number(m4[1]);
+                          const m5 = statusLong.match(/\b(\d)(?:ST|ND|RD|TH)\s+SET\b/);
+                          if (m5) return Number(m5[1]);
+                          return 0;
+                        })();
+
                         const setsAll = tennisScore ? [tennisScore.s1, tennisScore.s2, tennisScore.s3, tennisScore.s4, tennisScore.s5] : [];
-                        const sets = setsAll.slice(0, 3);
+                        let maxWithAny = 0;
+                        for (let i = 0; i < Math.min(5, setsAll.length); i++) {
+                          const s = setsAll[i];
+                          if (!s) continue;
+                          if (s.home != null || s.away != null) maxWithAny = i + 1;
+                        }
+
+                        const maxCols = 3;
+                        const cols =
+                          isLiveEvent
+                            ? Math.min(maxCols, Math.max(1, setNumFromStatus || 1, maxWithAny))
+                            : Math.min(maxCols, maxWithAny);
+                        const showSets = cols > 0 && (isLiveEvent || !!tennisScore?.hasAnySet);
+                        const sets = setsAll.slice(0, cols || 0);
 
                         return (
-                          <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,1rem)_auto] gap-x-1 gap-y-1 items-center tabular-nums">
+                          <div
+                            className="grid gap-x-1 gap-y-1 items-center tabular-nums"
+                            style={{
+                              gridTemplateColumns: showSets ? `minmax(0,1fr) repeat(${cols}, 1.25rem) auto` : `minmax(0,1fr) auto`,
+                            }}
+                          >
                             {showSets ? (
                               <>
                                 <span />
-                                <span className={`text-[10px] font-bold text-right ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>S1</span>
-                                <span className={`text-[10px] font-bold text-right ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>S2</span>
-                                <span className={`text-[10px] font-bold text-right ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>S3</span>
+                                {Array.from({ length: cols }).map((_, i) => (
+                                  <span key={`hdr-s-${i + 1}`} className={`text-[10px] font-bold text-right ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                                    {`S${i + 1}`}
+                                  </span>
+                                ))}
                                 <span />
                               </>
                             ) : null}
@@ -430,17 +465,13 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                                     sets.map((s, idx) => {
                                       const val = side === 'home' ? s.home : s.away;
                                       return (
-                                        <span key={`${side}-s-${idx}`} className={`w-4 text-right text-xs font-bold ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                                        <span key={`${side}-s-${idx}`} className={`text-right text-xs font-bold ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
                                           {val ?? ''}
                                         </span>
                                       );
                                     })
                                   ) : (
-                                    <>
-                                      <span />
-                                      <span />
-                                      <span />
-                                    </>
+                                    null
                                   )}
                                   {isLiveEvent && point ? (
                                     <span className={`ml-1 px-1 rounded text-[10px] font-extrabold ${darkMode ? 'bg-gray-700 text-gray-100' : 'bg-gray-200 text-gray-900'}`}>

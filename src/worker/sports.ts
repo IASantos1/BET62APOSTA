@@ -155,9 +155,13 @@ function formatEvent(r: any): any {
   let away_odd = Number(r.away_odd) || 0;
 
   const goals = { home: null as number | null, away: null as number | null };
+  let scoreObj: any = null;
   try {
-    const sc = r.score ? JSON.parse(r.score) : null;
-    if (sc) { goals.home = sc.home ?? null; goals.away = sc.away ?? null; }
+    scoreObj = r.score ? JSON.parse(r.score) : null;
+    if (scoreObj && typeof scoreObj === 'object') {
+      goals.home = scoreObj.home ?? null;
+      goals.away = scoreObj.away ?? null;
+    }
   } catch { /* empty */ }
 
   const statusShort = String(r.status || 'NS').trim();
@@ -201,7 +205,9 @@ function formatEvent(r: any): any {
   }
 
   const elapsedNum = Number(r.elapsed) || 0;
-  const timerStr = String(r.timer || '').trim() || (elapsedNum > 0 ? `${elapsedNum}'` : '');
+  const timerStr =
+    String(r.timer || '').trim() ||
+    (elapsedNum > 0 ? (sport === 'soccer' ? `${elapsedNum}'` : String(elapsedNum)) : '');
 
   return {
     id,
@@ -219,7 +225,7 @@ function formatEvent(r: any): any {
     elapsed:    elapsedNum,
     timer:      timerStr,
     goals,
-    score:      goals,
+    score:      scoreObj && typeof scoreObj === 'object' ? scoreObj : goals,
     home_odd,
     draw_odd,
     away_odd,

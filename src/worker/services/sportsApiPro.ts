@@ -223,6 +223,28 @@ function extractTennisSets(e: any): Record<string, { home: number | null; away: 
   return out;
 }
 
+function parseTennisSetFromStatus(statusObj: any): number {
+  const raw =
+    typeof statusObj === 'string'
+      ? statusObj
+      : String(
+          statusObj?.description ??
+            statusObj?.type ??
+            statusObj?.short ??
+            statusObj?.long ??
+            statusObj?.status ??
+            ''
+        );
+  const s = String(raw || '').toUpperCase().trim();
+  const m1 = s.match(/^S(\d)\b/);
+  if (m1) return Number(m1[1]);
+  const m2 = s.match(/\bSET\s*(\d)\b/);
+  if (m2) return Number(m2[1]);
+  const m3 = s.match(/\b(\d)(?:ST|ND|RD|TH)\s+SET\b/);
+  if (m3) return Number(m3[1]);
+  return 0;
+}
+
 function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   const id = e?.id != null ? String(e.id) : '';
   if (!id) return null;
@@ -249,12 +271,34 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   const as = pickScore(e?.awayScore?.current ?? e?.awayScore) ?? null;
 
   let tennisSetInPlay = 0;
+  let sanitizedSets: Record<string, { home: number | null; away: number | null }> | null = tennisSets;
   if (tennisSets && live) {
+    const fromStatus = parseTennisSetFromStatus(statusObj);
+    let derived = 0;
     for (let i = 1; i <= 5; i++) {
       const x = (tennisSets as any)[`s${i}`];
       if (!x) continue;
-      if (x.home != null || x.away != null) tennisSetInPlay = i;
+      const sum = Number(x.home ?? 0) + Number(x.away ?? 0);
+      if (sum > 0) derived = i;
     }
+    tennisSetInPlay = fromStatus || derived || 1;
+
+    const out: Record<string, { home: number | null; away: number | null }> = {};
+    for (let i = 1; i <= 5; i++) {
+      const x = (tennisSets as any)[`s${i}`];
+      if (!x) continue;
+      let home = x.home ?? null;
+      let away = x.away ?? null;
+      if (i > tennisSetInPlay) {
+        home = null;
+        away = null;
+      } else if (i < tennisSetInPlay && home === 0 && away === 0) {
+        home = null;
+        away = null;
+      }
+      out[`s${i}`] = { home, away };
+    }
+    sanitizedSets = out;
   }
 
   return {
@@ -272,7 +316,7 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
     away_odd: 0,
     elapsed: t.elapsed,
     timer: t.timer,
-    score: JSON.stringify({ home: hs, away: as, ...(tennisSets ? { sets: tennisSets } : {}) }),
+    score: JSON.stringify({ home: hs, away: as, ...(sanitizedSets ? { sets: sanitizedSets } : {}) }),
     markets: '{}',
     country: String(country || ''),
     home_team_logo: String(e?.homeTeam?.logo ?? ''),
