@@ -197,11 +197,16 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         rememberSport(matchId, s);
         return s;
       }
-      const date = ymd(new Date());
-      const list = await fetchSchedule(s, date).catch(() => []);
-      if (list.some((e: any) => String(e.id) === String(matchId))) {
-        rememberSport(matchId, s);
-        return s;
+      const days = 7;
+      for (let i = 0; i < days; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() + i);
+        const date = ymd(d);
+        const list = await fetchSchedule(s, date).catch(() => []);
+        if (list.some((e: any) => String(e.id) === String(matchId))) {
+          rememberSport(matchId, s);
+          return s;
+        }
       }
     }
     return null;
@@ -328,11 +333,11 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const key = `${sport}:${matchId}`;
     const cached = oddsCache.get(key);
 
-    if (cached && ttlOk(cached.ts, ODDS_FRESH_TTL_MS)) {
+    if (cached && cached.data != null && ttlOk(cached.ts, ODDS_FRESH_TTL_MS)) {
       return cached.data;
     }
 
-    if (cached && ttlOk(cached.ts, ODDS_STALE_TTL_MS)) {
+    if (cached && cached.data != null && ttlOk(cached.ts, ODDS_STALE_TTL_MS)) {
       if (refreshBudget && refreshBudget.remaining > 0 && !oddsInflight.has(key)) {
         refreshBudget.remaining -= 1;
         fetchOddsStrict(sport, matchId, ctx).catch(() => null);
@@ -340,6 +345,10 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         queueOddsRefresh(sport, matchId);
       }
       return cached.data;
+    }
+
+    if (cached && cached.data == null) {
+      queueOddsRefresh(sport, matchId);
     }
 
     if (refreshBudget && refreshBudget.remaining <= 0) {
