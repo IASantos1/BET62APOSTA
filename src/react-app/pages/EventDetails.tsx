@@ -156,9 +156,10 @@ export default function EventDetails() {
       }
       inflight = true;
       try {
-        const data = await apiFetch<any>(`/api/events/${id}/odds?realtime=1`, { cache: 'no-store' });
+        const sportParam = (displayEvent as any)?.sport ? `&sport=${encodeURIComponent(String((displayEvent as any).sport))}` : '';
+        const data = await apiFetch<any>(`/api/events/${id}/odds?realtime=1${sportParam}`, { cache: 'no-store' });
         if (!cancelled && data) {
-          if (data.markets) setRealtimeOdds(data.markets);
+          if (data.markets && Object.keys(data.markets).length > 0) setRealtimeOdds(data.markets);
           setOddsSuspended(!!data.suspended);
           setOddsSuspendedReason(String(data.suspended_reason || ''));
         }
