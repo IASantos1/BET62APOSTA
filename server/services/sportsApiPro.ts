@@ -499,14 +499,15 @@ export async function fetchSportsApiProSchedule(apiKey: string, sport: string, d
 
 function extractOddsAll(payload: any): any[] {
   if (!payload) return [];
-  if (Array.isArray(payload.odds)) return payload.odds;
-  if (Array.isArray(payload.data?.odds)) return payload.data.odds;
-  if (Array.isArray(payload.markets)) return payload.markets;
-  if (Array.isArray(payload.data?.markets)) return payload.data.markets;
+  // SportsApiPro v2 primary format: { data: { markets: [...] } }
+  if (Array.isArray(payload.data?.markets) && payload.data.markets.length > 0) return payload.data.markets;
+  if (Array.isArray(payload.markets) && payload.markets.length > 0) return payload.markets;
+  if (Array.isArray(payload.odds) && payload.odds.length > 0) return payload.odds;
+  if (Array.isArray(payload.data?.odds) && payload.data.odds.length > 0) return payload.data.odds;
   // Handle providerOdds as object with markets array
   if (Array.isArray(payload.providerOdds?.markets)) return payload.providerOdds.markets;
   if (Array.isArray(payload.data?.providerOdds?.markets)) return payload.data.providerOdds.markets;
-  // Handle providerOdds as array of provider objects (common SportsApiPro format)
+  // Handle providerOdds as array of provider objects
   if (Array.isArray(payload.providerOdds)) {
     for (const p of payload.providerOdds) {
       if (Array.isArray(p?.markets) && p.markets.length > 0) return p.markets;
@@ -523,7 +524,6 @@ function extractOddsAll(payload: any): any[] {
   }
   if (Array.isArray(payload.data?.lines)) return payload.data.lines;
   if (Array.isArray(payload.data?.providerOdds?.odds)) return payload.data.providerOdds.odds;
-  // Handle top-level lines or selections array
   if (Array.isArray(payload.lines)) return payload.lines;
   if (Array.isArray(payload.data?.selections)) return payload.data.selections;
   return [];
@@ -549,12 +549,13 @@ function pickLineValue(x: any): string | null {
   const v =
     x?.lineValue ??
     x?.line_value ??
-    x?.value ??
+    x?.choiceGroup ??       // SportsApiPro v2: spread/total line value
     x?.handicap ??
     x?.handicapValue ??
     x?.total ??
     x?.totalValue ??
     x?.spread ??
+    x?.value ??
     null;
   if (v == null) return null;
   const s = String(v).trim();
@@ -609,22 +610,90 @@ function formatSelectionName(marketKey: string, optionName: string, point: strin
   return base;
 }
 
-function marketKeyFromOddsAll(lineType: string, lineName: string): string {
+// marketKeyFromOddsAll accepts both lineType/lineName (legacy) AND
+// marketGroup/marketName/marketPeriod (SportsApiPro v2 format).
+// Extra params: marketGroup and marketPeriod from the SportsApiPro row.
+function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: string, marketPeriod?: string): string {
   const t = normalizeLineType(lineType);
   const n = normalizeLineName(lineName);
+  const g = normalizeLineName(marketGroup || '');   // e.g. "home away", "over under", "point spread"
+  const p = normalizeLineName(marketPeriod || '');  // e.g. "match", "1st half", "1st period", "current set"
 
-  // Half-time markets (must be checked BEFORE generic 1X2 detection)
-  if (n === '1st half' || n === 'first half' || n.includes('1st half') || n.includes('first half')) return '1st_half';
-  if (n === '2nd half' || n === 'second half' || n.includes('2nd half') || n.includes('second half')) return '2nd_half';
+  // ── SportsApiPro v2 period-based markets (checked FIRST) ──────────────────
+  if (p === '1st half' || p === 'first half') {
+    if (g.includes('over') || g.includes('under') || n.includes('total')) return '1st_half_totals';
+    return '1st_half';
+  }
+  if (p === '2nd half' || p === 'second half') {
+    if (g.includes('over') || g.includes('under') || n.includes('total')) return '2nd_half_totals';
+    return '2nd_half';
+  }
+  if (p === '1st period' || p === 'first period') {
+    if (g.includes('over') || g.includes('under') || n.includes('total')) return 'period_1_totals';
+    return 'period_1_h2h';
+  }
+  if (p === '2nd period' || p === 'second period') {
+    if (g.includes('over') || g.includes('under') || n.includes('total')) return 'period_2_totals';
+    return 'period_2_h2h';
+  }
+  if (p === '3rd period' || p === 'third period') {
+    if (g.includes('over') || g.includes('under') || n.includes('total')) return 'period_3_totals';
+    return 'period_3_h2h';
+  }
+  if (p === '1st quarter' || p === 'first quarter') return g.includes('over') || g.includes('under') ? 'q1_totals' : 'q1_h2h';
+  if (p === '2nd quarter' || p === 'second quarter') return g.includes('over') || g.includes('under') ? 'q2_totals' : 'q2_h2h';
+  if (p === '3rd quarter' || p === 'third quarter') return g.includes('over') || g.includes('under') ? 'q3_totals' : 'q3_h2h';
+  if (p === '4th quarter' || p === 'fourth quarter') return g.includes('over') || g.includes('under') ? 'q4_totals' : 'q4_h2h';
+  if (p === 'current set' || p.includes('current set')) {
+    if (g.includes('winner') || n.includes('winner')) return 'current_set_winner';
+    if (g.includes('over') || g.includes('under') || n.includes('total')) return 'current_set_totals';
+  }
+  if (p === '1st set' || p === 'first set') return g.includes('over') || g.includes('under') ? 'set_1_totals' : 'set_1_h2h';
+  if (p === '2nd set' || p === 'second set') return g.includes('over') || g.includes('under') ? 'set_2_totals' : 'set_2_h2h';
+  if (p === '3rd set' || p === 'third set') return g.includes('over') || g.includes('under') ? 'set_3_totals' : 'set_3_h2h';
+  if (p.includes('inning')) return g.includes('over') || g.includes('under') ? 'innings_totals' : 'innings_h2h';
 
-  // Tennis set winner markets
-  if ((n.includes('first set') || n.includes('1st set')) && n.includes('winner')) return 'first_set_h2h';
-  if ((n.includes('second set') || n.includes('2nd set')) && n.includes('winner')) return 'second_set_h2h';
-  if ((n.includes('third set') || n.includes('3rd set')) && n.includes('winner')) return 'third_set_h2h';
+  // ── SportsApiPro v2 marketGroup-based markets ─────────────────────────────
+  if (g === 'home away' || g === 'home away') {
+    // Full time Home/Away (no draw for tennis/basketball/baseball/hockey)
+    if (n === 'full time' || n === 'match' || !n || p === 'match') return 'h2h';
+  }
+  if (g === 'home draw away' || g === 'home draw away') return 'h2h';
+  if (g === 'over under' || g === 'overunder') {
+    if (n.includes('game') || n.includes('total game')) return 'match_total_games';
+    if (n.includes('set') || n.includes('total set')) return 'total_sets';
+    if (n.includes('corner')) return 'corners_total';
+    if (n.includes('card')) return 'cards_total';
+    return 'totals';
+  }
+  if (g === 'point spread' || g === 'pointspread') return 'spreads';
+  if (g === 'asian handicap' || g === 'asianhandicap') return 'spreads';
+  if (g === 'double chance' || g === 'doublechance') return 'double_chance';
+  if (g === 'both teams to score' || g === 'bothteamstoscore') return 'btts';
+  if (g === 'correct score' || g === 'correctscore') return 'correct_score';
+  if (g === 'draw no bet' || g === 'drawnabet') return 'draw_no_bet';
+  if (g === 'puck line' || g === 'puckline') return 'puck_line';
+  if (g === 'run line' || g === 'runline') return 'run_line';
+  if (g.includes('total sets') || g.includes('total set') || g.includes('total sets games')) return 'total_sets';
+  if (g.includes('total game') || g.includes('game total')) return 'match_total_games';
+  if (g.includes('current set winner')) return 'current_set_winner';
+  if (g.includes('winner') && g.includes('set')) return 'current_set_winner';
+
+  // marketName based (SportsApiPro)
+  if (n === 'full time' && !marketGroup) return 'h2h';
+  if (n === 'game total') return 'totals';
+  if (n === 'point spread') return 'spreads';
+  if (n === 'total games won' || n === 'total games') return 'match_total_games';
+  if (n === 'current set winner') return 'current_set_winner';
+
+  // ── Legacy lineType / lineName mapping ────────────────────────────────────
+  if (n.includes('1st half') || n.includes('first half')) return '1st_half';
+  if (n.includes('2nd half') || n.includes('second half')) return '2nd_half';
+  if ((n.includes('first set') || n.includes('1st set')) && n.includes('winner')) return 'set_1_h2h';
+  if ((n.includes('second set') || n.includes('2nd set')) && n.includes('winner')) return 'set_2_h2h';
+  if ((n.includes('third set') || n.includes('3rd set')) && n.includes('winner')) return 'set_3_h2h';
   if (n.includes('set winner') && !n.includes('first') && !n.includes('second') && !n.includes('third')) return 'current_set_winner';
-
-  // Tennis total games
-  if (n === 'total games won' || n === 'total games' || (n.includes('total') && n.includes('games'))) return 'match_total_games';
+  if ((n.includes('total') && n.includes('games')) || n === 'total games won') return 'match_total_games';
   if (n.includes('total sets') || n === 'number of sets') return 'total_sets';
 
   if (n === '1x2' || n === 'full time result' || n === 'fulltime result') return 'h2h';
@@ -637,7 +706,7 @@ function marketKeyFromOddsAll(lineType: string, lineName: string): string {
   if (t === 'doublechance') return 'double_chance';
   if (t === 'correctscore' || t === 'scoreexact' || t === 'setbetting') return 'correct_score';
   if (t === 'totalgoals' || t === 'overunder' || t === 'asianoverunder') return 'totals';
-  if (t === 'totalpoints' || t === 'totalruns') return 'totals';
+  if (t === 'totalpoints' || t === 'totalruns' || t === 'gametotal') return 'totals';
   if (t === 'teamtotalpoints' || t === 'teamtotalruns' || t === 'teamtotalgoals') return 'team_totals';
   if (t === 'asianhandicap' || t === 'pointspread') return 'spreads';
   if (t === 'handicap' || t === 'europeanhandicap') return 'handicap';
@@ -648,9 +717,9 @@ function marketKeyFromOddsAll(lineType: string, lineName: string): string {
   if (t === 'sethandicap') return 'sets_handicap';
   if (t === 'totalsets' || t === 'overundersets' || t === 'overunderset') return 'total_sets';
 
-  if (t.includes('firstperiod') || n.includes('1st period') || n.includes('first period')) return (t.includes('total') || t === 'overunder') ? 'period_1_totals' : 'period_1_h2h';
-  if (t.includes('secondperiod') || n.includes('2nd period') || n.includes('second period')) return (t.includes('total') || t === 'overunder') ? 'period_2_totals' : 'period_2_h2h';
-  if (t.includes('thirdperiod') || n.includes('3rd period') || n.includes('third period')) return (t.includes('total') || t === 'overunder') ? 'period_3_totals' : 'period_3_h2h';
+  if (t.includes('firstperiod') || n.includes('1st period') || n.includes('first period')) return (t.includes('total') || g.includes('over')) ? 'period_1_totals' : 'period_1_h2h';
+  if (t.includes('secondperiod') || n.includes('2nd period') || n.includes('second period')) return (t.includes('total') || g.includes('over')) ? 'period_2_totals' : 'period_2_h2h';
+  if (t.includes('thirdperiod') || n.includes('3rd period') || n.includes('third period')) return (t.includes('total') || g.includes('over')) ? 'period_3_totals' : 'period_3_h2h';
 
   if (t.includes('quarter') || n.includes('quarter')) {
     if (t.includes('winner') || n.includes('winner')) return 'quarters_h2h';
@@ -772,7 +841,9 @@ async function fetchSportsApiProMatchOddsGeneric(
   };
 
   for (const row of rows) {
-    const lineType = row?.lineType ?? row?.type ?? row?.line_type ?? row?.marketGroup ?? row?.market_group ?? '';
+    // SportsApiPro v2 uses: marketName, marketGroup, marketPeriod, choices[].fractionalValue
+    // Legacy formats use: lineType, lineName, options[].rate/odd/price
+    const lineType = row?.lineType ?? row?.type ?? row?.line_type ?? '';
     const lineName =
       row?.lineName ??
       row?.name ??
@@ -782,8 +853,12 @@ async function fetchSportsApiProMatchOddsGeneric(
       row?.market?.name ??
       row?.market?.title ??
       '';
-    const key = marketKeyFromOddsAll(String(lineType || ''), String(lineName || ''));
+    const marketGroup = row?.marketGroup ?? row?.market_group ?? '';
+    const marketPeriod = row?.marketPeriod ?? row?.market_period ?? row?.period ?? '';
+    const key = marketKeyFromOddsAll(String(lineType || ''), String(lineName || ''), String(marketGroup || ''), String(marketPeriod || ''));
     if (!key) continue;
+    // Skip suspended markets
+    if (row?.suspended === true || row?.suspended === 1 || row?.suspended === '1') continue;
     const point = pickLineValue(row);
     const options =
       Array.isArray(row?.options) ? row.options :
@@ -793,8 +868,14 @@ async function fetchSportsApiProMatchOddsGeneric(
       Array.isArray(row?.values) ? row.values :
       [];
     for (const opt of options) {
+      if (opt?.suspended === true || opt?.suspended === 1) continue;
       const rawName = opt?.name ?? opt?.label ?? opt?.option ?? opt?.value ?? '';
-      const odd = parseOddDecimal(opt?.rate ?? opt?.odd ?? opt?.price ?? opt?.decimalValue ?? opt?.decimal ?? opt?.fractionalValue ?? opt?.value);
+      // SportsApiPro v2: fractionalValue is the current live/prematch odd (string like "17/5")
+      // initialFractionalValue is the opening odd — we want the current one
+      const odd = parseOddDecimal(
+        opt?.rate ?? opt?.odd ?? opt?.price ?? opt?.decimalValue ?? opt?.decimal ??
+        opt?.fractionalValue ?? opt?.initialFractionalValue ?? opt?.value
+      );
       const pointForName = point && !hasNumericPointInName(String(rawName || ''), point) ? point : null;
       const value = formatSelectionName(key, String(rawName || ''), pointForName);
       addSelection(key, value, odd, point);
