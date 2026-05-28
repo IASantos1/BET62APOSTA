@@ -420,23 +420,32 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     league: string | null,
     realtime: boolean,
     fullMarkets: boolean,
+    only: 'live' | 'pregame' | 'both',
+    daysAhead: number,
   ): Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }> => {
     startOddsQueue();
     const sports = getSports(sportsParam);
     const liveAll: AnyEvent[] = [];
     const preAll: AnyEvent[] = [];
 
-    for (const s of sports) {
-      const live = await fetchLive(s);
-      liveAll.push(...live.filter((e: any) => Number(e?.is_live || 0) === 1));
+    const includeLive = only === 'both' || only === 'live';
+    const includePregame = only === 'both' || only === 'pregame';
 
-      const days = 14;
-      for (let i = 0; i < days; i++) {
-        const d = new Date();
-        d.setDate(d.getDate() + i);
-        const date = ymd(d);
-        const sched = await fetchSchedule(s, date);
-        preAll.push(...sched.filter((e: any) => Number(e?.is_live || 0) === 0));
+    for (const s of sports) {
+      if (includeLive) {
+        const live = await fetchLive(s);
+        liveAll.push(...live.filter((e: any) => Number(e?.is_live || 0) === 1));
+      }
+
+      if (includePregame) {
+        const days = Math.max(0, Math.min(14, Number.isFinite(daysAhead) ? daysAhead : 0));
+        for (let i = 0; i < days; i++) {
+          const d = new Date();
+          d.setDate(d.getDate() + i);
+          const date = ymd(d);
+          const sched = await fetchSchedule(s, date);
+          preAll.push(...sched.filter((e: any) => Number(e?.is_live || 0) === 0));
+        }
       }
     }
 
@@ -482,17 +491,22 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       const includeOdds = String(include || '').toLowerCase().includes('odds');
       const league = url.searchParams.get('league');
       const realtime = String(url.searchParams.get('realtime') || '') === '1';
+      const onlyRaw = String(url.searchParams.get('only') || '').toLowerCase().trim();
+      const only = onlyRaw === 'live' || onlyRaw === 'pregame' ? (onlyRaw as any) : 'both';
+      const daysParam = Number(url.searchParams.get('days') || 0);
+      const daysAhead = Number.isFinite(daysParam) ? Math.max(0, Math.min(14, Math.floor(daysParam))) : 0;
       const fullMarkets =
         String(url.searchParams.get('markets') || '').toLowerCase() === 'full' ||
         String(url.searchParams.get('markets') || '').toLowerCase() === 'all';
-      const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}|fullMarkets:${fullMarkets ? '1' : '0'}`;
+      const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}|fullMarkets:${fullMarkets ? '1' : '0'}|only:${only}|days:${daysAhead}`;
       const cached = bySportCache.get(cacheKey);
       const ttl = realtime ? 2_000 : includeOdds ? 12_000 : 25_000;
       if (cached && ttlOk(cached.ts, ttl)) {
         sendJson(res, 200, cached.data);
         return true;
       }
-      const data = await buildBySport(sports, includeOdds, league, realtime, fullMarkets).catch(() => ({ live: [], pregame: [] }));
+      const defaultDays = only === 'live' ? 0 : 3;
+      const data = await buildBySport(sports, includeOdds, league, realtime, fullMarkets, only, daysAhead || defaultDays).catch(() => ({ live: [], pregame: [] }));
       bySportCache.set(cacheKey, { ts: nowMs(), data });
       sendJson(res, 200, data);
       return true;

@@ -320,6 +320,7 @@ export function useSportsEvents(category: string | null) {
         }
                 params.set('include', 'odds'); 
                 params.set('realtime', '0');
+        params.set('days', '3');
         // params.set('_ts', Date.now().toString()); // Disabled for aggressive caching as requested
  
                 const url = `/api/events/by-sport?${params.toString()}`;
