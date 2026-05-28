@@ -95,7 +95,11 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
 
   const isLiveEvent = useMemo(() => {
     if (Number(event?.is_live || 0) === 1) return true;
-    const status = String(event?.status ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
+    const rawSt = event?.status;
+    const status = (rawSt && typeof rawSt === 'object'
+      ? String((rawSt as any).short ?? (rawSt as any).code ?? '')
+      : String(rawSt ?? event?.fixture?.status?.short ?? '')
+    ).toUpperCase().trim();
     const liveStatuses = new Set([
       '1H', '2H', 'HT', 'ET', 'BT', 'P', 'LIVE',
       'AT', 'ST',
@@ -416,7 +420,7 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                     if (s.home != null || s.away != null) maxWithAny = i + 1;
                   }
 
-                  const maxCols = 3;
+                  const maxCols = 5;
                   const cols =
                     isLiveEvent
                       ? Math.min(maxCols, Math.max(1, setNumFromStatus || 1, maxWithAny))
@@ -631,8 +635,12 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
 
               const elapsed = Number((event as any).elapsed ?? (event as any).fixture?.status?.elapsed ?? (event as any).status?.elapsed ?? 0) || 0;
               const timer = String((event as any).timer || (event as any).fixture?.status?.timer || '').trim();
-              const statusShort = String((event as any).status ?? (event as any).fixture?.status?.short ?? '').trim();
-              const statusLong = String((event as any).fixture?.status?.long ?? (event as any).status_long ?? '').trim();
+              const statusShort = (() => {
+                const raw = (event as any).status;
+                if (raw && typeof raw === 'object') return String((raw as any).short ?? (raw as any).code ?? '');
+                return String(raw ?? (event as any).fixture?.status?.short ?? '');
+              })().trim();
+              const statusLong = String((event as any).fixture?.status?.long ?? (event as any).status_long ?? (event as any).status?.long ?? '').trim();
               const statusU = statusShort.toUpperCase();
 
               const derivedTimer = (() => {
@@ -661,8 +669,17 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
 
                 if (sport === 'basketball') {
                   if (timer && /:/.test(timer)) return timer;
-                  if (cu === 'Q1' || cu === 'Q2' || cu === 'Q3' || cu === 'Q4' || cu === 'OT' || cu === 'HT' || cu === 'FT') return cu;
-                  if (statusU === 'Q1' || statusU === 'Q2' || statusU === 'Q3' || statusU === 'Q4' || statusU === 'OT' || statusU === 'HT') return statusU;
+                  // statusShort takes priority (most reliable)
+                  if (statusU === 'Q1' || statusU === 'Q2' || statusU === 'Q3' || statusU === 'Q4') return statusU;
+                  if (statusU === 'OT') return 'OT';
+                  if (statusU === 'HT') return 'HT';
+                  // Fallback: parse statusLong e.g. "First Quarter", "1st Quarter", "Q1"
+                  if (/\b(1ST|FIRST)\b.*QUARTER|QUARTER.*\b(1ST|FIRST)\b|^Q1$/.test(cu)) return 'Q1';
+                  if (/\b(2ND|SECOND)\b.*QUARTER|QUARTER.*\b(2ND|SECOND)\b|^Q2$/.test(cu)) return 'Q2';
+                  if (/\b(3RD|THIRD)\b.*QUARTER|QUARTER.*\b(3RD|THIRD)\b|^Q3$/.test(cu)) return 'Q3';
+                  if (/\b(4TH|FOURTH)\b.*QUARTER|QUARTER.*\b(4TH|FOURTH)\b|^Q4$/.test(cu)) return 'Q4';
+                  if (/\bOVERTIME\b|\bOT\b/.test(cu)) return 'OT';
+                  if (/\bHALF\s*TIME\b/.test(cu)) return 'HT';
                   return '';
                 }
 

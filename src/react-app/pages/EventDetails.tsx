@@ -300,20 +300,28 @@ export default function EventDetails() {
                 if (!v || typeof v !== 'object') return { home: null, away: null };
                 return { home: toNumOrNull(v.home), away: toNumOrNull(v.away) };
               };
-              const setsRoot = obj.sets || obj.set || {};
-              const sets = [
-                readSetPair(setsRoot.s1 || setsRoot.set1),
-                readSetPair(setsRoot.s2 || setsRoot.set2),
-                readSetPair(setsRoot.s3 || setsRoot.set3),
-                readSetPair(setsRoot.s4 || setsRoot.set4),
-                readSetPair(setsRoot.s5 || setsRoot.set5),
-              ];
+              // Parse sets from multiple possible API key patterns
+              const setsRoot = obj.sets || obj.set || obj;
+              const readSet = (i: number) => {
+                const keys = [`s${i}`, `set${i}`, `set_${i}`, `S${i}`];
+                for (const k of keys) {
+                  const v = setsRoot[k];
+                  if (v && typeof v === 'object') return readSetPair(v);
+                }
+                return readSetPair(null);
+              };
+              const sets = [readSet(1), readSet(2), readSet(3), readSet(4), readSet(5)];
               let last = 0;
               for (let i = 0; i < sets.length; i++) {
                 const s = sets[i];
                 if (s.home != null || s.away != null) last = i + 1;
               }
-              const currentSet = last === 0 ? 1 : Math.min(5, last + 1);
+              // Also derive from statusKey e.g. "S4" = 4th set in progress
+              const statusSetNum = (() => {
+                const m = /^S(\d)$/.exec(statusKey);
+                return m ? Number(m[1]) : 0;
+              })();
+              const currentSet = last === 0 ? (statusSetNum || 1) : Math.min(5, Math.max(statusSetNum, last + 1));
               const count = Math.max(2, Math.min(5, currentSet));
               return { sets, count, currentSet };
             })();

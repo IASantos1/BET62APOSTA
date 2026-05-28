@@ -333,6 +333,8 @@ export function useLiveFeed(sport?: string) {
       ws.onopen = () => {
         wsOk = true;
         setIsConnected(true);
+        // Fetch immediately on WS connect to warm up odds cache quickly
+        fetchLiveEvents().catch(() => void 0);
         if (pingId) clearInterval(pingId);
         pingId = setInterval(() => {
           try { ws?.send(JSON.stringify({ type: 'ping', ts: Date.now() })); } catch { void 0; }
@@ -427,9 +429,13 @@ export function useLiveFeed(sport?: string) {
     };
   }, [fetchLiveEvents, wsUrl]);
 
-  // Convert Map to Array for rendering
+  // Convert Map to Array for rendering — only expose events that have odds
   const liveEvents = useMemo(() => {
-    return Array.from(eventsMap.values());
+    return Array.from(eventsMap.values()).filter((e: any) => {
+      const h = Number(e?.home_odd || 0);
+      const a = Number(e?.away_odd || 0);
+      return h > 1 && a > 1;
+    });
   }, [eventsMap]);
 
   return { 
