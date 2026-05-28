@@ -490,6 +490,10 @@ function extractOddsAll(payload: any): any[] {
   if (!payload) return [];
   if (Array.isArray(payload.odds)) return payload.odds;
   if (Array.isArray(payload.data?.odds)) return payload.data.odds;
+  if (Array.isArray(payload.markets)) return payload.markets;
+  if (Array.isArray(payload.data?.markets)) return payload.data.markets;
+  if (Array.isArray(payload.providerOdds?.markets)) return payload.providerOdds.markets;
+  if (Array.isArray(payload.data?.providerOdds?.markets)) return payload.data.providerOdds.markets;
   if (Array.isArray(payload.data?.lines)) return payload.data.lines;
   if (Array.isArray(payload.data?.providerOdds?.odds)) return payload.data.providerOdds.odds;
   return [];
@@ -712,11 +716,25 @@ async function fetchSportsApiProMatchOddsGeneric(
 
   for (const row of rows) {
     const lineType = row?.lineType ?? row?.type ?? row?.line_type ?? '';
-    const lineName = row?.lineName ?? row?.name ?? row?.marketName ?? row?.market ?? '';
+    const lineName =
+      row?.lineName ??
+      row?.name ??
+      row?.marketName ??
+      row?.market ??
+      row?.market_name ??
+      row?.market?.name ??
+      row?.market?.title ??
+      '';
     const key = marketKeyFromOddsAll(String(lineType || ''), String(lineName || ''));
     if (!key) continue;
     const point = pickLineValue(row);
-    const options = Array.isArray(row?.options) ? row.options : Array.isArray(row?.choices) ? row.choices : [];
+    const options =
+      Array.isArray(row?.options) ? row.options :
+      Array.isArray(row?.choices) ? row.choices :
+      Array.isArray(row?.outcomes) ? row.outcomes :
+      Array.isArray(row?.selections) ? row.selections :
+      Array.isArray(row?.values) ? row.values :
+      [];
     for (const opt of options) {
       const rawName = opt?.name ?? opt?.label ?? opt?.option ?? opt?.value ?? '';
       const odd = parseOddDecimal(opt?.rate ?? opt?.odd ?? opt?.price ?? opt?.decimalValue ?? opt?.decimal ?? opt?.value);
