@@ -189,7 +189,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     if (oddsQueueStarted) return;
     oddsQueueStarted = true;
     setInterval(() => {
-      if (oddsQueueInFlight >= 2) return;
+      if (oddsQueueInFlight >= 6) return;
       const next = oddsQueue.shift();
       if (!next) return;
       const key = `${next.sport}:${next.matchId}`;
@@ -200,7 +200,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
           oddsQueueInFlight -= 1;
           oddsQueued.delete(key);
         });
-    }, 250);
+    }, 120);
   };
 
   const fetchLive = async (sport: string): Promise<AnyEvent[]> => {
@@ -260,17 +260,17 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     if (inflight) return inflight;
     const p = (async () => {
       const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam };
-      if (!ctx.forceAll) {
-        if (ctx.isLive) {
-          const live = await fetchSportsApiProMatchOddsLive(apiKey, sport, matchId, opts).catch(() => null);
-          if (live) return live;
-        } else {
-          const pre = await fetchSportsApiProMatchOddsPreMatch(apiKey, sport, matchId, opts).catch(() => null);
-          if (pre) return pre;
-        }
-      }
       const all = await fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, opts).catch(() => null);
-      return all;
+      if (all) return all;
+      if (ctx.forceAll) return null;
+      if (ctx.isLive) {
+        const live = await fetchSportsApiProMatchOddsLive(apiKey, sport, matchId, opts).catch(() => null);
+        if (live) return live;
+      } else {
+        const pre = await fetchSportsApiProMatchOddsPreMatch(apiKey, sport, matchId, opts).catch(() => null);
+        if (pre) return pre;
+      }
+      return null;
     })()
       .then((odds) => {
         oddsCache.set(key, { ts: nowMs(), data: odds });
@@ -420,9 +420,10 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     for (const e of live) queueOddsRefresh(String((e as any)?.sport || ''), String((e as any)?.id || ''));
     for (const e of pregame) queueOddsRefresh(String((e as any)?.sport || ''), String((e as any)?.id || ''));
 
-    const refreshBudget = { remaining: realtime ? 12 : 24 };
-    const liveEnriched = await mapLimit(live, 6, (x) => enrichEventOdds(x, refreshBudget, fullMarkets));
-    const preEnriched = await mapLimit(pregame, 6, (x) => enrichEventOdds(x, refreshBudget, fullMarkets));
+    const liveBudget = { remaining: realtime ? Math.min(60, live.length) : live.length };
+    const preBudget = { remaining: realtime ? Math.min(60, pregame.length) : pregame.length };
+    const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
+    const preEnriched = await mapLimit(pregame, 10, (x) => enrichEventOdds(x, preBudget, fullMarkets));
     return { live: liveEnriched, pregame: preEnriched };
   };
 
