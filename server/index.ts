@@ -34,6 +34,12 @@ const server = http.createServer(async (req, res) => {
   try {
     const rawUrl = req.url || '/';
     const url = new URL(rawUrl, `http://${req.headers.host || 'localhost'}`);
+    try {
+      const normalized = url.pathname.replace(/\/+$/, '') || '/';
+      url.pathname = normalized;
+    } catch {
+      void 0;
+    }
 
     res.setHeader('x-content-type-options', 'nosniff');
 
@@ -64,6 +70,12 @@ const server = http.createServer(async (req, res) => {
 server.on('upgrade', (req, socket, head) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    try {
+      const normalized = url.pathname.replace(/\/+$/, '') || '/';
+      url.pathname = normalized;
+    } catch {
+      void 0;
+    }
     if (url.pathname === '/api/live/ws') {
       liveWs.handleUpgrade(req, socket, head);
       return;
