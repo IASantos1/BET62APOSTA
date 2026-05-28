@@ -234,9 +234,9 @@ export function SubOddsModel({
     const isSuspended = raw?.suspended === true || raw?.status === 'suspended';
     
     const mapped = list.map((o: any) => {
-      const v0 = Number(o?.value || o?.odd || 0)
+      const v0 = Number(o?.odd || 0)
       const v = applyMarginClamp('h2h', v0)
-      const lbl = labelOutcome('h2h', String(o?.outcome || o?.name || ''))
+      const lbl = labelOutcome('h2h', String(o?.label || o?.outcome || o?.name || o?.value || ''))
       return { label: lbl, odd: v } as MarketItem
     }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd > 0))
     
@@ -340,12 +340,13 @@ export function SubOddsModel({
       const isSuspended = raw?.suspended === true || raw?.status === 'suspended';
 
       const mapped = list.map((o: any) => {
-        const v0 = Number(o?.value || o?.odd || 0)
+        const v0 = Number(o?.odd || 0)
         const v = applyMarginClamp(key, v0)
-        const lbl = labelOutcome(labelKey || key, String(o?.outcome || o?.name || ''))
+        const rawName = o?.label || o?.outcome || o?.name || o?.value || ''
+        const lbl = labelOutcome(labelKey || key, String(rawName))
         const hcRaw = o?.point ?? o?.handicap ?? o?.line ?? o?.total ?? o?.spread ?? null
         const hc = hcRaw === null || hcRaw === undefined ? undefined : String(hcRaw)
-        return { label: lbl, odd: v, name: o?.outcome || o?.name, handicap: hc } as MarketItem
+        return { label: lbl, odd: v, name: String(rawName), handicap: hc } as MarketItem
       }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd > 1.01 && x.odd < 25))
       const n = (s: any) => {
         if (s === null || s === undefined) return NaN
