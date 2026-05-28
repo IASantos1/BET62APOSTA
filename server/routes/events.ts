@@ -461,6 +461,59 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       return true;
     }
 
+    if (req.method === 'GET' && path === '/api/dev/odds-debug') {
+      const tokenEnv = String(process.env.ODDS_DEBUG_TOKEN || '').trim();
+      if (!tokenEnv) return false;
+      const token = String(url.searchParams.get('token') || req.headers['x-debug-token'] || '').trim();
+      if (!token || token !== tokenEnv) return sendJson(res, 403, { error: 'Forbidden' }), true;
+
+      const sport = String(url.searchParams.get('sport') || '').trim() || 'soccer';
+      const id = String(url.searchParams.get('id') || '').trim();
+      const mode = String(url.searchParams.get('mode') || 'all').trim().toLowerCase();
+      if (!id) return sendJson(res, 400, { error: 'Missing id' }), true;
+      if (mode !== 'all' && mode !== 'live' && mode !== 'pre-match') return sendJson(res, 400, { error: 'Invalid mode' }), true;
+
+      const normalizeSportKey = (s: string): string =>
+        String(s || '')
+          .toLowerCase()
+          .trim()
+          .replace(/[_\s]+/g, '-')
+          .replace(/[^a-z0-9-]/g, '')
+          .replace(/-+/g, '-')
+          .replace(/^-+/, '')
+          .replace(/-+$/, '');
+      const toSubdomain = (s: string): string => {
+        const k = normalizeSportKey(s);
+        if (k === 'football' || k === 'futebol' || k === 'soccer') return 'football';
+        if (k === 'hockey' || k === 'icehockey' || k === 'ice-hockey') return 'hockey';
+        return k || 'football';
+      };
+
+      const sub = toSubdomain(sport);
+      const targetUrl = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(id)}/odds/${mode}`;
+      try {
+        const r = await fetch(targetUrl, { headers: { 'x-api-key': apiKey, accept: 'application/json' } });
+        const text = await r.text().catch(() => '');
+        let json: any = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          json = null;
+        }
+        const topKeys = json && typeof json === 'object' ? Object.keys(json).slice(0, 30) : [];
+        sendJson(res, 200, {
+          url: targetUrl,
+          status: r.status,
+          ok: r.ok,
+          topKeys,
+          bodyPreview: String(text || '').slice(0, 1600),
+        });
+      } catch (e: any) {
+        sendJson(res, 200, { url: targetUrl, status: 0, ok: false, error: String(e?.message || e) });
+      }
+      return true;
+    }
+
     const evMatch = path.match(/^\/api\/events\/([^/]+)$/);
     if (evMatch && req.method === 'GET') {
       const id = decodeURIComponent(evMatch[1] || '');
