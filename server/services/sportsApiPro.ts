@@ -550,11 +550,21 @@ function pickLineValue(x: any): string | null {
   return s ? s : null;
 }
 
+function parseFractionalOdd(s: string): number {
+  const parts = s.split('/');
+  if (parts.length !== 2) return 0;
+  const num = parseFloat(parts[0].trim());
+  const den = parseFloat(parts[1].trim());
+  if (!Number.isFinite(num) || !Number.isFinite(den) || den === 0) return 0;
+  return num / den + 1;
+}
+
 function parseOddDecimal(v: any): number {
   if (v == null) return 0;
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
   if (typeof v === 'string') {
     const s = String(v).trim().replace(',', '.');
+    if (s.includes('/')) return parseFractionalOdd(s);
     const n = parseFloat(s);
     return Number.isFinite(n) ? n : 0;
   }
@@ -592,10 +602,12 @@ function marketKeyFromOddsAll(lineType: string, lineName: string): string {
   const t = normalizeLineType(lineType);
   const n = normalizeLineName(lineName);
   if (n === '1x2' || n === 'full time result' || n === 'fulltime result') return 'h2h';
+  if (n === 'full time' || n === 'fulltime' || n === 'match result' || n === 'match winner') return 'h2h';
   if (n.includes('1x2') || n.includes('full time result') || n.includes('fulltime result')) return 'h2h';
   if (n.includes('moneyline') || n.includes('match winner') || n === 'winner') return 'h2h';
   if (t === '1x2' || t === 'threewaymoneyline' || t === 'fulltimeresult') return 'h2h';
-  if (t === 'moneyline' || t === 'matchwinner' || t === 'winner') return 'h2h';
+  if (t === 'fulltime' || t === 'matchresult' || t === 'matchwinner') return 'h2h';
+  if (t === 'moneyline' || t === 'winner') return 'h2h';
   if (t === 'doublechance') return 'double_chance';
   if (t === 'correctscore' || t === 'scoreexact' || t === 'setbetting') return 'correct_score';
   if (t === 'totalgoals' || t === 'overunder' || t === 'asianoverunder') return 'totals';
@@ -734,7 +746,7 @@ async function fetchSportsApiProMatchOddsGeneric(
   };
 
   for (const row of rows) {
-    const lineType = row?.lineType ?? row?.type ?? row?.line_type ?? '';
+    const lineType = row?.lineType ?? row?.type ?? row?.line_type ?? row?.marketGroup ?? row?.market_group ?? '';
     const lineName =
       row?.lineName ??
       row?.name ??
@@ -756,7 +768,7 @@ async function fetchSportsApiProMatchOddsGeneric(
       [];
     for (const opt of options) {
       const rawName = opt?.name ?? opt?.label ?? opt?.option ?? opt?.value ?? '';
-      const odd = parseOddDecimal(opt?.rate ?? opt?.odd ?? opt?.price ?? opt?.decimalValue ?? opt?.decimal ?? opt?.value);
+      const odd = parseOddDecimal(opt?.rate ?? opt?.odd ?? opt?.price ?? opt?.decimalValue ?? opt?.decimal ?? opt?.fractionalValue ?? opt?.value);
       const pointForName = point && !hasNumericPointInName(String(rawName || ''), point) ? point : null;
       const value = formatSelectionName(key, String(rawName || ''), pointForName);
       addSelection(key, value, odd, point);
