@@ -47,6 +47,69 @@ function parseMarkets(v: any): any {
   }
 }
 
+function pruneMarketsForList(sport: string, markets: Record<string, any[]>): Record<string, any[]> {
+  if (!markets || typeof markets !== 'object') return {};
+
+  const keys = Object.keys(markets);
+  if (keys.length <= 12) return markets;
+
+  const s = String(sport || '').toLowerCase();
+  const isSoccer = s.includes('soccer') || (s.includes('football') && !s.includes('american'));
+  const isTennis = s.includes('tennis') || s.includes('tênis') || s.includes('tenis');
+  const isBasket = s.includes('basketball') || s.includes('basquet');
+  const isHockey = s.includes('ice-hockey') || (s.includes('hockey') && !s.includes('field'));
+  const isBaseball = s.includes('baseball') || s.includes('beisebol');
+
+  const wanted: RegExp[] = [
+    /^(h2h|1x2|main|match_winner|moneyline|winner|home_away)$/i,
+    /total|over|under/i,
+    /handicap|spread|asian|run_line|puck_line/i,
+  ];
+
+  if (isSoccer) {
+    wanted.push(/corner|cards|bookings|yellow|red|both_teams|btts|double_chance|draw_no_bet|correct_score/i);
+    wanted.push(/half|period_1|period_2/i);
+  }
+  if (isTennis) {
+    wanted.push(/set|game|tiebreak|aces|double_fault/i);
+  }
+  if (isBasket) {
+    wanted.push(/quarter|q[1-4]|period_1|period_2|period_3|period_4|team_total/i);
+  }
+  if (isHockey) {
+    wanted.push(/period|p[1-3]|team_total|shots|pp|powerplay/i);
+  }
+  if (isBaseball) {
+    wanted.push(/innings|in[1-9]|team_total|hits|runs|rbis|strikeouts/i);
+  }
+
+  const priority = (k: string): number => {
+    const key = k.toLowerCase();
+    if (/^(h2h|1x2|main|match_winner|moneyline|winner)$/.test(key)) return 0;
+    if (/total|over|under/.test(key)) return 1;
+    if (/handicap|spread|asian|run_line|puck_line/.test(key)) return 2;
+    if (/period|quarter|half|innings|set|game/.test(key)) return 3;
+    return 9;
+  };
+
+  const picked: string[] = [];
+  for (const k of keys.sort((a, b) => priority(a) - priority(b))) {
+    if (picked.length >= 12) break;
+    if (wanted.some((rx) => rx.test(k))) picked.push(k);
+  }
+
+  if (picked.length < 6) {
+    for (const k of keys.sort((a, b) => priority(a) - priority(b))) {
+      if (picked.length >= 12) break;
+      if (!picked.includes(k)) picked.push(k);
+    }
+  }
+
+  const out: Record<string, any[]> = {};
+  for (const k of picked) out[k] = markets[k];
+  return out;
+}
+
 export type EventsService = {
   handleEventsRoutes: (
     req: http.IncomingMessage,
@@ -191,20 +254,29 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     return fetchOddsStrict(sport, matchId);
   };
 
-  const enrichEventOdds = async (e: AnyEvent, refreshBudget: { remaining: number } | null): Promise<AnyEvent> => {
+  const enrichEventOdds = async (
+    e: AnyEvent,
+    refreshBudget: { remaining: number } | null,
+    fullMarkets: boolean,
+  ): Promise<AnyEvent> => {
     const id = String(e?.id || '').trim();
     const sport = String(e?.sport || '').trim();
     if (!id || !sport) return e;
 
     const override = await getOverride(id).catch(() => null);
     const odds = await fetchOddsBestEffort(sport, id, refreshBudget).catch(() => null);
-    const markets = odds?.markets ? odds.markets : parseMarkets((e as any).markets);
+    const marketsAll = odds?.markets ? odds.markets : parseMarkets((e as any).markets);
+    const markets =
+      fullMarkets
+        ? marketsAll
+        : pruneMarketsForList(sport, (marketsAll && typeof marketsAll === 'object') ? marketsAll : {});
     const base = {
       ...e,
       home_odd: odds?.home ? Number(odds.home) : Number((e as any).home_odd || 0),
       draw_odd: odds?.draw ? Number(odds.draw) : Number((e as any).draw_odd || 0),
       away_odd: odds?.away ? Number(odds.away) : Number((e as any).away_odd || 0),
       markets,
+      markets_count: marketsAll && typeof marketsAll === 'object' ? Object.keys(marketsAll).length : 0,
     };
     if (override) {
       const ho = override.home_odd != null ? Number(override.home_odd) : null;
@@ -240,6 +312,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     includeOdds: boolean,
     league: string | null,
     realtime: boolean,
+    fullMarkets: boolean,
   ): Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }> => {
     const sports = getSports(sportsParam);
     const liveAll: AnyEvent[] = [];
@@ -273,8 +346,8 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     }
 
     const refreshBudget = { remaining: realtime ? 12 : 24 };
-    const liveEnriched = await mapLimit(live, 6, (x) => enrichEventOdds(x, refreshBudget));
-    const preEnriched = await mapLimit(pregame, 6, (x) => enrichEventOdds(x, refreshBudget));
+    const liveEnriched = await mapLimit(live, 6, (x) => enrichEventOdds(x, refreshBudget, fullMarkets));
+    const preEnriched = await mapLimit(pregame, 6, (x) => enrichEventOdds(x, refreshBudget, fullMarkets));
     return { live: liveEnriched, pregame: preEnriched };
   };
 
@@ -297,14 +370,17 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       const includeOdds = String(include || '').toLowerCase().includes('odds');
       const league = url.searchParams.get('league');
       const realtime = String(url.searchParams.get('realtime') || '') === '1';
-      const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}`;
+      const fullMarkets =
+        String(url.searchParams.get('markets') || '').toLowerCase() === 'full' ||
+        String(url.searchParams.get('markets') || '').toLowerCase() === 'all';
+      const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}|fullMarkets:${fullMarkets ? '1' : '0'}`;
       const cached = bySportCache.get(cacheKey);
       const ttl = realtime ? 2_000 : includeOdds ? 12_000 : 25_000;
       if (cached && ttlOk(cached.ts, ttl)) {
         sendJson(res, 200, cached.data);
         return true;
       }
-      const data = await buildBySport(sports, includeOdds, league, realtime).catch(() => ({ live: [], pregame: [] }));
+      const data = await buildBySport(sports, includeOdds, league, realtime, fullMarkets).catch(() => ({ live: [], pregame: [] }));
       bySportCache.set(cacheKey, { ts: nowMs(), data });
       sendJson(res, 200, data);
       return true;
@@ -360,7 +436,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
   };
 
   const getAdminOddsEvents = async (): Promise<any[]> => {
-    const data = await buildBySport('all', true, null, false);
+    const data = await buildBySport('all', true, null, false, true);
     const all = [...data.live, ...data.pregame];
     return all.map((e: any) => ({
       id: String(e.id),
