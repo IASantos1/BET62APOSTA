@@ -1,4 +1,6 @@
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
 import { createPool, ensureSchema } from './lib/db';
 import { notFound, sendJson } from './lib/http';
 import { handleAuthRoutes } from './routes/auth';
@@ -30,6 +32,63 @@ if (!sportsApiKey) {
 const events = createEventsService(pool, sportsApiKey);
 const liveWs = createLiveWs(sportsApiKey);
 
+const distDir = path.resolve(process.cwd(), 'dist');
+const hasDist = fs.existsSync(distDir) && fs.statSync(distDir).isDirectory();
+
+function contentTypeOf(p: string): string {
+  const ext = path.extname(p).toLowerCase();
+  if (ext === '.html') return 'text/html; charset=utf-8';
+  if (ext === '.js') return 'application/javascript; charset=utf-8';
+  if (ext === '.css') return 'text/css; charset=utf-8';
+  if (ext === '.json') return 'application/json; charset=utf-8';
+  if (ext === '.svg') return 'image/svg+xml';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.ico') return 'image/x-icon';
+  if (ext === '.txt') return 'text/plain; charset=utf-8';
+  if (ext === '.map') return 'application/json; charset=utf-8';
+  return 'application/octet-stream';
+}
+
+async function tryServeStatic(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<boolean> {
+  if (!hasDist) return false;
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+  if (url.pathname.startsWith('/api')) return false;
+
+  const rawPath = decodeURIComponent(url.pathname || '/');
+  const rel = rawPath === '/' ? '/index.html' : rawPath;
+  const normalized = path.posix.normalize(rel);
+  if (normalized.includes('..')) return false;
+
+  const filePath = path.join(distDir, normalized);
+  const exists = fs.existsSync(filePath);
+  if (exists) {
+    const st = fs.statSync(filePath);
+    if (st.isFile()) {
+      res.statusCode = 200;
+      res.setHeader('content-type', contentTypeOf(filePath));
+      res.setHeader('cache-control', normalized.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-store');
+      if (req.method === 'HEAD') return res.end(), true;
+      fs.createReadStream(filePath).pipe(res);
+      return true;
+    }
+  }
+
+  const indexPath = path.join(distDir, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.statusCode = 200;
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.setHeader('cache-control', 'no-store');
+    if (req.method === 'HEAD') return res.end(), true;
+    fs.createReadStream(indexPath).pipe(res);
+    return true;
+  }
+
+  return false;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const rawUrl = req.url || '/';
@@ -54,12 +113,19 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (await tryServeStatic(req, res, url)) return;
+
     if (await events.handleEventsRoutes(req, res, url)) return;
     if (await handleAuthRoutes(pool, req, res, url)) return;
     if (await handleWalletRoutes(pool, req, res, url)) return;
     if (await handleBetRoutes(pool, req, res, url)) return;
     if (await handleFavoriteRoutes(pool, req, res, url)) return;
     if (await handleAdminRoutes(pool, events, req, res, url)) return;
+
+    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '')) {
+      sendJson(res, 200, { ok: true, service: 'api' });
+      return;
+    }
 
     notFound(res);
   } catch (e: any) {
