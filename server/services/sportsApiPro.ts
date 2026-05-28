@@ -262,6 +262,19 @@ function extractTennisSets(e: any): Record<string, { home: number | null; away: 
     fromSetsObject(e?.setScores) ||
     fromSetsObject(e?.periodScores);
   if (s0.length > 0) pairs.push(...s0);
+
+  const hs = e?.homeScore;
+  const as = e?.awayScore;
+  if (hs && as && typeof hs === 'object' && typeof as === 'object') {
+    const out: Array<{ home: number | null; away: number | null }> = [];
+    for (let i = 1; i <= 5; i++) {
+      const h = toNumOrNull((hs as any)[`period${i}`]);
+      const a = toNumOrNull((as as any)[`period${i}`]);
+      if (h !== null || a !== null) out.push({ home: h, away: a });
+    }
+    if (out.length > 0) pairs.push(...out);
+  }
+
   const a1 = fromPeriodArray(e?.periods ?? e?.scores ?? e?.score?.periods ?? e?.score?.scores);
   if (a1.length > 0) pairs.push(...a1);
   const hPeriods = e?.homeScore?.periods ?? e?.homeScore?.periodScores ?? e?.homeScore?.scores ?? null;
@@ -608,8 +621,36 @@ export async function fetchSportsApiProMatchOddsAll(
   matchId: string,
   opts?: { homeTeam?: string; awayTeam?: string }
 ): Promise<OddsResult | null> {
+  return fetchSportsApiProMatchOddsGeneric(apiKey, sport, matchId, 'all', opts);
+}
+
+export async function fetchSportsApiProMatchOddsLive(
+  apiKey: string,
+  sport: string,
+  matchId: string,
+  opts?: { homeTeam?: string; awayTeam?: string }
+): Promise<OddsResult | null> {
+  return fetchSportsApiProMatchOddsGeneric(apiKey, sport, matchId, 'live', opts);
+}
+
+export async function fetchSportsApiProMatchOddsPreMatch(
+  apiKey: string,
+  sport: string,
+  matchId: string,
+  opts?: { homeTeam?: string; awayTeam?: string }
+): Promise<OddsResult | null> {
+  return fetchSportsApiProMatchOddsGeneric(apiKey, sport, matchId, 'pre-match', opts);
+}
+
+async function fetchSportsApiProMatchOddsGeneric(
+  apiKey: string,
+  sport: string,
+  matchId: string,
+  mode: 'all' | 'live' | 'pre-match',
+  opts?: { homeTeam?: string; awayTeam?: string }
+): Promise<OddsResult | null> {
   const sub = toSubdomain(sport);
-  const url = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/all`;
+  const url = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/${mode}`;
   const json = await fetchJson(url, apiKey);
   if (!json) return null;
 

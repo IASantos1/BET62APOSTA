@@ -1,6 +1,13 @@
 import type http from 'http';
 import type pg from 'pg';
-import { fetchSportsApiProLive, fetchSportsApiProMatchOddsAll, fetchSportsApiProMatchStatistics, fetchSportsApiProSchedule } from '../services/sportsApiPro';
+import {
+  fetchSportsApiProLive,
+  fetchSportsApiProMatchOddsAll,
+  fetchSportsApiProMatchOddsLive,
+  fetchSportsApiProMatchOddsPreMatch,
+  fetchSportsApiProMatchStatistics,
+  fetchSportsApiProSchedule,
+} from '../services/sportsApiPro';
 import { sendJson, badRequest } from '../lib/http';
 
 type CacheEntry<T> = { ts: number; data: T };
@@ -243,11 +250,28 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     return data;
   };
 
-  const fetchOddsStrict = async (sport: string, matchId: string): Promise<any | null> => {
+  const fetchOddsStrict = async (
+    sport: string,
+    matchId: string,
+    ctx: { isLive?: boolean; homeTeam?: string; awayTeam?: string; forceAll?: boolean } = {},
+  ): Promise<any | null> => {
     const key = `${sport}:${matchId}`;
     const inflight = oddsInflight.get(key);
     if (inflight) return inflight;
-    const p = fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, {})
+    const p = (async () => {
+      const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam };
+      if (!ctx.forceAll) {
+        if (ctx.isLive) {
+          const live = await fetchSportsApiProMatchOddsLive(apiKey, sport, matchId, opts).catch(() => null);
+          if (live) return live;
+        } else {
+          const pre = await fetchSportsApiProMatchOddsPreMatch(apiKey, sport, matchId, opts).catch(() => null);
+          if (pre) return pre;
+        }
+      }
+      const all = await fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, opts).catch(() => null);
+      return all;
+    })()
       .then((odds) => {
         oddsCache.set(key, { ts: nowMs(), data: odds });
         return odds;
@@ -263,6 +287,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
   const fetchOddsBestEffort = async (
     sport: string,
     matchId: string,
+    ctx: { isLive?: boolean; homeTeam?: string; awayTeam?: string; forceAll?: boolean },
     refreshBudget: { remaining: number } | null,
   ): Promise<any | null> => {
     const key = `${sport}:${matchId}`;
@@ -275,7 +300,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     if (cached && ttlOk(cached.ts, ODDS_STALE_TTL_MS)) {
       if (refreshBudget && refreshBudget.remaining > 0 && !oddsInflight.has(key)) {
         refreshBudget.remaining -= 1;
-        fetchOddsStrict(sport, matchId).catch(() => null);
+        fetchOddsStrict(sport, matchId, ctx).catch(() => null);
       } else {
         queueOddsRefresh(sport, matchId);
       }
@@ -288,7 +313,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     }
 
     if (refreshBudget) refreshBudget.remaining -= 1;
-    return fetchOddsStrict(sport, matchId);
+    return fetchOddsStrict(sport, matchId, ctx);
   };
 
   const enrichEventOdds = async (
@@ -301,7 +326,16 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     if (!id || !sport) return e;
 
     const override = await getOverride(id).catch(() => null);
-    const odds = await fetchOddsBestEffort(sport, id, refreshBudget).catch(() => null);
+    const odds = await fetchOddsBestEffort(
+      sport,
+      id,
+      {
+        isLive: Number(e?.is_live || 0) === 1,
+        homeTeam: String(e?.home_team || ''),
+        awayTeam: String(e?.away_team || ''),
+      },
+      refreshBudget,
+    ).catch(() => null);
     const marketsAll = odds?.markets ? odds.markets : parseMarkets((e as any).markets);
     const markets =
       fullMarkets
@@ -452,7 +486,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       const id = decodeURIComponent(oddsMatch[1] || '');
       const sport = await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
-      const odds = await fetchOddsStrict(sport, id).catch(() => null);
+      const odds = await fetchOddsStrict(sport, id, { forceAll: true }).catch(() => null);
       const markets = odds?.markets || {};
       sendJson(res, 200, { home: odds?.home || 0, draw: odds?.draw || 0, away: odds?.away || 0, markets });
       return true;
