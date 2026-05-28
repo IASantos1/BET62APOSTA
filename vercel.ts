@@ -17,7 +17,7 @@ export const config = {
   outputDirectory: 'dist',
   rewrites: [
     { source: '/api/events/by-sport', destination: `${origin}/api/events/by-sport` },
-    { source: '/api/events/(.*)', destination: `${origin}/api/events?slug=$1` },
+    { source: '/api/events/(.*)', destination: `${origin}/api/events/$1` },
     { source: '/api/events', destination: `${origin}/api/events` },
     { source: '/api/(.*)', destination: `${origin}/api/$1` },
     { source: '/(.*)', destination: '/index.html' },

@@ -5,7 +5,7 @@ import path from 'path';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import Stripe from 'stripe';
 import WebSocket, { WebSocketServer } from 'ws';
-import { fetchSportsApiProLive, fetchSportsApiProMatchOdds, fetchSportsApiProMatchStatistics, fetchSportsApiProSchedule } from '../src/worker/services/sportsApiPro';
+import { fetchSportsApiProLive, fetchSportsApiProMatchOddsAll, fetchSportsApiProMatchStatistics, fetchSportsApiProSchedule } from './services/sportsApiPro';
 
 const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 4000);
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
@@ -1424,7 +1424,7 @@ const server = http.createServer(async (req, res) => {
           const sport = String(ev?.sport || 'soccer');
           const matchId = String(ev?.external_event_id || '').split('_').slice(1).join('_');
           if (!matchId) continue;
-          const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+          const odds = await fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
           if (!odds) continue;
           if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
             ev.home_odd = odds.home;
@@ -1616,7 +1616,7 @@ const server = http.createServer(async (req, res) => {
       const [probeOdds, probeLive, parsed] = await Promise.all([
         withTimeout(urlOdds),
         withTimeout(urlLive),
-        fetchSportsApiProMatchOdds(apiKey, sport, gameId, { scope, provider: 1 }).catch(() => null),
+        fetchSportsApiProMatchOddsAll(apiKey, sport, gameId).catch(() => null),
       ]);
 
       sendJson(
@@ -1665,12 +1665,12 @@ const server = http.createServer(async (req, res) => {
 
       const sportList =
         rawSport === 'all'
-          ? ['soccer', 'basketball', 'tennis', 'ice-hockey']
+          ? ['soccer', 'basketball', 'tennis', 'ice-hockey', 'baseball']
           : [normalizeSport(rawSport.split(',')[0])];
 
       const today = new Date();
       const dates: string[] = [];
-      const days = 7;
+      const days = 14;
       for (let d = 0; d <= days; d++) {
         const dt = new Date(today);
         dt.setDate(today.getDate() + d);
@@ -1822,7 +1822,6 @@ const server = http.createServer(async (req, res) => {
           })
           .slice(0, 240);
         const ttlMs = isRealtime ? 5_000 : 10 * 60 * 1000;
-        const missTtlMs = isRealtime ? 1_500 : 10_000;
         let idx = 0;
         const workers = Array.from({ length: 6 }, async () => {
           while (idx < targets.length) {
@@ -1831,44 +1830,18 @@ const server = http.createServer(async (req, res) => {
             const matchId = String(ev.external_event_id || '').split('_').slice(1).join('_');
             if (!matchId) continue;
             const baseKey = `v2:${sport}:${matchId}`;
-            const providerEnv = Number(process.env.SPORTSAPI_PRO_ODDS_PROVIDER || process.env.SPORTSAPI_PRO_PROVIDER || 1);
-            const providers = Array.from(new Set([providerEnv, 1, 14].filter((x) => Number.isFinite(Number(x)) && Number(x) > 0).map((x) => Number(x))));
-            const scope = needsMarketsEnrich(ev) ? 'all' : 'featured';
             let odds: any = null;
             const cachedBase = sportsApiProOddsCache.get(baseKey);
-            if (cachedBase?.odds && Date.now() - cachedBase.ts < ttlMs) {
-              odds = cachedBase.odds;
-            }
-            for (const p of providers) {
-              if (odds) break;
-              const ck = `v2:${sport}:${matchId}:${scope}:${p}`;
-              const cached2 = sportsApiProOddsCache.get(ck);
-              const now2 = Date.now();
-              if (cached2) {
-                if (cached2.odds) {
-                  if (now2 - cached2.ts < ttlMs) {
-                    odds = cached2.odds;
-                    break;
-                  }
-                } else {
-                  if (now2 - cached2.ts < missTtlMs) continue;
-                }
-              }
-              const got = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: scope as any, provider: p, homeTeam: ev.home_team, awayTeam: ev.away_team });
-              sportsApiProOddsCache.set(ck, { ts: Date.now(), odds: got ?? null });
-              if (got && (got.home > 1 || Object.keys(got.markets || {}).length > 0)) {
-                odds = got;
-                break;
-              }
+            if (cachedBase && Date.now() - cachedBase.ts < ttlMs) odds = cachedBase.odds;
+            if (!odds) {
+              odds = await fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+              sportsApiProOddsCache.set(baseKey, { ts: Date.now(), odds: odds ?? null });
             }
             if (!odds) continue;
-            if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
-              ev.home_odd = odds.home;
-              ev.draw_odd = odds.draw;
-              ev.away_odd = odds.away;
-              ev.markets = JSON.stringify(odds.markets || {});
-              sportsApiProOddsCache.set(baseKey, { ts: Date.now(), odds });
-            }
+            ev.home_odd = odds.home;
+            ev.draw_odd = odds.draw;
+            ev.away_odd = odds.away;
+            ev.markets = JSON.stringify(odds.markets || {});
           }
         });
         await Promise.all(workers);
@@ -1895,6 +1868,11 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { live: [], pregame: [] }, req);
       return;
     }
+  }
+
+  if (req.method === 'GET' && req.url?.startsWith('/api/leagues/') && req.url.includes('/standings')) {
+    sendJson(res, 200, { standings: [] }, req);
+    return;
   }
 
   if (
@@ -1997,13 +1975,13 @@ const server = http.createServer(async (req, res) => {
           return v;
         };
         const sportParam = normalizeSportListKey(rawSport);
-        const sportList = sportParam === 'all' ? ['soccer', 'basketball', 'tennis', 'ice-hockey'] : [normalizeSportListKey(sportParam.split(',')[0])];
+        const sportList = sportParam === 'all' ? ['soccer', 'basketball', 'tennis', 'ice-hockey', 'baseball'] : [normalizeSportListKey(sportParam.split(',')[0])];
 
         const today = new Date();
         const start = new Date(today);
         start.setDate(today.getDate() - 1);
         const end = new Date(today);
-        end.setDate(today.getDate() + 7);
+        end.setDate(today.getDate() + 14);
 
         const dates: string[] = [];
         const startDate = start.toISOString().slice(0, 10);
@@ -2108,7 +2086,7 @@ const server = http.createServer(async (req, res) => {
                   if (now - cached.ts < missTtlMs) continue;
                 }
               }
-              const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+              const odds = await fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
               sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
               if (!odds) continue;
               if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {
@@ -2206,7 +2184,7 @@ const server = http.createServer(async (req, res) => {
       start.setDate(today.getDate() - 1);
       const startDate = start.toISOString().slice(0, 10);
       const end = new Date(today);
-      end.setDate(today.getDate() + 7);
+      end.setDate(today.getDate() + 14);
       const endDate = end.toISOString().slice(0, 10);
 
       const dates: string[] = [];
@@ -2264,7 +2242,7 @@ const server = http.createServer(async (req, res) => {
           const providerEnv = Number(process.env.SPORTSAPI_PRO_ODDS_PROVIDER || process.env.SPORTSAPI_PRO_PROVIDER || 1);
           const providers = Array.from(new Set([providerEnv, 1, 14].filter((x) => Number.isFinite(Number(x)) && Number(x) > 0).map((x) => Number(x))));
           for (const p of providers) {
-            const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'all', provider: p, homeTeam: evt.home_team, awayTeam: evt.away_team }).catch(() => null);
+            const odds = await fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, { homeTeam: evt.home_team, awayTeam: evt.away_team }).catch(() => null);
             if (odds && (odds.home > 1 || Object.keys(odds.markets || {}).length > 0)) {
               evt.home_odd = odds.home;
               evt.draw_odd = odds.draw;
@@ -5294,7 +5272,7 @@ server.on('upgrade', (req, socket, head) => {
                   if (now - cached.ts < missTtlMs) continue;
                 }
               }
-              const odds = await fetchSportsApiProMatchOdds(apiKey, sport, matchId, { scope: 'featured', provider: 1, homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
+              const odds = await fetchSportsApiProMatchOddsAll(apiKey, sport, matchId, { homeTeam: ev.home_team, awayTeam: ev.away_team }).catch(() => null);
               sportsApiProOddsCache.set(cacheKey, { ts: Date.now(), odds: odds ?? null });
               if (!odds) continue;
               if (odds.home > 1 || Object.keys(odds.markets || {}).length > 0) {

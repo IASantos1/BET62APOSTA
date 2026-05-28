@@ -1,0 +1,561 @@
+export interface NormalizedEvent {
+  external_event_id: string;
+  sport: string;
+  league: string;
+  home_team: string;
+  away_team: string;
+  team_match: string;
+  event_date: string;
+  status: string;
+  is_live: number;
+  home_odd: number;
+  draw_odd: number;
+  away_odd: number;
+  elapsed: number;
+  timer: string;
+  score: string;
+  markets: string;
+  country: string;
+  home_team_logo: string;
+  away_team_logo: string;
+}
+
+export interface OddsResult {
+  home: number;
+  draw: number;
+  away: number;
+  markets: Record<string, any[]>;
+}
+
+function apiHeaders(apiKey: string): HeadersInit {
+  return {
+    'x-api-key': apiKey,
+    accept: 'application/json',
+  };
+}
+
+function normalizeSportKey(sport: string): string {
+  const raw = String(sport || '').toLowerCase().trim();
+  const primary = raw.split(',')[0]?.split('|')[0] ?? '';
+  return primary
+    .replace(/[_\s]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+}
+
+function toSubdomain(sport: string): string {
+  const s = normalizeSportKey(sport);
+  if (s === 'football' || s === 'futebol' || s === 'soccer') return 'football';
+  if (s === 'hockey' || s === 'icehockey' || s === 'ice-hockey') return 'hockey';
+  return s || 'football';
+}
+
+function extractEvents(payload: any): any[] {
+  if (!payload) return [];
+  if (Array.isArray(payload.events)) return payload.events;
+  if (Array.isArray(payload.data?.events)) return payload.data.events;
+  const tournaments = payload.data?.tournaments ?? payload.tournaments;
+  if (Array.isArray(tournaments)) {
+    const out: any[] = [];
+    for (const t of tournaments) {
+      const arr = t?.events ?? t?.matches ?? t?.games ?? [];
+      if (Array.isArray(arr)) out.push(...arr);
+    }
+    return out;
+  }
+  return [];
+}
+
+function num(v: any): number {
+  const n = typeof v === 'string' ? Number(v) : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function pickScore(x: any): number | null {
+  if (x == null) return null;
+  if (typeof x === 'number') return Number.isFinite(x) ? x : null;
+  if (typeof x === 'string') {
+    const n = Number(x);
+    return Number.isFinite(n) ? n : null;
+  }
+  const candidates = [x.current, x.display, x.normaltime, x.total];
+  for (const c of candidates) {
+    const n = typeof c === 'string' ? Number(c) : Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function isLive(status: any): boolean {
+  const s = String(status?.description ?? status?.type ?? status ?? '').toLowerCase();
+  if (!s) return false;
+  if (s.includes('inprogress') || s.includes('in progress') || s.includes('live')) return true;
+  if (s.includes('half') || s.includes('quarter') || s.includes('inning') || s.includes('set')) return true;
+  if (s.includes('1st') || s.includes('2nd') || s.includes('3rd') || s.includes('4th')) return true;
+  return false;
+}
+
+function deriveElapsedAndTimer(sport: string, e: any): { elapsed: number; timer: string } {
+  const takeNum = (v: any) => {
+    const n = typeof v === 'string' ? Number(v) : Number(v);
+    if (!Number.isFinite(n)) return null;
+    if (n < 0 || n > 1000) return null;
+    return n;
+  };
+  const takeTimer = (v: any) => {
+    const t = String(v ?? '').trim();
+    if (!t) return '';
+    if (t.length > 16) return '';
+    return t;
+  };
+
+  const elapsedCandidates = [
+    e?.elapsed,
+    e?.time?.elapsed,
+    e?.time?.minute,
+    e?.minute,
+    e?.status?.elapsed,
+    e?.status?.minute,
+    e?.clock?.minute,
+    e?.clock?.minutes,
+  ];
+
+  let elapsed = 0;
+  for (const c of elapsedCandidates) {
+    const n = takeNum(c);
+    if (n == null || n === 0) continue;
+    elapsed = n;
+    break;
+  }
+
+  const timerCandidates = [
+    e?.timer,
+    e?.time?.timer,
+    e?.clock?.display,
+    e?.clock?.time,
+    e?.status?.timer,
+  ];
+  let timer = '';
+  for (const c of timerCandidates) {
+    const t = takeTimer(c);
+    if (!t) continue;
+    timer = t;
+    break;
+  }
+
+  const startTs = num(e?.startTimestamp);
+  const statusText = String(e?.status?.description ?? e?.status?.type ?? e?.status ?? '').toLowerCase();
+  const sportKey = normalizeSportKey(sport);
+
+  if (elapsed === 0 && startTs > 0 && isLive(statusText)) {
+    const now = Date.now();
+    const diffMin = Math.floor((now - startTs * 1000) / 60000);
+    if (diffMin > 0 && diffMin < 400) elapsed = diffMin;
+  }
+
+  if (!timer && elapsed > 0) {
+    if (sportKey === 'soccer' || sportKey === 'football') timer = `${elapsed}'`;
+    else timer = String(elapsed);
+  }
+
+  return { elapsed: Number.isFinite(elapsed) ? elapsed : 0, timer };
+}
+
+function extractTennisSets(e: any): Record<string, { home: number | null; away: number | null }> | null {
+  const pairs: Array<{ home: number | null; away: number | null }> = [];
+  const toNumOrNull = (v: any): number | null => {
+    const n = typeof v === 'string' ? Number(v) : Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const fromPeriodArray = (arr: any): Array<{ home: number | null; away: number | null }> => {
+    if (!Array.isArray(arr)) return [];
+    const out: Array<{ home: number | null; away: number | null }> = [];
+    for (const it of arr) {
+      if (it == null) continue;
+      if (typeof it === 'object') {
+        const h = toNumOrNull((it as any).home ?? (it as any).homeScore ?? (it as any).home_points ?? (it as any).h);
+        const a = toNumOrNull((it as any).away ?? (it as any).awayScore ?? (it as any).away_points ?? (it as any).a);
+        if (h !== null || a !== null) out.push({ home: h, away: a });
+      }
+    }
+    return out;
+  };
+  const a1 = fromPeriodArray(e?.periods ?? e?.scores ?? e?.score?.periods ?? e?.score?.scores);
+  if (a1.length > 0) pairs.push(...a1);
+  const hPeriods = e?.homeScore?.periods ?? e?.homeScore?.periodScores ?? e?.homeScore?.scores ?? null;
+  const aPeriods = e?.awayScore?.periods ?? e?.awayScore?.periodScores ?? e?.awayScore?.scores ?? null;
+  if (Array.isArray(hPeriods) && Array.isArray(aPeriods) && hPeriods.length > 0) {
+    for (let i = 0; i < Math.max(hPeriods.length, aPeriods.length); i++) {
+      const h = toNumOrNull(hPeriods[i]);
+      const a = toNumOrNull(aPeriods[i]);
+      if (h !== null || a !== null) pairs.push({ home: h, away: a });
+    }
+  }
+  const limited = pairs.slice(0, 5);
+  if (limited.length === 0) return null;
+  const out: Record<string, { home: number | null; away: number | null }> = {};
+  for (let i = 0; i < limited.length; i++) {
+    out[`s${i + 1}`] = { home: limited[i].home, away: limited[i].away };
+  }
+  return out;
+}
+
+function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
+  const id = e?.id != null ? String(e.id) : '';
+  if (!id) return null;
+
+  const homeName = String(e?.homeTeam?.name ?? e?.homeTeam ?? '').trim();
+  const awayName = String(e?.awayTeam?.name ?? e?.awayTeam ?? '').trim();
+  if (!homeName || !awayName) return null;
+
+  const ts = e?.startTimestamp != null ? num(e.startTimestamp) : 0;
+  const date = ts > 0 ? new Date(ts * 1000).toISOString() : String(e?.startTime ?? e?.event_date ?? '').trim();
+  if (!date) return null;
+
+  const tournament = e?.tournament?.name ?? e?.tournament ?? '';
+  const country = e?.tournament?.category?.name ?? e?.category?.name ?? e?.country?.name ?? '';
+  const statusRaw = e?.status?.description ?? e?.status?.type ?? e?.status ?? e?.statusCode ?? e?.statusText ?? '';
+  const status = String(statusRaw || 'NS');
+  const live = isLive(e?.status ?? status);
+  const t = live ? deriveElapsedAndTimer(sport, e) : { elapsed: 0, timer: '' };
+
+  const sLower = String(sport || '').toLowerCase();
+  const tennisSets = sLower.includes('tennis') || sLower.includes('tênis') ? extractTennisSets(e) : null;
+  const hs =
+    tennisSets
+      ? (() => {
+          const v = pickScore(e?.homeScore?.sets ?? e?.homeScore?.set ?? e?.homeScore?.setsWon ?? e?.homeScore?.totalSets);
+          return v != null ? v : pickScore(e?.homeScore);
+        })()
+      : pickScore(e?.homeScore);
+  const as =
+    tennisSets
+      ? (() => {
+          const v = pickScore(e?.awayScore?.sets ?? e?.awayScore?.set ?? e?.awayScore?.setsWon ?? e?.awayScore?.totalSets);
+          return v != null ? v : pickScore(e?.awayScore);
+        })()
+      : pickScore(e?.awayScore);
+
+  return {
+    external_event_id: `${sport}_${id}`,
+    sport,
+    league: String(tournament || ''),
+    home_team: homeName,
+    away_team: awayName,
+    team_match: `${homeName} vs ${awayName}`,
+    event_date: date,
+    status,
+    is_live: live ? 1 : 0,
+    home_odd: 0,
+    draw_odd: 0,
+    away_odd: 0,
+    elapsed: t.elapsed,
+    timer: t.timer,
+    score: JSON.stringify({ home: hs, away: as, ...(tennisSets ? { sets: tennisSets } : {}) }),
+    markets: '{}',
+    country: String(country || ''),
+    home_team_logo: String(e?.homeTeam?.logo ?? ''),
+    away_team_logo: String(e?.awayTeam?.logo ?? ''),
+  };
+}
+
+async function fetchJson(url: string, apiKey: string): Promise<any | null> {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(url, { headers: apiHeaders(apiKey), signal: controller.signal });
+    const text = await res.text().catch(() => '');
+    if (!res.ok) return null;
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+export async function fetchSportsApiProLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
+  const sub = toSubdomain(sport);
+  const url = `https://v2.${sub}.sportsapipro.com/api/live`;
+  const json = await fetchJson(url, apiKey);
+  const items = extractEvents(json);
+  const out: NormalizedEvent[] = [];
+  for (const e of items) {
+    const n = normalizeEvent(sport, e);
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+export async function fetchSportsApiProSchedule(apiKey: string, sport: string, date: string): Promise<NormalizedEvent[]> {
+  const sub = toSubdomain(sport);
+  const url = `https://v2.${sub}.sportsapipro.com/api/schedule/${encodeURIComponent(date)}?timezoneName=UTC`;
+  const json = await fetchJson(url, apiKey);
+  const items = extractEvents(json);
+  const out: NormalizedEvent[] = [];
+  for (const e of items) {
+    const n = normalizeEvent(sport, e);
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+function extractOddsAll(payload: any): any[] {
+  if (!payload) return [];
+  if (Array.isArray(payload.odds)) return payload.odds;
+  if (Array.isArray(payload.data?.odds)) return payload.data.odds;
+  if (Array.isArray(payload.data?.lines)) return payload.data.lines;
+  if (Array.isArray(payload.data?.providerOdds?.odds)) return payload.data.providerOdds.odds;
+  return [];
+}
+
+function normalizeLineType(x: any): string {
+  return String(x ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function normalizeLineName(raw: string): string {
+  return String(raw || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function pickLineValue(x: any): string | null {
+  const v =
+    x?.lineValue ??
+    x?.line_value ??
+    x?.value ??
+    x?.handicap ??
+    x?.handicapValue ??
+    x?.total ??
+    x?.totalValue ??
+    x?.spread ??
+    null;
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s ? s : null;
+}
+
+function parseOddDecimal(v: any): number {
+  const n = typeof v === 'string' ? Number(v) : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function hasNumericPointInName(name: string, point: string): boolean {
+  const m = /([+-]?\d+(?:[.,]\d+)?)/.exec(String(name || ''));
+  if (!m) return false;
+  const a = parseFloat(String(m[1]).replace(',', '.'));
+  const b = parseFloat(String(point).replace(',', '.'));
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) < 1e-9;
+}
+
+function formatSelectionName(marketKey: string, optionName: string, point: string | null): string {
+  const base = String(optionName || '').trim();
+  if (!base) return '';
+  if (!point) return base;
+  const n = normalizeLineName(base);
+  const isTotals = marketKey.includes('total');
+  const isHandicap = marketKey.includes('handicap') || marketKey.includes('spread') || marketKey.includes('line');
+  if (isTotals && (n.startsWith('over') || n.startsWith('under') || n.startsWith('o/') || n.startsWith('u/'))) return `${base} ${point}`;
+  if (isHandicap) return `${base} ${point}`;
+  return base;
+}
+
+function marketKeyFromOddsAll(lineType: string, lineName: string): string {
+  const t = normalizeLineType(lineType);
+  const n = normalizeLineName(lineName);
+  if (t === '1x2' || t === 'threewaymoneyline' || t === 'fulltimeresult') return 'h2h';
+  if (t === 'moneyline' || t === 'matchwinner' || t === 'winner') return 'h2h';
+  if (t === 'doublechance') return 'double_chance';
+  if (t === 'correctscore' || t === 'scoreexact' || t === 'setbetting') return 'correct_score';
+  if (t === 'totalgoals' || t === 'overunder' || t === 'asianoverunder') return 'totals';
+  if (t === 'totalpoints' || t === 'totalruns') return 'totals';
+  if (t === 'teamtotalpoints' || t === 'teamtotalruns' || t === 'teamtotalgoals') return 'team_totals';
+  if (t === 'asianhandicap' || t === 'pointspread') return 'spreads';
+  if (t === 'handicap' || t === 'europeanhandicap') return 'handicap';
+  if (t === 'puckline') return 'puck_line';
+  if (t === 'runline') return 'run_line';
+  if (t === 'totalgames' || t === 'overundergames') return 'match_total_games';
+  if (t === 'gamehandicap') return 'handicap';
+  if (t === 'sethandicap') return 'sets_handicap';
+  if (t === 'totalsets' || t === 'overundersets' || t === 'overunderset') return 'total_sets';
+
+  if (t.includes('firstperiod') || n.includes('1st period')) return t.includes('total') ? 'period_1_totals' : 'period_1_h2h';
+  if (t.includes('secondperiod') || n.includes('2nd period')) return t.includes('total') ? 'period_2_totals' : 'period_2_h2h';
+  if (t.includes('thirdperiod') || n.includes('3rd period')) return t.includes('total') ? 'period_3_totals' : 'period_3_h2h';
+
+  if (t.includes('quarter') || n.includes('quarter')) {
+    if (t.includes('winner') || n.includes('winner')) return 'quarters_h2h';
+    if (t.includes('total') || n.includes('total') || n.includes('over under')) return 'quarters_totals';
+  }
+
+  if (t.includes('inning') || n.includes('inning')) {
+    if (t.includes('winner') || n.includes('winner')) return 'innings_h2h';
+    if (t.includes('total') || n.includes('total') || n.includes('over under')) return 'innings_totals';
+  }
+
+  return n ? n.replace(/\s+/g, '_') : t || '';
+}
+
+function normalizeOutcomeName(name: any): string {
+  const s = String(name ?? '').trim().toLowerCase();
+  if (!s) return '';
+  if (s === 'home' || s === '1') return 'home';
+  if (s === 'away' || s === '2') return 'away';
+  if (s === 'draw' || s === 'x' || s === 'tie') return 'draw';
+  return s;
+}
+
+function tokenizeName(input: string): string[] {
+  const s = normalizeLineName(input);
+  if (!s) return [];
+  return s.split(' ').filter(Boolean);
+}
+
+function tokenSetSimilarity(a: string, b: string): number {
+  const ta = new Set(tokenizeName(a));
+  const tb = new Set(tokenizeName(b));
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let inter = 0;
+  for (const t of ta) if (tb.has(t)) inter++;
+  const union = ta.size + tb.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+function canonicalTennisTeamKey(input: string): string {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+  const normalized = raw
+    .replace(/&/g, '/')
+    .replace(/\+/g, '/')
+    .replace(/\band\b/gi, '/')
+    .replace(/\s*-\s*/g, '/')
+    .replace(/\s*\/\s*/g, '/');
+  const parts = normalized.split('/').map((p) => p.trim()).filter(Boolean);
+  if (parts.length <= 1) return normalizeLineName(raw).replace(/\s+/g, '_');
+  const playerKey = (p: string) => {
+    const s = String(p || '').trim();
+    const swapped = s.includes(',') ? s.split(',').reverse().join(' ') : s;
+    const tokens = tokenizeName(swapped);
+    if (tokens.length === 0) return '';
+    const last = tokens[tokens.length - 1];
+    const first = tokens[0];
+    const fi = first ? first[0] : '';
+    return `${last}${fi ? `_${fi}` : ''}`;
+  };
+  const keys = parts.map(playerKey).filter(Boolean).sort();
+  return keys.join('__');
+}
+
+export async function fetchSportsApiProMatchOddsAll(
+  apiKey: string,
+  sport: string,
+  matchId: string,
+  opts?: { homeTeam?: string; awayTeam?: string }
+): Promise<OddsResult | null> {
+  const sub = toSubdomain(sport);
+  const url = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/all`;
+  const json = await fetchJson(url, apiKey);
+  if (!json) return null;
+
+  const rows = extractOddsAll(json);
+  if (!rows.length) return null;
+
+  const perKey: Record<string, Map<string, { value: string; odd: number; point?: string }>> = {};
+  const addSelection = (key: string, value: string, odd: number, point?: string | null) => {
+    if (!key || !value || !(odd > 1)) return;
+    const p = point ? String(point) : '';
+    const mk = perKey[key] || (perKey[key] = new Map());
+    const k = `${normalizeLineName(value)}|${p}`;
+    const prev = mk.get(k);
+    if (!prev || odd > prev.odd) {
+      const out: any = { value, odd };
+      if (p) out.point = p;
+      mk.set(k, out);
+    }
+  };
+
+  for (const row of rows) {
+    const lineType = row?.lineType ?? row?.type ?? row?.line_type ?? '';
+    const lineName = row?.lineName ?? row?.name ?? row?.marketName ?? row?.market ?? '';
+    const key = marketKeyFromOddsAll(String(lineType || ''), String(lineName || ''));
+    if (!key) continue;
+    const point = pickLineValue(row);
+    const options = Array.isArray(row?.options) ? row.options : Array.isArray(row?.choices) ? row.choices : [];
+    for (const opt of options) {
+      const rawName = opt?.name ?? opt?.label ?? opt?.option ?? opt?.value ?? '';
+      const odd = parseOddDecimal(opt?.rate ?? opt?.odd ?? opt?.price ?? opt?.decimalValue ?? opt?.decimal ?? opt?.value);
+      const pointForName = point && !hasNumericPointInName(String(rawName || ''), point) ? point : null;
+      const value = formatSelectionName(key, String(rawName || ''), pointForName);
+      addSelection(key, value, odd, point);
+    }
+  }
+
+  const outMarkets: Record<string, any[]> = {};
+  for (const [key, mp] of Object.entries(perKey)) {
+    const arr = Array.from(mp.values());
+    if (arr.length) outMarkets[key] = arr;
+  }
+
+  const h2h = outMarkets.h2h || [];
+  let home = 0;
+  let draw = 0;
+  let away = 0;
+  const isTennis = normalizeSportKey(sport) === 'tennis';
+  const homeKey = isTennis ? canonicalTennisTeamKey(String(opts?.homeTeam || '')) : normalizeLineName(String(opts?.homeTeam || ''));
+  const awayKey = isTennis ? canonicalTennisTeamKey(String(opts?.awayTeam || '')) : normalizeLineName(String(opts?.awayTeam || ''));
+
+  for (const s of h2h) {
+    const n = normalizeOutcomeName(s?.value);
+    const odd = parseOddDecimal(s?.odd);
+    if (!(odd > 1)) continue;
+    const nk = isTennis ? canonicalTennisTeamKey(String(s?.value || '')) : normalizeLineName(String(s?.value || ''));
+    if (n === 'home' || (homeKey && nk && (nk === homeKey || nk.includes(homeKey) || homeKey.includes(nk)))) home = home || odd;
+    else if (n === 'away' || (awayKey && nk && (nk === awayKey || nk.includes(awayKey) || awayKey.includes(nk)))) away = away || odd;
+    else if (n === 'draw') draw = draw || odd;
+    else if (isTennis && homeKey && awayKey && nk && !(home > 1 && away > 1)) {
+      const sHome = tokenSetSimilarity(nk, homeKey);
+      const sAway = tokenSetSimilarity(nk, awayKey);
+      if (sHome >= 0.75 && sHome >= sAway + 0.06) home = home || odd;
+      else if (sAway >= 0.75 && sAway >= sHome + 0.06) away = away || odd;
+    }
+  }
+
+  if (!(home > 1) || !(away > 1)) {
+    const out: number[] = [];
+    for (const s of h2h) {
+      const n = normalizeOutcomeName(s?.value);
+      if (n === 'draw') continue;
+      const odd = parseOddDecimal(s?.odd);
+      if (!(odd > 1)) continue;
+      out.push(odd);
+      if (out.length >= 2) break;
+    }
+    if (out.length >= 2) {
+      if (!(home > 1)) home = out[0];
+      if (!(away > 1)) away = out[1];
+    }
+  }
+
+  if (Object.keys(outMarkets).length === 0 && !(home > 1) && !(away > 1)) return null;
+  return { home, draw, away, markets: outMarkets };
+}
+
+export async function fetchSportsApiProMatchStatistics(apiKey: string, sport: string, matchId: string): Promise<any | null> {
+  const sub = toSubdomain(sport);
+  const url = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/statistics`;
+  const json = await fetchJson(url, apiKey);
+  return json || null;
+}
+

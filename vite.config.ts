@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-const LOCAL_PROXY = 'http://127.0.0.1:8080';
+const LOCAL_PROXY = 'http://127.0.0.1:4000';
 
 export default defineConfig({
   plugins: [react()],
