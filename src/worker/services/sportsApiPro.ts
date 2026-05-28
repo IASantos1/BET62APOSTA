@@ -248,6 +248,15 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   const hs = pickScore(e?.homeScore?.current ?? e?.homeScore) ?? null;
   const as = pickScore(e?.awayScore?.current ?? e?.awayScore) ?? null;
 
+  let tennisSetInPlay = 0;
+  if (tennisSets && live) {
+    for (let i = 1; i <= 5; i++) {
+      const x = (tennisSets as any)[`s${i}`];
+      if (!x) continue;
+      if (x.home != null || x.away != null) tennisSetInPlay = i;
+    }
+  }
+
   return {
     external_event_id: `${sport}_${id}`,
     sport,
@@ -256,7 +265,7 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
     away_team: awayName,
     team_match: `${homeName} vs ${awayName}`,
     event_date: date,
-    status: tennisSets ? (live ? `SET ${Object.keys(tennisSets).length + 1}` : status) : status,
+    status: tennisSetInPlay ? `SET ${tennisSetInPlay}` : status,
     is_live: live ? 1 : 0,
     home_odd: 0,
     draw_odd: 0,
