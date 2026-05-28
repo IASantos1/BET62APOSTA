@@ -111,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         // STEP 2 — 2FA VALIDATION
-        await apiFetch('/api/auth/2fa/login', {
+        const two = await apiFetch<any>('/api/auth/2fa/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -119,6 +119,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             token: twoFactorCode,
           }),
         });
+        if (two?.token) localStorage.setItem('auth_token', two.token);
+        if (two?.refreshToken) localStorage.setItem('refresh_token', two.refreshToken);
       }
 
       await refreshUser();

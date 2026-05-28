@@ -222,7 +222,11 @@ export function useLiveFeed(sport?: string) {
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
 
-  const wsUrl = '';
+  const wsUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${proto}://${window.location.host}/api/live/ws?sport=${encodeURIComponent(String(sport || 'all'))}`;
+  }, [sport]);
 
   // Poll function
   const fetchLiveEvents = useCallback(async () => {

@@ -101,6 +101,41 @@ async function initDb(): Promise<void> {
       )`,
     );
 
+    await run(
+      client,
+      'user_two_factor',
+      `CREATE TABLE IF NOT EXISTS user_two_factor (
+        user_id    TEXT        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        secret     TEXT        NOT NULL,
+        enabled    BOOLEAN     NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`,
+    );
+
+    await run(
+      client,
+      'favorites',
+      `CREATE TABLE IF NOT EXISTS favorites (
+        user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        event_id   TEXT        NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, event_id)
+      )`,
+    );
+
+    await run(
+      client,
+      'odds_overrides',
+      `CREATE TABLE IF NOT EXISTS odds_overrides (
+        event_id   TEXT        PRIMARY KEY,
+        home_odd   NUMERIC,
+        draw_odd   NUMERIC,
+        away_odd   NUMERIC,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`,
+    );
+
     // ── leagues ────────────────────────────────────────────────────────────
     await run(
       client,
