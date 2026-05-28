@@ -464,8 +464,23 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       return arr.filter((e: any) => String(e?.league || '').toLowerCase().includes(cleanLeague));
     };
 
-    const live = filterLeague(liveAll).slice(0, 120);
-    const pregame = filterLeague(preAll).slice(0, 120);
+    const isBlockedLeague = (leagueName: string): boolean => {
+      const l = leagueName.toLowerCase();
+      if (l.includes("women") || l.includes("woman") || l.includes("feminino") ||
+          l.includes("femenino") || l.includes("damen") || l.includes("nwsl") ||
+          l.includes("saff women") || l.includes("damallsvenskan") || l.includes("liga f ") ||
+          l.includes("women's") || l.includes("womens") || l.includes("féminin") ||
+          l.includes("feminine") || l.includes("femmes")) return true;
+      if (/\bu\d{2}\b/.test(l) || l.includes("youth") || l.includes("junior") ||
+          l.includes("u-17") || l.includes("u-21") || l.includes("u-23") ||
+          l.includes("under-17") || l.includes("under-21") || l.includes("under-23") ||
+          l.includes("primavera") || l.includes("nextgen") || l.includes("reserve") ||
+          l.includes("akademi")) return true;
+      return false;
+    };
+
+    const live = filterLeague(liveAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''))).slice(0, 120);
+    const pregame = filterLeague(preAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''))).slice(0, 120);
 
     if (!includeOdds) {
       return { live, pregame };
