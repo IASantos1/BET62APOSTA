@@ -489,8 +489,9 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     for (const e of live) queueOddsRefresh(String((e as any)?.sport || ''), String((e as any)?.id || ''));
     for (const e of pregame) queueOddsRefresh(String((e as any)?.sport || ''), String((e as any)?.id || ''));
 
-    const liveBudget = { remaining: realtime ? Math.min(60, live.length) : live.length };
-    const preBudget = { remaining: realtime ? Math.min(60, pregame.length) : pregame.length };
+    // For realtime polls use only cached odds (budget=0 → queueOddsRefresh + return cache immediately)
+    const liveBudget = { remaining: realtime ? 0 : live.length };
+    const preBudget = { remaining: realtime ? 0 : pregame.length };
     const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
     const preEnriched = await mapLimit(pregame, 10, (x) => enrichEventOdds(x, preBudget, fullMarkets));
     return { live: liveEnriched, pregame: preEnriched };
