@@ -654,13 +654,15 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   if (p.includes('inning')) return g.includes('over') || g.includes('under') ? 'innings_totals' : 'innings_h2h';
 
   // ── SportsApiPro v2 marketGroup-based markets ─────────────────────────────
-  if (g === 'home away' || g === 'home away') {
+  // Explicit group mappings (highest priority)
+  if (g === '1x2' || g === '1 x 2') return 'h2h';
+  if (g === 'home away' || g === 'home away draw') {
     // Full time Home/Away (no draw for tennis/basketball/baseball/hockey)
     if (n === 'full time' || n === 'match' || !n || p === 'match') return 'h2h';
   }
-  if (g === 'home draw away' || g === 'home draw away') return 'h2h';
+  if (g === 'home draw away') return 'h2h';
   if (g === 'over under' || g === 'overunder') {
-    if (n.includes('game') || n.includes('total game')) return 'match_total_games';
+    if (n.includes('game') || n.includes('total game') || n === 'total games won') return 'match_total_games';
     if (n.includes('set') || n.includes('total set')) return 'total_sets';
     if (n.includes('corner')) return 'corners_total';
     if (n.includes('card')) return 'cards_total';
@@ -674,6 +676,8 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   if (g === 'draw no bet' || g === 'drawnabet') return 'draw_no_bet';
   if (g === 'puck line' || g === 'puckline') return 'puck_line';
   if (g === 'run line' || g === 'runline') return 'run_line';
+  // Name check before group for "total games won" to avoid misclassifying as total_sets
+  if (n === 'total games won' || n === 'total games') return 'match_total_games';
   if (g.includes('total sets') || g.includes('total set') || g.includes('total sets games')) return 'total_sets';
   if (g.includes('total game') || g.includes('game total')) return 'match_total_games';
   if (g.includes('current set winner')) return 'current_set_winner';
