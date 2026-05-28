@@ -648,9 +648,9 @@ function marketKeyFromOddsAll(lineType: string, lineName: string): string {
   if (t === 'sethandicap') return 'sets_handicap';
   if (t === 'totalsets' || t === 'overundersets' || t === 'overunderset') return 'total_sets';
 
-  if (t.includes('firstperiod') || n.includes('1st period')) return t.includes('total') ? 'period_1_totals' : 'period_1_h2h';
-  if (t.includes('secondperiod') || n.includes('2nd period')) return t.includes('total') ? 'period_2_totals' : 'period_2_h2h';
-  if (t.includes('thirdperiod') || n.includes('3rd period')) return t.includes('total') ? 'period_3_totals' : 'period_3_h2h';
+  if (t.includes('firstperiod') || n.includes('1st period') || n.includes('first period')) return (t.includes('total') || t === 'overunder') ? 'period_1_totals' : 'period_1_h2h';
+  if (t.includes('secondperiod') || n.includes('2nd period') || n.includes('second period')) return (t.includes('total') || t === 'overunder') ? 'period_2_totals' : 'period_2_h2h';
+  if (t.includes('thirdperiod') || n.includes('3rd period') || n.includes('third period')) return (t.includes('total') || t === 'overunder') ? 'period_3_totals' : 'period_3_h2h';
 
   if (t.includes('quarter') || n.includes('quarter')) {
     if (t.includes('winner') || n.includes('winner')) return 'quarters_h2h';
