@@ -836,7 +836,9 @@ async function fetchSportsApiProMatchOddsGeneric(
   const primaryUrl = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds`;
   const primaryJson = await fetchJson(primaryUrl, apiKey);
 
-  // Extract odds from the featured format: data.featured.fullTime or data.featured.default
+  // Extract h2h from the featured format: data.featured.fullTime or data.featured.default
+  // Do NOT return early — always continue to fetch the full /odds/{mode} endpoint for all markets
+  let featuredH2H: { home: number; draw: number; away: number; sels: any[] } | null = null;
   if (primaryJson?.data?.featured) {
     const featured = primaryJson.data.featured;
     const market = featured.fullTime ?? featured.default ?? featured.match ?? null;
@@ -853,13 +855,11 @@ async function fetchSportsApiProMatchOddsGeneric(
         else if (name === 'X') draw = odd;
         else if (name === '2') away = odd;
       }
-      const outMarkets: Record<string, any[]> = {};
-      if (h2hSelections.length) outMarkets['h2h'] = h2hSelections;
-      return { home, draw, away, markets: outMarkets };
+      if (h2hSelections.length) featuredH2H = { home, draw, away, sels: h2hSelections };
     }
   }
 
-  // Fallback: try suffixed endpoint
+  // Always fetch the suffixed endpoint for the full market set
   const url = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/${mode}`;
   const json = await fetchJson(url, apiKey);
   if (!json) return null;
@@ -982,6 +982,17 @@ async function fetchSportsApiProMatchOddsGeneric(
       if (!(home > 1)) home = out[0];
       if (!(away > 1)) away = out[1];
     }
+  }
+
+  // Merge featured h2h into outMarkets if not already present (featured h2h takes priority for h2h key)
+  if (featuredH2H && featuredH2H.sels.length) {
+    if (!outMarkets['h2h'] || !outMarkets['h2h'].length) {
+      outMarkets['h2h'] = featuredH2H.sels;
+    }
+    // Also use featured odds for home/draw/away if not set
+    if (!(home > 1)) home = featuredH2H.home;
+    if (!(draw > 1)) draw = featuredH2H.draw;
+    if (!(away > 1)) away = featuredH2H.away;
   }
 
   if (Object.keys(outMarkets).length === 0 && !(home > 1) && !(away > 1)) return null;
