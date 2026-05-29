@@ -839,11 +839,16 @@ async function fetchSportsApiProMatchOddsGeneric(
   const rows = extractOddsAll(json);
   if (!rows.length) return null;
 
-  const perKey: Record<string, Map<string, { label: string; odd: number; point?: string }>> = {};
-  const addSelection = (key: string, value: string, odd: number, point?: string | null) => {
+  type SelectionMap = Map<string, { label: string; odd: number; point?: string }>;
+  type PerKeyMap = Record<string, SelectionMap>;
+
+  const perKeyLive: PerKeyMap = {};
+  const perKeyPre: PerKeyMap = {};
+
+  const addSelectionTo = (target: PerKeyMap, key: string, value: string, odd: number, point?: string | null) => {
     if (!key || !value || !(odd > 1)) return;
     const p = point ? String(point) : '';
-    const mk = perKey[key] || (perKey[key] = new Map());
+    const mk = target[key] || (target[key] = new Map());
     const k = `${normalizeLineName(value)}|${p}`;
     const prev = mk.get(k);
     if (!prev || odd > prev.odd) {
@@ -872,6 +877,9 @@ async function fetchSportsApiProMatchOddsGeneric(
     if (!key) continue;
     // Skip suspended markets
     if (row?.suspended === true || row?.suspended === 1 || row?.suspended === '1') continue;
+    // Separate live vs pre-match rows — live data always has priority for the same market key
+    const isLiveRow = row?.isLive === true || row?.isLive === 1 || row?.isLive === 'true';
+    const target = isLiveRow ? perKeyLive : perKeyPre;
     const point = pickLineValue(row);
     const options =
       Array.isArray(row?.options) ? row.options :
@@ -891,8 +899,14 @@ async function fetchSportsApiProMatchOddsGeneric(
       );
       const pointForName = point && !hasNumericPointInName(String(rawName || ''), point) ? point : null;
       const value = formatSelectionName(key, String(rawName || ''), pointForName);
-      addSelection(key, value, odd, point);
+      addSelectionTo(target, key, value, odd, point);
     }
+  }
+
+  // Merge: live data has full priority. Pre-match only fills keys with no live data.
+  const perKey: PerKeyMap = { ...perKeyLive };
+  for (const [key, mp] of Object.entries(perKeyPre)) {
+    if (!perKey[key]) perKey[key] = mp;
   }
 
   const outMarkets: Record<string, any[]> = {};
@@ -910,10 +924,11 @@ async function fetchSportsApiProMatchOddsGeneric(
   const awayKey = isTennis ? canonicalTennisTeamKey(String(opts?.awayTeam || '')) : normalizeLineName(String(opts?.awayTeam || ''));
 
   for (const s of h2h) {
-    const n = normalizeOutcomeName(s?.value);
+    const rawLabel = s?.label ?? s?.value ?? s?.name ?? '';
+    const n = normalizeOutcomeName(rawLabel);
     const odd = parseOddDecimal(s?.odd);
     if (!(odd > 1)) continue;
-    const nk = isTennis ? canonicalTennisTeamKey(String(s?.value || '')) : normalizeLineName(String(s?.value || ''));
+    const nk = isTennis ? canonicalTennisTeamKey(String(rawLabel)) : normalizeLineName(String(rawLabel));
     if (n === 'home' || (homeKey && nk && (nk === homeKey || nk.includes(homeKey) || homeKey.includes(nk)))) home = home || odd;
     else if (n === 'away' || (awayKey && nk && (nk === awayKey || nk.includes(awayKey) || awayKey.includes(nk)))) away = away || odd;
     else if (n === 'draw') draw = draw || odd;
@@ -928,7 +943,7 @@ async function fetchSportsApiProMatchOddsGeneric(
   if (!(home > 1) || !(away > 1)) {
     const out: number[] = [];
     for (const s of h2h) {
-      const n = normalizeOutcomeName(s?.value);
+      const n = normalizeOutcomeName(s?.label ?? s?.value ?? s?.name ?? '');
       if (n === 'draw') continue;
       const odd = parseOddDecimal(s?.odd);
       if (!(odd > 1)) continue;
