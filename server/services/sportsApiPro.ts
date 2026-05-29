@@ -966,3 +966,10 @@ export async function fetchSportsApiProMatchStatistics(apiKey: string, sport: st
   const json = await fetchJson(url, apiKey);
   return json || null;
 }
+
+export async function fetchSportsApiProMatchIncidents(apiKey: string, sport: string, matchId: string): Promise<any | null> {
+  const sub = toSubdomain(sport);
+  const url = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/incidents`;
+  const json = await fetchJson(url, apiKey);
+  return json || null;
+}
