@@ -1,6 +1,7 @@
 import { useMemo, memo, useState, useEffect, useRef } from 'react'
 import { fairOddsTwoWay, formatFairOdd } from '@/shared/fairOdds'
 import { OddButton } from './OddButton'
+import { useMarketSignals } from '../hooks/useMarketSignals'
 import { 
   MARKET_CONFIG, 
   MARKET_GROUPS, 
@@ -207,15 +208,48 @@ export function SubOddsModel({
     return m;
   }, [suspendedMarkets]);
 
+  const signalsEventId =
+    (event as any)?.id ??
+    (event as any)?.fixture?.id ??
+    (event as any)?.match_id ??
+    (event as any)?.external_event_id ??
+    null
+
+  const marketSignals = useMarketSignals({
+    eventId: signalsEventId,
+    sport: (event as any)?.sport,
+    isLive: !!isLive,
+  })
+
+  const apiCritState = useMemo(() => {
+    if (marketSignals.varActive) return 'var_review' as const
+    const c = marketSignals.cta
+    if (c === 'idle') return 'idle' as const
+    return c as any
+  }, [marketSignals.cta, marketSignals.varActive])
+
   const getSuspendedReason = (marketKey?: string) => {
     if (isGlobalSuspended) return 'EVENT_FROZEN';
-    if (critState !== 'idle') {
-      if (critState === 'var_review' || critState === 'var_penalty') return 'VAR';
-      if (critState === 'goal') return 'GOAL';
-      if (critState === 'big_chance') return 'CHANCE';
+    const effective = apiCritState !== 'idle' ? apiCritState : critState
+    if (effective !== 'idle') {
+      if (effective === 'var_review' || effective === 'var_penalty') return 'VAR';
+      if (effective === 'goal') return 'GOAL';
+      if (effective === 'big_chance') return 'CHANCE';
+      if (effective === 'penalty') return 'PENALTY';
+      if (effective === 'cards') return 'CARD';
     }
     return marketKey ? suspendedMap.get(marketKey) : undefined;
   };
+
+  const toBadgeReason = (susp?: string) => {
+    if (!susp || susp === 'EVENT_FROZEN') return 'SUSPENSO'
+    if (susp === 'VAR') return 'VAR'
+    if (susp === 'GOAL') return 'GOAL'
+    if (susp === 'CHANCE') return 'CHANCE'
+    if (susp === 'PENALTY') return 'PENALTY'
+    if (susp === 'CARD') return 'CARD'
+    return 'SUSPENSO'
+  }
 
   // Current live score — used to block impossible correct-score outcomes
   const currentGoals = useMemo(() => {
@@ -475,13 +509,16 @@ export function SubOddsModel({
   // ─────────────────────────────────────────────────────────────────────
   // CRITICAL EVENT STATE MACHINE — replaces 1X2 buttons during key moments
   // ─────────────────────────────────────────────────────────────────────
-  type CritState = 'idle' | 'big_chance' | 'var_review' | 'var_penalty' | 'goal';
+  type CritState = 'idle' | 'big_chance' | 'var_review' | 'var_penalty' | 'goal' | 'penalty' | 'cards';
   const [critState, setCritState] = useState<CritState>('idle');
   const lastEventIdRef = useRef<string>('');
 
   // Watch live events and trigger critical state on goal/var/big-chance/penalty
   useEffect(() => {
     if (!isLive || !Array.isArray(liveEvents) || liveEvents.length === 0) return;
+    const sp = String((event as any)?.sport || '').toLowerCase()
+    const allow = sp.includes('soccer') || (sp.includes('football') && !sp.includes('american')) || sp.includes('futebol')
+    if (!allow) return
     const latest = liveEvents[liveEvents.length - 1];
     if (!latest) return;
     const id = `${latest?.timer || latest?.minute || latest?.time?.elapsed || ''}|${latest?.type || ''}|${latest?.detail || ''}|${latest?.player?.name || latest?.player || ''}`;
@@ -494,6 +531,8 @@ export function SubOddsModel({
     if (/(var.*pen|pen.*var|p[eê]nalti.*confirmad|penalty.*confirmed)/.test(text)) next = 'var_penalty';
     else if (/\bvar\b|video.*assist|review/.test(text)) next = 'var_review';
     else if (/\b(goal|gol)\b/.test(text) && !/disallow|cancel|anulad|missed|own/.test(text)) next = 'goal';
+    else if (/pen[aâ]lti|penalty/.test(text)) next = 'penalty';
+    else if (/cart[aã]o|card|yellow|red/.test(text)) next = 'cards';
     else if (/big.*chance|grande.*chance|great.*chance|big_chance|gc\b/.test(text)) next = 'big_chance';
 
     if (next) {
@@ -548,19 +587,39 @@ export function SubOddsModel({
 
           // ── Critical event button (overrides everything) ──────────────
           // Aparece para goal/big_chance (VAR bloqueia tudo, incluindo h2h)
-          if (critState !== 'idle' && critState !== 'var_review' && critState !== 'var_penalty' && !isGlobalSuspended && !suspendedMap.has('h2h')) {
+          const effectiveCrit = apiCritState !== 'idle' ? apiCritState : critState
+          if (effectiveCrit !== 'idle' && effectiveCrit !== 'var_review' && effectiveCrit !== 'var_penalty' && !isGlobalSuspended && !suspendedMap.has('h2h')) {
             // Auto-pick favourite to wager on (lowest odd)
             const fav = resultadoRegulamentar.reduce((m, x) => (Number(x.odd) > 0 && Number(x.odd) < Number(m.odd) ? x : m), resultadoRegulamentar[0]);
             const favOdd = Number(fav?.odd) || 0;
             const favStr = favOdd > 0 ? favOdd.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
             const disabled = !(favOdd > 0);
             // Botão com estilo igual a "Aposta Já" mas com rótulo do lance crítico
-            const critLabel = critState === 'goal' ? '⚽ GOL' : '🔥 GRANDE CHANCE';
-            const critAnim = critState === 'goal' ? 'animate-bounce' : 'animate-pulse';
-            const critRing = critState === 'goal' ? 'ring-emerald-400' : 'ring-orange-400';
-            const critGradient = critState === 'goal'
-              ? 'from-emerald-600 to-green-700'
-              : 'from-orange-500 to-red-600';
+            const critLabel =
+              effectiveCrit === 'goal'
+                ? '⚽ GOL'
+                : effectiveCrit === 'penalty'
+                  ? '🎯 PÊNALTI'
+                  : effectiveCrit === 'cards'
+                    ? '🟨 CARTÕES'
+                    : '🔥 GRANDE CHANCE'
+            const critAnim = effectiveCrit === 'goal' ? 'animate-bounce' : 'animate-pulse';
+            const critRing =
+              effectiveCrit === 'goal'
+                ? 'ring-emerald-400'
+                : effectiveCrit === 'penalty'
+                  ? 'ring-orange-400'
+                  : effectiveCrit === 'cards'
+                    ? 'ring-yellow-400'
+                    : 'ring-orange-400'
+            const critGradient =
+              effectiveCrit === 'goal'
+                ? 'from-emerald-600 to-green-700'
+                : effectiveCrit === 'penalty'
+                  ? 'from-orange-500 to-red-600'
+                  : effectiveCrit === 'cards'
+                    ? 'from-yellow-500 to-amber-600'
+                    : 'from-orange-500 to-red-600';
             return (
               <MarketCard title={title} darkMode={darkMode} noPad>
                 <div className="p-3">
@@ -620,7 +679,7 @@ export function SubOddsModel({
                       trend="stable"
                       onClick={() => onSelect(String(item.selection || item.label), val)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                      suspended={disabled ? { reason: susp === 'EVENT_FROZEN' ? 'GOL/VAR' : 'SUSPENSO' } : undefined}
+                      suspended={disabled ? { reason: toBadgeReason(susp) } : undefined}
                     />
                   );
                 })}
@@ -650,7 +709,7 @@ export function SubOddsModel({
                       trend="stable"
                       onClick={() => onSelect(String(item.selection || item.label), val)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                      suspended={disabled ? { reason: isSusp ? (susp === 'EVENT_FROZEN' ? 'GOL/VAR' : susp === 'VAR' ? 'VAR' : 'SUSPENSO') : 'SUSPENSO' } : undefined}
+                      suspended={disabled ? { reason: toBadgeReason(susp) } : undefined}
                     />
                   );
                 })}
@@ -681,7 +740,7 @@ export function SubOddsModel({
                       trend="stable"
                       onClick={() => onSelect(String(item.selection || item.label), val)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                      suspended={disabled ? { reason: isSusp ? (susp === 'EVENT_FROZEN' ? 'GOL/VAR' : susp === 'VAR' ? 'VAR' : 'SUSPENSO') : 'SUSPENSO' } : undefined}
+                      suspended={disabled ? { reason: toBadgeReason(susp) } : undefined}
                     />
                   );
                 })}
@@ -721,7 +780,7 @@ export function SubOddsModel({
                       trend="stable"
                       onClick={() => onSelect(String(item.selection || item.label), val)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                      suspended={disabled ? { reason: isSusp ? (susp === 'EVENT_FROZEN' ? 'GOL/VAR' : susp === 'VAR' ? 'VAR' : 'SUSPENSO') : 'SUSPENSO' } : undefined}
+                      suspended={disabled ? { reason: toBadgeReason(susp) } : undefined}
                     />
                   );
                 })}
@@ -1109,7 +1168,7 @@ export function SubOddsModel({
                     trend="stable"
                     onClick={() => onSelect(String(item.selection || item.label), val)}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                    suspended={disabled ? { reason: isSusp ? (susp === 'EVENT_FROZEN' ? 'GOL/VAR' : 'SUSPENSO') : 'SUSPENSO' } : undefined}
+                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined}
                   />
                 );
               })}

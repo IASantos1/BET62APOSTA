@@ -60,11 +60,15 @@ export function OddButton({ label, price, onClick, className = '', teamName, sus
             text-[9px] px-1.5 py-0.5 rounded shadow-sm font-bold uppercase tracking-wider backdrop-blur-sm border whitespace-nowrap
             ${suspended.reason === 'GOAL' ? 'bg-red-600/90 text-white border-red-500' : 
               suspended.reason === 'VAR' ? 'bg-yellow-600/90 text-white border-yellow-500' :
+              suspended.reason === 'CHANCE' ? 'bg-rose-600/90 text-white border-rose-500' :
+              suspended.reason === 'PENALTY' ? 'bg-orange-600/90 text-white border-orange-500' :
               suspended.reason === 'CARD' ? 'bg-orange-600/90 text-white border-orange-500' :
               'bg-gray-600/90 text-gray-200 border-gray-500'}
           `}>
             {suspended.reason === 'GOAL' ? 'GOL' : 
              suspended.reason === 'VAR' ? 'VAR' : 
+             suspended.reason === 'CHANCE' ? 'CHANCE' :
+             suspended.reason === 'PENALTY' ? 'PÊNALTI' :
              suspended.reason === 'CARD' ? 'CARTÃO' : 
              suspended.reason}
           </span>

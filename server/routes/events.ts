@@ -1161,7 +1161,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
           player,
           assist,
           description: inc.description ?? inc.text ?? null,
-          isConfirmed: inc.isConfirmed ?? true,
+          isConfirmed: inc.isConfirmed ?? inc.confirmed ?? inc.is_confirmed ?? true,
         };
       });
 
