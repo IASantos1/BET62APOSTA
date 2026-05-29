@@ -701,7 +701,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
     let preEnriched: AnyEvent[] = pregame;
     if (includePregame && pregame.length > 0) {
-      const eagerCount = Math.min(24, pregame.length);
+      const eagerCount = Math.min(requireOdds ? 80 : 24, pregame.length);
       const head = pregame.slice(0, eagerCount);
       const tail = pregame.slice(eagerCount);
       const preBudget = { remaining: head.length };
@@ -710,7 +710,17 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     }
 
     const filteredLive = requireOdds && includeLive ? liveEnriched.filter(hasPrimaryOddsEvent) : liveEnriched;
-    const filteredPregame = requireOdds && includePregame ? preEnriched.filter(hasPrimaryOddsEvent) : preEnriched;
+    const filteredPregame = requireOdds && includePregame
+      ? preEnriched.filter((e: any) => {
+          if (hasPrimaryOddsEvent(e)) return true;
+          const sport = String(e?.sport || '').trim();
+          if (!sport) return false;
+          const id = matchIdOf(e);
+          if (!id) return false;
+          const odds = oddsFromCache(sport, id);
+          return odds ? hasPrimaryOddsFromOdds(odds) : false;
+        })
+      : preEnriched;
     return { live: filteredLive, pregame: filteredPregame };
   };
 
