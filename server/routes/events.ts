@@ -6,6 +6,7 @@ import {
   fetchSportsApiProMatchOddsLive,
   fetchSportsApiProMatchOddsPreMatch,
   fetchSportsApiProMatchStatistics,
+  fetchSportsApiProMatchIncidents,
   fetchSportsApiProSchedule,
 } from '../services/sportsApiPro';
 import { sendJson, badRequest } from '../lib/http';
@@ -784,6 +785,103 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       const stats = extractStats(statsRaw);
       const events = extractMatchEvents(statsRaw);
       sendJson(res, 200, { stats, events, _debug: statsRaw ? Object.keys(statsRaw) : [], _rawKeys: statsRaw?.data ? Object.keys(statsRaw.data) : [] });
+      return true;
+    }
+
+    // ── /api/events/:id/incidents ─────────────────────────────────────────
+    const incidentsMatch = path.match(/^\/api\/events\/([^/]+)\/incidents$/);
+    if (incidentsMatch && req.method === 'GET') {
+      const idRaw = decodeURIComponent(incidentsMatch[1] || '');
+      const id = normalizeIdLoose(idRaw);
+      const sportParam = String(url.searchParams.get('sport') || '').trim();
+      const sport = sportParam || await resolveSport(id);
+      if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
+
+      // Fetch incidents and statistics in parallel
+      const [incidentsRaw, statsRaw] = await Promise.all([
+        fetchSportsApiProMatchIncidents(apiKey, sport, id).catch(() => null),
+        fetchSportsApiProMatchStatistics(apiKey, sport, id).catch(() => null),
+      ]);
+
+      // Map SportsApiPro typeId → canonical incident type
+      const TYPE_MAP: Record<number, string> = {
+        1:  'goal',
+        2:  'yellow_card',
+        3:  'red_card',
+        4:  'yellow_red',
+        5:  'substitution',
+        6:  'penalty',
+        7:  'own_goal',
+        8:  'missed_penalty',
+        9:  'disallowed_goal',
+        10: 'VAR',
+        11: 'penalty_awarded',
+        12: 'injury',
+        13: 'offside',
+      };
+
+      const extractIncidents = (raw: any): any[] => {
+        if (!raw) return [];
+        if (Array.isArray(raw)) return raw;
+        if (Array.isArray(raw.data?.incidents)) return raw.data.incidents;
+        if (Array.isArray(raw.incidents)) return raw.incidents;
+        if (Array.isArray(raw.data?.events)) return raw.data.events;
+        if (Array.isArray(raw.events)) return raw.events;
+        if (Array.isArray(raw.data)) return raw.data;
+        return [];
+      };
+
+      const rawIncidents = extractIncidents(incidentsRaw);
+      const incidents = rawIncidents.map((inc: any, i: number) => {
+        const typeId = Number(inc.typeId ?? inc.type_id ?? inc.incident_type ?? 0);
+        const canonicalType = TYPE_MAP[typeId] || inc.type || 'other';
+        const minute = Number(inc.time ?? inc.minute ?? inc.elapsed ?? 0);
+        const addedTime = Number(inc.addedTime ?? inc.added_time ?? inc.injuryTime ?? 0);
+        const teamSide = String(inc.teamSide ?? inc.team_side ?? inc.team ?? '').toLowerCase();
+        const isHome = teamSide === 'home' || teamSide === '1';
+        const isAway = teamSide === 'away' || teamSide === '2';
+        const player = inc.player?.name ?? inc.playerName ?? inc.player ?? null;
+        const assist = inc.player2?.name ?? inc.assistName ?? inc.assist ?? null;
+        return {
+          id: String(inc.id ?? `${id}-${i}`),
+          typeId,
+          type: canonicalType,
+          minute,
+          addedTime,
+          team: isHome ? 'home' : isAway ? 'away' : null,
+          player,
+          assist,
+          description: inc.description ?? inc.text ?? null,
+          isConfirmed: inc.isConfirmed ?? true,
+        };
+      });
+
+      // Extract Big Chances Created (stat ID 24) from statistics
+      const extractBigChances = (raw: any): { home: number; away: number } => {
+        const empty = { home: 0, away: 0 };
+        if (!raw) return empty;
+        const d = raw.data ?? raw;
+        // Array format: [{id:24, name:'Big Chances Created', home:X, away:Y}]
+        if (Array.isArray(d)) {
+          const stat = d.find((s: any) => s.id === 24 || s.name === 'Big Chances Created');
+          if (stat) return { home: Number(stat.home ?? stat.homeValue ?? 0), away: Number(stat.away ?? stat.awayValue ?? 0) };
+        }
+        // Object format: { home: { big_chances: X }, away: { big_chances: X } }
+        if (d && typeof d === 'object') {
+          const h = d.home?.big_chances ?? d.home?.bigChances ?? d.big_chances_created?.home ?? null;
+          const a = d.away?.big_chances ?? d.away?.bigChances ?? d.big_chances_created?.away ?? null;
+          if (h !== null || a !== null) return { home: Number(h ?? 0), away: Number(a ?? 0) };
+        }
+        return empty;
+      };
+
+      const bigChances = extractBigChances(statsRaw);
+
+      sendJson(res, 200, {
+        incidents,
+        bigChances,
+        _meta: { total: incidents.length, matchId: id, sport },
+      });
       return true;
     }
 
