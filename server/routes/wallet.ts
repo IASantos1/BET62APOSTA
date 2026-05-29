@@ -75,6 +75,11 @@ export async function handleWalletRoutes(
     return true;
   }
 
+  if (req.method === 'GET' && path === '/api/pricing/config') {
+    sendJson(res, 200, { betDefault: 10, minDeposit: 10, maxDeposit: 10000, minWithdrawal: 20 });
+    return true;
+  }
+
   if (req.method === 'POST' && path === '/api/wallet/withdrawals') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
