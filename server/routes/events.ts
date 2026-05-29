@@ -458,6 +458,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     only: 'live' | 'pregame' | 'both',
     daysAhead: number,
     requireOdds: boolean,
+    allowBlocked: boolean,
   ): Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }> => {
     startOddsQueue();
     const sports = getSports(sportsParam);
@@ -577,8 +578,12 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       });
     };
 
-    const live = sortStable(filterLeague(liveAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || '')))).slice(0, 120);
-    const pregame = sortStable(filterLeague(preAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || '')))).slice(0, 120);
+    const filterBlocked = (arr: AnyEvent[]) =>
+      allowBlocked
+        ? arr
+        : arr.filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || '')));
+    const live = sortStable(filterBlocked(filterLeague(liveAll))).slice(0, 120);
+    const pregame = sortStable(filterBlocked(filterLeague(preAll))).slice(0, 120);
 
     if (!includeOdds) {
       return { live, pregame };
@@ -643,12 +648,13 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       const onlyRaw = String(url.searchParams.get('only') || '').toLowerCase().trim();
       const only = onlyRaw === 'live' || onlyRaw === 'pregame' ? (onlyRaw as any) : 'both';
       const requireOdds = String(url.searchParams.get('requireOdds') || '') === '1';
+      const allowBlocked = String(url.searchParams.get('allowBlocked') || '') === '1';
       const daysParam = Number(url.searchParams.get('days') || 0);
       const daysAhead = Number.isFinite(daysParam) ? Math.max(0, Math.min(14, Math.floor(daysParam))) : 0;
       const fullMarkets =
         String(url.searchParams.get('markets') || '').toLowerCase() === 'full' ||
         String(url.searchParams.get('markets') || '').toLowerCase() === 'all';
-      const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}|fullMarkets:${fullMarkets ? '1' : '0'}|only:${only}|days:${daysAhead}|requireOdds:${requireOdds ? '1' : '0'}`;
+      const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}|fullMarkets:${fullMarkets ? '1' : '0'}|only:${only}|days:${daysAhead}|requireOdds:${requireOdds ? '1' : '0'}|allowBlocked:${allowBlocked ? '1' : '0'}`;
       const cached = bySportCache.get(cacheKey);
       const ttl = realtime ? 2_000 : includeOdds ? 12_000 : 25_000;
       if (cached && ttlOk(cached.ts, ttl)) {
@@ -665,6 +671,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         only,
         daysAhead || defaultDays,
         requireOdds,
+        allowBlocked,
       ).catch(() => ({ live: [], pregame: [] }));
       bySportCache.set(cacheKey, { ts: nowMs(), data });
       sendJson(res, 200, data);
