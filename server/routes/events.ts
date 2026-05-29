@@ -226,7 +226,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const list = await fetchSportsApiProLive(apiKey, sport).catch(() => []);
     const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
       const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
-      const out = { ...e, id };
+      const out = { ...e, id, sport };
       rememberSport(id, sport);
       lastEventById.set(id, { ts: nowMs(), data: out });
       if (Number((out as any)?.is_live || 0) === 1) {
@@ -245,7 +245,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const list = await fetchSportsApiProSchedule(apiKey, sport, date).catch(() => []);
     const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
       const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
-      const out = { ...e, id };
+      const out = { ...e, id, sport };
       rememberSport(id, sport);
       lastEventById.set(id, { ts: nowMs(), data: out });
       return out;
@@ -293,11 +293,17 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         }
       }
     }
-    const primary = valid[0];
+    const pick = (k: 'home' | 'draw' | 'away'): number => {
+      for (const r of valid) {
+        const v = Number((r as any)?.[k] || 0);
+        if (v > 1) return v;
+      }
+      return Number((valid[0] as any)?.[k] || 0) || 0;
+    };
     return {
-      home: primary.home || 0,
-      draw: primary.draw || 0,
-      away: primary.away || 0,
+      home: pick('home'),
+      draw: pick('draw'),
+      away: pick('away'),
       markets: merged,
     };
   };
@@ -580,9 +586,9 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     for (const e of live) queueOddsRefresh(String((e as any)?.sport || ''), String((e as any)?.id || ''));
     for (const e of pregame) queueOddsRefresh(String((e as any)?.sport || ''), String((e as any)?.id || ''));
 
-    // For realtime polls use only cached odds (budget=0 → queueOddsRefresh + return cache immediately)
-    const liveBudget = { remaining: realtime ? 0 : live.length };
-    const preBudget = { remaining: realtime ? 0 : pregame.length };
+    // For realtime polls: allow a small warm-up budget to avoid cold-cache "no odds" in live views
+    const liveBudget = { remaining: realtime ? Math.min(12, live.length) : live.length };
+    const preBudget = { remaining: realtime ? Math.min(6, pregame.length) : pregame.length };
     const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
     const preEnriched = await mapLimit(pregame, 10, (x) => enrichEventOdds(x, preBudget, fullMarkets));
 
@@ -682,6 +688,36 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       } catch (e: any) {
         sendJson(res, 200, { url: targetUrl, status: 0, ok: false, error: String(e?.message || e) });
       }
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/dev/cache-debug') {
+      const tokenEnv = String(process.env.ODDS_DEBUG_TOKEN || '').trim();
+      if (!tokenEnv) return false;
+      const token = String(url.searchParams.get('token') || req.headers['x-debug-token'] || '').trim();
+      if (!token || token !== tokenEnv) return sendJson(res, 403, { error: 'Forbidden' }), true;
+
+      const at = (ts: number) => (ts ? nowMs() - ts : 0);
+      const sample = <T>(m: Map<string, CacheEntry<T>>, n: number) => {
+        const out: Array<{ key: string; ageMs: number }> = [];
+        for (const [k, v] of m.entries()) {
+          out.push({ key: k, ageMs: at(v.ts) });
+        }
+        out.sort((a, b) => a.ageMs - b.ageMs);
+        return out.slice(0, n);
+      };
+
+      sendJson(res, 200, {
+        liveCache: { size: liveCache.size, sample: sample(liveCache as any, 6) },
+        scheduleCache: { size: scheduleCache.size, sample: sample(scheduleCache as any, 6) },
+        bySportCache: { size: bySportCache.size, sample: sample(bySportCache as any, 6) },
+        oddsCache: { size: oddsCache.size, sample: sample(oddsCache as any, 12) },
+        oddsInflight: { size: oddsInflight.size },
+        oddsQueue: { length: oddsQueue.length },
+        oddsQueued: { size: oddsQueued.size },
+        idToSport: { size: idToSport.size },
+        liveSeen: { size: liveSeen.size },
+      });
       return true;
     }
 
