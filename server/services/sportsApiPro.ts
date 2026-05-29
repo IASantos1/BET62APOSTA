@@ -61,6 +61,10 @@ function extractEvents(payload: any): any[] {
   if (!payload) return [];
   if (Array.isArray(payload.events)) return payload.events;
   if (Array.isArray(payload.data?.events)) return payload.data.events;
+  if (Array.isArray(payload.data) && payload.data.length > 0) return payload.data;
+  if (Array.isArray(payload.data?.matches)) return payload.data.matches;
+  if (Array.isArray(payload.matches)) return payload.matches;
+  if (Array.isArray(payload.data?.schedule)) return payload.data.schedule;
   const tournaments = payload.data?.tournaments ?? payload.tournaments;
   if (Array.isArray(tournaments)) {
     const out: any[] = [];
@@ -380,8 +384,41 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   const awayName = pickTeamName('away');
   if (!homeName || !awayName) return null;
 
-  const ts = e?.startTimestamp != null ? num(e.startTimestamp) : 0;
-  const date = ts > 0 ? new Date(ts * 1000).toISOString() : String(e?.startTime ?? e?.event_date ?? '').trim();
+  const pickStartTs = (): number => {
+    const candidates = [
+      e?.startTimestamp,
+      e?.start_timestamp,
+      e?.timestamp,
+      e?.ts,
+      e?.startTs,
+      e?.fixture?.timestamp,
+      e?.fixture?.startTimestamp,
+    ];
+    for (const c of candidates) {
+      const n = num(c);
+      if (n > 0) return n;
+    }
+    return 0;
+  };
+  const pickStartDate = (): string => {
+    const candidates = [
+      e?.startTime,
+      e?.start_time,
+      e?.event_date,
+      e?.date,
+      e?.fixture?.date,
+      e?.start_date?.iso,
+      e?.startDate,
+    ];
+    for (const c of candidates) {
+      const s = String(c ?? '').trim();
+      if (s) return s;
+    }
+    return '';
+  };
+
+  const ts = pickStartTs();
+  const date = ts > 0 ? new Date(ts * 1000).toISOString() : pickStartDate();
   if (!date) return null;
 
   const tournament = e?.tournament?.name ?? e?.tournament ?? '';
