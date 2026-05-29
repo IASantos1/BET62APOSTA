@@ -345,7 +345,28 @@ function deriveStatusShort(sport: string, status: any, elapsed: number, tennisSe
 }
 
 function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
-  const id = e?.id != null ? String(e.id) : '';
+  const pickId = (): string => {
+    const candidates = [
+      e?.id,
+      e?.match_id,
+      e?.matchId,
+      e?.event_id,
+      e?.eventId,
+      e?.game_id,
+      e?.gameId,
+      e?.fixture_id,
+      e?.fixtureId,
+      e?.fixture?.id,
+      e?.external_id,
+      e?.externalId,
+    ];
+    for (const c of candidates) {
+      const s = String(c ?? '').trim();
+      if (s && s.toLowerCase() !== 'null' && s.toLowerCase() !== 'undefined') return s;
+    }
+    return '';
+  };
+  const id = pickId();
   if (!id) return null;
 
   const pickTeamName = (side: 'home' | 'away'): string => {
