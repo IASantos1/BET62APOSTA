@@ -832,6 +832,34 @@ async function fetchSportsApiProMatchOddsGeneric(
   opts?: { homeTeam?: string; awayTeam?: string }
 ): Promise<OddsResult | null> {
   const sub = toSubdomain(sport);
+  // Primary endpoint: /api/match/{id}/odds (no suffix) — returns data.featured with 1X2
+  const primaryUrl = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds`;
+  const primaryJson = await fetchJson(primaryUrl, apiKey);
+
+  // Extract odds from the featured format: data.featured.fullTime or data.featured.default
+  if (primaryJson?.data?.featured) {
+    const featured = primaryJson.data.featured;
+    const market = featured.fullTime ?? featured.default ?? featured.match ?? null;
+    if (market && Array.isArray(market.choices) && !market.suspended) {
+      const choices = market.choices;
+      let home = 0, draw = 0, away = 0;
+      const h2hSelections: any[] = [];
+      for (const c of choices) {
+        const odd = parseOddDecimal(c?.fractionalValue ?? c?.decimalOdds ?? c?.odd ?? c?.price);
+        const name = String(c?.name ?? '').trim();
+        const sel = { label: name, odd };
+        h2hSelections.push(sel);
+        if (name === '1') home = odd;
+        else if (name === 'X') draw = odd;
+        else if (name === '2') away = odd;
+      }
+      const outMarkets: Record<string, any[]> = {};
+      if (h2hSelections.length) outMarkets['h2h'] = h2hSelections;
+      return { home, draw, away, markets: outMarkets };
+    }
+  }
+
+  // Fallback: try suffixed endpoint
   const url = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/${mode}`;
   const json = await fetchJson(url, apiKey);
   if (!json) return null;
