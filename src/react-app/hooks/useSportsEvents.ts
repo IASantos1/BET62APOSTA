@@ -368,6 +368,7 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
         params.set('include', 'odds');
         params.set('realtime', only === 'live' ? '1' : '0');
         params.set('only', only);
+        params.set('requireOdds', '1');
         const days =
           only === 'live'
             ? '0'
@@ -389,6 +390,7 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
           p2.set('include', 'odds');
           p2.set('realtime', only === 'live' ? '1' : '0');
           p2.set('only', only);
+          p2.set('requireOdds', '1');
           const days2 =
             only === 'live'
               ? '0'
