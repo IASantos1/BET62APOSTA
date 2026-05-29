@@ -342,8 +342,42 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   const id = e?.id != null ? String(e.id) : '';
   if (!id) return null;
 
-  const homeName = String(e?.homeTeam?.name ?? e?.homeTeam ?? '').trim();
-  const awayName = String(e?.awayTeam?.name ?? e?.awayTeam ?? '').trim();
+  const pickTeamName = (side: 'home' | 'away'): string => {
+    const candidates = [
+      e?.[`${side}Team`]?.name,
+      e?.[`${side}Team`]?.team?.name,
+      e?.[`${side}Team`],
+      e?.teams?.[side]?.name,
+      e?.team?.[side]?.name,
+      e?.[side]?.name,
+      e?.[side]?.team?.name,
+      e?.[`${side}_team`],
+      e?.[`${side}Name`],
+      e?.[`${side}_name`],
+    ];
+    for (const c of candidates) {
+      const s = String(c ?? '').trim();
+      if (s && s.toLowerCase() !== 'null' && s.toLowerCase() !== 'undefined') return s;
+    }
+    return '';
+  };
+  const pickTeamLogo = (side: 'home' | 'away'): string => {
+    const candidates = [
+      e?.[`${side}Team`]?.logo,
+      e?.teams?.[side]?.logo,
+      e?.[side]?.logo,
+      e?.[`${side}Team`]?.team?.logo,
+      e?.[side]?.team?.logo,
+    ];
+    for (const c of candidates) {
+      const s = String(c ?? '').trim();
+      if (s) return s;
+    }
+    return '';
+  };
+
+  const homeName = pickTeamName('home');
+  const awayName = pickTeamName('away');
   if (!homeName || !awayName) return null;
 
   const ts = e?.startTimestamp != null ? num(e.startTimestamp) : 0;
@@ -352,7 +386,17 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
 
   const tournament = e?.tournament?.name ?? e?.tournament ?? '';
   const country = e?.tournament?.category?.name ?? e?.category?.name ?? e?.country?.name ?? '';
-  const statusRaw = e?.status?.description ?? e?.status?.type ?? e?.status ?? e?.statusCode ?? e?.statusText ?? '';
+  const statusRaw =
+    e?.status?.description ??
+    e?.status?.type ??
+    e?.status?.short ??
+    e?.status?.long ??
+    e?.fixture?.status?.short ??
+    e?.fixture?.status?.long ??
+    e?.status ??
+    e?.statusCode ??
+    e?.statusText ??
+    '';
   const status = String(statusRaw || 'NS');
   const statusObj = e?.status ?? status;
   const live = isLive(statusObj);
@@ -409,8 +453,8 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
     },
   };
   const teams = {
-    home: { name: homeName, logo: String(e?.homeTeam?.logo ?? '') },
-    away: { name: awayName, logo: String(e?.awayTeam?.logo ?? '') },
+    home: { name: homeName, logo: pickTeamLogo('home') },
+    away: { name: awayName, logo: pickTeamLogo('away') },
   };
   const goals = { home: hs, away: as };
 
