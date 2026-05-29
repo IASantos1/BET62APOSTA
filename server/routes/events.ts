@@ -812,8 +812,30 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         }
         const extractedCount = (() => {
           try {
-            const items = (json && typeof json === 'object') ? (Array.isArray((json as any).events) ? (json as any).events : Array.isArray((json as any).data?.events) ? (json as any).data.events : []) : [];
-            return Array.isArray(items) ? items.length : 0;
+            const items = (json as any) ? (Array.isArray((json as any).events) ? (json as any).events : Array.isArray((json as any).data?.events) ? (json as any).data.events : null) : null;
+            if (Array.isArray(items)) return items.length;
+            return 0;
+          } catch {
+            return 0;
+          }
+        })();
+        const normalizedCount = (() => {
+          try {
+            // use the same extractor as the service layer, but without importing it
+            const payload = json;
+            if (!payload) return 0;
+            if (Array.isArray((payload as any).events)) return (payload as any).events.length;
+            if (Array.isArray((payload as any).data?.events)) return (payload as any).data.events.length;
+            const tournaments = (payload as any).data?.tournaments ?? (payload as any).tournaments;
+            if (Array.isArray(tournaments)) {
+              let n = 0;
+              for (const t of tournaments) {
+                const arr = t?.events ?? t?.matches ?? t?.games ?? [];
+                if (Array.isArray(arr)) n += arr.length;
+              }
+              return n;
+            }
+            return 0;
           } catch {
             return 0;
           }
@@ -827,6 +849,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
           date,
           topKeys,
           extractedCount,
+          normalizedCount,
           bodyPreview: String(text || '').slice(0, 1600),
         });
       } catch (e: any) {
