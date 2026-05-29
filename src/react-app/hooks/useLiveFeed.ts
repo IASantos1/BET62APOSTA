@@ -300,6 +300,10 @@ export function useLiveFeed(sport?: string) {
     let ws: WebSocket | null = null;
     let wsOk = false;
     let pingId: ReturnType<typeof setInterval> | null = null;
+    const idleMs = 60_000;
+    let lastInteractionAt = Date.now();
+    let hiddenAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
+    let wakeInFlight = false;
 
     const loop = async () => {
       if (cancelled) return;
@@ -315,6 +319,39 @@ export function useLiveFeed(sport?: string) {
         timeoutId = setTimeout(loop, wsOk ? 15_000 : 10_000);
       }
     };
+
+    const runWakeRefresh = () => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (wakeInFlight) return;
+      wakeInFlight = true;
+      fetchLiveEvents()
+        .catch(() => void 0)
+        .finally(() => {
+          wakeInFlight = false;
+        });
+    };
+
+    const onVisibilityChange = () => {
+      if (typeof document === 'undefined') return;
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        return;
+      }
+      const now = Date.now();
+      const idleFor = hiddenAt > 0 ? now - hiddenAt : now - lastInteractionAt;
+      hiddenAt = 0;
+      lastInteractionAt = now;
+      if (idleFor >= 3000) runWakeRefresh();
+    };
+
+    const onActivity = () => {
+      const now = Date.now();
+      const idleFor = now - lastInteractionAt;
+      lastInteractionAt = now;
+      if (idleFor >= idleMs) runWakeRefresh();
+    };
+    const onFocus = () => onActivity();
 
     const startWs = () => {
       if (!wsUrl || typeof WebSocket === 'undefined') return;
@@ -408,6 +445,14 @@ export function useLiveFeed(sport?: string) {
 
     startWs();
     loop();
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', onFocus);
+      window.addEventListener('pointerdown', onActivity);
+      window.addEventListener('keydown', onActivity);
+      window.addEventListener('touchstart', onActivity);
+      window.addEventListener('wheel', onActivity);
+    }
 
     return () => {
       cancelled = true;
@@ -416,6 +461,14 @@ export function useLiveFeed(sport?: string) {
       if (ws) {
         try { ws.close(); } catch { void 0; }
         ws = null;
+      }
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', onFocus);
+        window.removeEventListener('pointerdown', onActivity);
+        window.removeEventListener('keydown', onActivity);
+        window.removeEventListener('touchstart', onActivity);
+        window.removeEventListener('wheel', onActivity);
       }
     };
   }, [fetchLiveEvents, wsUrl]);

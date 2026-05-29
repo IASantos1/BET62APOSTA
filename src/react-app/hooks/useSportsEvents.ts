@@ -272,6 +272,10 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
     abortRef.current = controller;
     let isActive = true;
     const only: OnlyMode = opts?.only || 'both';
+    const idleMs = 60_000;
+    let lastInteractionAt = Date.now();
+    let hiddenAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
+    let wakeInFlight = false;
 
     let hadCache = false;
     if (typeof window !== 'undefined') {
@@ -729,6 +733,37 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
         } 
       } 
     }; 
+
+    const runWakeRefresh = () => {
+      if (!isActive) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (wakeInFlight) return;
+      wakeInFlight = true;
+      fetchData().finally(() => {
+        wakeInFlight = false;
+      });
+    };
+
+    const onVisibilityChange = () => {
+      if (typeof document === 'undefined') return;
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        return;
+      }
+      const now = Date.now();
+      const idleFor = hiddenAt > 0 ? now - hiddenAt : now - lastInteractionAt;
+      hiddenAt = 0;
+      lastInteractionAt = now;
+      if (idleFor >= 3000) runWakeRefresh();
+    };
+
+    const onActivity = () => {
+      const now = Date.now();
+      const idleFor = now - lastInteractionAt;
+      lastInteractionAt = now;
+      if (idleFor >= idleMs) runWakeRefresh();
+    };
+    const onFocus = () => onActivity();
  
     // Initial fetch
     fetchData();
@@ -750,10 +785,27 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
     // Start loop
     scheduleNext();
 
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', onFocus);
+      window.addEventListener('pointerdown', onActivity);
+      window.addEventListener('keydown', onActivity);
+      window.addEventListener('touchstart', onActivity);
+      window.addEventListener('wheel', onActivity);
+    }
+
     return () => {
       isActive = false;
       clearTimeout(timeoutId);
       controller.abort();
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', onFocus);
+        window.removeEventListener('pointerdown', onActivity);
+        window.removeEventListener('keydown', onActivity);
+        window.removeEventListener('touchstart', onActivity);
+        window.removeEventListener('wheel', onActivity);
+      }
     };
   }, [category, safeCategory, opts?.only]); 
  
