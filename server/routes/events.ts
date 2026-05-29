@@ -697,11 +697,11 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       return { live: liveEnriched, pregame: preEnriched };
     }
 
-    const liveBudget = { remaining: live.length };
+    const liveBudget = { remaining: Math.min(30, live.length) };
     const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
     let preEnriched: AnyEvent[] = pregame;
     if (includePregame && pregame.length > 0) {
-      const eagerCount = requireOdds ? pregame.length : Math.min(8, pregame.length);
+      const eagerCount = Math.min(24, pregame.length);
       const head = pregame.slice(0, eagerCount);
       const tail = pregame.slice(eagerCount);
       const preBudget = { remaining: head.length };
