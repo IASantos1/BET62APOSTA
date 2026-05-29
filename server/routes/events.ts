@@ -468,21 +468,26 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const includeLive = only === 'both' || only === 'live';
     const includePregame = only === 'both' || only === 'pregame';
 
-    for (const s of sports) {
-      if (includeLive) {
-        const live = await fetchLive(s);
-        liveAll.push(...live.filter((e: any) => Number(e?.is_live || 0) === 1));
+    if (includeLive && sports.length > 0) {
+      const lists = await mapLimit(sports, 5, (s) => fetchLive(s).catch(() => []));
+      for (const live of lists) {
+        liveAll.push(...(live || []).filter((e: any) => Number(e?.is_live || 0) === 1));
       }
+    }
 
-      if (includePregame) {
-        const days = Math.max(0, Math.min(14, Number.isFinite(daysAhead) ? daysAhead : 0));
+    if (includePregame && sports.length > 0) {
+      const days = Math.max(0, Math.min(14, Number.isFinite(daysAhead) ? daysAhead : 0));
+      const tasks: Array<{ sport: string; date: string }> = [];
+      for (const s of sports) {
         for (let i = 0; i < days; i++) {
           const d = new Date();
           d.setDate(d.getDate() + i);
-          const date = ymd(d);
-          const sched = await fetchSchedule(s, date);
-          preAll.push(...sched.filter((e: any) => Number(e?.is_live || 0) === 0));
+          tasks.push({ sport: s, date: ymd(d) });
         }
+      }
+      const lists = await mapLimit(tasks, 6, (t) => fetchSchedule(t.sport, t.date).catch(() => []));
+      for (const sched of lists) {
+        preAll.push(...(sched || []).filter((e: any) => Number(e?.is_live || 0) === 0));
       }
     }
 
@@ -594,9 +599,16 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
 
     // For realtime polls: allow a small warm-up budget to avoid cold-cache "no odds" in live views
     const liveBudget = { remaining: realtime ? Math.min(12, live.length) : live.length };
-    const preBudget = { remaining: realtime ? Math.min(6, pregame.length) : pregame.length };
     const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
-    const preEnriched = await mapLimit(pregame, 10, (x) => enrichEventOdds(x, preBudget, fullMarkets));
+    let preEnriched: AnyEvent[] = pregame;
+    if (includePregame && pregame.length > 0) {
+      const eagerCount = requireOdds ? pregame.length : Math.min(24, pregame.length);
+      const head = pregame.slice(0, eagerCount);
+      const tail = pregame.slice(eagerCount);
+      const preBudget = { remaining: realtime ? Math.min(6, head.length) : head.length };
+      const headEnriched = await mapLimit(head, 10, (x) => enrichEventOdds(x, preBudget, fullMarkets));
+      preEnriched = [...headEnriched, ...tail];
+    }
 
     const hasPrimaryOdds = (e: any) => {
       const h = Number(e?.home_odd || 0);
