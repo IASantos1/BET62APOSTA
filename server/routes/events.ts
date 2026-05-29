@@ -655,7 +655,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         sendJson(res, 200, cached.data);
         return true;
       }
-      const defaultDays = only === 'live' ? 0 : 3;
+      const defaultDays = only === 'live' ? 0 : 7;
       const data = await buildBySport(
         sports,
         includeOdds,
@@ -754,6 +754,65 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         idToSport: { size: idToSport.size },
         liveSeen: { size: liveSeen.size },
       });
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/dev/schedule-debug') {
+      const tokenEnv = String(process.env.ODDS_DEBUG_TOKEN || '').trim();
+      if (!tokenEnv) return false;
+      const token = String(url.searchParams.get('token') || req.headers['x-debug-token'] || '').trim();
+      if (!token || token !== tokenEnv) return sendJson(res, 403, { error: 'Forbidden' }), true;
+
+      const sport = String(url.searchParams.get('sport') || '').trim() || 'soccer';
+      const date = String(url.searchParams.get('date') || '').trim() || ymd(new Date());
+      const normalizeSportKey = (s: string): string =>
+        String(s || '')
+          .toLowerCase()
+          .trim()
+          .replace(/[_\s]+/g, '-')
+          .replace(/[^a-z0-9-]/g, '')
+          .replace(/-+/g, '-')
+          .replace(/^-+/, '')
+          .replace(/-+$/, '');
+      const toSubdomain = (s: string): string => {
+        const k = normalizeSportKey(s);
+        if (k === 'football' || k === 'futebol' || k === 'soccer') return 'football';
+        if (k === 'hockey' || k === 'icehockey' || k === 'ice-hockey') return 'hockey';
+        return k || 'football';
+      };
+      const sub = toSubdomain(sport);
+      const targetUrl = `https://v2.${sub}.sportsapipro.com/api/schedule/${encodeURIComponent(date)}?timezoneName=UTC`;
+      try {
+        const r = await fetch(targetUrl, { headers: { 'x-api-key': apiKey, accept: 'application/json' } });
+        const text = await r.text().catch(() => '');
+        let json: any = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          json = null;
+        }
+        const extractedCount = (() => {
+          try {
+            const items = (json && typeof json === 'object') ? (Array.isArray((json as any).events) ? (json as any).events : Array.isArray((json as any).data?.events) ? (json as any).data.events : []) : [];
+            return Array.isArray(items) ? items.length : 0;
+          } catch {
+            return 0;
+          }
+        })();
+        const topKeys = json && typeof json === 'object' ? Object.keys(json).slice(0, 30) : [];
+        sendJson(res, 200, {
+          url: targetUrl,
+          status: r.status,
+          ok: r.ok,
+          sport,
+          date,
+          topKeys,
+          extractedCount,
+          bodyPreview: String(text || '').slice(0, 1600),
+        });
+      } catch (e: any) {
+        sendJson(res, 200, { url: targetUrl, status: 0, ok: false, error: String(e?.message || e) });
+      }
       return true;
     }
 

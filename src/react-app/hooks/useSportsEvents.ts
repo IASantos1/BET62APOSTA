@@ -361,7 +361,7 @@ export function useSportsEvents(category: string | null) {
                 params.set('include', 'odds');
                 params.set('markets', 'full');
                 params.set('realtime', '0');
-        params.set('days', '3');
+        params.set('days', '7');
 
                 const url = `/api/events/by-sport?${params.toString()}`;
         let data = await apiFetch<any>(url, { signal: controller.signal, timeout: 12000 });
