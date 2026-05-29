@@ -302,9 +302,9 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
           merged[key] = lines;
         } else {
           const existing = merged[key];
-          const existingSet = new Set(existing.map((l: any) => `${String(l.value || '')}|${String(l.point || '')}`));
+          const existingSet = new Set(existing.map((l: any) => `${String(l.label || l.value || '')}|${String(l.point || '')}`));
           for (const line of lines) {
-            const k = `${String(line.value || '')}|${String(line.point || '')}`;
+            const k = `${String(line.label || line.value || '')}|${String(line.point || '')}`;
             if (!existingSet.has(k)) {
               existing.push(line);
               existingSet.add(k);
