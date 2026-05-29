@@ -510,6 +510,35 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
 
     if (includePregame && sports.length > 0) {
       const days = Math.max(0, Math.min(14, Number.isFinite(daysAhead) ? daysAhead : 0));
+      const now = nowMs();
+      const toStartMs = (e: any) => {
+        const raw = (e as any)?.event_date ?? (e as any)?.fixture?.date ?? (e as any)?.start_time ?? (e as any)?.startTimestamp;
+        if (!raw) return 0;
+        if (typeof raw === 'number') return raw > 10_000_000_000 ? raw : raw * 1000;
+        const t = new Date(String(raw)).getTime();
+        return Number.isFinite(t) ? t : 0;
+      };
+      const isNotStartedLike = (e: any) => {
+        const status = (e as any)?.status ?? (e as any)?.fixture?.status ?? '';
+        const raw =
+          (typeof status === 'object' && status !== null)
+            ? ((status as any).short ?? (status as any).long ?? (status as any).description ?? (status as any).type)
+            : status;
+        const su = String(raw || '').toUpperCase().trim();
+        if (!su) return true;
+        const s = su.replace(/[^A-Z0-9_]+/g, '_').replace(/^_+/, '').replace(/_+$/, '');
+        if (s === 'NS' || s === 'SCHEDULED' || s === 'UPCOMING' || s === 'NOT_STARTED' || s === 'PRE_MATCH' || s === 'TIMED') return true;
+        if (/NOT_STARTED|SCHEDUL|UPCOMING|TIMED|PRE_MATCH/.test(s)) return true;
+        return false;
+      };
+      const isPregameCandidate = (e: any) => {
+        if (Number((e as any)?.is_live || 0) !== 0) return false;
+        if (isFinishedLike(e)) return false;
+        const t = toStartMs(e);
+        if (t && t < now - 2 * 60 * 1000) return false;
+        if (t && t >= now) return true;
+        return isNotStartedLike(e);
+      };
       const tasks: Array<{ sport: string; date: string }> = [];
       for (const s of sports) {
         for (let i = 0; i < days; i++) {
@@ -520,7 +549,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       }
       const lists = await mapLimit(tasks, 6, (t) => fetchSchedule(t.sport, t.date).catch(() => []));
       for (const sched of lists) {
-        preAll.push(...(sched || []).filter((e: any) => Number(e?.is_live || 0) === 0));
+        preAll.push(...(sched || []).filter(isPregameCandidate));
       }
     }
 
