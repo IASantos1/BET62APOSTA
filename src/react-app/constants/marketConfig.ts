@@ -10,6 +10,127 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   double_chance: { title: 'Dupla Chance' },
   dnb: { title: 'Empate Anula Aposta' },
   draw_no_bet: { title: 'Empate Anula Aposta' },
+
+  // ── Derived Soccer: Totals por linha ───────────────────────────
+  totals_0_5: { title: 'Total Golos: +/- 0.5' },
+  totals_1_5: { title: 'Total Golos: +/- 1.5' },
+  totals_2_5: { title: 'Total Golos: +/- 2.5' },
+  totals_3_5: { title: 'Total Golos: +/- 3.5' },
+  totals_4_5: { title: 'Total Golos: +/- 4.5' },
+  totals_5_5: { title: 'Total Golos: +/- 5.5' },
+  totals_6_5: { title: 'Total Golos: +/- 6.5' },
+
+  // ── Derived Soccer: Cantos por linha ───────────────────────────
+  corners_6_5: { title: 'Cantos: +/- 6.5' },
+  corners_7_5: { title: 'Cantos: +/- 7.5' },
+  corners_8_5: { title: 'Cantos: +/- 8.5' },
+  corners_9_5: { title: 'Cantos: +/- 9.5' },
+  corners_11_5: { title: 'Cantos: +/- 11.5' },
+  corners_12_5: { title: 'Cantos: +/- 12.5' },
+  corners_13_5: { title: 'Cantos: +/- 13.5' },
+  corners_14_5: { title: 'Cantos: +/- 14.5' },
+
+  // ── Derived Soccer: Cartões por linha ─────────────────────────
+  cards_2_5: { title: 'Cartões: +/- 2.5' },
+  cards_3_5: { title: 'Cartões: +/- 3.5' },
+  cards_4_5: { title: 'Cartões: +/- 4.5' },
+  cards_7_5: { title: 'Cartões: +/- 7.5' },
+  cards_8_5: { title: 'Cartões: +/- 8.5' },
+
+  // ── Derived Soccer: Mercados por equipa ───────────────────────
+  home_team_totals: { title: 'Golos da Casa' },
+  away_team_totals: { title: 'Golos de Fora' },
+  exact_home_goals: { title: 'Golos Exactos - Casa' },
+  exact_away_goals: { title: 'Golos Exactos - Fora' },
+  home_corners_total: { title: 'Cantos - Casa' },
+  away_corners_total: { title: 'Cantos - Fora' },
+  home_cards_total: { title: 'Cartões - Casa' },
+  away_cards_total: { title: 'Cartões - Fora' },
+
+  // ── Derived Soccer: Resultado ──────────────────────────────────
+  winning_margin: { title: 'Margem de Vitória' },
+  goals_range: { title: 'Intervalo de Golos' },
+  total_goal_odd_even: { title: 'Golos Par/Ímpar' },
+  win_to_nil: { title: 'Vitória sem Sofrer' },
+  comeback_win: { title: 'Remontada' },
+  btts_and_result: { title: 'Ambas Marcam + Resultado' },
+
+  // ── Derived Soccer: Tempos ─────────────────────────────────────
+  half_time_full_time: { title: 'Intervalo/Final' },
+  '2nd_half': { title: '2º Tempo - Resultado' },
+  '1st_half_totals': { title: '1º Tempo - Total' },
+  '2nd_half_totals': { title: '2º Tempo - Total' },
+  '1st_half_goal_odd_even': { title: '1º Tempo - Golos Par/Ímpar' },
+  '1st_half_correct_score': { title: '1º Tempo - Resultado Exacto', grid: 'grid-cols-3 md:grid-cols-4' },
+  '2nd_half_correct_score': { title: '2º Tempo - Resultado Exacto', grid: 'grid-cols-3 md:grid-cols-4' },
+  btts_first_half: { title: 'Ambas Marcam no 1º Tempo' },
+  btts_second_half: { title: 'Ambas Marcam no 2º Tempo' },
+  double_chance_1st_half: { title: '1º Tempo - Dupla Chance' },
+  draw_no_bet_1st_half: { title: '1º Tempo - Empate Anula' },
+  highest_scoring_half: { title: 'Tempo com Mais Golos' },
+
+  // ── Derived Soccer: Cantos/Cartões extras ─────────────────────
+  corners_odd_even: { title: 'Cantos Par/Ímpar' },
+  cards_odd_even: { title: 'Cartões Par/Ímpar' },
+  '1st_half_corners': { title: '1º Tempo - Cantos' },
+  '2nd_half_corners': { title: '2º Tempo - Cantos' },
+  '1st_half_cards': { title: '1º Tempo - Cartões' },
+  '2nd_half_cards': { title: '2º Tempo - Cartões' },
+
+  // ── Derived Soccer: Especiais ─────────────────────────────────
+  first_team_to_score: { title: 'Primeira Equipa a Marcar' },
+  team_to_score_last: { title: 'Última Equipa a Marcar' },
+  team_clean_sheet: { title: 'Baliza a Zero' },
+  penalty_scored: { title: 'Penálti Marcado' },
+  score_both_halves: { title: 'Marca nos Dois Tempos' },
+
+  // ── Derived Soccer: Handicap Europeu ─────────────────────────
+  handicap_european_neg2: { title: 'Handicap Europeu -2' },
+  handicap_european_neg1: { title: 'Handicap Europeu -1' },
+  handicap_european_pos0: { title: 'Handicap Europeu 0' },
+  handicap_european_pos1: { title: 'Handicap Europeu +1' },
+  handicap_european_pos2: { title: 'Handicap Europeu +2' },
+
+  // ── Derived Basketball: Tempos ────────────────────────────────
+  first_half_h2h: { title: '1º Tempo - Vencedor' },
+  second_half_h2h: { title: '2º Tempo - Vencedor' },
+  first_half_totals: { title: '1º Tempo - Total' },
+  second_half_totals: { title: '2º Tempo - Total' },
+  team_totals_home: { title: 'Total da Equipa da Casa' },
+  team_totals_away: { title: 'Total da Equipa de Fora' },
+
+  // ── Derived Soccer: Novos mercados adicionais ─────────────────
+  win_both_halves: { title: 'Vence os Dois Tempos' },
+  goal_in_each_half: { title: 'Golo em Cada Tempo' },
+  home_goals_odd_even: { title: 'Golos Casa - Par/Ímpar' },
+  away_goals_odd_even: { title: 'Golos Fora - Par/Ímpar' },
+  asian_handicap_neg25: { title: 'Handicap Asiático -2.5' },
+  asian_handicap_neg15: { title: 'Handicap Asiático -1.5' },
+  asian_handicap_pos15: { title: 'Handicap Asiático +1.5' },
+  asian_handicap_pos25: { title: 'Handicap Asiático +2.5' },
+  '1st_half_goal_range': { title: '1º Tempo - Intervalo Golos' },
+  '2nd_half_goal_range': { title: '2º Tempo - Intervalo Golos' },
+  home_corners_1st_half: { title: 'Cantos Casa - 1º Tempo' },
+  home_corners_2nd_half: { title: 'Cantos Casa - 2º Tempo' },
+  away_corners_1st_half: { title: 'Cantos Fora - 1º Tempo' },
+  away_corners_2nd_half: { title: 'Cantos Fora - 2º Tempo' },
+  home_cards_1st_half: { title: 'Cartões Casa - 1º Tempo' },
+  home_cards_2nd_half: { title: 'Cartões Casa - 2º Tempo' },
+  away_cards_1st_half: { title: 'Cartões Fora - 1º Tempo' },
+  away_cards_2nd_half: { title: 'Cartões Fora - 2º Tempo' },
+
+  // ── Derived Basketball/Hockey/Baseball: Extra totals ──────────
+  totals_185_0: { title: 'Total: +/- 185' },
+  totals_190_0: { title: 'Total: +/- 190' },
+  totals_195_0: { title: 'Total: +/- 195' },
+  totals_200_0: { title: 'Total: +/- 200' },
+  totals_205_0: { title: 'Total: +/- 205' },
+  totals_210_0: { title: 'Total: +/- 210' },
+  totals_215_0: { title: 'Total: +/- 215' },
+  totals_220_0: { title: 'Total: +/- 220' },
+  totals_225_0: { title: 'Total: +/- 225' },
+  totals_230_0: { title: 'Total: +/- 230' },
+  totals_235_0: { title: 'Total: +/- 235' },
   result_including_extra_time: { title: 'Resultado c/ Prolongamento' },
   winning_margin: { title: 'Margem de Vitória' },
   half_time_full_time: { title: 'Intervalo/Final' },
