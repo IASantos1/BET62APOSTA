@@ -231,7 +231,7 @@ export function useLiveFeed(sport?: string) {
   // Poll function
   const fetchLiveEvents = useCallback(async () => {
       try {
-          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&include=odds&markets=full&only=live&days=0`;
+          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&include=odds&markets=full&only=live&days=0&requireOdds=1`;
           const data = await apiFetch<any>(url, { cache: 'no-store' });
           
           const list = Array.isArray(data) ? data : (data && Array.isArray(data.live) ? data.live : null);
@@ -421,7 +421,11 @@ export function useLiveFeed(sport?: string) {
   }, [fetchLiveEvents, wsUrl]);
 
   const liveEvents = useMemo(() => {
-    return Array.from(eventsMap.values());
+    return Array.from(eventsMap.values()).filter((e: any) => {
+      const h = Number(e?.home_odd || 0);
+      const a = Number(e?.away_odd || 0);
+      return h > 1 && a > 1;
+    });
   }, [eventsMap]);
 
   return { 

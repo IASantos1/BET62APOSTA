@@ -457,6 +457,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     fullMarkets: boolean,
     only: 'live' | 'pregame' | 'both',
     daysAhead: number,
+    requireOdds: boolean,
   ): Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }> => {
     startOddsQueue();
     const sports = getSports(sportsParam);
@@ -592,7 +593,32 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
     const preEnriched = await mapLimit(pregame, 10, (x) => enrichEventOdds(x, preBudget, fullMarkets));
 
-    return { live: liveEnriched, pregame: preEnriched };
+    const hasPrimaryOdds = (e: any) => {
+      const h = Number(e?.home_odd || 0);
+      const a = Number(e?.away_odd || 0);
+      if (h > 1 && a > 1) return true;
+
+      const mkRaw = (e as any)?.markets ?? (e as any)?.odds;
+      const mkObj =
+        mkRaw && typeof mkRaw === 'object' && !Array.isArray(mkRaw)
+          ? mkRaw
+          : parseMarkets(mkRaw);
+      if (!mkObj || typeof mkObj !== 'object') return false;
+
+      const h2h =
+        (mkObj as any).h2h ||
+        (mkObj as any)['1x2'] ||
+        (mkObj as any).main ||
+        (mkObj as any).match_winner;
+      const sels = Array.isArray(h2h) ? h2h : (h2h?.selections || h2h?.outcomes || h2h?.values || []);
+      if (!Array.isArray(sels)) return false;
+      const ok = sels.filter((s: any) => Number(s?.odd || s?.price || s?.value || 0) > 1).length;
+      return ok >= 2;
+    };
+
+    const filteredLive = requireOdds && includeLive ? liveEnriched.filter(hasPrimaryOdds) : liveEnriched;
+    const filteredPregame = requireOdds && includePregame ? preEnriched.filter(hasPrimaryOdds) : preEnriched;
+    return { live: filteredLive, pregame: filteredPregame };
   };
 
   const handleEventsRoutes = async (req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<boolean> => {
@@ -616,12 +642,13 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       const realtime = String(url.searchParams.get('realtime') || '') === '1';
       const onlyRaw = String(url.searchParams.get('only') || '').toLowerCase().trim();
       const only = onlyRaw === 'live' || onlyRaw === 'pregame' ? (onlyRaw as any) : 'both';
+      const requireOdds = String(url.searchParams.get('requireOdds') || '') === '1';
       const daysParam = Number(url.searchParams.get('days') || 0);
       const daysAhead = Number.isFinite(daysParam) ? Math.max(0, Math.min(14, Math.floor(daysParam))) : 0;
       const fullMarkets =
         String(url.searchParams.get('markets') || '').toLowerCase() === 'full' ||
         String(url.searchParams.get('markets') || '').toLowerCase() === 'all';
-      const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}|fullMarkets:${fullMarkets ? '1' : '0'}|only:${only}|days:${daysAhead}`;
+      const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}|fullMarkets:${fullMarkets ? '1' : '0'}|only:${only}|days:${daysAhead}|requireOdds:${requireOdds ? '1' : '0'}`;
       const cached = bySportCache.get(cacheKey);
       const ttl = realtime ? 2_000 : includeOdds ? 12_000 : 25_000;
       if (cached && ttlOk(cached.ts, ttl)) {
@@ -629,7 +656,16 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         return true;
       }
       const defaultDays = only === 'live' ? 0 : 3;
-      const data = await buildBySport(sports, includeOdds, league, realtime, fullMarkets, only, daysAhead || defaultDays).catch(() => ({ live: [], pregame: [] }));
+      const data = await buildBySport(
+        sports,
+        includeOdds,
+        league,
+        realtime,
+        fullMarkets,
+        only,
+        daysAhead || defaultDays,
+        requireOdds,
+      ).catch(() => ({ live: [], pregame: [] }));
       bySportCache.set(cacheKey, { ts: nowMs(), data });
       sendJson(res, 200, data);
       return true;
