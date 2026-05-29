@@ -149,7 +149,7 @@ export async function getLiveMatches(sportKey?: string): Promise<Match[]> {
 
   try {
     const sportParam = normalizeSportKey(sportKey || 'all');
-    const url = `/api/events/by-sport?sports=${encodeURIComponent(sportParam)}&include=odds&realtime=1`;
+    const url = `/api/events/by-sport?sports=${encodeURIComponent(sportParam)}&include=odds&realtime=1&only=live&days=0&requireOdds=1`;
     const res = await fetch(url, { cache: 'no-store' });
     const data: any = await res.json().catch(() => null);
     const live = Array.isArray(data?.live) ? data.live : [];
@@ -175,7 +175,7 @@ export async function getUpcomingMatches(sportKey?: string): Promise<Match[]> {
 
   try {
     const sportParam = normalizeSportKey(sportKey || 'all');
-    const url = `/api/events/by-sport?sports=${encodeURIComponent(sportParam)}&include=odds`;
+    const url = `/api/events/by-sport?sports=${encodeURIComponent(sportParam)}&include=odds&realtime=0&only=pregame&days=7`;
     const res = await fetch(url, { cache: 'no-store' });
     const data: any = await res.json().catch(() => null);
     const pre = Array.isArray(data?.pregame) ? data.pregame : [];

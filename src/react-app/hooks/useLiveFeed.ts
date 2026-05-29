@@ -231,7 +231,7 @@ export function useLiveFeed(sport?: string) {
   // Poll function
   const fetchLiveEvents = useCallback(async () => {
       try {
-          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&include=odds&markets=full&only=live&days=0&requireOdds=1`;
+          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&include=odds&only=live&days=0&requireOdds=1`;
           const data = await apiFetch<any>(url, { cache: 'no-store' });
           
           const list = Array.isArray(data) ? data : (data && Array.isArray(data.live) ? data.live : null);

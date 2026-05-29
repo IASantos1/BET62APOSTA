@@ -366,7 +366,6 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
           params.set('league', cleanLeague);
         }
         params.set('include', 'odds');
-        params.set('markets', 'full');
         params.set('realtime', only === 'live' ? '1' : '0');
         params.set('only', only);
         params.set('days', only === 'live' ? '0' : '7');
@@ -384,7 +383,6 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
           const p2 = new URLSearchParams();
           p2.set('sports', 'all');
           p2.set('include', 'odds');
-          p2.set('markets', 'full');
           p2.set('realtime', only === 'live' ? '1' : '0');
           p2.set('only', only);
           p2.set('days', only === 'live' ? '0' : '7');

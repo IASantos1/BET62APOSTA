@@ -127,7 +127,10 @@ export default function GamesDashboard() {
 
   const fetchEvents = async () => {
     try {
-      const data = await apiFetch<any>('/api/events/by-sport?sports=all&include=odds', { cache: 'no-store' });
+      const data = await apiFetch<any>(
+        '/api/events/by-sport?sports=all&include=odds&only=both&days=3&realtime=0',
+        { cache: 'no-store', timeout: 20000 },
+      );
       
       let raw: Event[] = [];
       if (Array.isArray(data)) {

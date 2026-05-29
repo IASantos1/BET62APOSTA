@@ -139,7 +139,10 @@ export function BannerCarousel() {
   useEffect(() => {
     const load = async () => {
       try {
-        const data = await apiFetch<any>('/api/events/by-sport?sports=all&include=odds&markets=full&realtime=0', { cache: 'no-store' });
+        const data = await apiFetch<any>(
+          '/api/events/by-sport?sports=all&include=odds&realtime=1&only=live&days=0&requireOdds=1',
+          { cache: 'no-store', timeout: 12000 },
+        );
         const live    = Array.isArray(data?.live)    ? data.live    : [];
         const pregame = Array.isArray(data?.pregame) ? data.pregame : [];
 
