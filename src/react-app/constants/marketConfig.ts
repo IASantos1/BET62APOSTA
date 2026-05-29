@@ -87,6 +87,7 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   // ── Derived Soccer: Handicap Europeu ─────────────────────────
   handicap_european_neg2: { title: 'Handicap Europeu -2' },
   handicap_european_neg1: { title: 'Handicap Europeu -1' },
+  handicap_european_0: { title: 'Handicap Europeu 0' },
   handicap_european_pos0: { title: 'Handicap Europeu 0' },
   handicap_european_pos1: { title: 'Handicap Europeu +1' },
   handicap_european_pos2: { title: 'Handicap Europeu +2' },
