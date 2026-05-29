@@ -9,6 +9,7 @@ import {
   fetchSportsApiProMatchIncidents,
   fetchSportsApiProSchedule,
 } from '../services/sportsApiPro';
+import { deriveAdditionalMarkets } from '../services/marketDerivation';
 import { sendJson, badRequest } from '../lib/http';
 
 type CacheEntry<T> = { ts: number; data: T };
@@ -57,65 +58,8 @@ function parseMarkets(v: any): any {
 
 function pruneMarketsForList(sport: string, markets: Record<string, any[]>): Record<string, any[]> {
   if (!markets || typeof markets !== 'object') return {};
-
-  const keys = Object.keys(markets);
-  if (keys.length <= 12) return markets;
-
-  const s = String(sport || '').toLowerCase();
-  const isSoccer = s.includes('soccer') || (s.includes('football') && !s.includes('american'));
-  const isTennis = s.includes('tennis') || s.includes('tênis') || s.includes('tenis');
-  const isBasket = s.includes('basketball') || s.includes('basquet');
-  const isHockey = s.includes('ice-hockey') || (s.includes('hockey') && !s.includes('field'));
-  const isBaseball = s.includes('baseball') || s.includes('beisebol');
-
-  const wanted: RegExp[] = [
-    /^(h2h|1x2|main|match_winner|moneyline|winner|home_away)$/i,
-    /total|over|under/i,
-    /handicap|spread|asian|run_line|puck_line/i,
-  ];
-
-  if (isSoccer) {
-    wanted.push(/corner|cards|bookings|yellow|red|both_teams|btts|double_chance|draw_no_bet|correct_score/i);
-    wanted.push(/half|period_1|period_2/i);
-  }
-  if (isTennis) {
-    wanted.push(/set|game|tiebreak|aces|double_fault/i);
-  }
-  if (isBasket) {
-    wanted.push(/quarter|q[1-4]|period_1|period_2|period_3|period_4|team_total/i);
-  }
-  if (isHockey) {
-    wanted.push(/period|p[1-3]|team_total|shots|pp|powerplay/i);
-  }
-  if (isBaseball) {
-    wanted.push(/innings|in[1-9]|team_total|hits|runs|rbis|strikeouts/i);
-  }
-
-  const priority = (k: string): number => {
-    const key = k.toLowerCase();
-    if (/^(h2h|1x2|main|match_winner|moneyline|winner)$/.test(key)) return 0;
-    if (/total|over|under/.test(key)) return 1;
-    if (/handicap|spread|asian|run_line|puck_line/.test(key)) return 2;
-    if (/period|quarter|half|innings|set|game/.test(key)) return 3;
-    return 9;
-  };
-
-  const picked: string[] = [];
-  for (const k of keys.sort((a, b) => priority(a) - priority(b))) {
-    if (picked.length >= 12) break;
-    if (wanted.some((rx) => rx.test(k))) picked.push(k);
-  }
-
-  if (picked.length < 6) {
-    for (const k of keys.sort((a, b) => priority(a) - priority(b))) {
-      if (picked.length >= 12) break;
-      if (!picked.includes(k)) picked.push(k);
-    }
-  }
-
-  const out: Record<string, any[]> = {};
-  for (const k of picked) out[k] = markets[k];
-  return out;
+  // Return all markets — no cap
+  return markets;
 }
 
 export type EventsService = {
@@ -341,6 +285,16 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         fetchSportsApiProMatchOddsPreMatch(apiKey, sport, normalizedId, opts).catch(() => null),
       ]);
       const merged = mergeOddsResults([allResult, liveResult, preResult].filter(Boolean));
+      if (merged && merged.markets && typeof merged.markets === 'object') {
+        const derived = deriveAdditionalMarkets(
+          merged.markets,
+          sport,
+          ctx.homeTeam || '',
+          ctx.awayTeam || '',
+        );
+        // Derived markets fill gaps — real API odds always take priority
+        merged.markets = { ...derived, ...merged.markets };
+      }
       return merged;
     })()
       .then((odds) => {
