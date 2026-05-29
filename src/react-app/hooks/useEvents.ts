@@ -159,8 +159,8 @@ export function useEvents(category?: string) {
       }
       
       // Request server-side join
-      if (path.includes('?')) path += '&include=odds';
-      else path += '?include=odds';
+      if (path.includes('?')) path += '&include=odds&requireOdds=1';
+      else path += '?include=odds&requireOdds=1';
 
       const data = await apiFetch<any>(path, { cache: 'no-store', signal: ctrl.signal });
       console.log('[useEvents] Raw API data:', data);
