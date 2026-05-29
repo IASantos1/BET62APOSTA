@@ -209,7 +209,11 @@ export function SubOddsModel({
 
   const getSuspendedReason = (marketKey?: string) => {
     if (isGlobalSuspended) return 'EVENT_FROZEN';
-    if (critState === 'var_review' || critState === 'var_penalty') return 'VAR';
+    if (critState !== 'idle') {
+      if (critState === 'var_review' || critState === 'var_penalty') return 'VAR';
+      if (critState === 'goal') return 'GOAL';
+      if (critState === 'big_chance') return 'CHANCE';
+    }
     return marketKey ? suspendedMap.get(marketKey) : undefined;
   };
 
@@ -543,7 +547,8 @@ export function SubOddsModel({
           const isSusp = !!susp;
 
           // ── Critical event button (overrides everything) ──────────────
-          if (critState !== 'idle' && !isSusp) {
+          // Aparece para goal/big_chance (VAR bloqueia tudo, incluindo h2h)
+          if (critState !== 'idle' && critState !== 'var_review' && critState !== 'var_penalty' && !isGlobalSuspended && !suspendedMap.has('h2h')) {
             // Auto-pick favourite to wager on (lowest odd)
             const fav = resultadoRegulamentar.reduce((m, x) => (Number(x.odd) > 0 && Number(x.odd) < Number(m.odd) ? x : m), resultadoRegulamentar[0]);
             const favOdd = Number(fav?.odd) || 0;
