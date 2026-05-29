@@ -597,31 +597,73 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     for (const e of live) queueOddsRefresh(String((e as any)?.sport || ''), String((e as any)?.id || ''));
     for (const e of pregame) queueOddsRefresh(String((e as any)?.sport || ''), String((e as any)?.id || ''));
 
-    // For realtime polls: allow a small warm-up budget to avoid cold-cache "no odds" in live views
-    const liveBudget = { remaining: realtime ? Math.min(12, live.length) : live.length };
+    const oddsFromCache = (sport: string, matchId: string): any | null => {
+      const key = `${sport}:${matchId}`;
+      const cached = oddsCache.get(key);
+      if (!cached) return null;
+      if (cached.data == null) return null;
+      if (!ttlOk(cached.ts, ODDS_STALE_TTL_MS)) return null;
+      return cached.data;
+    };
+
+    const hasPrimaryOddsFromOdds = (odds: any): boolean => {
+      const h = Number(odds?.home || 0);
+      const a = Number(odds?.away || 0);
+      if (h > 1 && a > 1) return true;
+      const mkObj = odds?.markets && typeof odds.markets === 'object' ? odds.markets : null;
+      if (!mkObj) return false;
+      const h2h = (mkObj as any).h2h || (mkObj as any)['1x2'] || (mkObj as any).main || (mkObj as any).match_winner;
+      const sels = Array.isArray(h2h) ? h2h : (h2h?.selections || h2h?.outcomes || h2h?.values || []);
+      if (!Array.isArray(sels)) return false;
+      const ok = sels.filter((s: any) => Number(s?.odd || s?.price || s?.value || 0) > 1).length;
+      return ok >= 2;
+    };
+
+    if (realtime) {
+      const budget0 = { remaining: 0 };
+
+      const filterByCachedOdds = (arr: AnyEvent[]) => {
+        if (!requireOdds) return arr;
+        return arr.filter((e: any) => {
+          const sport = String(e?.sport || '').trim();
+          if (!sport) return false;
+          const id = matchIdOf(e);
+          if (!id) return false;
+          const odds = oddsFromCache(sport, id);
+          return odds ? hasPrimaryOddsFromOdds(odds) : false;
+        });
+      };
+
+      const liveFiltered = includeLive ? filterByCachedOdds(live) : [];
+      const preFiltered = includePregame ? filterByCachedOdds(pregame) : [];
+
+      const liveEnriched = includeLive ? await mapLimit(liveFiltered, 10, (x) => enrichEventOdds(x, budget0, fullMarkets)) : [];
+      const preEnriched = includePregame ? await mapLimit(preFiltered, 8, (x) => enrichEventOdds(x, budget0, fullMarkets)) : [];
+      return { live: liveEnriched, pregame: preEnriched };
+    }
+
+    const liveBudget = { remaining: live.length };
     const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
     let preEnriched: AnyEvent[] = pregame;
     if (includePregame && pregame.length > 0) {
       const eagerCount = requireOdds ? pregame.length : Math.min(24, pregame.length);
       const head = pregame.slice(0, eagerCount);
       const tail = pregame.slice(eagerCount);
-      const preBudget = { remaining: realtime ? Math.min(6, head.length) : head.length };
+      const preBudget = { remaining: head.length };
       const headEnriched = await mapLimit(head, 10, (x) => enrichEventOdds(x, preBudget, fullMarkets));
       preEnriched = [...headEnriched, ...tail];
     }
 
-    const hasPrimaryOdds = (e: any) => {
+    const hasPrimaryOddsEvent = (e: any) => {
       const h = Number(e?.home_odd || 0);
       const a = Number(e?.away_odd || 0);
       if (h > 1 && a > 1) return true;
-
       const mkRaw = (e as any)?.markets ?? (e as any)?.odds;
       const mkObj =
         mkRaw && typeof mkRaw === 'object' && !Array.isArray(mkRaw)
           ? mkRaw
           : parseMarkets(mkRaw);
       if (!mkObj || typeof mkObj !== 'object') return false;
-
       const h2h =
         (mkObj as any).h2h ||
         (mkObj as any)['1x2'] ||
@@ -633,8 +675,8 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       return ok >= 2;
     };
 
-    const filteredLive = requireOdds && includeLive ? liveEnriched.filter(hasPrimaryOdds) : liveEnriched;
-    const filteredPregame = requireOdds && includePregame ? preEnriched.filter(hasPrimaryOdds) : preEnriched;
+    const filteredLive = requireOdds && includeLive ? liveEnriched.filter(hasPrimaryOddsEvent) : liveEnriched;
+    const filteredPregame = requireOdds && includePregame ? preEnriched.filter(hasPrimaryOddsEvent) : preEnriched;
     return { live: filteredLive, pregame: filteredPregame };
   };
 
