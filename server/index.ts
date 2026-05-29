@@ -1401,6 +1401,177 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === '/api/auth/me' && req.method === 'GET') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
+      return;
+    }
+    sendJson(
+      res,
+      200,
+      {
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          name: user.name || '',
+        },
+      },
+      req,
+    );
+    return;
+  }
+
+  if (req.url === '/api/auth/refresh' && req.method === 'POST') {
+    sendJson(res, 200, { ok: true }, req);
+    return;
+  }
+
+  if (req.url === '/api/auth/2fa/status' && req.method === 'GET') {
+    sendJson(res, 200, { enabled: false }, req);
+    return;
+  }
+
+  if (req.url === '/api/users/profile' && req.method === 'GET') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
+      return;
+    }
+    let profile = profiles.get(user.id);
+    if (!profile) {
+      const balanceEntry = walletBalances.get(user.id) || { balance: 0 };
+      const createdAt = new Date().toISOString();
+      profile = {
+        id: user.id,
+        user_id: user.id,
+        email: user.email,
+        full_name: user.name || '',
+        name: user.name,
+        phone: '',
+        balance: balanceEntry.balance,
+        free_bet_balance: 0,
+        is_admin: user.role === 'admin',
+        status: 'active',
+        kyc_verified: false,
+        created_at: createdAt,
+      };
+      profiles.set(user.id, profile);
+    }
+    sendJson(res, 200, { profile }, req);
+    return;
+  }
+
+  if (req.url === '/api/users/heartbeat' && req.method === 'POST') {
+    sendJson(res, 200, { ok: true }, req);
+    return;
+  }
+
+  if (req.url === '/api/users/is-operator' && req.method === 'GET') {
+    sendJson(res, 200, { ok: true, is_operator: false }, req);
+    return;
+  }
+
+  if (req.url === '/api/wallet/balances' && req.method === 'GET') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
+      return;
+    }
+    const entry = walletBalances.get(user.id) || { balance: 0 };
+    sendJson(res, 200, [{ currency: 'EUR', balance: entry.balance }], req);
+    return;
+  }
+
+  if (req.url === '/api/wallet/transactions' && req.method === 'GET') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
+      return;
+    }
+    const list = transactionsStore
+      .filter((t) => t.user_id === user.id)
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+      .map((t) => ({
+        id: t.id,
+        type: t.type,
+        status: t.status,
+        amount: t.amount,
+        currency: 'EUR',
+        created_at: t.created_at,
+        metadata: t.description || '',
+      }));
+    sendJson(res, 200, list, req);
+    return;
+  }
+
+  if (req.url === '/api/bets' && req.method === 'GET') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
+      return;
+    }
+    const list = betsStore
+      .filter((b) => b.user_id === user.id)
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+      .map((b) => ({
+        stake: b.stake,
+        status: b.status,
+        created_at: b.created_at,
+      }));
+    sendJson(res, 200, list, req);
+    return;
+  }
+
+  if (req.url === '/api/wallet/withdrawals' && req.method === 'POST') {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: 'Não autenticado' }, req);
+      return;
+    }
+    const body = await parseBody(req);
+    const amountEur = parseAmount(body.amount_eur ?? body.amount ?? 0);
+    if (!amountEur || amountEur <= 0) {
+      sendJson(res, 400, { error: 'Valor inválido' }, req);
+      return;
+    }
+    const entry = walletBalances.get(user.id) || { balance: 0 };
+    if (entry.balance < amountEur) {
+      sendJson(res, 400, { error: 'Saldo insuficiente' }, req);
+      return;
+    }
+    entry.balance -= amountEur;
+    walletBalances.set(user.id, entry);
+    const now = new Date().toISOString();
+    const profile = profiles.get(user.id);
+    if (profile) {
+      profile.balance = entry.balance;
+      profile.updated_at = now;
+      profiles.set(user.id, profile);
+    }
+    const tx = {
+      id: randomBytes(16).toString('hex'),
+      user_id: user.id,
+      type: 'withdrawal' as const,
+      amount: amountEur,
+      status: 'pending' as const,
+      payment_method: 'manual',
+      description: 'Levantamento',
+      created_at: now,
+      updated_at: now,
+      completed_at: now,
+    };
+    transactionsStore.push(tx);
+    sendJson(res, 200, { ok: true, transaction: tx }, req);
+    return;
+  }
+
+  if (req.url === '/api/promotions/freebets' && req.method === 'GET') {
+    sendJson(res, 200, [], req);
+    return;
+  }
+
   if (req.method === 'GET' && req.url.startsWith('/api/featured-games')) {
     try {
       const apiKey = String(process.env.SPORTSAPI_PRO_KEY || '').trim();
@@ -4658,6 +4829,22 @@ function normalizeWsSport(sport: string): string {
   return '';
 }
 
+function normalizeWsSportKey(sport: string): string {
+  const v = String(sport || '').toLowerCase().trim();
+  if (!v || v === 'all') return 'all';
+  if (v === 'football' || v === 'futebol') return 'soccer';
+  if (v === 'icehockey' || v === 'hockey') return 'ice-hockey';
+  return v;
+}
+
+function parseWsSports(raw: string): string[] {
+  const v = normalizeWsSportKey(raw);
+  if (!v || v === 'all') return ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball'];
+  const parts = v.split(',').map((x) => normalizeWsSportKey(x)).filter(Boolean);
+  const allowed = new Set(['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball']);
+  return parts.filter((x) => allowed.has(x));
+}
+
 function wsReject(socket: any, statusLine: string): void {
   try {
     socket.write(`HTTP/1.1 ${statusLine}\r\nConnection: close\r\n\r\n`);
@@ -4670,7 +4857,9 @@ function wsReject(socket: any, statusLine: string): void {
 server.on('upgrade', (req, socket, head) => {
   try {
     const urlObj = new URL(req.url || '', `http://localhost:${PORT}`);
-    if (!urlObj.pathname.startsWith('/ws')) {
+    const isProxyWs = urlObj.pathname.startsWith('/ws');
+    const isLiveWs = urlObj.pathname === '/api/live/ws';
+    if (!isProxyWs && !isLiveWs) {
       wsReject(socket, '404 Not Found');
       return;
     }
@@ -4688,15 +4877,81 @@ server.on('upgrade', (req, socket, head) => {
       return;
     }
 
-    const pathParts = urlObj.pathname.split('/').filter(Boolean);
-    const sportParam = pathParts.length >= 2 ? pathParts[1] : urlObj.searchParams.get('sport') || '';
-    const sub = normalizeWsSport(sportParam);
-    if (!sub) {
-      wsReject(socket, '400 Bad Request');
-      return;
-    }
-
     wsServer.handleUpgrade(req, socket, head, (client) => {
+      if (isLiveWs) {
+        const sports = parseWsSports(String(urlObj.searchParams.get('sport') || 'all'));
+        let closed = false;
+        let inflight = false;
+        let timer: any = null;
+
+        const parseScore = (raw: any) => {
+          try {
+            const sc = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return { home: sc?.home ?? null, away: sc?.away ?? null };
+          } catch {
+            return { home: null, away: null };
+          }
+        };
+
+        const toWsEvent = (e: any) => {
+          const id = String(e.external_event_id || e.id || '');
+          const date = String(e.event_date || '');
+          const ts = date ? Math.floor(new Date(date).getTime() / 1000) : 0;
+          const statusShort = String(e.status || 'LIVE').trim() || 'LIVE';
+          const elapsed = Number(e.elapsed || 0) || 0;
+          const timerStr = String(e.timer || '').trim();
+          const goals = parseScore(e.score);
+          return {
+            ...e,
+            id,
+            external_event_id: id,
+            goals,
+            fixture: { id, date, timestamp: ts, status: { short: statusShort, long: statusShort, elapsed, timer: timerStr } },
+            teams: {
+              home: { name: e.home_team, logo: e.home_team_logo || '' },
+              away: { name: e.away_team, logo: e.away_team_logo || '' },
+            },
+            status: { short: statusShort, long: statusShort, elapsed, timer: timerStr },
+          };
+        };
+
+        const sendSnapshot = async () => {
+          if (closed) return;
+          if (inflight) return;
+          inflight = true;
+          try {
+            const lists = await Promise.all(sports.map((sp) => fetchSportsApiProLiveCached(apiKey, sp).catch(() => [])));
+            const live = (lists.flat() as any[]).filter((x: any) => Number(x?.is_live || 0) === 1).map(toWsEvent);
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({ type: 'snapshot', live, ts: Date.now() }));
+            }
+          } finally {
+            inflight = false;
+          }
+        };
+
+        client.on('close', () => {
+          closed = true;
+          try { if (timer) clearInterval(timer); } catch {}
+        });
+        client.on('error', () => {
+          closed = true;
+          try { if (timer) clearInterval(timer); } catch {}
+        });
+
+        timer = setInterval(() => { sendSnapshot().catch(() => void 0); }, 8_000);
+        sendSnapshot().catch(() => void 0);
+        return;
+      }
+
+      const pathParts = urlObj.pathname.split('/').filter(Boolean);
+      const sportParam = pathParts.length >= 2 ? pathParts[1] : urlObj.searchParams.get('sport') || '';
+      const sub = normalizeWsSport(sportParam);
+      if (!sub) {
+        try { client.close(1008); } catch {}
+        return;
+      }
+
       const upstreamUrl = `wss://v1.${sub}.sportsapipro.com/ws?x-api-key=${encodeURIComponent(apiKey)}`;
       const upstream = new WebSocket(upstreamUrl);
 
