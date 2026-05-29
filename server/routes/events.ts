@@ -541,7 +541,9 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       };
       const tasks: Array<{ sport: string; date: string }> = [];
       for (const s of sports) {
-        for (let i = 0; i < days; i++) {
+        const sKey = String(s || '').toLowerCase().trim();
+        const perSportDays = Math.max(days, (sKey === 'soccer' || sKey === 'football') ? 7 : 0);
+        for (let i = 0; i < Math.min(14, perSportDays); i++) {
           const d = new Date();
           d.setDate(d.getDate() + i);
           tasks.push({ sport: s, date: ymd(d) });

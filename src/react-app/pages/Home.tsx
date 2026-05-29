@@ -99,8 +99,28 @@ function Home({ mode = 'home' }: HomeProps) {
         const a = (e.away_team || '').trim();
         if (!h || !a || h === 'undefined' || a === 'undefined' || h === 'Home Team' || a === 'Away Team') return false;
         if (e.id === 'undefined' || !e.id) return false;
+
+        const homeOdd = Number((e as any)?.home_odd || 0);
+        const awayOdd = Number((e as any)?.away_odd || 0);
+        if (homeOdd > 1.01 && awayOdd > 1.01) return true;
+
+        let mk: any = (e as any)?.markets ?? (e as any)?.odds;
+        if (typeof mk === 'string') {
+          const s = mk.trim();
+          if (s && ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']')))) {
+            try { mk = JSON.parse(s); } catch { void 0; }
+          }
+        }
+        if (mk && typeof mk === 'object' && !Array.isArray(mk)) {
+          const h2h = (mk as any).h2h || (mk as any)['1x2'] || (mk as any).main || (mk as any).match_winner;
+          const sels = Array.isArray(h2h) ? h2h : (h2h?.selections || h2h?.outcomes || h2h?.values || []);
+          if (Array.isArray(sels)) {
+            const ok = sels.filter((s: any) => Number(s?.odd ?? s?.price ?? s?.value ?? 0) > 1.01).length;
+            if (ok >= 2) return true;
+          }
+        }
         
-        return true;
+        return false;
       })
       .sort((a, b) => {
         const ta = new Date(a.event_date || a.start_time || a.fixture?.date || 0).getTime();
