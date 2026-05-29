@@ -8,6 +8,7 @@ import { handleWalletRoutes } from './routes/wallet';
 import { handleBetRoutes } from './routes/bets';
 import { handleFavoriteRoutes } from './routes/favorites';
 import { createEventsService } from './routes/events';
+import { handleUsersRoutes } from './routes/users';
 import { handleAdminRoutes } from './routes/admin';
 import { createLiveWs } from './ws/liveWs';
 
@@ -141,6 +142,7 @@ const server = http.createServer(async (req, res) => {
 
     if (await events.handleEventsRoutes(req, res, url)) return;
     if (await handleAuthRoutes(pool, req, res, url)) return;
+    if (await handleUsersRoutes(pool, req, res, url)) return;
     if (await handleWalletRoutes(pool, req, res, url)) return;
     if (await handleBetRoutes(pool, req, res, url)) return;
     if (await handleFavoriteRoutes(pool, req, res, url)) return;

@@ -43,6 +43,9 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
       kyc_verified     BOOLEAN       NOT NULL DEFAULT FALSE,
       email_verified   BOOLEAN       NOT NULL DEFAULT FALSE,
       birth_date       TEXT,
+      self_exclude     BOOLEAN       NOT NULL DEFAULT FALSE,
+      self_exclude_until TIMESTAMPTZ,
+      is_operator      BOOLEAN       NOT NULL DEFAULT FALSE,
       created_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
       updated_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW()
     )`,
@@ -109,6 +112,33 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (user_id, event_id)
     )`,
+    `CREATE TABLE IF NOT EXISTS user_presence (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      last_seen BIGINT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS user_documents (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      doc_type TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes BIGINT NOT NULL DEFAULT 0,
+      content_base64 TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'SUBMITTED',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_user_documents_user_id ON user_documents(user_id)`,
+    `CREATE TABLE IF NOT EXISTS user_self_exclude_history (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action TEXT NOT NULL,
+      until TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_user_self_exclude_history_user_id ON user_self_exclude_history(user_id)`,
     `CREATE TABLE IF NOT EXISTS odds_overrides (
       event_id TEXT PRIMARY KEY,
       home_odd NUMERIC,
