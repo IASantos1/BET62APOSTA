@@ -240,15 +240,7 @@ export function SubOddsModel({
       return { label: lbl, odd: v } as MarketItem
     }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd > 0))
     
-    const homeTeam = String((event as any)?.home_team || '').toLowerCase();
-    const awayTeam = String((event as any)?.away_team || '').toLowerCase();
-    const toOrderKey = (lbl: string): number => {
-      const l = String(lbl || '').toLowerCase();
-      if (l === 'casa' || l === 'home' || l === '1' || (homeTeam.length > 2 && l === homeTeam)) return 0;
-      if (l === 'empate' || l === 'draw' || l === 'x' || l === 'tie') return 1;
-      if (l === 'fora' || l === 'away' || l === '2' || (awayTeam.length > 2 && l === awayTeam)) return 2;
-      return 9;
-    };
+    const order = new Map<string, number>([['Casa',0],['Empate',1],['Fora',2]])
     const by = new Map<string, MarketItem>();
     for (const it of mapped) {
        const key = String(it.label || '');
@@ -256,7 +248,7 @@ export function SubOddsModel({
        if (!prev || it.odd > prev.odd) by.set(key, it);
     }
     const deduped = Array.from(by.values());
-    return deduped.sort((a, b) => toOrderKey(a.label) - toOrderKey(b.label))
+    return deduped.sort((a, b) => (order.get(a.label) ?? 9) - (order.get(b.label) ?? 9))
   }, [eventOdds, applyMarginClamp, labelOutcome])
 
   const resultadoRegulamentar = useMemo(() => {
@@ -371,9 +363,6 @@ export function SubOddsModel({
   }
 
   const getMarketTitle = (key: string, sport?: string) => {
-      const raw = (eventOdds && (eventOdds as any)[key]);
-      if (raw && raw.sub_category) return raw.sub_category;
-
       const periodKey = /^period_(\d)_(h2h|totals)$/.exec(key);
       if (periodKey) {
         const n = Number(periodKey[1]);
@@ -392,6 +381,9 @@ export function SubOddsModel({
           if (s.includes('mma') || s.includes('ufc') || s.includes('mixed martial arts') || s.includes('luta')) return 'Vencedor da Luta';
           return MARKET_CONFIG['h2h']?.title || 'Resultado Final';
       }
+
+      const raw = (eventOdds && (eventOdds as any)[key]);
+      if (raw && raw.sub_category) return raw.sub_category;
       if (key === 'totals') {
           const s = (sport || '').toLowerCase();
           if (s.includes('tennis') || s.includes('tênis')) return 'Total de Games na Partida';
@@ -509,17 +501,29 @@ export function SubOddsModel({
   }, [liveEvents, isLive]);
 
   // ─────────────────────────────────────────────────────────────────────
-  // "APOSTA JÁ" mode: collapse 1X2 into single label when any odd ≤ 1.01
-  // Triggers ONLY when any 1X2 odd ≤ 1.01 (match practically decided)
+  // "APOSTA JÁ" mode: collapse 1X2 into single button when match is decided
+  // Triggers: any odd ≤ 1.01, score 2-0 at min ≥ 80, score diff ≥ 3
   // ─────────────────────────────────────────────────────────────────────
   const apostaJaActive = useMemo(() => {
     if (!isLive) return false;
+    let h = 0, a = 0;
+    const goals = (event as any)?.goals;
+    if (goals && typeof goals === 'object') {
+      h = Number(goals.home ?? goals.localteam_score ?? 0);
+      a = Number(goals.away ?? goals.visitorteam_score ?? 0);
+    } else if (typeof goals === 'string') {
+      try { const g = JSON.parse(goals); h = Number(g.home || 0); a = Number(g.away || 0); } catch { h = 0; a = 0; }
+    }
+    const diff = Math.abs(h - a);
+    if (diff >= 3) return true;
+    const minute = parseInt(String(liveTimer || '').replace(/[^\d]/g, ''), 10) || 0;
+    if (diff >= 2 && minute >= 80) return true;
     for (const it of resultadoRegulamentar) {
       const v = Number(it.odd);
       if (v > 0 && v <= 1.01) return true;
     }
     return false;
-  }, [isLive, resultadoRegulamentar]);
+  }, [isLive, event, liveTimer, resultadoRegulamentar]);
 
   // --- Render each market as a card ---
   const renderMarketContent = (key: string) => {
@@ -566,18 +570,26 @@ export function SubOddsModel({
             );
           }
 
-          // ── "Aposta Já" mode (visual label only — not clickable) ──────
+          // ── "Aposta Já" mode (single big red button) ──────────────────
           if (apostaJaActive && !isSusp) {
+            const fav = resultadoRegulamentar.reduce((m, x) => (Number(x.odd) > 0 && Number(x.odd) < Number(m.odd) ? x : m), resultadoRegulamentar[0]);
+            const favOdd = Number(fav?.odd) || 0;
+            const favStr = favOdd > 0 ? favOdd.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+            const disabled = !(favOdd > 0);
             return (
               <MarketCard title={title} darkMode={darkMode} noPad>
                 <div className="p-3">
-                  <div
-                    className="w-full h-16 rounded-xl font-black text-xl uppercase tracking-wider text-white shadow-lg
+                  <button
+                    onClick={disabled ? undefined : () => fav && onSelect(fav.label, favOdd)}
+                    disabled={disabled}
+                    className={`w-full h-16 rounded-xl font-black text-xl uppercase tracking-wider text-white shadow-lg
                       bg-gradient-to-r from-red-600 to-rose-700 ring-4 ring-red-400 ring-opacity-50 animate-pulse
-                      flex items-center justify-center gap-3 cursor-default select-none"
+                      transition-all duration-200 ${disabled ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-95'}
+                      flex items-center justify-center gap-3`}
                   >
                     <span>⚡ APOSTA JÁ</span>
-                  </div>
+                    {fav && <span className="text-base opacity-90">{fav.label} @ {favStr}</span>}
+                  </button>
                 </div>
               </MarketCard>
             );
