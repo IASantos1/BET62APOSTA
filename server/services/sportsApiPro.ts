@@ -1063,6 +1063,27 @@ async function fetchSportsApiProMatchOddsGeneric(
     if (arr.length) outMarkets[key] = arr;
   }
 
+  if (!Array.isArray(outMarkets.h2h) || outMarkets.h2h.length === 0) {
+    const aliases = [
+      'h2h_3_way',
+      '1x2',
+      'main',
+      'match_winner',
+      'match_result',
+      'full_time_result',
+      'fulltime_result',
+      'moneyline',
+      'winner',
+    ];
+    for (const k of aliases) {
+      const arr = (outMarkets as any)[k];
+      if (Array.isArray(arr) && arr.length > 0) {
+        outMarkets.h2h = arr;
+        break;
+      }
+    }
+  }
+
   const h2h = outMarkets.h2h || [];
   let home = 0;
   let draw = 0;
