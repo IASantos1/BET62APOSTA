@@ -108,7 +108,9 @@ const normalizeMarkets = (evt: Event): Event => {
   return { ...(evt as any), markets: marketsParsed ?? e.markets, odds: oddsParsed ?? e.odds };
 };
 
-export function useSportsEvents(category: string | null) {
+type OnlyMode = 'live' | 'pregame' | 'both';
+
+export function useSportsEvents(category: string | null, opts?: { only?: OnlyMode }) {
   const [live, setLive] = useState<Event[]>([]);
   const [pregame, setPregame] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
@@ -269,6 +271,7 @@ export function useSportsEvents(category: string | null) {
     const controller = new AbortController();
     abortRef.current = controller;
     let isActive = true;
+    const only: OnlyMode = opts?.only || 'both';
 
     let hadCache = false;
     if (typeof window !== 'undefined') {
@@ -358,10 +361,11 @@ export function useSportsEvents(category: string | null) {
           const cleanLeague = leagueFilter.replace(/-+/g, ' ').replace(/\s+/g, ' ').trim();
           params.set('league', cleanLeague);
         }
-                params.set('include', 'odds');
-                params.set('markets', 'full');
-                params.set('realtime', '0');
-        params.set('days', '7');
+        params.set('include', 'odds');
+        params.set('markets', 'full');
+        params.set('realtime', '0');
+        params.set('only', only);
+        params.set('days', only === 'live' ? '0' : '7');
 
                 const url = `/api/events/by-sport?${params.toString()}`;
         let data = await apiFetch<any>(url, { signal: controller.signal, timeout: 12000 });
@@ -378,6 +382,8 @@ export function useSportsEvents(category: string | null) {
           p2.set('include', 'odds');
           p2.set('markets', 'full');
           p2.set('realtime', '0');
+          p2.set('only', only);
+          p2.set('days', only === 'live' ? '0' : '7');
           data = await apiFetch<any>(`/api/events/by-sport?${p2.toString()}`, { signal: controller.signal });
           liveCount = Array.isArray(data?.live) ? data.live.length : 0;
           pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
@@ -749,7 +755,7 @@ export function useSportsEvents(category: string | null) {
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [category, safeCategory]); 
+  }, [category, safeCategory, opts?.only]); 
  
   return { live, pregame, loading }; 
 }
