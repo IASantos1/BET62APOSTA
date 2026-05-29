@@ -639,7 +639,7 @@ export function SubOddsModel({
           return (
             <MarketCard title={title} darkMode={darkMode} noPad>
               <div className={`grid ${cols} gap-2 p-3`}>
-                {doubleChanceItems.map((item, i) => {
+                {doubleChanceItems.map((item: any, i: number) => {
                   const val = Number(item.odd);
                   const disabled = isSusp || !(val > 0);
                   return (
@@ -670,7 +670,7 @@ export function SubOddsModel({
           return (
             <MarketCard title={title} darkMode={darkMode} noPad>
               <div className={`grid ${cols} gap-2 p-3`}>
-                {dnbItems.map((item, i) => {
+                {dnbItems.map((item: any, i: number) => {
                   const val = Number(item.odd);
                   const disabled = isSusp || !(val > 0);
                   return (

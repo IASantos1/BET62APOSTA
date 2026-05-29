@@ -238,7 +238,7 @@ export function useLiveFeed(sport?: string) {
           if (!list) return;
 
           const now = Date.now();
-          const graceMs = 15_000;
+          const graceMs = 5 * 60_000;
           setEventsMap((prev) => {
               const next = new Map<string, any>(prev);
               const seen = new Set<string>();
@@ -253,16 +253,12 @@ export function useLiveFeed(sport?: string) {
                       const pn = Number((parsed as any)?.home_odd || 0);
                       const qn = Number((parsed as any)?.draw_odd || 0);
                       const rn = Number((parsed as any)?.away_odd || 0);
-                      const nextAny = pn > 1 || qn > 1 || rn > 1;
                       const ph = Number((prevVal as any)?.home_odd || 0);
                       const qh = Number((prevVal as any)?.draw_odd || 0);
                       const rh = Number((prevVal as any)?.away_odd || 0);
-                      const prevAny = ph > 1 || qh > 1 || rh > 1;
-                      if (!nextAny && prevAny) {
-                        merged.home_odd = (prevVal as any).home_odd;
-                        merged.draw_odd = (prevVal as any).draw_odd;
-                        merged.away_odd = (prevVal as any).away_odd;
-                      }
+                      if (pn <= 1 && ph > 1) merged.home_odd = ph;
+                      if (qn <= 1 && qh > 1) merged.draw_odd = qh;
+                      if (rn <= 1 && rh > 1) merged.away_odd = rh;
                       const mkEmpty = (m: any) => {
                         if (!m) return true;
                         if (typeof m === 'string') {
@@ -357,7 +353,7 @@ export function useLiveFeed(sport?: string) {
           const msg = JSON.parse(String((evt as any)?.data || ''));
           if (msg?.type === 'snapshot' && Array.isArray(msg?.live)) {
             const now = Date.now();
-            const graceMs = 15_000;
+            const graceMs = 5 * 60_000;
             setEventsMap((prev) => {
               const next = new Map<string, any>(prev);
               const seen = new Set<string>();
@@ -371,16 +367,12 @@ export function useLiveFeed(sport?: string) {
                   const pn = Number((parsed as any)?.home_odd || 0);
                   const qn = Number((parsed as any)?.draw_odd || 0);
                   const rn = Number((parsed as any)?.away_odd || 0);
-                  const nextAny = pn > 1 || qn > 1 || rn > 1;
                   const ph = Number((prevVal as any)?.home_odd || 0);
                   const qh = Number((prevVal as any)?.draw_odd || 0);
                   const rh = Number((prevVal as any)?.away_odd || 0);
-                  const prevAny = ph > 1 || qh > 1 || rh > 1;
-                  if (!nextAny && prevAny) {
-                    merged.home_odd = (prevVal as any).home_odd;
-                    merged.draw_odd = (prevVal as any).draw_odd;
-                    merged.away_odd = (prevVal as any).away_odd;
-                  }
+                  if (pn <= 1 && ph > 1) merged.home_odd = ph;
+                  if (qn <= 1 && qh > 1) merged.draw_odd = qh;
+                  if (rn <= 1 && rh > 1) merged.away_odd = rh;
                   const mkEmpty = (m: any) => {
                     if (!m) return true;
                     if (typeof m === 'string') {
@@ -429,13 +421,8 @@ export function useLiveFeed(sport?: string) {
     };
   }, [fetchLiveEvents, wsUrl]);
 
-  // Convert Map to Array for rendering — only expose events that have odds
   const liveEvents = useMemo(() => {
-    return Array.from(eventsMap.values()).filter((e: any) => {
-      const h = Number(e?.home_odd || 0);
-      const a = Number(e?.away_odd || 0);
-      return h > 1 && a > 1;
-    });
+    return Array.from(eventsMap.values());
   }, [eventsMap]);
 
   return { 

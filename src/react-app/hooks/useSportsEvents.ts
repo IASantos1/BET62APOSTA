@@ -162,6 +162,7 @@ export function useSportsEvents(category: string | null) {
   };
 
   const updateState = (newLive: Event[], newPregame: Event[]) => {
+    const now = Date.now();
     const key = (e: Event) => {
       const ext = (e as any)?.external_event_id;
       const fixId = (e as any)?.fixture?.id;
@@ -181,35 +182,74 @@ export function useSportsEvents(category: string | null) {
       }
       return true;
     };
-    const stabilize = (next: Event[], prev: Event[]) => {
-      if (!prev.length) return next;
+    const mergeMarkets = (prevRaw: any, nextRaw: any): any => {
+      const prev = prevRaw && typeof prevRaw === 'object' && !Array.isArray(prevRaw) ? prevRaw : null;
+      const next = nextRaw && typeof nextRaw === 'object' && !Array.isArray(nextRaw) ? nextRaw : null;
+      if (!prev && !next) return nextRaw;
+      if (!prev) return nextRaw;
+      if (!next) return prevRaw;
+      const out: any = { ...prev };
+      for (const [k, v] of Object.entries(next)) {
+        if (Array.isArray(v)) {
+          if (v.length > 0) out[k] = v;
+          else if (!(k in out)) out[k] = v;
+        } else if (v && typeof v === 'object') {
+          const pv = (out as any)[k];
+          if (pv && typeof pv === 'object' && !Array.isArray(pv)) out[k] = { ...pv, ...(v as any) };
+          else out[k] = v;
+        } else {
+          if (v != null && v !== '') out[k] = v;
+        }
+      }
+      return out;
+    };
+    const stabilize = (next: Event[], prev: Event[], opts: { graceMs: number; keepMissing: boolean }) => {
+      if (!prev.length) return next.map((e) => ({ ...(e as any), __lastSeenAt: now })) as any;
       const prevMap = new Map(prev.map((e) => [key(e), e]));
-      return next.map((e) => {
+      const seen = new Set<string>();
+      const out = next.map((e) => {
         const p = prevMap.get(key(e));
-        if (!p) return e;
+        const k = key(e);
+        seen.add(k);
+        if (!p) return { ...(e as any), __lastSeenAt: now } as any;
         const hn = Number((e as any)?.home_odd || 0);
         const dn = Number((e as any)?.draw_odd || 0);
         const an = Number((e as any)?.away_odd || 0);
         const hp = Number((p as any)?.home_odd || 0);
         const dp = Number((p as any)?.draw_odd || 0);
         const ap = Number((p as any)?.away_odd || 0);
-        const nextAny = hn > 1 || dn > 1 || an > 1;
-        const prevAny = hp > 1 || dp > 1 || ap > 1;
-        const nextMarketsEmpty = mkEmpty((e as any)?.markets ?? (e as any)?.odds);
-        const prevMarketsEmpty = mkEmpty((p as any)?.markets ?? (p as any)?.odds);
-        let out: any = e as any;
-        if (!nextAny && prevAny) {
-          out = { ...out, home_odd: (p as any).home_odd, draw_odd: (p as any).draw_odd, away_odd: (p as any).away_odd };
-        }
+        const nextMarketsRaw = (e as any)?.markets ?? (e as any)?.odds;
+        const prevMarketsRaw = (p as any)?.markets ?? (p as any)?.odds;
+        const nextMarketsEmpty = mkEmpty(nextMarketsRaw);
+        const prevMarketsEmpty = mkEmpty(prevMarketsRaw);
+        let merged: any = { ...(p as any), ...(e as any), __lastSeenAt: now };
+        if (hn <= 1 && hp > 1) merged.home_odd = (p as any).home_odd;
+        if (dn <= 1 && dp > 1) merged.draw_odd = (p as any).draw_odd;
+        if (an <= 1 && ap > 1) merged.away_odd = (p as any).away_odd;
         if (nextMarketsEmpty && !prevMarketsEmpty) {
-          out = { ...out, markets: (p as any).markets, odds: (p as any).odds };
+          merged.markets = (p as any).markets;
+          merged.odds = (p as any).odds;
+        } else if (!nextMarketsEmpty && !prevMarketsEmpty) {
+          merged.markets = mergeMarkets((p as any).markets, (e as any).markets);
+          merged.odds = mergeMarkets((p as any).odds, (e as any).odds);
         }
-        return out as Event;
+        return merged as Event;
       });
+      if (opts.keepMissing && opts.graceMs > 0) {
+        for (const p of prev) {
+          const k = key(p);
+          if (seen.has(k)) continue;
+          const lastSeen = Number((p as any)?.__lastSeenAt || 0);
+          if (!lastSeen) continue;
+          if (now - lastSeen > opts.graceMs) continue;
+          out.push(p);
+        }
+      }
+      return out;
     };
 
-    const liveStable = stabilize(newLive, lastLiveRef.current);
-    const preStable = stabilize(newPregame, lastPregameRef.current);
+    const liveStable = stabilize(newLive, lastLiveRef.current, { graceMs: 5 * 60_000, keepMissing: true }).filter((e: any) => Number((e as any)?.is_live || 0) === 1);
+    const preStable = stabilize(newPregame, lastPregameRef.current, { graceMs: 60 * 60_000, keepMissing: true }).filter((e: any) => Number((e as any)?.is_live || 0) !== 1);
 
     if (!eq(liveStable, lastLiveRef.current)) {
       setLive(liveStable);
@@ -321,7 +361,7 @@ export function useSportsEvents(category: string | null) {
                 params.set('include', 'odds');
                 params.set('markets', 'full');
                 params.set('realtime', '0');
-        params.set('days', '7');
+        params.set('days', '3');
 
                 const url = `/api/events/by-sport?${params.toString()}`;
         let data = await apiFetch<any>(url, { signal: controller.signal, timeout: 12000 });
@@ -673,7 +713,6 @@ export function useSportsEvents(category: string | null) {
             return;
         }
  
-        updateState([], []);
         return;
       } catch (err: any) { 
         if (controller.signal.aborted) return; 

@@ -19,6 +19,7 @@ type AnyEvent = any;
 const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball'];
 const ODDS_FRESH_TTL_MS = 90_000;
 const ODDS_STALE_TTL_MS = 15 * 60_000;
+const LIVE_HOLD_MS = 6 * 60_000;
 
 function nowMs(): number {
   return Date.now();
@@ -84,6 +85,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
   let oddsQueueStarted = false;
   const idToSport = new Map<string, CacheEntry<string>>();
   const lastEventById = new Map<string, CacheEntry<AnyEvent>>();
+  const liveSeen = new Map<string, CacheEntry<{ sport: string; event: AnyEvent }>>();
   const overridesCache = new Map<string, CacheEntry<{ home_odd: number | null; draw_odd: number | null; away_odd: number | null }>>();
 
   const normalizeMatchId = (sport: string, rawId: string): string => {
@@ -157,6 +159,36 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     return null;
   };
 
+  const isFinishedLike = (e: any): boolean => {
+    const status = (e as any)?.status ?? (e as any)?.fixture?.status ?? '';
+    const raw =
+      (typeof status === 'object' && status !== null)
+        ? ((status as any).short ?? (status as any).long ?? (status as any).description ?? (status as any).type)
+        : status;
+    const su = String(raw || '').toUpperCase().trim();
+    if (!su) return false;
+    const s = su.replace(/[^A-Z0-9_]+/g, '_').replace(/^_+/, '').replace(/_+$/, '');
+    if (
+      s === 'FT' ||
+      s === 'FINAL' ||
+      s === 'FINISHED' ||
+      s === 'ENDED' ||
+      s === 'END' ||
+      s === 'FULL_TIME' ||
+      s === 'MATCH_FINISHED' ||
+      s === 'COMPLETED' ||
+      s === 'CANCELLED' ||
+      s === 'CANCELED' ||
+      s === 'POSTPONED' ||
+      s === 'SUSPENDED' ||
+      s === 'ABANDONED' ||
+      s === 'WALKOVER' ||
+      s === 'WO'
+    ) return true;
+    if (/FINISH|ENDED|FINAL|FULLTIME|GAMEOVER|CANCEL|POSTPON|ABANDON|WALKOVER/.test(s)) return true;
+    return false;
+  };
+
   const queueOddsRefresh = (sport: string, matchId: string) => {
     const s = String(sport || '').trim();
     const id = normalizeMatchId(s, String(matchId || '').trim());
@@ -197,6 +229,9 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       const out = { ...e, id };
       rememberSport(id, sport);
       lastEventById.set(id, { ts: nowMs(), data: out });
+      if (Number((out as any)?.is_live || 0) === 1) {
+        liveSeen.set(id, { ts: nowMs(), data: { sport, event: out } });
+      }
       return out;
     });
     liveCache.set(key, { ts: nowMs(), data: normalized });
@@ -503,8 +538,40 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       return false;
     };
 
-    const live = filterLeague(liveAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || ''))).slice(0, 120);
-    const pregame = filterLeague(preAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || ''))).slice(0, 120);
+    if (includeLive) {
+      const sportSet = new Set(sports);
+      const ids = new Set(liveAll.map((e: any) => String((e as any)?.id || '')));
+      for (const [id, entry] of liveSeen.entries()) {
+        if (!ttlOk(entry.ts, LIVE_HOLD_MS)) continue;
+        if (ids.has(id)) continue;
+        if (!sportSet.has(entry.data.sport)) continue;
+        if (isFinishedLike(entry.data.event)) continue;
+        liveAll.push({ ...(entry.data.event as any), id, is_live: 1 });
+      }
+    }
+
+    const sortStable = (arr: AnyEvent[]) => {
+      const toMs = (e: any) => {
+        const raw = (e as any)?.event_date ?? (e as any)?.fixture?.date ?? (e as any)?.start_time ?? (e as any)?.startTimestamp;
+        if (!raw) return 0;
+        if (typeof raw === 'number') return raw > 10_000_000_000 ? raw : raw * 1000;
+        const t = new Date(String(raw)).getTime();
+        return Number.isFinite(t) ? t : 0;
+      };
+      return [...arr].sort((a: any, b: any) => {
+        const at = toMs(a);
+        const bt = toMs(b);
+        if (at && bt && at !== bt) return at - bt;
+        const al = String((a as any)?.league || '');
+        const bl = String((b as any)?.league || '');
+        const lc = al.localeCompare(bl, 'pt-PT');
+        if (lc !== 0) return lc;
+        return String((a as any)?.id || '').localeCompare(String((b as any)?.id || ''), 'pt-PT');
+      });
+    };
+
+    const live = sortStable(filterLeague(liveAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || '')))).slice(0, 120);
+    const pregame = sortStable(filterLeague(preAll).filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || '')))).slice(0, 120);
 
     if (!includeOdds) {
       return { live, pregame };
@@ -519,9 +586,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
     const preEnriched = await mapLimit(pregame, 10, (x) => enrichEventOdds(x, preBudget, fullMarkets));
 
-    // Block events without odds — only show events that have at least h2h odds
-    const hasOdds = (e: any) => Number(e?.home_odd) > 1 && Number(e?.away_odd) > 1;
-    return { live: liveEnriched.filter(hasOdds), pregame: preEnriched.filter(hasOdds) };
+    return { live: liveEnriched, pregame: preEnriched };
   };
 
   const handleEventsRoutes = async (req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<boolean> => {
