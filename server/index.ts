@@ -37,8 +37,27 @@ const loadEnvFile = (filePath: string) => {
 loadEnvFile(path.resolve(process.cwd(), 'env', '.env'));
 loadEnvFile(path.resolve(process.cwd(), '.env'));
 
-const pool = createPool();
-await ensureSchema(pool);
+let pool: ReturnType<typeof createPool> | null = null;
+let dbReady = false;
+try {
+  pool = createPool();
+  await ensureSchema(pool);
+  dbReady = true;
+} catch (e: any) {
+  console.error('[server] DB init failed:', String(e?.message || e));
+  pool = null;
+  dbReady = false;
+}
+
+const safePool: any =
+  pool ||
+  ({
+    query: async () => ({ rows: [] }),
+    connect: async () => ({
+      query: async () => ({ rows: [] }),
+      release: () => void 0,
+    }),
+  } as any);
 
 const sportsApiKey = String(
   process.env.SPORTS_API_PRO_KEY ||
@@ -54,7 +73,7 @@ if (!sportsApiKey) {
   );
 }
 
-const events = createEventsService(pool, sportsApiKey);
+const events = createEventsService(safePool, sportsApiKey);
 const liveWs = createLiveWs(sportsApiKey);
 
 const distDir = path.resolve(process.cwd(), 'dist');
@@ -134,19 +153,25 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/health') {
-      sendJson(res, 200, { ok: true });
+      sendJson(res, 200, { ok: true, db: dbReady });
       return;
     }
 
     if (await tryServeStatic(req, res, url)) return;
 
     if (await events.handleEventsRoutes(req, res, url)) return;
-    if (await handleAuthRoutes(pool, req, res, url)) return;
-    if (await handleUsersRoutes(pool, req, res, url)) return;
-    if (await handleWalletRoutes(pool, req, res, url)) return;
-    if (await handleBetRoutes(pool, req, res, url)) return;
-    if (await handleFavoriteRoutes(pool, req, res, url)) return;
-    if (await handleAdminRoutes(pool, events, req, res, url)) return;
+    if (!dbReady) {
+      if (url.pathname.startsWith('/api/auth') || url.pathname.startsWith('/api/users') || url.pathname.startsWith('/api/wallet') || url.pathname.startsWith('/api/bets') || url.pathname.startsWith('/api/favorites') || url.pathname.startsWith('/api/admin')) {
+        sendJson(res, 503, { error: 'Database unavailable' });
+        return;
+      }
+    }
+    if (pool && (await handleAuthRoutes(pool, req, res, url))) return;
+    if (pool && (await handleUsersRoutes(pool, req, res, url))) return;
+    if (pool && (await handleWalletRoutes(pool, req, res, url))) return;
+    if (pool && (await handleBetRoutes(pool, req, res, url))) return;
+    if (pool && (await handleFavoriteRoutes(pool, req, res, url))) return;
+    if (pool && (await handleAdminRoutes(pool, events, req, res, url))) return;
 
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '')) {
       sendJson(res, 200, { ok: true, service: 'api' });
