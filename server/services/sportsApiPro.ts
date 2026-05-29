@@ -61,6 +61,8 @@ function extractEvents(payload: any): any[] {
   if (!payload) return [];
   if (Array.isArray(payload.events)) return payload.events;
   if (Array.isArray(payload.data?.events)) return payload.data.events;
+  if (Array.isArray(payload.response)) return payload.response;
+  if (Array.isArray(payload.data?.response)) return payload.data.response;
   if (Array.isArray(payload.data) && payload.data.length > 0) return payload.data;
   if (Array.isArray(payload.data?.matches)) return payload.data.matches;
   if (Array.isArray(payload.matches)) return payload.matches;

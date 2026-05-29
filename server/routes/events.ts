@@ -619,12 +619,34 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       return ok >= 2;
     };
 
+    const hasPrimaryOddsEvent = (e: any) => {
+      const h = Number(e?.home_odd || 0);
+      const a = Number(e?.away_odd || 0);
+      if (h > 1 && a > 1) return true;
+      const mkRaw = (e as any)?.markets ?? (e as any)?.odds;
+      const mkObj =
+        mkRaw && typeof mkRaw === 'object' && !Array.isArray(mkRaw)
+          ? mkRaw
+          : parseMarkets(mkRaw);
+      if (!mkObj || typeof mkObj !== 'object') return false;
+      const h2h =
+        (mkObj as any).h2h ||
+        (mkObj as any)['1x2'] ||
+        (mkObj as any).main ||
+        (mkObj as any).match_winner;
+      const sels = Array.isArray(h2h) ? h2h : (h2h?.selections || h2h?.outcomes || h2h?.values || []);
+      if (!Array.isArray(sels)) return false;
+      const ok = sels.filter((s: any) => Number(s?.odd || s?.price || s?.value || 0) > 1).length;
+      return ok >= 2;
+    };
+
     if (realtime) {
       const budget0 = { remaining: 0 };
 
       const filterByCachedOdds = (arr: AnyEvent[]) => {
         if (!requireOdds) return arr;
         return arr.filter((e: any) => {
+          if (hasPrimaryOddsEvent(e)) return true;
           const sport = String(e?.sport || '').trim();
           if (!sport) return false;
           const id = matchIdOf(e);
@@ -653,27 +675,6 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       const headEnriched = await mapLimit(head, 10, (x) => enrichEventOdds(x, preBudget, fullMarkets));
       preEnriched = [...headEnriched, ...tail];
     }
-
-    const hasPrimaryOddsEvent = (e: any) => {
-      const h = Number(e?.home_odd || 0);
-      const a = Number(e?.away_odd || 0);
-      if (h > 1 && a > 1) return true;
-      const mkRaw = (e as any)?.markets ?? (e as any)?.odds;
-      const mkObj =
-        mkRaw && typeof mkRaw === 'object' && !Array.isArray(mkRaw)
-          ? mkRaw
-          : parseMarkets(mkRaw);
-      if (!mkObj || typeof mkObj !== 'object') return false;
-      const h2h =
-        (mkObj as any).h2h ||
-        (mkObj as any)['1x2'] ||
-        (mkObj as any).main ||
-        (mkObj as any).match_winner;
-      const sels = Array.isArray(h2h) ? h2h : (h2h?.selections || h2h?.outcomes || h2h?.values || []);
-      if (!Array.isArray(sels)) return false;
-      const ok = sels.filter((s: any) => Number(s?.odd || s?.price || s?.value || 0) > 1).length;
-      return ok >= 2;
-    };
 
     const filteredLive = requireOdds && includeLive ? liveEnriched.filter(hasPrimaryOddsEvent) : liveEnriched;
     const filteredPregame = requireOdds && includePregame ? preEnriched.filter(hasPrimaryOddsEvent) : preEnriched;
