@@ -111,7 +111,7 @@ export async function apiFetch<T = any>(
             const response = await fetchPromise;
             if (!response.ok) {
                 if (response.status === 401) {
-                    window.dispatchEvent(new Event('auth:unauthorized'));
+                    if (token) window.dispatchEvent(new Event('auth:unauthorized'));
                 }
                 let errorMessage = response.statusText;
                 try {
@@ -150,7 +150,7 @@ export async function apiFetch<T = any>(
 
     if (!response.ok) {
       if (response.status === 401) {
-        window.dispatchEvent(new Event('auth:unauthorized'));
+        if (token) window.dispatchEvent(new Event('auth:unauthorized'));
       }
       let errorMessage = response.statusText;
       try {
