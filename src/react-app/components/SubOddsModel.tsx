@@ -988,13 +988,24 @@ export function SubOddsModel({
           return { h: parseInt(m[1]), a: parseInt(m[2]) };
         };
 
+        const baseMax = 3;
+        const liveMax =
+          currentGoals
+            ? Math.max(baseMax, Number(currentGoals.home) + 1, Number(currentGoals.away) + 1)
+            : baseMax;
+        const maxGoal = Math.max(baseMax, Math.min(7, liveMax));
+
+        const scoredItems = rawItems
+          .map((it: any) => ({ it, s: parseScore(String(it.label)) }))
+          .filter((x: any) => x.s && x.s.h <= maxGoal && x.s.a <= maxGoal) as Array<{ it: any; s: { h: number; a: number } }>;
+
+        scoredItems.sort((a, b) => (a.s.h + a.s.a) - (b.s.h + b.s.a) || a.s.h - b.s.h || a.s.a - b.s.a);
+
         const homeWins: typeof rawItems = [];
         const draws: typeof rawItems = [];
         const awayWins: typeof rawItems = [];
 
-        for (const it of rawItems) {
-          const s = parseScore(String(it.label));
-          if (!s) continue;
+        for (const { it, s } of scoredItems) {
           if (s.h > s.a) homeWins.push(it);
           else if (s.h === s.a) draws.push(it);
           else awayWins.push(it);
@@ -1009,16 +1020,16 @@ export function SubOddsModel({
 
         return (
           <MarketCard title={title} darkMode={darkMode} noPad>
-            <div className="grid grid-cols-3 divide-x divide-gray-100 dark:divide-gray-700">
+            <div className="grid grid-cols-3 gap-3 p-3">
               {colData.map(col => (
                 <div key={col.label} className="flex flex-col">
-                  <div className={`text-[10px] font-extrabold uppercase tracking-wider text-center py-1.5 ${col.color} ${darkMode ? 'bg-gray-800/60' : 'bg-gray-50'} border-b border-gray-100 dark:border-gray-700`}>
+                  <div className={`text-[10px] font-extrabold uppercase tracking-wider text-center py-1.5 ${col.color} ${darkMode ? 'bg-gray-800/60' : 'bg-gray-50'} rounded-lg`}>
                     {col.label}
                   </div>
-                  <div className="flex flex-col gap-0">
+                  <div className="flex flex-col gap-3 mt-2">
                     {Array.from({ length: maxRows }).map((_, i) => {
                       const item = col.items[i];
-                      if (!item) return <div key={i} className="h-10 border-b border-gray-50 dark:border-gray-800/50 last:border-0" />;
+                      if (!item) return <div key={i} className="h-12" />;
                       const val = Number(item.odd);
                       const priceStr = val > 0 ? val.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
                       // Block scores that are impossible given the current live score
@@ -1027,15 +1038,17 @@ export function SubOddsModel({
                         (parsedLabel.h < currentGoals.home || parsedLabel.a < currentGoals.away);
                       const isBlocked = isSusp || isImpossible;
                       return (
-                        <div key={i} className={`flex items-center justify-between px-2 py-1.5 border-b last:border-0 ${darkMode ? 'border-gray-800/50' : 'border-gray-50'} ${isImpossible ? 'opacity-40' : ''}`}>
-                          <span className={`text-sm font-semibold tabular-nums ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{item.label}</span>
-                          <button
-                            onClick={isBlocked ? undefined : () => onSelect(item.label, val)}
-                            disabled={isBlocked}
-                            title={isImpossible ? 'Resultado impossível dado o marcador actual' : undefined}
-                            className={`min-w-[72px] h-11 px-3 rounded-lg font-black text-base tabular-nums transition-all duration-200 flex items-center justify-center
-                              ${isBlocked ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
-                          >
+                        <button
+                          key={i}
+                          onClick={isBlocked ? undefined : () => onSelect(item.label, val)}
+                          disabled={isBlocked}
+                          title={isImpossible ? 'Resultado impossível dado o marcador actual' : undefined}
+                          className={`w-full h-12 rounded-xl font-black tabular-nums transition-all duration-200 flex flex-col items-center justify-center leading-[1.05] ${
+                            isBlocked ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'
+                          } ${isImpossible ? 'opacity-40' : ''}`}
+                        >
+                          <span className="text-[12px] font-extrabold">{item.label}</span>
+                          <span className="text-base">
                             {isImpossible ? (
                               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-300" viewBox="0 0 20 20" fill="currentColor">
                                 <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
@@ -1043,8 +1056,8 @@ export function SubOddsModel({
                             ) : (
                               priceStr
                             )}
-                          </button>
-                        </div>
+                          </span>
+                        </button>
                       );
                     })}
                   </div>
