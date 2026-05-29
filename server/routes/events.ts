@@ -223,6 +223,24 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const key = sport;
     const cached = liveCache.get(key);
     if (cached && ttlOk(cached.ts, 7_000)) return cached.data;
+    if (cached && ttlOk(cached.ts, 2 * 60_000)) {
+      fetchSportsApiProLive(apiKey, sport)
+        .then((list) => {
+          const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
+            const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
+            const out = { ...e, id, sport };
+            rememberSport(id, sport);
+            lastEventById.set(id, { ts: nowMs(), data: out });
+            if (Number((out as any)?.is_live || 0) === 1) {
+              liveSeen.set(id, { ts: nowMs(), data: { sport, event: out } });
+            }
+            return out;
+          });
+          liveCache.set(key, { ts: nowMs(), data: normalized });
+        })
+        .catch(() => void 0);
+      return cached.data;
+    }
     const list = await fetchSportsApiProLive(apiKey, sport).catch(() => []);
     const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
       const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
@@ -242,6 +260,21 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const key = `${sport}:${date}`;
     const cached = scheduleCache.get(key);
     if (cached && ttlOk(cached.ts, 20 * 60_000)) return cached.data;
+    if (cached && ttlOk(cached.ts, 3 * 60 * 60 * 1000)) {
+      fetchSportsApiProSchedule(apiKey, sport, date)
+        .then((list) => {
+          const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
+            const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
+            const out = { ...e, id, sport };
+            rememberSport(id, sport);
+            lastEventById.set(id, { ts: nowMs(), data: out });
+            return out;
+          });
+          scheduleCache.set(key, { ts: nowMs(), data: normalized });
+        })
+        .catch(() => void 0);
+      return cached.data;
+    }
     const list = await fetchSportsApiProSchedule(apiKey, sport, date).catch(() => []);
     const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
       const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
@@ -668,7 +701,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
     let preEnriched: AnyEvent[] = pregame;
     if (includePregame && pregame.length > 0) {
-      const eagerCount = requireOdds ? pregame.length : Math.min(24, pregame.length);
+      const eagerCount = requireOdds ? pregame.length : Math.min(8, pregame.length);
       const head = pregame.slice(0, eagerCount);
       const tail = pregame.slice(eagerCount);
       const preBudget = { remaining: head.length };

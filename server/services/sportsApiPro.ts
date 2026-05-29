@@ -536,9 +536,9 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   };
 }
 
-async function fetchJson(url: string, apiKey: string): Promise<any | null> {
+async function fetchJson(url: string, apiKey: string, timeoutMs: number = 15000): Promise<any | null> {
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 15000);
+  const t = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs));
   try {
     const res = await fetch(url, { headers: apiHeaders(apiKey), signal: controller.signal });
     const text = await res.text().catch(() => '');
@@ -557,14 +557,14 @@ async function fetchJson(url: string, apiKey: string): Promise<any | null> {
 export async function fetchSportsApiProLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const primarySub = toSubdomain(sport);
   const primaryUrl = `https://v2.${primarySub}.sportsapipro.com/api/live`;
-  const jsonPrimary = await fetchJson(primaryUrl, apiKey);
+  const jsonPrimary = await fetchJson(primaryUrl, apiKey, 6500);
   const itemsPrimary = extractEvents(jsonPrimary);
   let items = itemsPrimary;
 
   const fallbackSub = normalizeSportKey(sport);
   if (items.length === 0 && fallbackSub && fallbackSub !== primarySub) {
     const fallbackUrl = `https://v2.${fallbackSub}.sportsapipro.com/api/live`;
-    const jsonFallback = await fetchJson(fallbackUrl, apiKey);
+    const jsonFallback = await fetchJson(fallbackUrl, apiKey, 6500);
     items = extractEvents(jsonFallback);
   }
   const out: NormalizedEvent[] = [];
@@ -578,14 +578,14 @@ export async function fetchSportsApiProLive(apiKey: string, sport: string): Prom
 export async function fetchSportsApiProSchedule(apiKey: string, sport: string, date: string): Promise<NormalizedEvent[]> {
   const primarySub = toSubdomain(sport);
   const primaryUrl = `https://v2.${primarySub}.sportsapipro.com/api/schedule/${encodeURIComponent(date)}?timezoneName=UTC`;
-  const jsonPrimary = await fetchJson(primaryUrl, apiKey);
+  const jsonPrimary = await fetchJson(primaryUrl, apiKey, 9000);
   const itemsPrimary = extractEvents(jsonPrimary);
   let items = itemsPrimary;
 
   const fallbackSub = normalizeSportKey(sport);
   if (items.length === 0 && fallbackSub && fallbackSub !== primarySub) {
     const fallbackUrl = `https://v2.${fallbackSub}.sportsapipro.com/api/schedule/${encodeURIComponent(date)}?timezoneName=UTC`;
-    const jsonFallback = await fetchJson(fallbackUrl, apiKey);
+    const jsonFallback = await fetchJson(fallbackUrl, apiKey, 9000);
     items = extractEvents(jsonFallback);
   }
   const out: NormalizedEvent[] = [];

@@ -368,7 +368,11 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
         params.set('include', 'odds');
         params.set('realtime', only === 'live' ? '1' : '0');
         params.set('only', only);
-        params.set('days', only === 'live' ? '0' : '7');
+        const days =
+          only === 'live'
+            ? '0'
+            : (sportParam === 'all' ? '2' : '7');
+        params.set('days', days);
 
                 const url = `/api/events/by-sport?${params.toString()}`;
         let data = await apiFetch<any>(url, { signal: controller.signal, timeout: only === 'pregame' ? 20000 : 12000 });
@@ -385,7 +389,11 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
           p2.set('include', 'odds');
           p2.set('realtime', only === 'live' ? '1' : '0');
           p2.set('only', only);
-          p2.set('days', only === 'live' ? '0' : '7');
+          const days2 =
+            only === 'live'
+              ? '0'
+              : (sportParam === 'all' ? '2' : '7');
+          p2.set('days', days2);
           data = await apiFetch<any>(`/api/events/by-sport?${p2.toString()}`, { signal: controller.signal, timeout: only === 'pregame' ? 20000 : 12000 });
           liveCount = Array.isArray(data?.live) ? data.live.length : 0;
           pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
