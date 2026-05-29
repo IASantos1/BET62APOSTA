@@ -64,7 +64,7 @@ function Home({ mode = 'home' }: HomeProps) {
   const navigate = useNavigate();
 
   // Dados principais
-  const { live: httpLive, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || 'all', { only: mode === 'home' ? 'pregame' : 'both' });
+  const { live: httpLive, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || 'all', { only: mode === 'home' ? 'pregame' : mode === 'live' ? 'live' : 'both' });
   const loading = eventsLoading;
   const showBanner = true;
   
