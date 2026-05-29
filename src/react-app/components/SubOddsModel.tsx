@@ -1028,15 +1028,21 @@ export function SubOddsModel({
                       const isBlocked = isSusp || isImpossible;
                       return (
                         <div key={i} className={`flex items-center justify-between px-2 py-1.5 border-b last:border-0 ${darkMode ? 'border-gray-800/50' : 'border-gray-50'} ${isImpossible ? 'opacity-40' : ''}`}>
-                          <span className={`text-xs font-semibold tabular-nums ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{item.label}</span>
+                          <span className={`text-sm font-semibold tabular-nums ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{item.label}</span>
                           <button
                             onClick={isBlocked ? undefined : () => onSelect(item.label, val)}
                             disabled={isBlocked}
                             title={isImpossible ? 'Resultado impossível dado o marcador actual' : undefined}
-                            className={`min-w-[54px] h-8 px-2 rounded font-bold text-sm tabular-nums transition-all duration-200
+                            className={`min-w-[72px] h-11 px-3 rounded-lg font-black text-base tabular-nums transition-all duration-200 flex items-center justify-center
                               ${isBlocked ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
                           >
-                            {isImpossible ? '🔒' : priceStr}
+                            {isImpossible ? (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-300" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                              </svg>
+                            ) : (
+                              priceStr
+                            )}
                           </button>
                         </div>
                       );
@@ -1117,7 +1123,36 @@ export function SubOddsModel({
               const items = getMarketItems(k);
               return !!items && items.length > 0;
           };
-          const keys = allKeys.filter(hasContent);
+          const rawKeys = allKeys.filter(hasContent);
+          const keyPriority = (k: string) => {
+            const lk = k.toLowerCase();
+            const pref = [
+              'h2h',
+              'double_chance',
+              'totals',
+              'btts',
+              'handicap',
+              'spreads',
+              'half_time_full_time',
+              'htft',
+              'correct_score',
+              'corners_total',
+              'cards_total',
+            ];
+            const idx = pref.findIndex((x) => x === lk);
+            return idx >= 0 ? idx : 999;
+          };
+          const dedupe = new Map<string, { key: string; pr: number; len: number }>();
+          for (const k of rawKeys) {
+            const titleKey = getMarketTitle(k, event?.sport).toLowerCase().trim();
+            const pr = keyPriority(k);
+            const len = String(k).length;
+            const prev = dedupe.get(titleKey);
+            if (!prev || pr < prev.pr || (pr === prev.pr && len < prev.len)) {
+              dedupe.set(titleKey, { key: k, pr, len });
+            }
+          }
+          const keys = Array.from(dedupe.values()).sort((a, b) => a.pr - b.pr || a.len - b.len).map((x) => x.key);
 
           const buckets: Record<string, string[]> = {
               Todos: [],
@@ -1161,7 +1196,27 @@ export function SubOddsModel({
               else add('Especiais', k);
           }
 
-          buckets['Todos'] = keys;
+          const allOrdered = [
+            ...buckets['Resultados'],
+            ...buckets['Dupla Chance'],
+            ...buckets['Gols'],
+            ...buckets['Especiais'],
+            ...buckets['Handicap'],
+            ...buckets['1º Tempo'],
+            ...buckets['2º Tempo'],
+            ...buckets['HT/FT'],
+            ...buckets['Placar correto'],
+            ...buckets['Escanteio'],
+            ...buckets['Cartão'],
+            ...buckets['Asiático'],
+            ...buckets['Jogadores'],
+          ];
+          const seen = new Set<string>();
+          buckets['Todos'] = allOrdered.filter((k) => {
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
 
           const FIXED_TABS: Array<{ title: string; keys: string[] }> = [
               { title: 'Todos', keys: buckets['Todos'] },
