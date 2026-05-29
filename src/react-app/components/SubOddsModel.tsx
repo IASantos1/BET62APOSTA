@@ -209,6 +209,7 @@ export function SubOddsModel({
 
   const getSuspendedReason = (marketKey?: string) => {
     if (isGlobalSuspended) return 'EVENT_FROZEN';
+    if (critState === 'var_review' || critState === 'var_penalty') return 'VAR';
     return marketKey ? suspendedMap.get(marketKey) : undefined;
   };
 
@@ -543,27 +544,31 @@ export function SubOddsModel({
 
           // ── Critical event button (overrides everything) ──────────────
           if (critState !== 'idle' && !isSusp) {
-            const cfg = {
-              goal:        { label: '⚽ GOL!',                       bg: 'from-emerald-500 to-green-600', ring: 'ring-emerald-300', anim: 'animate-bounce' },
-              big_chance:  { label: '🔥 GRANDE CHANCE',              bg: 'from-orange-500 to-amber-600',  ring: 'ring-orange-300',  anim: 'animate-pulse' },
-              var_review:  { label: '📺 REVISÃO VAR',                bg: 'from-indigo-500 to-purple-600', ring: 'ring-purple-300',  anim: 'animate-pulse' },
-              var_penalty: { label: '🎯 VAR: PÉNALTI CONFIRMADO',    bg: 'from-yellow-500 to-amber-500',  ring: 'ring-yellow-300',  anim: 'animate-pulse' },
-            }[critState];
             // Auto-pick favourite to wager on (lowest odd)
             const fav = resultadoRegulamentar.reduce((m, x) => (Number(x.odd) > 0 && Number(x.odd) < Number(m.odd) ? x : m), resultadoRegulamentar[0]);
             const favOdd = Number(fav?.odd) || 0;
+            const favStr = favOdd > 0 ? favOdd.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
             const disabled = !(favOdd > 0);
+            // Botão com estilo igual a "Aposta Já" mas com rótulo do lance crítico
+            const critLabel = critState === 'goal' ? '⚽ GOL' : '🔥 GRANDE CHANCE';
+            const critAnim = critState === 'goal' ? 'animate-bounce' : 'animate-pulse';
+            const critRing = critState === 'goal' ? 'ring-emerald-400' : 'ring-orange-400';
+            const critGradient = critState === 'goal'
+              ? 'from-emerald-600 to-green-700'
+              : 'from-orange-500 to-red-600';
             return (
               <MarketCard title={title} darkMode={darkMode} noPad>
                 <div className="p-3">
                   <button
                     onClick={disabled ? undefined : () => fav && onSelect(fav.label, favOdd)}
                     disabled={disabled}
-                    className={`w-full h-16 rounded-xl font-black text-lg uppercase tracking-wider text-white shadow-lg
-                      bg-gradient-to-r ${cfg.bg} ring-4 ${cfg.ring} ring-opacity-60 ${cfg.anim}
-                      transition-all duration-200 ${disabled ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-95'}`}
+                    className={`w-full h-16 rounded-xl font-black text-xl uppercase tracking-wider text-white shadow-lg
+                      bg-gradient-to-r ${critGradient} ring-4 ${critRing} ring-opacity-50 ${critAnim}
+                      transition-all duration-200 ${disabled ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-95'}
+                      flex items-center justify-center gap-3`}
                   >
-                    {cfg.label}
+                    <span>{critLabel}</span>
+                    {fav && <span className="text-base opacity-90">{fav.label} @ {favStr}</span>}
                   </button>
                 </div>
               </MarketCard>
@@ -619,14 +624,103 @@ export function SubOddsModel({
           );
       }
       
-      // Double Chance
+      // Double Chance — layout horizontal lado a lado (igual a Resultado Final)
       if (key === 'double_chance') {
           if (doubleChanceItems.length === 0) return null;
           const title = getMarketTitle('double_chance', event?.sport);
           const susp = getSuspendedReason('double_chance');
+          const isSusp = !!susp;
+          const cols = doubleChanceItems.length === 2 ? 'grid-cols-2' : 'grid-cols-3';
           return (
-            <MarketCard title={title} darkMode={darkMode}>
-              <MarketButtonGroup items={doubleChanceItems} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
+            <MarketCard title={title} darkMode={darkMode} noPad>
+              <div className={`grid ${cols} gap-2 p-3`}>
+                {doubleChanceItems.map((item, i) => {
+                  const val = Number(item.odd);
+                  const disabled = isSusp || !(val > 0);
+                  return (
+                    <OddButton
+                      key={i}
+                      label={String(item.label || '')}
+                      price={val}
+                      trend="stable"
+                      onClick={() => onSelect(String(item.selection || item.label), val)}
+                      className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                      suspended={disabled ? { reason: isSusp ? (susp === 'EVENT_FROZEN' ? 'GOL/VAR' : susp === 'VAR' ? 'VAR' : 'SUSPENSO') : 'SUSPENSO' } : undefined}
+                    />
+                  );
+                })}
+              </div>
+            </MarketCard>
+          );
+      }
+
+      // Empate Anula Aposta (DNB) — layout horizontal 2 colunas lado a lado
+      if (key === 'dnb' || key === 'draw_no_bet') {
+          const dnbItems = getMarketItems(key);
+          if (dnbItems.length === 0) return null;
+          const title = getMarketTitle(key, event?.sport);
+          const susp = getSuspendedReason(key);
+          const isSusp = !!susp;
+          const cols = dnbItems.length <= 2 ? 'grid-cols-2' : 'grid-cols-3';
+          return (
+            <MarketCard title={title} darkMode={darkMode} noPad>
+              <div className={`grid ${cols} gap-2 p-3`}>
+                {dnbItems.map((item, i) => {
+                  const val = Number(item.odd);
+                  const disabled = isSusp || !(val > 0);
+                  return (
+                    <OddButton
+                      key={i}
+                      label={String(item.label || '')}
+                      price={val}
+                      trend="stable"
+                      onClick={() => onSelect(String(item.selection || item.label), val)}
+                      className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                      suspended={disabled ? { reason: isSusp ? (susp === 'EVENT_FROZEN' ? 'GOL/VAR' : susp === 'VAR' ? 'VAR' : 'SUSPENSO') : 'SUSPENSO' } : undefined}
+                    />
+                  );
+                })}
+              </div>
+            </MarketCard>
+          );
+      }
+
+      // 1º/2º Tempo — layout horizontal 3 colunas lado a lado (Casa | Empate | Fora)
+      const HALF_RESULT_KEYS = new Set(['first_half_h2h','second_half_h2h','1st_half','2nd_half','half_time_result','first_half_result']);
+      if (HALF_RESULT_KEYS.has(key)) {
+          const halfItems = getMarketItems(key);
+          if (halfItems.length === 0) return null;
+          const title = getMarketTitle(key, event?.sport);
+          const susp = getSuspendedReason(key);
+          const isSusp = !!susp;
+          const order = (lbl: string) => {
+            const l = String(lbl || '').toLowerCase();
+            if (l === 'casa' || l.includes('casa') || l === 'home' || l === '1') return 1;
+            if (l === 'empate' || l.includes('empate') || l === 'draw' || l === 'x' || l === 'tie') return 2;
+            if (l === 'fora' || l.includes('fora') || l === 'away' || l === '2') return 3;
+            return 9;
+          };
+          const ordered = [...halfItems].sort((a, b) => order(a.label) - order(b.label));
+          const cols = ordered.length === 2 ? 'grid-cols-2' : 'grid-cols-3';
+          return (
+            <MarketCard title={title} darkMode={darkMode} noPad>
+              <div className={`grid ${cols} gap-2 p-3`}>
+                {ordered.map((item, i) => {
+                  const val = Number(item.odd);
+                  const disabled = isSusp || !(val > 0);
+                  return (
+                    <OddButton
+                      key={i}
+                      label={String(item.label || '')}
+                      price={val}
+                      trend="stable"
+                      onClick={() => onSelect(String(item.selection || item.label), val)}
+                      className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                      suspended={disabled ? { reason: isSusp ? (susp === 'EVENT_FROZEN' ? 'GOL/VAR' : susp === 'VAR' ? 'VAR' : 'SUSPENSO') : 'SUSPENSO' } : undefined}
+                    />
+                  );
+                })}
+              </div>
             </MarketCard>
           );
       }
