@@ -283,9 +283,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
 
   // Check if we have valid odds locally, even if realtime thinks it's suspended
   const hasLocalOdds = currentMarkets && currentMarkets.length > 0;
-  
-  // Relaxed suspension logic: only suspend if explicitly frozen or suspended AND we don't have local odds to show
-  // If we have local odds, we assume they are valid until a realtime update explicitly clears them
+
   const apiVarActive = !!signals?.varActive;
   const isSuspended = apiVarActive || ((!!suspension || (event as any).oddsFrozen || event.suspended) && !hasLocalOdds);
 
@@ -301,11 +299,12 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
   }, [apiVarActive, signals?.cta])
 
   // ─────────────────────────────────────────────────────────────────────
-  // Critical-event state machine (mirrors SubOddsModel) — listing card
+  // Critical-event state machine — listing card
   // ─────────────────────────────────────────────────────────────────────
   type CritState = 'idle' | 'big_chance' | 'var_review' | 'var_penalty' | 'goal' | 'penalty' | 'cards';
   const [critState, setCritState] = useState<CritState>('idle');
   const lastEventIdRef = useRef<string>('');
+  const lastNotifCritRef = useRef<string>('');   // dedup toast notifications
 
   const liveEventList: any[] = useMemo(() => {
     const a = (event as any)?.events;
@@ -313,6 +312,32 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     const b = (event as any)?.fixture?.events;
     return Array.isArray(b) ? b : [];
   }, [event]);
+
+  // Duration config per state
+  const CRIT_DURATIONS: Record<CritState, number> = {
+    idle: 0, goal: 18000, var_penalty: 25000, penalty: 20000,
+    var_review: 30000, big_chance: 12000, cards: 10000,
+  };
+
+  // Notification messages per state
+  const CRIT_NOTIF: Partial<Record<CritState, string>> = {
+    goal:        '⚽ GOL! Odds bloqueadas.',
+    var_review:  '📺 Revisão VAR em curso.',
+    var_penalty: '🎯 VAR: Pênalti confirmado!',
+    penalty:     '🎯 Pênalti marcado!',
+    big_chance:  '🔥 Grande chance de gol!',
+    cards:       '🟨 Cartão mostrado.',
+  };
+
+  // ODD suspend reason per crit state
+  const CRIT_TO_REASON: Partial<Record<CritState, string>> = {
+    goal:        'GOAL',
+    var_review:  'VAR',
+    var_penalty: 'VAR_PENALTY',
+    penalty:     'PENALTY',
+    big_chance:  'CHANCE',
+    cards:       'CARD',
+  };
 
   useEffect(() => {
     if (!isLiveEvent || liveEventList.length === 0) return;
@@ -333,11 +358,27 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
 
     if (next) {
       setCritState(next);
-      const dur = next === 'goal' ? 12000 : next === 'var_penalty' ? 10000 : 8000;
+      const dur = CRIT_DURATIONS[next] || 10000;
       const t = setTimeout(() => setCritState('idle'), dur);
       return () => clearTimeout(t);
     }
   }, [liveEventList, isLiveEvent]);
+
+  // Toast notification when signals change (deduped)
+  useEffect(() => {
+    if (!isLiveEvent) return;
+    const effectiveCrit: CritState = apiCritState !== 'idle' ? (apiCritState as CritState) : critState;
+    if (effectiveCrit === 'idle') return;
+    const key = `${eventId}|${effectiveCrit}`;
+    if (lastNotifCritRef.current === key) return;
+    lastNotifCritRef.current = key;
+    const msg = CRIT_NOTIF[effectiveCrit];
+    if (msg) {
+      const matchStr = String(event.match || `${homeTeamName} vs ${awayTeamName}`);
+      addNotification({ type: 'info', message: `${matchStr}: ${msg}` });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiCritState, critState, isLiveEvent]);
 
   // "Aposta Já" trigger: ONLY when any 1X2 odd ≤ 1.01 (match practically decided)
   const apostaJaActive = useMemo(() => {
@@ -796,27 +837,45 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
               );
             }
 
-            const effectiveCrit = apiCritState !== 'idle' ? (apiCritState as any) : critState
-            if (effectiveCrit !== 'idle' && !isSuspended && favBet) {
-              const cfgMap = {
-                goal:        { label: '⚽ GOL!',                    bg: 'from-emerald-500 to-green-600', ring: 'ring-emerald-300', anim: 'animate-bounce' },
-                big_chance:  { label: '🔥 GRANDE CHANCE',           bg: 'from-orange-500 to-amber-600',  ring: 'ring-orange-300',  anim: 'animate-pulse' },
-                var_review:  { label: '📺 REVISÃO VAR',             bg: 'from-indigo-500 to-purple-600', ring: 'ring-purple-300',  anim: 'animate-pulse' },
-                var_penalty: { label: '🎯 VAR: PÉNALTI CONFIRMADO', bg: 'from-yellow-500 to-amber-500',  ring: 'ring-yellow-300',  anim: 'animate-pulse' },
-                penalty:     { label: '🎯 PÊNALTI',                 bg: 'from-orange-500 to-red-600',    ring: 'ring-orange-300',  anim: 'animate-pulse' },
-                cards:       { label: '🟨 CARTÕES',                 bg: 'from-yellow-500 to-amber-600',  ring: 'ring-yellow-300',  anim: 'animate-pulse' },
-              } as any
+            const effectiveCrit: CritState = apiCritState !== 'idle' ? (apiCritState as CritState) : critState
+
+            // Odds are blocked during any critical event OR explicit suspension
+            const isOddsBlocked = isSuspended || (effectiveCrit !== 'idle' && isLiveEvent)
+            const blockReason: string = isSuspended
+              ? (suspendReason === 'VAR' ? 'VAR' : suspendReason === 'EVENT_FROZEN' ? 'GOAL' : 'SUSPENSO')
+              : (CRIT_TO_REASON[effectiveCrit] || 'SUSPENSO')
+
+            // Suspension object passed to OddButton
+            const critSuspended = isOddsBlocked ? { reason: blockReason } : undefined
+
+            // CTA banner — shown during any active critical state
+            if (effectiveCrit !== 'idle' && isLiveEvent) {
+              const cfgMap: Record<string, { label: string; bg: string; ring: string; anim: string; clickable: boolean }> = {
+                goal:        { label: '⚽ GOL!',                    bg: 'from-emerald-500 to-green-600',   ring: 'ring-emerald-300', anim: 'animate-bounce',  clickable: false },
+                big_chance:  { label: '🔥 GRANDE CHANCE',           bg: 'from-orange-500 to-amber-600',    ring: 'ring-orange-300',  anim: 'animate-pulse',   clickable: true  },
+                var_review:  { label: '📺 REVISÃO VAR',             bg: 'from-indigo-600 to-purple-700',   ring: 'ring-purple-300',  anim: 'animate-pulse',   clickable: false },
+                var_penalty: { label: '🎯 VAR: PÊNALTI CONFIRMADO', bg: 'from-yellow-500 to-amber-600',    ring: 'ring-yellow-300',  anim: 'animate-pulse',   clickable: false },
+                penalty:     { label: '🎯 PÊNALTI',                 bg: 'from-orange-500 to-red-600',      ring: 'ring-orange-300',  anim: 'animate-pulse',   clickable: false },
+                cards:       { label: '🟨 CARTÕES',                 bg: 'from-yellow-500 to-amber-600',    ring: 'ring-yellow-300',  anim: '',                clickable: true  },
+              }
               const cfg = cfgMap[effectiveCrit] || cfgMap.big_chance
+              const canClick = cfg.clickable && !!favBet && !isSuspended
               return (
                 <div className="w-full sm:w-[320px] lg:w-[400px]">
                   <button
-                    onClick={(e) => { e.stopPropagation(); addPrimary(favBet.label, favBet.odd); }}
+                    disabled={!canClick}
+                    onClick={canClick ? (e) => { e.stopPropagation(); addPrimary(favBet!.label, favBet!.odd); } : undefined}
                     className={`w-full h-12 rounded-lg font-black text-sm uppercase tracking-wider text-white shadow-lg
                       bg-gradient-to-r ${cfg.bg} ring-2 ${cfg.ring} ring-opacity-60 ${cfg.anim}
-                      transition-all duration-200 hover:scale-[1.02] active:scale-95
-                      flex items-center justify-center gap-2`}
+                      transition-all duration-200 flex items-center justify-center gap-2
+                      ${canClick ? 'hover:scale-[1.02] active:scale-95 cursor-pointer' : 'cursor-default opacity-95'}`}
                   >
                     <span>{cfg.label}</span>
+                    {canClick && favBet && (
+                      <span className="ml-1 opacity-80 text-xs normal-case font-bold">
+                        {favBet.label} {favBet.odd.toFixed(2)}
+                      </span>
+                    )}
                   </button>
                 </div>
               );
@@ -837,19 +896,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
             }
 
             return (
-              <div className={`grid ${gridCols} gap-2 relative transition-opacity duration-300 w-full sm:w-[320px] lg:w-[400px] ${isSuspended ? 'opacity-50 pointer-events-none select-none' : ''}`}>
-                {isSuspended && (
-                  <div className="absolute inset-0 flex items-center justify-center z-10">
-                    <span className="bg-red-600/90 text-white text-[10px] sm:text-xs px-2 py-1 rounded shadow-sm font-bold uppercase tracking-wider backdrop-blur-sm border border-red-500">
-                      {suspendReason === 'EVENT_FROZEN'
-                        ? 'GOL/VAR'
-                        : suspendReason === 'VAR'
-                          ? 'VAR'
-                          : (suspendReason === 'LOW_LIQUIDITY' ? 'LIQUIDEZ' : (suspendReason === 'RISK_MARGIN' ? 'RISCO' : 'SUSPENSO'))}
-                    </span>
-                  </div>
-                )}
-
+              <div className={`grid ${gridCols} gap-2 relative transition-opacity duration-300 w-full sm:w-[320px] lg:w-[400px] ${isOddsBlocked ? 'opacity-70' : ''}`}>
                 {sport === 'tennis' ? (
                   <>
                     {(hh > 0) ? (
@@ -861,7 +908,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                           trend={homeTrend}
                           onClick={(e) => { e.stopPropagation(); addPrimary('Casa', hh, hhSelection?.suspended); }}
                           className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                          suspended={marketSuspended || (hhSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                          suspended={critSuspended || marketSuspended || (hhSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
                         />
                       </div>
                     ) : <div />}
@@ -875,7 +922,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                           trend={awayTrend}
                           onClick={(e) => { e.stopPropagation(); addPrimary('Fora', aa, aaSelection?.suspended); }}
                           className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                          suspended={marketSuspended || (aaSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                          suspended={critSuspended || marketSuspended || (aaSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
                         />
                       </div>
                     ) : <div />}
@@ -889,7 +936,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                         trend={homeTrend}
                         onClick={(e) => { e.stopPropagation(); addPrimary('Casa', hh, hhSelection?.suspended); }}
                         className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                        suspended={marketSuspended || (hhSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                        suspended={critSuspended || marketSuspended || (hhSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
                       />
                     ) : <div />}
 
@@ -900,7 +947,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                         trend={drawTrend}
                         onClick={(e) => { e.stopPropagation(); addPrimary('Empate', dd, ddSelection?.suspended); }}
                         className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                        suspended={marketSuspended || (ddSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                        suspended={critSuspended || marketSuspended || (ddSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
                       />
                     )}
 
@@ -911,7 +958,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                         trend={awayTrend}
                         onClick={(e) => { e.stopPropagation(); addPrimary('Fora', aa, aaSelection?.suspended); }}
                         className="w-full h-full min-h-[44px] px-2 py-1 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                        suspended={marketSuspended || (aaSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
+                        suspended={critSuspended || marketSuspended || (aaSelection?.suspended ? { reason: 'SUSPENSO' } : undefined)}
                       />
                     ) : <div />}
                   </>

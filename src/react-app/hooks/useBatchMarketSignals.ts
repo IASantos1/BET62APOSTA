@@ -1,12 +1,36 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../utils/api'
 
-export type LiveCardCta = 'idle' | 'big_chance' | 'goal' | 'penalty' | 'cards'
+export type LiveCardCta = 'idle' | 'big_chance' | 'goal' | 'penalty' | 'cards' | 'var_review' | 'var_penalty'
 
 export interface LiveCardSignals {
   varActive: boolean
   cta: LiveCardCta
   ctaUntil: number
+  blockUntil: number      // stronger lock — odds not clickable at all
+  lastCta: LiveCardCta    // for notification dedup
+}
+
+// Durations per event type (ms)
+const CTA_DURATIONS: Record<LiveCardCta, number> = {
+  idle:        0,
+  goal:        18000,   // 18s — score just changed
+  var_penalty: 25000,   // 25s — VAR confirmed penalty
+  penalty:     20000,   // 20s — penalty awarded
+  var_review:  30000,   // 30s — VAR in progress (long)
+  big_chance:  12000,   // 12s — big chance created
+  cards:       10000,   // 10s — card shown
+}
+
+// How long to BLOCK odds (may differ from CTA display)
+const BLOCK_DURATIONS: Record<LiveCardCta, number> = {
+  idle:        0,
+  goal:        20000,
+  var_penalty: 30000,
+  penalty:     25000,
+  var_review:  30000,
+  big_chance:  10000,
+  cards:       8000,
 }
 
 function isSoccerSport(sport: any) {
@@ -78,6 +102,15 @@ function classifyCtaFromIncident(type: string): LiveCardCta {
   return 'idle'
 }
 
+// Extract score as comparable string
+function scoreKey(resp: any): string {
+  if (!resp) return ''
+  const gh = resp.goals?.home ?? resp.score?.home ?? resp.homeGoals ?? null
+  const ga = resp.goals?.away ?? resp.score?.away ?? resp.awayGoals ?? null
+  if (gh == null && ga == null) return ''
+  return `${Number(gh) || 0}-${Number(ga) || 0}`
+}
+
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = []
   let i = 0
@@ -129,16 +162,17 @@ export function useBatchMarketSignals(params: {
   const signalsRef = useRef<Record<string, LiveCardSignals>>({})
   const lastIncidentRef = useRef<Map<string, string>>(new Map())
   const lastBigTotalRef = useRef<Map<string, number>>(new Map())
+  const lastScoreRef = useRef<Map<string, string>>(new Map())
 
   useEffect(() => {
     if (!tracked.length) {
-      // Only reset if we actually had signals before
       if (Object.keys(signalsRef.current).length > 0) {
         signalsRef.current = {}
         setSignals({})
       }
       lastIncidentRef.current.clear()
       lastBigTotalRef.current.clear()
+      lastScoreRef.current.clear()
       return
     }
 
@@ -170,26 +204,56 @@ export function useBatchMarketSignals(params: {
           const resp = r.resp
           const list: any[] = Array.isArray(resp?.incidents) ? resp.incidents : []
           const v = computeVarActive(list)
-          const prev = next[r.id] || { varActive: false, cta: 'idle' as const, ctaUntil: 0 }
+
+          const prev = next[r.id] || { varActive: false, cta: 'idle' as LiveCardCta, ctaUntil: 0, blockUntil: 0, lastCta: 'idle' as LiveCardCta }
 
           let cta: LiveCardCta = prev.cta
           let ctaUntil = prev.ctaUntil
+          let blockUntil = prev.blockUntil
+          let lastCta: LiveCardCta = prev.lastCta
 
           if (v.active) {
-            cta = 'idle'
-            ctaUntil = 0
+            // VAR in progress — override any CTA with var_review
+            if (cta !== 'var_review') {
+              cta = 'var_review'
+              ctaUntil = now + CTA_DURATIONS.var_review
+              blockUntil = now + BLOCK_DURATIONS.var_review
+              lastCta = 'var_review'
+            }
           } else {
+            // ── Score-change goal detection (more reliable than incident text) ──
+            const curScore = scoreKey(resp)
+            const prevScore = lastScoreRef.current.get(r.id) || ''
+            if (curScore && prevScore && curScore !== prevScore) {
+              // Score changed → goal scored
+              lastScoreRef.current.set(r.id, curScore)
+              if (cta !== 'goal' || ctaUntil <= now) {
+                cta = 'goal'
+                ctaUntil = now + CTA_DURATIONS.goal
+                blockUntil = now + BLOCK_DURATIONS.goal
+                lastCta = 'goal'
+              }
+            } else if (curScore && !prevScore) {
+              lastScoreRef.current.set(r.id, curScore)
+            }
+
+            // ── Big chance detection ──
             const big = resp?.bigChances
             const total = Number(big?.home ?? 0) + Number(big?.away ?? 0)
             const lastBig = lastBigTotalRef.current.get(r.id) ?? 0
-            if (Number.isFinite(total) && total > lastBig) {
+            if (Number.isFinite(total) && total > lastBig && cta !== 'goal') {
               lastBigTotalRef.current.set(r.id, total)
-              cta = 'big_chance'
-              ctaUntil = now + 15000
+              if (cta !== 'big_chance' || ctaUntil <= now) {
+                cta = 'big_chance'
+                ctaUntil = now + CTA_DURATIONS.big_chance
+                blockUntil = now + BLOCK_DURATIONS.big_chance
+                lastCta = 'big_chance'
+              }
             } else if (Number.isFinite(total) && lastBig === 0) {
               lastBigTotalRef.current.set(r.id, total)
             }
 
+            // ── Incident-based detection ──
             const latest = (() => {
               let best: any = null
               let bestKey = -Infinity
@@ -209,21 +273,37 @@ export function useBatchMarketSignals(params: {
               const lastId = lastIncidentRef.current.get(r.id) || ''
               if (latestId && latestId !== lastId) {
                 lastIncidentRef.current.set(r.id, latestId)
-                const kind = classifyCtaFromIncident(latest?.type)
-                if (kind !== 'idle') {
+
+                // Check for VAR+penalty confirmation
+                const detail = String(latest?.detail || latest?.description || '').toLowerCase()
+                const type = String(latest?.type || '').toLowerCase()
+                let kind: LiveCardCta = 'idle'
+                if (/var.*pen|pen.*var|penalty.*confirmed|p[eê]nalti.*confirm/i.test(detail)) {
+                  kind = 'var_penalty'
+                } else {
+                  kind = classifyCtaFromIncident(type)
+                }
+
+                if (kind !== 'idle' && kind !== cta) {
                   cta = kind
-                  ctaUntil = now + (kind === 'goal' ? 12000 : 15000)
+                  ctaUntil = now + CTA_DURATIONS[kind]
+                  blockUntil = now + BLOCK_DURATIONS[kind]
+                  lastCta = kind
                 }
               }
             }
           }
 
+          // ── Expire CTA/block ──
           if (ctaUntil && ctaUntil <= now) {
             cta = 'idle'
             ctaUntil = 0
           }
+          if (blockUntil && blockUntil <= now) {
+            blockUntil = 0
+          }
 
-          next[r.id] = { varActive: v.active, cta, ctaUntil }
+          next[r.id] = { varActive: v.active, cta, ctaUntil, blockUntil, lastCta }
         }
 
         if (!cancelled) {
@@ -236,7 +316,7 @@ export function useBatchMarketSignals(params: {
     }
 
     tick()
-    intervalId = setInterval(tick, 9000)
+    intervalId = setInterval(tick, 7000)
     return () => {
       cancelled = true
       if (intervalId) clearInterval(intervalId)
