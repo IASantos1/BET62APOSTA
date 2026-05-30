@@ -403,6 +403,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
       
       <div className="flex items-center gap-3 w-full">
         <button 
+          onPointerDown={(e) => { e.stopPropagation(); onOpenEvent(event); }}
           onClick={(e: ReactMouseEvent<HTMLButtonElement>) => { e.stopPropagation(); onOpenEvent(event); }} 
           className={`text-left w-full ${darkMode ? 'text-white hover:text-red-300' : 'text-gray-900 hover:text-red-700'} underline-offset-2 hover:underline overflow-hidden`} 
         > 
