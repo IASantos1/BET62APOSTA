@@ -48,25 +48,26 @@ import { MobileBetSlip } from './components/MobileBetSlip';
 import { DashboardSidebar } from './components/DashboardSidebar';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
+// Fade-only — near-instant, no blocking wait
 const pageVariants = {
-  initial: { opacity: 0, y: 6 },
-  animate: { opacity: 1, y: 0 },
-  exit:    { opacity: 0, y: -4 },
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit:    { opacity: 0 },
 };
 
 const pageTrans = {
-  duration: 0.16,
-  ease: [0.25, 0.1, 0.25, 1.0] as const,
+  duration: 0.08,
+  ease: 'linear' as const,
 };
 
 const eventVariants = {
-  initial: { opacity: 0, x: 20 },
+  initial: { opacity: 0, x: 12 },
   animate: { opacity: 1, x: 0 },
-  exit:    { opacity: 0, x: -10 },
+  exit:    { opacity: 0 },
 };
 
 const eventTrans = {
-  duration: 0.2,
+  duration: 0.1,
   ease: [0.25, 0.1, 0.25, 1.0] as const,
 };
 
