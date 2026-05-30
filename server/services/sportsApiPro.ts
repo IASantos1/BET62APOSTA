@@ -786,10 +786,14 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
     if (combo.includes('anytime') || combo.includes('at any time')) return 'anytime_goal_scorer';
     return 'anytime_goal_scorer';
   }
-  if (combo.includes('assist')) {
+  if (combo.includes('assist') && (combo.includes('player') || combo.includes('assist by'))) {
     return 'player_assists';
   }
-  if (combo.includes('booked') || combo.includes('to be booked') || combo.includes('card') || combo.includes('cards')) {
+  if (
+    combo.includes('booked') ||
+    combo.includes('to be booked') ||
+    (combo.includes('player') && (combo.includes('card') || combo.includes('cards')))
+  ) {
     if (combo.includes('red')) return 'red_cards_player';
     return 'yellow_cards_player';
   }

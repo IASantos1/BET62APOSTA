@@ -4,6 +4,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { formatLeagueHeader, abbreviateTeamName, getSportFromLeague, getSportIcon, labelOutcome } from '@/shared/helpers';
 import type { LiveScore, SuspendedMarket } from '@/shared/types'; 
+import type { LiveCardSignals } from '@/react-app/hooks/useBatchMarketSignals';
 // import { useRealtimeOdds } from '@/react-app/hooks/useRealtimeOdds'; // Removed
 // import { normalizeOdds } from '@/react-app/services/oddsNormalizer'; // Removed
 import { useTrend } from '@/react-app/hooks/useTrend';
@@ -21,9 +22,10 @@ interface EventCardProps {
   onOpenEvent: (event: any) => void;
   liveScore?: LiveScore;
   suspension?: SuspendedMarket;
+  signals?: LiveCardSignals;
 }
 
-export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) { 
+export function EventCard({ event, onOpenEvent, suspension, signals }: EventCardProps) { 
   const { darkMode, addNotification, addToBetSlip } = useApp(); 
   const [isHovered, setIsHovered] = useState(false);
 
@@ -284,14 +286,24 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
   
   // Relaxed suspension logic: only suspend if explicitly frozen or suspended AND we don't have local odds to show
   // If we have local odds, we assume they are valid until a realtime update explicitly clears them
-  const isSuspended = ((!!suspension || (event as any).oddsFrozen || event.suspended) && !hasLocalOdds);
+  const apiVarActive = !!signals?.varActive;
+  const isSuspended = apiVarActive || ((!!suspension || (event as any).oddsFrozen || event.suspended) && !hasLocalOdds);
 
-  const suspendReason = suspension?.reason || (event as any).suspendReason || ((event as any).oddsFrozen ? 'EVENT_FROZEN' : 'SUSPENSO');
+  const suspendReason = apiVarActive
+    ? 'VAR'
+    : (suspension?.reason || (event as any).suspendReason || ((event as any).oddsFrozen ? 'EVENT_FROZEN' : 'SUSPENSO'));
+
+  const apiCritState = useMemo(() => {
+    if (apiVarActive) return 'var_review' as const
+    const c = signals?.cta
+    if (!c || c === 'idle') return 'idle' as const
+    return c as any
+  }, [apiVarActive, signals?.cta])
 
   // ─────────────────────────────────────────────────────────────────────
   // Critical-event state machine (mirrors SubOddsModel) — listing card
   // ─────────────────────────────────────────────────────────────────────
-  type CritState = 'idle' | 'big_chance' | 'var_review' | 'var_penalty' | 'goal';
+  type CritState = 'idle' | 'big_chance' | 'var_review' | 'var_penalty' | 'goal' | 'penalty' | 'cards';
   const [critState, setCritState] = useState<CritState>('idle');
   const lastEventIdRef = useRef<string>('');
 
@@ -315,6 +327,8 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
     if (/(var.*pen|pen.*var|p[eê]nalti.*confirmad|penalty.*confirmed)/.test(text)) next = 'var_penalty';
     else if (/\bvar\b|video.*assist|review/.test(text)) next = 'var_review';
     else if (/\b(goal|gol)\b/.test(text) && !/disallow|cancel|anulad|missed|own/.test(text)) next = 'goal';
+    else if (/pen[aâ]lti|penalty/.test(text)) next = 'penalty';
+    else if (/cart[aã]o|card|yellow|red/.test(text)) next = 'cards';
     else if (/big.*chance|grande.*chance|great.*chance|big_chance/.test(text)) next = 'big_chance';
 
     if (next) {
@@ -781,13 +795,17 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
               );
             }
 
-            if (critState !== 'idle' && !isSuspended && favBet) {
-              const cfg = {
+            const effectiveCrit = apiCritState !== 'idle' ? (apiCritState as any) : critState
+            if (effectiveCrit !== 'idle' && !isSuspended && favBet) {
+              const cfgMap = {
                 goal:        { label: '⚽ GOL!',                    bg: 'from-emerald-500 to-green-600', ring: 'ring-emerald-300', anim: 'animate-bounce' },
                 big_chance:  { label: '🔥 GRANDE CHANCE',           bg: 'from-orange-500 to-amber-600',  ring: 'ring-orange-300',  anim: 'animate-pulse' },
                 var_review:  { label: '📺 REVISÃO VAR',             bg: 'from-indigo-500 to-purple-600', ring: 'ring-purple-300',  anim: 'animate-pulse' },
                 var_penalty: { label: '🎯 VAR: PÉNALTI CONFIRMADO', bg: 'from-yellow-500 to-amber-500',  ring: 'ring-yellow-300',  anim: 'animate-pulse' },
-              }[critState];
+                penalty:     { label: '🎯 PÊNALTI',                 bg: 'from-orange-500 to-red-600',    ring: 'ring-orange-300',  anim: 'animate-pulse' },
+                cards:       { label: '🟨 CARTÕES',                 bg: 'from-yellow-500 to-amber-600',  ring: 'ring-yellow-300',  anim: 'animate-pulse' },
+              } as any
+              const cfg = cfgMap[effectiveCrit] || cfgMap.big_chance
               return (
                 <div className="w-full sm:w-[320px] lg:w-[400px]">
                   <button
@@ -822,7 +840,11 @@ export function EventCard({ event, onOpenEvent, suspension }: EventCardProps) {
                 {isSuspended && (
                   <div className="absolute inset-0 flex items-center justify-center z-10">
                     <span className="bg-red-600/90 text-white text-[10px] sm:text-xs px-2 py-1 rounded shadow-sm font-bold uppercase tracking-wider backdrop-blur-sm border border-red-500">
-                      {suspendReason === 'EVENT_FROZEN' ? 'GOL/VAR' : (suspendReason === 'LOW_LIQUIDITY' ? 'LIQUIDEZ' : (suspendReason === 'RISK_MARGIN' ? 'RISCO' : 'SUSPENSO'))}
+                      {suspendReason === 'EVENT_FROZEN'
+                        ? 'GOL/VAR'
+                        : suspendReason === 'VAR'
+                          ? 'VAR'
+                          : (suspendReason === 'LOW_LIQUIDITY' ? 'LIQUIDEZ' : (suspendReason === 'RISK_MARGIN' ? 'RISCO' : 'SUSPENSO'))}
                     </span>
                   </div>
                 )}

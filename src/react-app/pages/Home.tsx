@@ -14,6 +14,7 @@ import { useEventSearch } from '../hooks/useEventSearch';
 import { useUpcomingCache } from '../hooks/useUpcomingCache';
 import { useGroupedEvents } from '../hooks/useGroupedEvents';
 import { useTopLeagues } from '../hooks/useTopLeagues';
+import { useBatchMarketSignals } from '../hooks/useBatchMarketSignals';
 import type { Event } from '../../shared/types';
 
 interface HomeProps {
@@ -64,7 +65,7 @@ function Home({ mode = 'home' }: HomeProps) {
   const navigate = useNavigate();
 
   // Dados principais
-  const { live: httpLive, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || 'all', { only: mode === 'home' ? 'pregame' : mode === 'live' ? 'live' : 'both' });
+  const { live: httpLive, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || 'all', { only: mode === 'home' ? 'pregame' : mode === 'live' ? 'both' : 'both' });
   const loading = eventsLoading;
   const showBanner = true;
   
@@ -129,12 +130,177 @@ function Home({ mode = 'home' }: HomeProps) {
       });
   }, [processedLive, upcomingEvents]);
 
+  const featuredUpcoming = useMemo(() => {
+    const cat = String(selectedCategory || 'all').toLowerCase()
+    if (mode !== 'home' && mode !== 'live') return []
+    if (cat !== 'all') return []
+
+    const sportKey = (ev: any) => {
+      const s = String(ev?.sport || '').toLowerCase()
+      if (s.includes('soccer') || (s.includes('football') && !s.includes('american')) || s.includes('futebol')) return 'soccer'
+      if (s.includes('basket')) return 'basketball'
+      if (s.includes('tennis') || s.includes('tênis') || s.includes('tenis')) return 'tennis'
+      if (s.includes('hockey')) return 'hockey'
+      if (s.includes('baseball')) return 'baseball'
+      return s || 'other'
+    }
+
+    const leagueNameOf = (ev: any) => {
+      const l = (ev as any)?.league_name ?? (ev as any)?.league?.name ?? (ev as any)?.league ?? ''
+      const c = (ev as any)?.country ?? (ev as any)?.league?.country ?? ''
+      return `${String(l)} ${String(c)}`.trim().toLowerCase()
+    }
+
+    const soccerLeagueScore = (l: string) => {
+      const s = l
+      if (/(champions league|uefa.*champions)/.test(s)) return 120
+      if (/(europa league|uefa.*europa)/.test(s)) return 110
+      if (/(conference league|uefa.*conference)/.test(s)) return 105
+      if (/premier league/.test(s)) return 100
+      if (/(la liga|primera|laliga)/.test(s)) return 95
+      if (/serie a/.test(s)) return 95
+      if (/bundesliga/.test(s)) return 92
+      if (/(ligue 1|league 1)/.test(s)) return 90
+      if (/(eredivisie)/.test(s)) return 84
+      if (/(primeira liga|liga portugal)/.test(s)) return 82
+      if (/(brasileir|serie a brazil)/.test(s)) return 82
+      if (/(mls|major league soccer)/.test(s)) return 78
+      if (/(copa libertadores|libertadores)/.test(s)) return 80
+      if (/(copa sudamericana|sudamericana)/.test(s)) return 72
+      if (/(fa cup|copa del rey|coppa italia|dfb pokal)/.test(s)) return 70
+      return 40
+    }
+
+    const genericLeagueScore = (sport: string, l: string) => {
+      const s = l
+      if (sport === 'basketball') {
+        if (/(nba)/.test(s)) return 100
+        if (/(euroleague|euroliga)/.test(s)) return 92
+        if (/(ncaa)/.test(s)) return 80
+        return 40
+      }
+      if (sport === 'tennis') {
+        if (/(grand slam|atp|wta)/.test(s)) return 90
+        if (/(challenger|itf)/.test(s)) return 60
+        return 40
+      }
+      if (sport === 'hockey') {
+        if (/(nhl)/.test(s)) return 95
+        if (/(khl)/.test(s)) return 80
+        return 40
+      }
+      if (sport === 'baseball') {
+        if (/(mlb)/.test(s)) return 95
+        if (/(npb|kbo)/.test(s)) return 80
+        return 40
+      }
+      return 40
+    }
+
+    const startTs = (ev: any) => new Date(ev?.event_date || ev?.start_time || ev?.fixture?.date || 0).getTime()
+    const dayKey = (ev: any) => {
+      const t = startTs(ev)
+      if (!Number.isFinite(t) || t <= 0) return 99
+      const d0 = new Date()
+      d0.setHours(0, 0, 0, 0)
+      const d1 = new Date(t)
+      d1.setHours(0, 0, 0, 0)
+      const diff = Math.floor((d1.getTime() - d0.getTime()) / 86400000)
+      return diff < 0 ? 0 : diff
+    }
+
+    const quotas: Record<string, number> = { soccer: 15, basketball: 10, tennis: 10, hockey: 5, baseball: 5 }
+    const candidatesBySport: Record<string, any[]> = { soccer: [], basketball: [], tennis: [], hockey: [], baseball: [] }
+    for (const ev of sortedUpcoming) {
+      const sk = sportKey(ev)
+      if (!(sk in candidatesBySport)) continue
+      candidatesBySport[sk].push(ev)
+    }
+
+    const pickSoccer = () => {
+      const buckets: Record<number, any[]> = {}
+      for (const ev of candidatesBySport.soccer) {
+        const dk = Math.min(6, dayKey(ev))
+        ;(buckets[dk] || (buckets[dk] = [])).push(ev)
+      }
+      for (const [k, arr] of Object.entries(buckets)) {
+        arr.sort((a, b) => {
+          const sa = soccerLeagueScore(leagueNameOf(a))
+          const sb = soccerLeagueScore(leagueNameOf(b))
+          if (sa !== sb) return sb - sa
+          return startTs(a) - startTs(b)
+        })
+        buckets[Number(k)] = arr
+      }
+      const out: any[] = []
+      let guard = 0
+      while (out.length < quotas.soccer && guard < 400) {
+        guard++
+        let progressed = false
+        for (let dk = 0; dk <= 6; dk++) {
+          const arr = buckets[dk] || []
+          while (arr.length && out.length < quotas.soccer) {
+            out.push(arr.shift())
+            progressed = true
+            break
+          }
+          if (out.length >= quotas.soccer) break
+        }
+        if (!progressed) break
+      }
+      return out
+    }
+
+    const pickGeneric = (sport: 'basketball' | 'tennis' | 'hockey' | 'baseball') => {
+      const arr = [...candidatesBySport[sport]]
+      arr.sort((a, b) => {
+        const sa = genericLeagueScore(sport, leagueNameOf(a))
+        const sb = genericLeagueScore(sport, leagueNameOf(b))
+        if (sa !== sb) return sb - sa
+        return startTs(a) - startTs(b)
+      })
+      return arr.slice(0, quotas[sport])
+    }
+
+    const picksBySport: Record<string, any[]> = {
+      soccer: pickSoccer(),
+      basketball: pickGeneric('basketball'),
+      tennis: pickGeneric('tennis'),
+      hockey: pickGeneric('hockey'),
+      baseball: pickGeneric('baseball'),
+    }
+
+    const order = ['soccer', 'basketball', 'tennis', 'hockey', 'baseball']
+    const result: any[] = []
+    const idx: Record<string, number> = { soccer: 0, basketball: 0, tennis: 0, hockey: 0, baseball: 0 }
+    let guard = 0
+    while (result.length < 45 && guard < 400) {
+      guard++
+      let progressed = false
+      for (const k of order) {
+        const arr = picksBySport[k]
+        const i = idx[k] || 0
+        if (i < arr.length) {
+          result.push(arr[i])
+          idx[k] = i + 1
+          progressed = true
+          if (result.length >= 45) break
+        }
+      }
+      if (!progressed) break
+    }
+    return result
+  }, [sortedUpcoming, selectedCategory, mode])
+
   // Strict separation: Desporto = pregame only | AO VIVO = live only
   const displayedLive    = mode === 'live' ? processedLive : [];
-  const displayedUpcoming = mode === 'home' ? sortedUpcoming : [];
+  const showFeatured = mode === 'home' && String(selectedCategory || 'all').toLowerCase() === 'all' && !query.trim()
+  const displayedUpcoming = mode === 'home' ? (showFeatured ? (featuredUpcoming as any) : sortedUpcoming) : [];
 
   const groupedLive = useGroupedEvents(displayedLive, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
+
+  const { signals: liveSignals } = useBatchMarketSignals({ events: displayedLive, enabled: mode === 'live', maxEvents: 40 })
 
   const MAX_EVENTS = mode === 'live' ? 120 : 60; // live≤120, pregame≤60
 
@@ -152,6 +318,17 @@ function Home({ mode = 'home' }: HomeProps) {
     }
     return result;
   }, [groupedUpcoming]);
+
+  const weekPreview = useMemo(() => {
+    const cat = String(selectedCategory || 'all').toLowerCase()
+    if (mode !== 'live') return []
+    if (cat !== 'all') return []
+    if (query.trim()) return []
+    const featuredSet = new Set((featuredUpcoming || []).map((e: any) => mergeKeyOf(e)))
+    return sortedUpcoming
+      .filter((e) => !featuredSet.has(mergeKeyOf(e)))
+      .slice(0, 120)
+  }, [mode, selectedCategory, query, featuredUpcoming, sortedUpcoming])
 
   const noSearchResults = useMemo(() => {
     if (!query.trim()) return false;
@@ -270,20 +447,20 @@ function Home({ mode = 'home' }: HomeProps) {
     };
 
     const candidates = multiplesSource
-      .filter((e) => e && e.id != null)
-      .filter((e) => String((e as any).home_team || '').trim() && String((e as any).away_team || '').trim())
-      .map((e) => {
+      .filter((e: any) => e && e.id != null)
+      .filter((e: any) => String((e as any).home_team || '').trim() && String((e as any).away_team || '').trim())
+      .map((e: any) => {
         const start = new Date((e as any).event_date || (e as any).start_time || (e as any).fixture?.date || 0).getTime();
         const sport = String((e as any).sport || 'soccer');
         return { e, start, sport };
       })
-      .sort((a, b) => {
+      .sort((a: any, b: any) => {
         const sa = a.sport === 'soccer' ? 0 : 1;
         const sb = b.sport === 'soccer' ? 0 : 1;
         if (sa !== sb) return sa - sb;
         return a.start - b.start;
       })
-      .map((x) => x.e);
+      .map((x: any) => x.e);
 
     const banners: Banner[] = [];
     let cursor = 0;
@@ -673,6 +850,7 @@ function Home({ mode = 'home' }: HomeProps) {
                                       key={mergeKeyOf(ev)}
                                       event={ev}
                                       onOpenEvent={() => handleOpenEvent(ev)}
+                                      signals={liveSignals[String((ev as any)?.id ?? (ev as any)?.fixture?.id ?? (ev as any)?.external_event_id ?? '')]}
                                     />,
                                   );
                                   globalIdx++;
@@ -687,8 +865,25 @@ function Home({ mode = 'home' }: HomeProps) {
                   </div>
                 )}
 
+                {weekPreview.length > 0 && (
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
+                      <h2 className="text-xl font-bold uppercase tracking-wide">Brevemente (7 dias)</h2>
+                    </div>
+                    <div className="flex flex-col gap-4">
+                      {weekPreview.map((ev: any) => (
+                        <EventCard
+                          key={mergeKeyOf(ev)}
+                          event={ev}
+                          onOpenEvent={() => handleOpenEvent(ev)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* UPCOMING SECTION */}
-                {limitedUpcoming.length > 0 && (
+                {(showFeatured ? featuredUpcoming.length > 0 : limitedUpcoming.length > 0) && (
                   <div className="space-y-6">
                      {groupedLive.length > 0 && (
                         <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
@@ -697,55 +892,80 @@ function Home({ mode = 'home' }: HomeProps) {
                      )}
                      
                      <div className="space-y-8">
-                        {(() => {
-                          let globalIdx = 0;
-                          let inserted = false;
-                          return limitedUpcoming.map(([league, events]) => (
-                            <div key={`pre-${league}`} className="space-y-4">
-                            <div className={`px-5 py-3 rounded-xl font-bold text-sm uppercase tracking-wider flex items-center gap-4 ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>
-                              {(() => {
-                                const firstEvent = events[0] || {};
-                                const leagueObj = firstEvent.league as any;
-                                const leagueNameRaw = (typeof leagueObj === 'string' ? leagueObj : leagueObj?.name) || league;
-                                const countryRaw = firstEvent.country || '';
-                                const sport = firstEvent.sport || 'soccer';
-                                const icon = getSportIcon(sport);
-                                
-                                const displayText = (countryRaw && leagueNameRaw && countryRaw !== leagueNameRaw) 
-                                  ? `${countryRaw} - ${leagueNameRaw}` 
-                                  : (leagueNameRaw || countryRaw || 'Unknown League');
-
-                                return (
-                                  <>
-                                    <img src={icon} alt={sport} className="w-7 h-7 object-contain" />
-                                    <span>{displayText}</span>
-                                  </>
-                                );
-                              })()}
-                            </div>
-                            <div className="flex flex-col gap-4">
-                              {(() => {
-                                const out: any[] = [];
-                                for (const ev of events) {
-                                  out.push(
-                                    <EventCard
-                                      key={mergeKeyOf(ev)}
-                                      event={ev}
-                                      onOpenEvent={() => handleOpenEvent(ev)}
-                                    />,
-                                  );
-                                  globalIdx++;
-                                  if (!inserted && globalIdx === 2) {
-                                    inserted = true;
-                                    out.push(<MultipleCarousel key="pre_multi_once" instanceKey="pre_once" />);
-                                  }
+                        {showFeatured ? (
+                          <div className="flex flex-col gap-4">
+                            {(() => {
+                              const out: any[] = []
+                              let inserted = false
+                              let idx = 0
+                              for (const ev of featuredUpcoming as any[]) {
+                                out.push(
+                                  <EventCard
+                                    key={mergeKeyOf(ev)}
+                                    event={ev}
+                                    onOpenEvent={() => handleOpenEvent(ev)}
+                                  />,
+                                )
+                                idx++
+                                if (!inserted && idx === 2) {
+                                  inserted = true
+                                  out.push(<MultipleCarousel key="pre_multi_once" instanceKey="pre_once" />)
                                 }
-                                return out;
-                              })()}
-                            </div>
-                            </div>
-                          ));
-                        })()}
+                              }
+                              return out
+                            })()}
+                          </div>
+                        ) : (
+                          (() => {
+                            let globalIdx = 0;
+                            let inserted = false;
+                            return limitedUpcoming.map(([league, events]) => (
+                              <div key={`pre-${league}`} className="space-y-4">
+                              <div className={`px-5 py-3 rounded-xl font-bold text-sm uppercase tracking-wider flex items-center gap-4 ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>
+                                {(() => {
+                                  const firstEvent = events[0] || {};
+                                  const leagueObj = firstEvent.league as any;
+                                  const leagueNameRaw = (typeof leagueObj === 'string' ? leagueObj : leagueObj?.name) || league;
+                                  const countryRaw = firstEvent.country || '';
+                                  const sport = firstEvent.sport || 'soccer';
+                                  const icon = getSportIcon(sport);
+                                  
+                                  const displayText = (countryRaw && leagueNameRaw && countryRaw !== leagueNameRaw) 
+                                    ? `${countryRaw} - ${leagueNameRaw}` 
+                                    : (leagueNameRaw || countryRaw || 'Unknown League');
+
+                                  return (
+                                    <>
+                                      <img src={icon} alt={sport} className="w-7 h-7 object-contain" />
+                                      <span>{displayText}</span>
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                              <div className="flex flex-col gap-4">
+                                {(() => {
+                                  const out: any[] = [];
+                                  for (const ev of events) {
+                                    out.push(
+                                      <EventCard
+                                        key={mergeKeyOf(ev)}
+                                        event={ev}
+                                        onOpenEvent={() => handleOpenEvent(ev)}
+                                      />,
+                                    );
+                                    globalIdx++;
+                                    if (!inserted && globalIdx === 2) {
+                                      inserted = true;
+                                      out.push(<MultipleCarousel key="pre_multi_once" instanceKey="pre_once" />);
+                                    }
+                                  }
+                                  return out;
+                                })()}
+                              </div>
+                              </div>
+                            ));
+                          })()
+                        )}
                      </div>
                   </div>
                 )}
