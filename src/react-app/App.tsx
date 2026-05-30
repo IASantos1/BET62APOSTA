@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Bet62Intro } from './components/Bet62Intro';
@@ -103,6 +103,7 @@ function InnerApp() {
 function AppContent() {
   const { showAdminPanel, authModalOpen, authModalMode, authModalUserId, closeAuthModal, openAuthModal } = useApp();
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (location.pathname === '/login') {
@@ -111,6 +112,18 @@ function AppContent() {
       openAuthModal('register');
     }
   }, [location.pathname]);
+
+  const handleCloseAuth = () => {
+    closeAuthModal();
+    if (location.pathname === '/login' || location.pathname === '/register') {
+      try {
+        if (window.history.length > 2) navigate(-1);
+        else navigate('/');
+      } catch {
+        navigate('/');
+      }
+    }
+  };
 
   if (showAdminPanel) {
     return <AdminPanel />;
@@ -126,9 +139,12 @@ function AppContent() {
         <AuthModal 
           mode={authModalMode}
           tempUserId={authModalUserId}
-          onClose={closeAuthModal}
+          onClose={handleCloseAuth}
           onLoginSuccess={() => {
               closeAuthModal();
+              if (location.pathname === '/login' || location.pathname === '/register') {
+                navigate('/');
+              }
           }}
           onRequire2FA={(userId) => openAuthModal('2fa', userId)}
           onSwitchMode={(mode) => openAuthModal(mode)}
@@ -148,8 +164,8 @@ function AppContent() {
         <Route path="/wallet" element={<WalletPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/my-bets" element={<MyBetsPage />} />
-        <Route path="/register" element={<HomePage />} />
-        <Route path="/login" element={<HomePage />} />
+        <Route path="/register" element={<HomePage mode="home" />} />
+        <Route path="/login" element={<HomePage mode="home" />} />
         <Route path="/deposit-success" element={<h2>Depósito efetuado com sucesso!</h2>} />
         <Route path="/promotions" element={<Promotions />} />
         <Route path="/admin/payouts" element={

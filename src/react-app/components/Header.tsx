@@ -176,18 +176,18 @@ export function Header() {
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => openAuthModal('login')}
+                <Link
+                  to="/login"
                   className={`font-bold py-1 px-3 md:py-2 md:px-4 rounded text-xs md:text-sm transition-colors ${darkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
                 >
                   Entrar
-                </button>
-                <button
-                  onClick={() => openAuthModal('register')}
+                </Link>
+                <Link
+                  to="/register"
                   className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 md:py-2 md:px-4 rounded text-xs md:text-sm shadow-md transition-colors"
                 >
                   Registar
-                </button>
+                </Link>
               </div>
             )}
           </div>
