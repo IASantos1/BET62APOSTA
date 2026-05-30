@@ -1,6 +1,6 @@
 import { useApp } from '@/react-app/contexts/AppContext';
 import { apiFetch } from '@/react-app/utils/api';
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import { useEffect, useState, useMemo } from 'react';
 import { NotepadText } from 'lucide-react';
 
@@ -12,6 +12,7 @@ function getEmojiAvatar(name: string): string {
 
 export function Header() {
   const { darkMode, user, selfExclude, selfExcludeUntil, isOperator, showMobileSidebar, setShowMobileSidebar, openAuthModal, setSelectedCategory, showDashboard, setShowDashboard } = useApp();
+  const { pathname } = useLocation();
 
   const [eurBalance, setEurBalance] = useState<number | null>(null);
   const [freebets, setFreebets] = useState<number | null>(null);
@@ -22,6 +23,14 @@ export function Header() {
   }, [user]);
 
   const emojiAvatar = useMemo(() => getEmojiAvatar(firstName), [firstName]);
+
+  const isActive = useMemo(() => {
+    const p = String(pathname || '/');
+    return (target: string) => {
+      if (target === '/') return p === '/';
+      return p.startsWith(target);
+    };
+  }, [pathname]);
 
   useEffect(() => {
     let alive = true;
@@ -100,25 +109,25 @@ export function Header() {
           </div>
 
           <nav className="hidden lg:flex items-center gap-2">
-            <NavLink
-              to="/"
+            <a
+              href="/"
               onClick={() => setSelectedCategory(null)}
-              className={({ isActive }) => `px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+              className={`px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive('/') ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
             >
               Desporto
-            </NavLink>
-            <NavLink
-              to="/live"
-              className={({ isActive }) => `px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+            </a>
+            <a
+              href="/live"
+              className={`px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive('/live') ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
             >
               Ao Vivo
-            </NavLink>
-            <NavLink
-              to="/promotions"
-              className={({ isActive }) => `px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+            </a>
+            <a
+              href="/promotions"
+              className={`px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive('/promotions') ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
             >
               Promoções
-            </NavLink>
+            </a>
             {isOperator && (
               <>
                 <button
@@ -127,12 +136,12 @@ export function Header() {
                 >
                   Dashboard
                 </button>
-                <NavLink
-                  to="/admin/payouts"
-                  className={({ isActive }) => `px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+                <a
+                  href="/admin/payouts"
+                  className={`px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive('/admin/payouts') ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
                 >
                   Pagamentos
-                </NavLink>
+                </a>
               </>
             )}
           </nav>
@@ -196,37 +205,37 @@ export function Header() {
       
       <div className="px-4 pb-2 lg:hidden">
         <nav className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-          <NavLink
-            to="/"
+          <a
+            href="/"
             onClick={() => setSelectedCategory(null)}
-            className={({ isActive }) => `flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
-              isActive 
+            className={`flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
+              isActive('/') 
                 ? 'bg-red-600 text-white shadow-sm' 
                 : (darkMode ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-600 hover:bg-gray-100')
             }`}
           >
             Desporto
-          </NavLink>
-          <NavLink
-            to="/live"
-            className={({ isActive }) => `flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
-              isActive 
+          </a>
+          <a
+            href="/live"
+            className={`flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
+              isActive('/live') 
                 ? 'bg-red-600 text-white shadow-sm' 
                 : (darkMode ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-600 hover:bg-gray-100')
             }`}
           >
             Ao Vivo
-          </NavLink>
-          <NavLink
-            to="/promotions"
-            className={({ isActive }) => `flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
-              isActive 
+          </a>
+          <a
+            href="/promotions"
+            className={`flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
+              isActive('/promotions') 
                 ? 'bg-red-600 text-white shadow-sm' 
                 : (darkMode ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-600 hover:bg-gray-100')
             }`}
           >
             Promoções
-          </NavLink>
+          </a>
           {isOperator && (
             <>
               <button
@@ -239,16 +248,16 @@ export function Header() {
               >
                 Dashboard
               </button>
-              <NavLink
-                to="/admin/payouts"
-                className={({ isActive }) => `flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
-                  isActive 
+              <a
+                href="/admin/payouts"
+                className={`flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
+                  isActive('/admin/payouts') 
                     ? 'bg-red-600 text-white shadow-sm' 
                     : (darkMode ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-600 hover:bg-gray-100')
                 }`}
               >
                 Pagamentos
-              </NavLink>
+              </a>
             </>
           )}
         </nav>
