@@ -739,6 +739,8 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   const g = normalizeLineName(marketGroup || '');   // e.g. "home away", "over under", "point spread"
   const p = normalizeLineName(marketPeriod || '');  // e.g. "match", "1st half", "1st period", "current set"
 
+  const combo = `${g} ${n} ${t}`.trim();
+
   // ── SportsApiPro v2 period-based markets (checked FIRST) ──────────────────
   if (p === '1st half' || p === 'first half') {
     if (g.includes('over') || g.includes('under') || n.includes('total')) return '1st_half_totals';
@@ -772,6 +774,25 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   if (p === '2nd set' || p === 'second set') return g.includes('over') || g.includes('under') ? 'set_2_totals' : 'set_2_h2h';
   if (p === '3rd set' || p === 'third set') return g.includes('over') || g.includes('under') ? 'set_3_totals' : 'set_3_h2h';
   if (p.includes('inning')) return g.includes('over') || g.includes('under') ? 'innings_totals' : 'innings_h2h';
+
+  // ── Player markets (scorer/assists/cards) ────────────────────────────────
+  if (
+    combo.includes('scorer') ||
+    combo.includes('to score') ||
+    combo.includes('goalscorer') ||
+    combo.includes('goal scorer')
+  ) {
+    if (combo.includes('first') || combo.includes('1st')) return 'first_goal_scorer';
+    if (combo.includes('anytime') || combo.includes('at any time')) return 'anytime_goal_scorer';
+    return 'anytime_goal_scorer';
+  }
+  if (combo.includes('assist')) {
+    return 'player_assists';
+  }
+  if (combo.includes('booked') || combo.includes('to be booked') || combo.includes('card') || combo.includes('cards')) {
+    if (combo.includes('red')) return 'red_cards_player';
+    return 'yellow_cards_player';
+  }
 
   // ── SportsApiPro v2 marketGroup-based markets ─────────────────────────────
   // Explicit group mappings (highest priority)

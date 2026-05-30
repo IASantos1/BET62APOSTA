@@ -307,6 +307,7 @@ function deriveSoccer(api: MarketMap, home: string, away: string): MarketMap {
   const extraLines = [0.5, 1.5, 3.5, 4.5, 5.5, 6.5];
   const existingApiLines = new Set(totalsLines.map((t) => t.line));
   for (const line of extraLines) {
+    if (existingApiLines.has(line)) continue;
     const cutoff = Math.floor(line);
     const pOver = sumMatrix(matrix, (h, a) => h + a > cutoff);
     const pUnder = 1 - pOver;
