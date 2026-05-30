@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { useSportsEvents } from '@/react-app/hooks/useSportsEvents';
@@ -109,9 +109,224 @@ function Home({ mode = 'home' }: HomeProps) {
       });
   }, [processedLive, upcomingEvents]);
 
+  const featuredUpcoming = useMemo(() => {
+    const cat = String(selectedCategory || 'all').toLowerCase();
+    if (cat !== 'all') return [];
+    if (query.trim()) return [];
+
+    const sportKey = (ev: any) => {
+      const s = String(ev?.sport || '').toLowerCase();
+      if (s.includes('soccer') || (s.includes('football') && !s.includes('american')) || s.includes('futebol')) return 'soccer';
+      if (s.includes('tennis') || s.includes('tênis') || s.includes('tenis')) return 'tennis';
+      if (s.includes('basket')) return 'basketball';
+      if (s.includes('hockey')) return 'hockey';
+      if (s.includes('baseball')) return 'baseball';
+      return 'other';
+    };
+
+    const leagueKey = (ev: any) => {
+      const l = (ev as any)?.league_name ?? (ev as any)?.league?.name ?? (ev as any)?.league ?? '';
+      const c = (ev as any)?.country ?? (ev as any)?.league?.country ?? '';
+      return `${String(l)} ${String(c)}`.trim().toLowerCase();
+    };
+
+    const startTs = (ev: any) => new Date(ev?.event_date || ev?.start_time || ev?.fixture?.date || 0).getTime();
+    const dayKey = (ev: any) => {
+      const t = startTs(ev);
+      if (!Number.isFinite(t) || t <= 0) return 99;
+      const d0 = new Date();
+      d0.setHours(0, 0, 0, 0);
+      const d1 = new Date(t);
+      d1.setHours(0, 0, 0, 0);
+      const diff = Math.floor((d1.getTime() - d0.getTime()) / 86400000);
+      return diff < 0 ? 0 : diff;
+    };
+
+    const soccerLeagueScore = (l: string) => {
+      const s = l;
+      if (/(champions league|uefa.*champions)/.test(s)) return 120;
+      if (/(europa league|uefa.*europa)/.test(s)) return 110;
+      if (/(conference league|uefa.*conference)/.test(s)) return 105;
+      if (/premier league/.test(s)) return 100;
+      if (/(la liga|primera|laliga)/.test(s)) return 95;
+      if (/serie a/.test(s)) return 95;
+      if (/bundesliga/.test(s)) return 92;
+      if (/(ligue 1|league 1)/.test(s)) return 90;
+      if (/(eredivisie)/.test(s)) return 84;
+      if (/(primeira liga|liga portugal)/.test(s)) return 82;
+      if (/(brasileir|serie a brazil)/.test(s)) return 82;
+      if (/(mls|major league soccer)/.test(s)) return 78;
+      if (/(copa libertadores|libertadores)/.test(s)) return 80;
+      if (/(copa sudamericana|sudamericana)/.test(s)) return 72;
+      if (/(fa cup|copa del rey|coppa italia|dfb pokal)/.test(s)) return 70;
+      return 40;
+    };
+
+    const genericLeagueScore = (sport: string, l: string) => {
+      const s = l;
+      if (sport === 'basketball') {
+        if (/(nba)/.test(s)) return 100;
+        if (/(euroleague|euroliga)/.test(s)) return 92;
+        if (/(ncaa)/.test(s)) return 80;
+        return 40;
+      }
+      if (sport === 'tennis') {
+        if (/(grand slam|atp|wta)/.test(s)) return 90;
+        if (/(challenger|itf)/.test(s)) return 60;
+        return 40;
+      }
+      if (sport === 'hockey') {
+        if (/(nhl)/.test(s)) return 95;
+        if (/(khl)/.test(s)) return 80;
+        return 40;
+      }
+      if (sport === 'baseball') {
+        if (/(mlb)/.test(s)) return 95;
+        if (/(npb|kbo)/.test(s)) return 80;
+        return 40;
+      }
+      return 40;
+    };
+
+    const quotas: Record<string, number> = { soccer: 15, tennis: 10, basketball: 10, hockey: 5, baseball: 5 };
+    const bySport: Record<string, any[]> = { soccer: [], tennis: [], basketball: [], hockey: [], baseball: [] };
+    for (const ev of sortedUpcoming) {
+      const sk = sportKey(ev);
+      if (!(sk in bySport)) continue;
+      bySport[sk].push(ev);
+    }
+
+    const pickSoccer = () => {
+      const buckets: Record<number, any[]> = {};
+      for (const ev of bySport.soccer) {
+        const dk = Math.min(6, dayKey(ev));
+        (buckets[dk] || (buckets[dk] = [])).push(ev);
+      }
+      for (const [k, arr] of Object.entries(buckets)) {
+        arr.sort((a: any, b: any) => {
+          const sa = soccerLeagueScore(leagueKey(a));
+          const sb = soccerLeagueScore(leagueKey(b));
+          if (sa !== sb) return sb - sa;
+          return startTs(a) - startTs(b);
+        });
+        buckets[Number(k)] = arr;
+      }
+      const out: any[] = [];
+      let guard = 0;
+      while (out.length < quotas.soccer && guard < 400) {
+        guard++;
+        let progressed = false;
+        for (let dk = 0; dk <= 6; dk++) {
+          const arr = buckets[dk] || [];
+          if (arr.length) {
+            out.push(arr.shift());
+            progressed = true;
+          }
+          if (out.length >= quotas.soccer) break;
+        }
+        if (!progressed) break;
+      }
+      return out;
+    };
+
+    const pickGeneric = (sport: 'tennis' | 'basketball' | 'hockey' | 'baseball') => {
+      const arr = [...bySport[sport]];
+      arr.sort((a: any, b: any) => {
+        const sa = genericLeagueScore(sport, leagueKey(a));
+        const sb = genericLeagueScore(sport, leagueKey(b));
+        if (sa !== sb) return sb - sa;
+        return startTs(a) - startTs(b);
+      });
+      return arr.slice(0, quotas[sport]);
+    };
+
+    const picksBySport: Record<string, any[]> = {
+      soccer: pickSoccer(),
+      tennis: pickGeneric('tennis'),
+      basketball: pickGeneric('basketball'),
+      hockey: pickGeneric('hockey'),
+      baseball: pickGeneric('baseball'),
+    };
+
+    const order = ['soccer', 'tennis', 'basketball', 'hockey', 'baseball'];
+    const result: any[] = [];
+    for (const k of order) result.push(...(picksBySport[k] || []));
+    return result.slice(0, 45);
+  }, [sortedUpcoming, selectedCategory, query]);
+
+  const showFeatured = mode === 'home' && String(selectedCategory || 'all').toLowerCase() === 'all' && !query.trim();
+
+  const featuredSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of featuredUpcoming as any[]) s.add(mergeKeyOf(e));
+    return s;
+  }, [featuredUpcoming]);
+
+  const weekAll = useMemo(() => {
+    if (mode !== 'live') return [];
+    const cat = String(selectedCategory || 'all').toLowerCase();
+    if (cat !== 'all') return [];
+    if (query.trim()) return [];
+
+    const sportKey = (ev: any) => {
+      const s = String(ev?.sport || '').toLowerCase();
+      if (s.includes('soccer') || (s.includes('football') && !s.includes('american')) || s.includes('futebol')) return 'soccer';
+      if (s.includes('tennis') || s.includes('tênis') || s.includes('tenis')) return 'tennis';
+      if (s.includes('basket')) return 'basketball';
+      if (s.includes('hockey')) return 'hockey';
+      if (s.includes('baseball')) return 'baseball';
+      return 'other';
+    };
+
+    const order = new Map<string, number>([['soccer', 0], ['tennis', 1], ['basketball', 2], ['hockey', 3], ['baseball', 4]]);
+
+    const now = Date.now();
+    const d0 = new Date(now);
+    d0.setHours(0, 0, 0, 0);
+    const startOfToday = d0.getTime();
+    const endOfWeek = startOfToday + 7 * 24 * 60 * 60 * 1000;
+
+    const startTs = (ev: any) => new Date(ev?.event_date || ev?.start_time || ev?.fixture?.date || 0).getTime();
+
+    const arr = sortedUpcoming
+      .filter((e: any) => !featuredSet.has(mergeKeyOf(e)))
+      .filter((e: any) => {
+        const t = startTs(e);
+        if (!Number.isFinite(t) || t <= 0) return false;
+        return t >= startOfToday && t < endOfWeek;
+      })
+      .sort((a: any, b: any) => {
+        const oa = order.get(sportKey(a)) ?? 9;
+        const ob = order.get(sportKey(b)) ?? 9;
+        if (oa !== ob) return oa - ob;
+        return startTs(a) - startTs(b);
+      });
+
+    return arr;
+  }, [mode, selectedCategory, query, sortedUpcoming, featuredSet]);
+
+  const [weekLimit, setWeekLimit] = useState(20);
+  useEffect(() => {
+    setWeekLimit(20);
+  }, [mode, selectedCategory, query, weekAll.length]);
+  const weekSentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (mode !== 'live') return;
+    const el = weekSentinelRef.current;
+    if (!el) return;
+    if (weekLimit >= weekAll.length) return;
+    const obs = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      setWeekLimit((x) => Math.min(weekAll.length, x + 20));
+    }, { root: null, rootMargin: '200px', threshold: 0.01 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [mode, weekLimit, weekAll.length]);
+  const weekVisible = useMemo(() => weekAll.slice(0, weekLimit), [weekAll, weekLimit]);
+
   // Strict separation: Desporto = pregame only | AO VIVO = live only
   const displayedLive    = mode === 'live' ? processedLive : [];
-  const displayedUpcoming = mode === 'home' ? sortedUpcoming : [];
+  const displayedUpcoming = mode === 'home' ? (showFeatured ? (featuredUpcoming as any) : sortedUpcoming) : [];
 
   const groupedLive = useGroupedEvents(displayedLive, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
@@ -119,6 +334,7 @@ function Home({ mode = 'home' }: HomeProps) {
   const MAX_EVENTS = mode === 'live' ? 120 : 60; // live≤120, pregame≤60
 
   const limitedUpcoming = useMemo(() => {
+    if (showFeatured) return [];
     let remaining = MAX_EVENTS;
     const result: [string, Event[]][] = [];
 
@@ -131,7 +347,7 @@ function Home({ mode = 'home' }: HomeProps) {
       }
     }
     return result;
-  }, [groupedUpcoming]);
+  }, [groupedUpcoming, showFeatured, MAX_EVENTS]);
 
   const noSearchResults = useMemo(() => {
     if (!query.trim()) return false;
@@ -250,20 +466,20 @@ function Home({ mode = 'home' }: HomeProps) {
     };
 
     const candidates = multiplesSource
-      .filter((e) => e && e.id != null)
-      .filter((e) => String((e as any).home_team || '').trim() && String((e as any).away_team || '').trim())
-      .map((e) => {
+      .filter((e: any) => e && e.id != null)
+      .filter((e: any) => String((e as any).home_team || '').trim() && String((e as any).away_team || '').trim())
+      .map((e: any) => {
         const start = new Date((e as any).event_date || (e as any).start_time || (e as any).fixture?.date || 0).getTime();
         const sport = String((e as any).sport || 'soccer');
         return { e, start, sport };
       })
-      .sort((a, b) => {
+      .sort((a: any, b: any) => {
         const sa = a.sport === 'soccer' ? 0 : 1;
         const sb = b.sport === 'soccer' ? 0 : 1;
         if (sa !== sb) return sa - sb;
         return a.start - b.start;
       })
-      .map((x) => x.e);
+      .map((x: any) => x.e);
 
     const banners: Banner[] = [];
     let cursor = 0;
@@ -613,7 +829,7 @@ function Home({ mode = 'home' }: HomeProps) {
                 <div className="animate-spin h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
                 <p className="text-gray-500">Carregando eventos...</p>
               </div>
-            ) : (groupedLive.length > 0 || limitedUpcoming.length > 0) ? (
+            ) : (groupedLive.length > 0 || limitedUpcoming.length > 0 || (showFeatured && (featuredUpcoming as any[]).length > 0) || (mode === 'live' && weekVisible.length > 0)) ? (
               <div className="space-y-12">
                 {/* LIVE SECTION — shown only in mode='live' */}
                 {groupedLive.length > 0 && (
@@ -667,8 +883,63 @@ function Home({ mode = 'home' }: HomeProps) {
                   </div>
                 )}
 
+                {mode === 'live' && weekVisible.length > 0 && (
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
+                      <h2 className="text-xl font-bold uppercase tracking-wide">Jogos da Semana</h2>
+                    </div>
+                    <div className="flex flex-col gap-4">
+                      {weekVisible.map((ev: any) => (
+                        <EventCard
+                          key={mergeKeyOf(ev)}
+                          event={ev}
+                          onOpenEvent={() => handleOpenEvent(ev)}
+                        />
+                      ))}
+                    </div>
+                    {weekLimit < weekAll.length && (
+                      <div ref={weekSentinelRef} className="py-6 flex items-center justify-center">
+                        <div className="flex items-center gap-3 text-sm font-bold text-gray-400">
+                          <div className="animate-spin h-5 w-5 border-2 border-gray-500 border-t-transparent rounded-full" />
+                          Carregando jogos da semana...
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {showFeatured && (featuredUpcoming as any[]).length > 0 && (
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
+                      <h2 className="text-xl font-bold uppercase tracking-wide">Destaques</h2>
+                    </div>
+                    <div className="flex flex-col gap-4">
+                      {(() => {
+                        const out: any[] = [];
+                        let inserted = false;
+                        let idx = 0;
+                        for (const ev of featuredUpcoming as any[]) {
+                          out.push(
+                            <EventCard
+                              key={mergeKeyOf(ev)}
+                              event={ev}
+                              onOpenEvent={() => handleOpenEvent(ev)}
+                            />,
+                          );
+                          idx++;
+                          if (!inserted && idx === 2) {
+                            inserted = true;
+                            out.push(<MultipleCarousel key="pre_multi_once" instanceKey="pre_once" />);
+                          }
+                        }
+                        return out;
+                      })()}
+                    </div>
+                  </div>
+                )}
+
                 {/* UPCOMING SECTION */}
-                {limitedUpcoming.length > 0 && (
+                {(!showFeatured && limitedUpcoming.length > 0) && (
                   <div className="space-y-6">
                      {groupedLive.length > 0 && (
                         <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
