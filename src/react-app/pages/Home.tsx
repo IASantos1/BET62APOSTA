@@ -352,7 +352,8 @@ function Home({ mode = 'home' }: HomeProps) {
   const groupedLive = useGroupedEvents(displayedLive, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
 
-  const { signals: liveSignals } = useBatchMarketSignals({ events: displayedLive, enabled: mode === 'live', maxEvents: 40 })
+  const isLiveMode = mode === 'live';
+  const { signals: liveSignals } = useBatchMarketSignals({ events: isLiveMode ? displayedLive : [], enabled: isLiveMode, maxEvents: 40 })
 
   const MAX_EVENTS = mode === 'live' ? 120 : 60; // live≤120, pregame≤60
 
@@ -671,10 +672,10 @@ function Home({ mode = 'home' }: HomeProps) {
   const [showIntro] = useState(false);
 
   useEffect(() => {
-    if ((processedLive.length > 0 || upcomingEvents.length > 0) && !hasEverHadEvents) {
+    if (processedLive.length > 0 || upcomingEvents.length > 0) {
       setHasEverHadEvents(true);
     }
-  }, [processedLive, upcomingEvents, hasEverHadEvents]);
+  }, [processedLive.length, upcomingEvents.length]);
 
   // Caso não apareça nada (primeira carga, sem eventos) - REMOVIDO POR SOLICITAÇÃO
   // if (!loading && !hasEverHadEvents && groupedLive.length === 0 && limitedUpcoming.length === 0) { ... }

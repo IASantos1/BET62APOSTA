@@ -76,4 +76,5 @@ VITE_STRIPE_PUBLIC_KEY = "pk_live_51NVFe5E4nt1bzpPdTRAVmYqmUZ1KQzWSpIzFFcAUPfybX
 VITE_REMOTE_FALLBACK = "1"
 VITE_API_BASE = "https://bet62apostasesportivas.bet62.workers.dev"
 VITE_FORCE_REMOTE = "1"
-STATPAL_KEY = "fbfa4d1e-0ac1-421d-8059-9b455349fbbb"
+STATPAL_KEY = "72bac50d-fc07-4f0e-ae06-6a34a737604b"
+SPORTS_API_KEY = "72bac50d-fc07-4f0e-ae06-6a34a737604b"

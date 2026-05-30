@@ -115,6 +115,9 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
   const [pregame, setPregame] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Stable primitive to avoid opts object causing effect re-runs
+  const onlyMode: OnlyMode = opts?.only || 'both';
+
   const abortRef = useRef<AbortController | null>(null);
   const isFirstLoadRef = useRef(true);
   const triedAllFallbackRef = useRef(false);
@@ -271,7 +274,7 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
     const controller = new AbortController();
     abortRef.current = controller;
     let isActive = true;
-    const only: OnlyMode = opts?.only || 'both';
+    const only: OnlyMode = onlyMode;
     const idleMs = 60_000;
     let lastInteractionAt = Date.now();
     let hiddenAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
@@ -815,7 +818,7 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
         window.removeEventListener('wheel', onActivity);
       }
     };
-  }, [category, safeCategory, opts?.only]); 
+  }, [category, safeCategory, onlyMode]); 
  
   return { live, pregame, loading }; 
 }

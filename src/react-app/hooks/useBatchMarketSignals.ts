@@ -91,6 +91,8 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out
 }
 
+const EMPTY_TRACKED: Array<{ id: string; sport: string }> = []
+
 export function useBatchMarketSignals(params: {
   events: any[]
   enabled?: boolean
@@ -98,8 +100,15 @@ export function useBatchMarketSignals(params: {
 }) {
   const { events, enabled = true, maxEvents = 16 } = params
 
+  const trackedRef = useRef<Array<{ id: string; sport: string }>>(EMPTY_TRACKED)
+  const trackedKeyRef = useRef<string>('')
+
   const tracked = useMemo(() => {
-    if (!enabled) return []
+    if (!enabled) {
+      trackedKeyRef.current = ''
+      trackedRef.current = EMPTY_TRACKED
+      return EMPTY_TRACKED
+    }
     const list: Array<{ id: string; sport: string }> = []
     for (const ev of Array.isArray(events) ? events : []) {
       const id = String(ev?.id ?? ev?.fixture?.id ?? ev?.external_event_id ?? '').trim()
@@ -109,6 +118,10 @@ export function useBatchMarketSignals(params: {
       list.push({ id, sport })
       if (list.length >= maxEvents) break
     }
+    const key = list.map(x => x.id).join(',')
+    if (key === trackedKeyRef.current) return trackedRef.current
+    trackedKeyRef.current = key
+    trackedRef.current = list
     return list
   }, [events, enabled, maxEvents])
 
@@ -119,7 +132,11 @@ export function useBatchMarketSignals(params: {
 
   useEffect(() => {
     if (!tracked.length) {
-      setSignals({})
+      // Only reset if we actually had signals before
+      if (Object.keys(signalsRef.current).length > 0) {
+        signalsRef.current = {}
+        setSignals({})
+      }
       lastIncidentRef.current.clear()
       lastBigTotalRef.current.clear()
       return
