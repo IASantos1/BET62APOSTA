@@ -707,21 +707,14 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     if (realtime) {
       const budget0 = { remaining: 0 };
 
-      const filterByCachedOdds = (arr: AnyEvent[]) => {
-        if (!requireOdds) return arr;
-        return arr.filter((e: any) => {
-          if (hasPrimaryOddsEvent(e)) return true;
-          const sport = String(e?.sport || '').trim();
-          if (!sport) return false;
-          const id = matchIdOf(e);
-          if (!id) return false;
-          const odds = oddsFromCache(sport, id);
-          return odds ? hasPrimaryOddsFromOdds(odds) : false;
-        });
-      };
-
-      const liveFiltered = includeLive ? filterByCachedOdds(live) : [];
-      const preFiltered = includePregame ? filterByCachedOdds(pregame) : [];
+      // In realtime mode we must NOT filter by requireOdds — on the first (cold-start)
+      // request the odds cache is empty, so filtering would drop every event and the
+      // frontend would always show an empty list.  Events without cached odds will
+      // have their odds fields at 0; the UI renders "-" in that case, which is correct.
+      // Background odds fetches are already queued above (queueOddsRefresh) so the
+      // next poll (≈7 s) will carry the real odds from cache.
+      const liveFiltered = includeLive ? live : [];
+      const preFiltered = includePregame ? pregame : [];
 
       const liveEnriched = includeLive ? await mapLimit(liveFiltered, 10, (x) => enrichEventOdds(x, budget0, fullMarkets)) : [];
       const preEnriched = includePregame ? await mapLimit(preFiltered, 8, (x) => enrichEventOdds(x, budget0, fullMarkets)) : [];
