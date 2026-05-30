@@ -56,8 +56,8 @@ const pageVariants = {
 };
 
 const pageTrans = {
-  duration: 0.08,
-  ease: 'linear' as const,
+  duration: 0.18,
+  ease: [0.25, 0.1, 0.25, 1.0] as const,
 };
 
 const eventVariants = {

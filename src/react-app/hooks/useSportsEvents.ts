@@ -369,7 +369,7 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
           params.set('league', cleanLeague);
         }
         params.set('include', 'odds');
-        params.set('realtime', only === 'live' ? '1' : '0');
+        params.set('realtime', only === 'pregame' ? '0' : '1');
         params.set('only', only);
         params.set('requireOdds', '1');
         const days =

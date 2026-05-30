@@ -65,7 +65,7 @@ function Home({ mode = 'home' }: HomeProps) {
   const navigate = useNavigate();
 
   // Dados principais
-  const { live: httpLive, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || 'all', { only: mode === 'home' ? 'pregame' : mode === 'live' ? 'both' : 'both' });
+  const { live: httpLive, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || 'all', { only: 'both' });
   const loading = eventsLoading;
   const showBanner = true;
   
@@ -284,7 +284,6 @@ function Home({ mode = 'home' }: HomeProps) {
   }, [featuredUpcoming]);
 
   const weekAll = useMemo(() => {
-    if (mode !== 'live') return [];
     const cat = String(selectedCategory || 'all').toLowerCase();
     if (cat !== 'all') return [];
     if (query.trim()) return [];
@@ -332,7 +331,6 @@ function Home({ mode = 'home' }: HomeProps) {
   }, [mode, selectedCategory, query, weekAll.length]);
   const weekSentinelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (mode !== 'live') return;
     const el = weekSentinelRef.current;
     if (!el) return;
     if (weekLimit >= weekAll.length) return;
@@ -345,15 +343,16 @@ function Home({ mode = 'home' }: HomeProps) {
   }, [mode, weekLimit, weekAll.length]);
   const weekVisible = useMemo(() => weekAll.slice(0, weekLimit), [weekAll, weekLimit]);
 
-  // Strict separation: Desporto = pregame only | AO VIVO = live only
-  const displayedLive    = mode === 'live' ? processedLive : [];
+  // Home shows both live (capped at 45) + pregame; Live shows all live + week pregame
+  const displayedLive    = processedLive.slice(0, 45);
   const displayedUpcoming = mode === 'home' ? (showFeatured ? (featuredUpcoming as any) : sortedUpcoming) : [];
 
   const groupedLive = useGroupedEvents(displayedLive, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
 
   const isLiveMode = mode === 'live';
-  const { signals: liveSignals } = useBatchMarketSignals({ events: isLiveMode ? displayedLive : [], enabled: isLiveMode, maxEvents: 40 })
+  const hasLiveEvents = displayedLive.length > 0;
+  const { signals: liveSignals } = useBatchMarketSignals({ events: displayedLive, enabled: hasLiveEvents, maxEvents: 40 })
 
   const MAX_EVENTS = mode === 'live' ? 120 : 60; // live≤120, pregame≤60
 
@@ -843,7 +842,7 @@ function Home({ mode = 'home' }: HomeProps) {
                       <path d="M8 5v14l11-7z" />
                     </svg>
                   </div>
-                  <h2 className="text-2xl font-bold uppercase tracking-wide">Pré-Jogos</h2>
+                  <h2 className="text-2xl font-bold uppercase tracking-wide">Desporto</h2>
                 </>
               )}
             </div>
@@ -853,11 +852,23 @@ function Home({ mode = 'home' }: HomeProps) {
                 <div className="animate-spin h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
                 <p className="text-gray-500">Carregando eventos...</p>
               </div>
-            ) : (groupedLive.length > 0 || limitedUpcoming.length > 0 || (showFeatured && (featuredUpcoming as any[]).length > 0) || (mode === 'live' && weekVisible.length > 0)) ? (
+            ) : (groupedLive.length > 0 || limitedUpcoming.length > 0 || (showFeatured && (featuredUpcoming as any[]).length > 0) || weekVisible.length > 0) ? (
               <div className="space-y-12">
-                {/* LIVE SECTION — shown only in mode='live' */}
+                {/* LIVE SECTION — shown in all modes when there are live events */}
                 {groupedLive.length > 0 && (
                   <div className="space-y-6">
+                    {/* Ao Vivo sub-header (shown in home mode since live mode already has the main header) */}
+                    {mode === 'home' && (
+                      <div className="flex items-center gap-3 px-1">
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
+                        </span>
+                        <h3 className="text-lg font-bold uppercase tracking-wide text-red-500">
+                          Ao Vivo <span className="text-sm font-normal opacity-70 ml-1">({displayedLive.length})</span>
+                        </h3>
+                      </div>
+                    )}
                      <div className="space-y-8">
                         {(() => {
                           let globalIdx = 0;
@@ -908,10 +919,12 @@ function Home({ mode = 'home' }: HomeProps) {
                   </div>
                 )}
 
-                {mode === 'live' && weekVisible.length > 0 && (
+                {weekVisible.length > 0 && (
                   <div className="space-y-6">
                     <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
-                      <h2 className="text-xl font-bold uppercase tracking-wide">Jogos da Semana</h2>
+                      <h2 className="text-xl font-bold uppercase tracking-wide">
+                        {mode === 'home' ? 'Próximos 7 Dias' : 'Jogos da Semana'}
+                      </h2>
                     </div>
                     <div className="flex flex-col gap-4">
                       {weekVisible.map((ev: any) => (

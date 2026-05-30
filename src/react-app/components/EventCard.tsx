@@ -29,6 +29,9 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
   const { darkMode, addNotification, addToBetSlip } = useApp(); 
   const [isHovered, setIsHovered] = useState(false);
 
+  // Scroll-vs-tap detection: only navigate if the user didn't scroll
+  const touchScrollRef = useRef<{ y: number; moved: boolean }>({ y: 0, moved: false });
+
   // Robustly extract event ID (support both structures)
   const eventId = event.id || event.fixture?.id;
   
@@ -406,7 +409,21 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
       } ${isHovered ? 'scale-[1.02]' : ''}`} 
       onMouseEnter={() => setIsHovered(true)} 
       onMouseLeave={() => setIsHovered(false)} 
-      onClick={() => onOpenEvent(event)}
+      onTouchStart={(e) => {
+        touchScrollRef.current = { y: e.touches[0].clientY, moved: false };
+      }}
+      onTouchMove={(e) => {
+        if (Math.abs(e.touches[0].clientY - touchScrollRef.current.y) > 10) {
+          touchScrollRef.current.moved = true;
+        }
+      }}
+      onClick={() => {
+        if (touchScrollRef.current.moved) {
+          touchScrollRef.current.moved = false;
+          return;
+        }
+        onOpenEvent(event);
+      }}
     > 
       <div className="flex flex-col sm:flex-row justify-between items-start"> 
          <div className="flex-1 w-full sm:w-auto mb-3 sm:mb-0"> 
