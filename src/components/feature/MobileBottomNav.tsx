@@ -43,8 +43,6 @@ export function MobileBottomNav({ onLiveClick, onHomeClick, onBetSlipClick, betC
     setTimeout(() => {
       if (item.id === 'home' && onHomeClick) {
         onHomeClick();
-      } else if (item.id === 'live' && onLiveClick) {
-        onLiveClick();
       } else {
         navigate(item.path);
       }

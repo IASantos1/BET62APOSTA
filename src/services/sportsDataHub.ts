@@ -175,7 +175,7 @@ export async function getUpcomingMatches(sportKey?: string): Promise<Match[]> {
 
   try {
     const sportParam = normalizeSportKey(sportKey || 'all');
-    const days = sportParam === 'all' ? 2 : 7;
+    const days = 7;
     const url = `/api/events/by-sport?sports=${encodeURIComponent(sportParam)}&include=odds&realtime=0&only=pregame&days=${days}&requireOdds=1`;
     const res = await fetch(url, { cache: 'no-store' });
     const data: any = await res.json().catch(() => null);

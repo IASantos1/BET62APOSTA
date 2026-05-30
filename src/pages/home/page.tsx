@@ -753,8 +753,14 @@ export default function HomePage() {
       {/* Header */}
       <Header
         activeTab={activeTab}
-        onSportsClick={() => setActiveTab("sports")}
-        onLiveClick={() => setActiveTab("live")}
+        onSportsClick={() => {
+          setActiveTab("sports");
+          navigate("/");
+        }}
+        onLiveClick={() => {
+          setActiveTab("live");
+          navigate("/desportos-ao-vivo");
+        }}
         isAdmin={isAdmin}
         onOpenMobileMenu={() => setShowMobileMenu(true)}
       />
@@ -839,7 +845,7 @@ export default function HomePage() {
             <i className="ri-football-line mr-1"></i>Esportes
           </button>
           <button
-            onClick={() => setActiveTab("live")}
+            onClick={() => navigate("/desportos-ao-vivo")}
             className={`px-3 py-1.5 rounded-full text-[10px] font-semibold whitespace-nowrap cursor-pointer transition-all ${
               activeTab === "live"
                 ? "bg-red-500 text-white"
@@ -1136,7 +1142,6 @@ export default function HomePage() {
       {/* Bottom navigation (mobile) */}
       <MobileBottomNav
         onHomeClick={() => setActiveTab("sports")}
-        onLiveClick={() => setActiveTab("live")}
         onBetSlipClick={toggleBetSlipExpanded}
         betCount={selections.length}
       />

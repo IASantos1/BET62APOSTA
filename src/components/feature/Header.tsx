@@ -71,7 +71,10 @@ export function Header({
             {/* Navigation Tabs - Desktop */}
             <div className="hidden md:flex items-center gap-1.5 ml-4">
               <button
-                onClick={onSportsClick}
+                onClick={() => {
+                  if (onSportsClick) onSportsClick();
+                  navigate('/');
+                }}
                 className={`px-3 lg:px-5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap cursor-pointer transition-all ${
                   activeTab === 'sports'
                     ? 'bg-gradient-to-r from-red-600 to-red-500 text-white shadow-lg'
@@ -82,7 +85,10 @@ export function Header({
               </button>
 
               <button
-                onClick={onLiveClick}
+                onClick={() => {
+                  if (onLiveClick) onLiveClick();
+                  navigate('/desportos-ao-vivo');
+                }}
                 className={`px-3 lg:px-5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap cursor-pointer transition-all ${
                   activeTab === 'live'
                     ? 'bg-gradient-to-r from-red-700 to-red-600 text-white shadow-lg'
