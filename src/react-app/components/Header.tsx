@@ -32,6 +32,19 @@ export function Header() {
     };
   }, [pathname]);
 
+  const hardNavigate = (to: string) => (e: any) => {
+    if (e?.button === 1) return;
+    if (e?.metaKey || e?.ctrlKey || e?.shiftKey || e?.altKey) return;
+    try {
+      e?.preventDefault?.();
+    } catch { /* empty */ }
+    try {
+      window.location.assign(to);
+    } catch {
+      window.location.href = to;
+    }
+  };
+
   useEffect(() => {
     let alive = true;
     const loadBalance = async () => {
@@ -111,6 +124,7 @@ export function Header() {
           <nav className="hidden lg:flex items-center gap-2">
             <a
               href="/"
+              onPointerDown={hardNavigate('/')}
               onClick={() => setSelectedCategory(null)}
               className={`px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive('/') ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
             >
@@ -118,12 +132,14 @@ export function Header() {
             </a>
             <a
               href="/live"
+              onPointerDown={hardNavigate('/live')}
               className={`px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive('/live') ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
             >
               Ao Vivo
             </a>
             <a
               href="/promotions"
+              onPointerDown={hardNavigate('/promotions')}
               className={`px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive('/promotions') ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
             >
               Promoções
@@ -138,6 +154,7 @@ export function Header() {
                 </button>
                 <a
                   href="/admin/payouts"
+                  onPointerDown={hardNavigate('/admin/payouts')}
                   className={`px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors ${isActive('/admin/payouts') ? 'bg-red-600 text-white shadow-md' : 'hover:bg-gray-100 text-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'}`}
                 >
                   Pagamentos
@@ -207,6 +224,7 @@ export function Header() {
         <nav className="flex items-center gap-1 overflow-x-auto no-scrollbar">
           <a
             href="/"
+            onPointerDown={hardNavigate('/')}
             onClick={() => setSelectedCategory(null)}
             className={`flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
               isActive('/') 
@@ -218,6 +236,7 @@ export function Header() {
           </a>
           <a
             href="/live"
+            onPointerDown={hardNavigate('/live')}
             className={`flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
               isActive('/live') 
                 ? 'bg-red-600 text-white shadow-sm' 
@@ -228,6 +247,7 @@ export function Header() {
           </a>
           <a
             href="/promotions"
+            onPointerDown={hardNavigate('/promotions')}
             className={`flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
               isActive('/promotions') 
                 ? 'bg-red-600 text-white shadow-sm' 
@@ -250,6 +270,7 @@ export function Header() {
               </button>
               <a
                 href="/admin/payouts"
+                onPointerDown={hardNavigate('/admin/payouts')}
                 className={`flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors ${
                   isActive('/admin/payouts') 
                     ? 'bg-red-600 text-white shadow-sm' 

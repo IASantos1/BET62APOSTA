@@ -93,9 +93,11 @@ const OddRow = memo(({ item, onSelect, suspended, compact }: {
               ${suspended === 'GOAL' ? 'bg-red-600/90 text-white' :
                 suspended === 'VAR' ? 'bg-yellow-600/90 text-white' :
                 suspended === 'CARD' ? 'bg-orange-600/90 text-white' :
+                suspended === 'CHANCE' ? 'bg-rose-600/90 text-white' :
+                suspended === 'PENALTY' ? 'bg-orange-600/90 text-white' :
                 'bg-gray-600/90 text-gray-200'}`}
             >
-              {suspended === 'GOAL' ? 'GOL' : suspended === 'VAR' ? 'VAR' : suspended === 'CARD' ? 'CARTÃO' : suspended}
+              {suspended === 'GOAL' ? 'GOL' : suspended === 'VAR' ? 'VAR' : suspended === 'CARD' ? 'CARTÃO' : suspended === 'CHANCE' ? 'CHANCE' : suspended === 'PENALTY' ? 'PÊNALTI' : suspended}
             </span>
           </div>
         )}
@@ -584,60 +586,6 @@ export function SubOddsModel({
           const title = getMarketTitle('h2h', event?.sport);
           const susp = getSuspendedReason('h2h');
           const isSusp = !!susp;
-
-          // ── Critical event button (overrides everything) ──────────────
-          // Aparece para goal/big_chance (VAR bloqueia tudo, incluindo h2h)
-          const effectiveCrit = apiCritState !== 'idle' ? apiCritState : critState
-          if (effectiveCrit !== 'idle' && effectiveCrit !== 'var_review' && effectiveCrit !== 'var_penalty' && !isGlobalSuspended && !suspendedMap.has('h2h')) {
-            // Auto-pick favourite to wager on (lowest odd)
-            const fav = resultadoRegulamentar.reduce((m, x) => (Number(x.odd) > 0 && Number(x.odd) < Number(m.odd) ? x : m), resultadoRegulamentar[0]);
-            const favOdd = Number(fav?.odd) || 0;
-            const favStr = favOdd > 0 ? favOdd.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
-            const disabled = !(favOdd > 0);
-            // Botão com estilo igual a "Aposta Já" mas com rótulo do lance crítico
-            const critLabel =
-              effectiveCrit === 'goal'
-                ? '⚽ GOL'
-                : effectiveCrit === 'penalty'
-                  ? '🎯 PÊNALTI'
-                  : effectiveCrit === 'cards'
-                    ? '🟨 CARTÕES'
-                    : '🔥 GRANDE CHANCE'
-            const critAnim = effectiveCrit === 'goal' ? 'animate-bounce' : 'animate-pulse';
-            const critRing =
-              effectiveCrit === 'goal'
-                ? 'ring-emerald-400'
-                : effectiveCrit === 'penalty'
-                  ? 'ring-orange-400'
-                  : effectiveCrit === 'cards'
-                    ? 'ring-yellow-400'
-                    : 'ring-orange-400'
-            const critGradient =
-              effectiveCrit === 'goal'
-                ? 'from-emerald-600 to-green-700'
-                : effectiveCrit === 'penalty'
-                  ? 'from-orange-500 to-red-600'
-                  : effectiveCrit === 'cards'
-                    ? 'from-yellow-500 to-amber-600'
-                    : 'from-orange-500 to-red-600';
-            return (
-              <MarketCard title={title} darkMode={darkMode} noPad>
-                <div className="p-3">
-                  <button
-                    onClick={disabled ? undefined : () => fav && onSelect(fav.label, favOdd)}
-                    disabled={disabled}
-                    className={`w-full h-16 rounded-xl font-black text-xl uppercase tracking-wider text-white shadow-lg
-                      bg-gradient-to-r ${critGradient} ring-4 ${critRing} ring-opacity-50 ${critAnim}
-                      transition-all duration-200 ${disabled ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-95'}
-                      flex items-center justify-center gap-3`}
-                  >
-                    <span>{critLabel}</span>
-                    {fav && <span className="text-base opacity-90">{fav.label} @ {favStr}</span>}
-                  </button>
-                </div>
-              </MarketCard>
-            );
-          }
 
           // ── "Aposta Já" mode (single big red button) ──────────────────
           if (apostaJaActive && !isSusp) {
