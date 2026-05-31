@@ -197,7 +197,7 @@ export default function WorldCupPage() {
           Voltar
         </button>
 
-        <WorldCupBanner variant="hero" />
+        <WorldCupBanner variant="hero" disableLink />
 
         <div className="flex items-baseline justify-between px-1">
           <h1 className="text-xl md:text-2xl font-black uppercase tracking-wide bg-gradient-to-r from-amber-200 to-yellow-400 bg-clip-text text-transparent">
