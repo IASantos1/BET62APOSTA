@@ -240,6 +240,10 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
             lastEventById.set(id, { ts: nowMs(), data: out });
             if (Number((out as any)?.is_live || 0) === 1) {
               liveSeen.set(id, { ts: nowMs(), data: { sport, event: out } });
+            } else if (liveSeen.has(id)) {
+              // Game went non-live: update cached data so hold check can detect finished status
+              const old = liveSeen.get(id)!;
+              liveSeen.set(id, { ts: old.ts, data: { sport, event: out } });
             }
             return out;
           });
@@ -256,6 +260,10 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       lastEventById.set(id, { ts: nowMs(), data: out });
       if (Number((out as any)?.is_live || 0) === 1) {
         liveSeen.set(id, { ts: nowMs(), data: { sport, event: out } });
+      } else if (liveSeen.has(id)) {
+        // Game went non-live: update cached data so hold check can detect finished status
+        const old = liveSeen.get(id)!;
+        liveSeen.set(id, { ts: old.ts, data: { sport, event: out } });
       }
       return out;
     });
@@ -776,8 +784,12 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         if (!ttlOk(entry.ts, LIVE_HOLD_MS)) continue;
         if (ids.has(id)) continue;
         if (!sportSet.has(entry.data.sport)) continue;
-        if (isFinishedLike(entry.data.event)) continue;
-        liveAll.push({ ...(entry.data.event as any), id, is_live: 1 });
+        // Use freshest event data available (lastEventById is always up-to-date)
+        const freshEvent = lastEventById.get(id)?.data ?? entry.data.event;
+        // Drop if the freshest data shows it's finished or no longer live
+        if (isFinishedLike(freshEvent)) continue;
+        if (Number((freshEvent as any)?.is_live || 0) === 0 && lastEventById.has(id)) continue;
+        liveAll.push({ ...(freshEvent as any), id, is_live: 1 });
       }
     }
 
