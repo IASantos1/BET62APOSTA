@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import EventCard from '../components/EventCard';
 import WorldCupBanner from '../components/WorldCupBanner';
+import WorldCupMatchCard from '../components/WorldCupMatchCard';
 
 const KICKOFF_FROM = new Date('2026-06-11T00:00:00.000Z').getTime();
 
@@ -131,12 +131,11 @@ export default function WorldCupPage() {
                   <span className="text-amber-300">📅</span>
                   <span className="text-amber-100">{g.label}</span>
                 </div>
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-3">
                   {g.events.map((ev) => (
-                    <EventCard
-                      key={`wc_${ev.id}`}
+                    <WorldCupMatchCard
+                      key={`wc_${ev.id || ev.external_event_id}`}
                       event={ev}
-                      onOpenEvent={() => navigate(`/event/${ev.id}`)}
                     />
                   ))}
                 </div>
