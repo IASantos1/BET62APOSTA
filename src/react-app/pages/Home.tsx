@@ -7,6 +7,7 @@ import { useMergedEvents } from '../hooks/useMergedEvents';
 import EventCard from '../components/EventCard';
 import { Sidebar } from '../components/Sidebar';
 import { BannerCarousel } from '../components/BannerCarousel';
+import WorldCupBanner from '../components/WorldCupBanner';
 import { BetSlip } from '../components/BetSlip';
 import { useNavigate } from 'react-router-dom';
 import { getSportIcon } from '../../shared/helpers';
@@ -15,7 +16,6 @@ import { useUpcomingCache } from '../hooks/useUpcomingCache';
 import { useGroupedEvents } from '../hooks/useGroupedEvents';
 import { useTopLeagues } from '../hooks/useTopLeagues';
 import type { Event } from '../../shared/types';
-import { Trophy } from 'lucide-react';
 
 interface HomeProps {
   mode?: 'home' | 'live';
@@ -61,9 +61,8 @@ const isFinishedEvent = (e: any) => {
 };
 
 function Home({ mode = 'home' }: HomeProps) {
-  const { darkMode, selectedCategory, setSelectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
+  const { darkMode, selectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
   const navigate = useNavigate();
-  const [worldCupLogo, setWorldCupLogo] = useState<string>('');
 
   // Dados principais
   const isMainSports =
@@ -145,45 +144,6 @@ function Home({ mode = 'home' }: HomeProps) {
     const cap = setTimeout(() => setRevealed(true), 6000);
     return () => clearTimeout(cap);
   }, [mode, selectedCategory]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const run = async () => {
-      if (mode !== 'home') return;
-      try {
-        const r = await fetch('/api/world-cup-2026', { cache: 'no-store' });
-        if (!r.ok) {
-          if (!cancelled) setWorldCupLogo('');
-          return;
-        }
-        const data = await r.json().catch(() => null);
-        const pick = (x: any): string => {
-          if (!x) return '';
-          const cands = [
-            x.logo,
-            x.data?.logo,
-            x.data?.tournament?.logo,
-            x.tournament?.logo,
-            x.data?.uniqueTournament?.logo,
-            x.uniqueTournament?.logo,
-            x.image,
-            x.data?.image,
-          ];
-          for (const c of cands) {
-            const s = String(c || '').trim();
-            if (s) return s;
-          }
-          return '';
-        };
-        const logo = pick(data);
-        if (!cancelled) setWorldCupLogo(logo);
-      } catch {
-        if (!cancelled) setWorldCupLogo('');
-      }
-    };
-    run();
-    return () => { cancelled = true; };
-  }, [mode]);
 
   // Agrupamento
   const activeTopLeagues = useTopLeagues(processedLive, upcomingEvents);
@@ -560,13 +520,15 @@ function Home({ mode = 'home' }: HomeProps) {
 
     const banners: Banner[] = [];
     let cursor = 0;
+
+    // Strict pass: each banner = exactly 3 legs (2 low-odds + 1 high-odds).
     for (let i = 0; i < 4; i++) {
       const picks: Pick[] = [];
       const used = new Set<string | number>();
       let lowCount = 0;
       let highCount = 0;
       let guard = 0;
-      while (picks.length < 4 && guard < candidates.length * 2) {
+      while (picks.length < 3 && guard < candidates.length * 2) {
         const ev = candidates[cursor % Math.max(1, candidates.length)];
         cursor++;
         guard++;
@@ -579,7 +541,7 @@ function Home({ mode = 'home' }: HomeProps) {
         const isLow = odd > 1.01 && odd < 2.0;
         const isHigh = odd >= 2.5 && odd <= 3.5;
         if (!isLow && !isHigh) continue;
-        if (isLow && lowCount >= 3) continue;
+        if (isLow && lowCount >= 2) continue;
         if (isHigh && highCount >= 1) continue;
 
         used.add(key);
@@ -587,10 +549,40 @@ function Home({ mode = 'home' }: HomeProps) {
         if (isLow) lowCount += 1;
         if (isHigh) highCount += 1;
       }
-      if (picks.length === 4 && lowCount === 3 && highCount === 1) {
+      if (picks.length === 3 && lowCount === 2 && highCount === 1) {
         const totalOdd = picks.reduce((acc, p) => acc * p.odd, 1);
         const legsOddStr = picks.map((p) => p.odd.toFixed(2)).join(' × ');
         banners.push({ id: `multi_${i}`, picks, totalOdd, legsOddStr });
+      }
+    }
+
+    // Relaxed fallback: if the strict mix never materialises (e.g. no high-odds
+    // leg available), still build 3-leg banners from any valid picks so the
+    // "Múltiplas em destaque" carousel never disappears.
+    if (banners.length === 0) {
+      let fbCursor = 0;
+      for (let i = 0; i < 3; i++) {
+        const picks: Pick[] = [];
+        const used = new Set<string | number>();
+        let guard = 0;
+        while (picks.length < 3 && guard < candidates.length * 2) {
+          const ev = candidates[fbCursor % Math.max(1, candidates.length)];
+          fbCursor++;
+          guard++;
+          const key = String(ev?.id);
+          if (used.has(key)) continue;
+          const pick = pickFromEvent(ev);
+          if (!pick) continue;
+          const odd = Number(pick.odd || 0);
+          if (odd <= 1.01 || odd > 3.5) continue;
+          used.add(key);
+          picks.push(pick);
+        }
+        if (picks.length === 3) {
+          const totalOdd = picks.reduce((acc, p) => acc * p.odd, 1);
+          const legsOddStr = picks.map((p) => p.odd.toFixed(2)).join(' × ');
+          banners.push({ id: `multi_fb_${i}`, picks, totalOdd, legsOddStr });
+        }
       }
     }
 
@@ -647,7 +639,7 @@ function Home({ mode = 'home' }: HomeProps) {
                 <div className={`rounded-xl border p-5 ${darkMode ? 'bg-gray-950/40 border-gray-800' : 'bg-gray-50 border-gray-200'}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-sm font-black uppercase tracking-wider">Múltipla de 4 eventos</div>
+                      <div className="text-sm font-black uppercase tracking-wider">Múltipla de 3 eventos</div>
                       <div className={`text-xs mt-1 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Odd total: {b.legsOddStr}</div>
                     </div>
                     <div className="text-right">
@@ -656,7 +648,7 @@ function Home({ mode = 'home' }: HomeProps) {
                     </div>
                   </div>
 
-                  <div className="mt-4 space-y-3 min-h-[240px]">
+                  <div className="mt-4 space-y-3 min-h-[180px]">
                     {b.picks.map((p, i) => (
                       <div key={`${instanceKey}_${b.id}_leg_${i}`} className={`rounded-lg px-3 py-3 border ${darkMode ? 'border-gray-800 bg-gray-900/40' : 'border-gray-200 bg-white'}`}>
                         <div className="flex items-center justify-between gap-3">
@@ -786,61 +778,8 @@ function Home({ mode = 'home' }: HomeProps) {
       {/* Mobile Sidebar Overlay */}
 
       {showBanner && (
-        <section className="relative w-full overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-r from-emerald-950 via-slate-950 to-amber-950 animate-gradient-x"></div>
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,215,0,0.10)_0%,transparent_55%)] animate-pulse-slow"></div>
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_75%_70%,rgba(16,185,129,0.08)_0%,transparent_60%)] animate-pulse-slower"></div>
-          </div>
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shine-slow"></div>
-
-          <div className="relative z-10 w-full mx-auto px-2 py-2 md:py-3 flex flex-col md:flex-row items-center justify-between gap-2">
-            <div className="text-center md:text-left">
-              <div className="inline-flex items-center gap-2 mb-1">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-300 to-amber-500 flex items-center justify-center shadow-lg">
-                  <img
-                    src={worldCupLogo || "https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/FIFA_World_Cup_Trophy_%28Ank_Kumar%2C_Infosys_Limited%29_02.jpg/500px-FIFA_World_Cup_Trophy_%28Ank_Kumar%2C_Infosys_Limited%29_02.jpg"}
-                    alt="Taça da Copa do Mundo"
-                    className="w-5 h-5 object-cover rounded-sm"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                  />
-                  <Trophy className="w-4 h-4 text-gray-900" />
-                </div>
-                <h3 className="text-sm md:text-base font-extrabold uppercase tracking-wider bg-gradient-to-r from-yellow-300 via-amber-200 to-yellow-300 bg-clip-text text-transparent drop-shadow-lg">
-                  FIFA World Cup 2026
-                </h3>
-              </div>
-
-              <p className="text-base md:text-lg font-bold text-white mb-0.5 drop-shadow-md">
-                Junho 2026: a Copa do Mundo começa agora
-              </p>
-
-              <p className="text-[10px] md:text-xs text-gray-200 max-w-lg mx-auto md:mx-0 leading-relaxed">
-                Clique para ver todos os jogos e apostar rapidamente.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedCategory('all');
-                navigate({ pathname: '/', search: 'q=world%20cup' });
-                setTimeout(() => {
-                  const el = document.getElementById('events');
-                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }, 0);
-              }}
-              className="group relative inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-300 hover:to-amber-400 rounded-lg font-bold text-sm uppercase tracking-wider text-gray-900 shadow-xl shadow-amber-900/40 transition-all duration-300 hover:shadow-amber-500/50 hover:scale-105 active:scale-95 overflow-hidden"
-            >
-              <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-out"></span>
-              <span className="relative z-10">Aposta já</span>
-              <svg className="w-4 h-4 relative z-10 group-hover:translate-x-1 transition-transform" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z" />
-              </svg>
-            </button>
-          </div>
+        <section className="relative w-full px-2 pt-3">
+          <WorldCupBanner variant="compact" />
         </section>
       )}
 
@@ -976,8 +915,6 @@ function Home({ mode = 'home' }: HomeProps) {
                      )}
                      <div className="space-y-8">
                         {(() => {
-                          let globalIdx = 0;
-                          let inserted = false;
                           return limitedNext7.map(([league, events]) => (
                             <div key={`next7-${league}`} className="space-y-4">
                             <div className={`px-5 py-3 rounded-xl font-bold text-sm uppercase tracking-wider flex items-center gap-4 ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>
@@ -1012,11 +949,6 @@ function Home({ mode = 'home' }: HomeProps) {
                                       onOpenEvent={() => handleOpenEvent(ev)}
                                     />,
                                   );
-                                  globalIdx++;
-                                  if (!inserted && globalIdx === 2) {
-                                    inserted = true;
-                                    out.push(<MultipleCarousel key="next7_multi_once" instanceKey="next7_once" />);
-                                  }
                                 }
                                 return out;
                               })()}
