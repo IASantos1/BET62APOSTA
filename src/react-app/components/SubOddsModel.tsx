@@ -635,13 +635,11 @@ export function SubOddsModel({
     return elapsed || 0;
   }, [isLive, liveTimer, event]);
 
-  // ── Market liquidation: progressive hiding of markets as game approaches 90' ──
+  // ── Market liquidation: progressive hiding as game approaches 90' ──
   // Soccer only. Tiers:
-  //   < 60 min  → all markets visible
-  //   60–75 min → hide exotic/specials (correct score, scorers, specials)
-  //   75–85 min → keep only core (h2h, totals, handicap, btts, double_chance, dnb, 2nd-half)
-  //   85–90 min → keep only h2h + totals + double_chance
-  //   90+       → only h2h survives
+  //   < 85 min  → todos os mercados visíveis (sem remoção)
+  //   85–90 min → apenas H2H + Totals + Chance Dupla
+  //   90+       → apenas H2H
   const isSoccerLive = useMemo(() => {
     if (!isLive) return false;
     const s = String((event as any)?.sport || '').toLowerCase();
@@ -649,7 +647,7 @@ export function SubOddsModel({
   }, [isLive, event]);
 
   const isMarketLiquidated = (key: string): boolean => {
-    if (!isSoccerLive || liveElapsedMinute <= 0) return false;
+    if (!isSoccerLive || liveElapsedMinute < 85) return false;
     const min = liveElapsedMinute;
 
     const ALWAYS_KEEP = new Set([
@@ -657,55 +655,20 @@ export function SubOddsModel({
     ]);
     if (ALWAYS_KEEP.has(key)) return false;
 
-    // 90+ min: only h2h survives
+    // 90+ min: apenas H2H
     if (min >= 90) return true;
 
-    // 85–90 min: h2h + totals + double_chance
-    if (min >= 85) {
-      const keep85 = new Set(['totals', 'double_chance']);
-      return !keep85.has(key);
-    }
-
-    // 75–85 min: core markets only
-    if (min >= 75) {
-      const keep75 = new Set([
-        'totals', 'handicap', 'spreads', 'btts', 'double_chance', 'dnb', 'draw_no_bet',
-        'second_half_h2h', '2nd_half', '2nd_half_totals',
-      ]);
-      return !keep75.has(key);
-    }
-
-    // 60–75 min: hide exotic / specials
-    if (min >= 60) {
-      const exotic60 = new Set([
-        'correct_score', 'exact_score', 'score_exact', '1st_half_correct_score', '2nd_half_correct_score',
-        'btts_and_result', 'comeback_win', 'score_both_halves', 'win_both_halves', 'goal_in_each_half',
-        'minute_goals', 'first_goal_scorer', 'anytime_goal_scorer', 'player_goal_scorer_anytime',
-        'first_team_to_score', 'team_to_score_last', 'team_to_score_first', 'team_clean_sheet',
-        'winning_margin', 'goals_range', 'penalty_scored', 'half_time_full_time',
-        'own_goal', '1st_half_goal_range', '2nd_half_goal_range',
-        'home_goals_odd_even', 'away_goals_odd_even', 'btts_first_half',
-        'home_team_totals', 'away_team_totals', 'exact_home_goals', 'exact_away_goals',
-        'home_corners_total', 'away_corners_total', 'home_cards_total', 'away_cards_total',
-        'corners_btts', 'corner_handicap', 'corners_2_way',
-        'win_to_nil', 'goals_odd_even', 'total_goal_odd_even',
-        'first_goal', 'last_goal', 'next_goal',
-      ]);
-      return exotic60.has(key);
-    }
-
-    return false;
+    // 85–90 min: H2H + Totals + Chance Dupla
+    const keep85 = new Set(['totals', 'double_chance']);
+    return !keep85.has(key);
   };
 
   // Liquidation tier label for display badge
   const liquidationTier = useMemo((): string | null => {
-    if (!isSoccerLive || liveElapsedMinute <= 0) return null;
+    if (!isSoccerLive || liveElapsedMinute < 85) return null;
     const min = liveElapsedMinute;
     if (min >= 90) return '90+\'';
-    if (min >= 85) return `${min}' — só mercados essenciais`;
-    if (min >= 75) return `${min}' — mercados reduzidos`;
-    if (min >= 60) return `${min}' — exóticos suspensos`;
-    return null;
+    return `${min}' — mercados em liquidação`;
   }, [isSoccerLive, liveElapsedMinute]);
 
   // --- Render each market as a card ---
