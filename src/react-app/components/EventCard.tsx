@@ -100,10 +100,6 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
   const eventLeague = event.league?.name || event.league || 'Unknown League'; // Handle object or string
   const eventSport = event.sport;
   const sport = eventSport ? normalizeSport(eventSport) : getSportFromLeague(typeof eventLeague === 'string' ? eventLeague : (eventLeague?.name || ''));
-  const isWorldCup = useMemo(() => {
-    const l = String(typeof eventLeague === 'string' ? eventLeague : (eventLeague?.name || '')).toLowerCase();
-    return l.includes('world cup') || l.includes('copa do mundo') || l.includes('worldcup');
-  }, [eventLeague]);
 
   // Removed useRealtimeOdds hook
   
@@ -517,16 +513,6 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="font-bold uppercase tracking-tight">{leagueLabel}</span>
-                    {isWorldCup && (
-                      <img
-                        src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/FIFA_World_Cup_Trophy_%28Ank_Kumar%2C_Infosys_Limited%29_02.jpg/250px-FIFA_World_Cup_Trophy_%28Ank_Kumar%2C_Infosys_Limited%29_02.jpg"
-                        alt="Taça da Copa do Mundo"
-                        className="w-4 h-4 object-cover rounded-sm"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      />
-                    )}
                     {country && <span className="opacity-70 font-normal hidden sm:inline">· {country}</span>}
                     
                     <div className="flex items-center gap-1 ml-1 pl-1 border-l border-gray-300 dark:border-gray-600">

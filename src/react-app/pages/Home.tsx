@@ -522,7 +522,7 @@ function Home({ mode = 'home' }: HomeProps) {
     let cursor = 0;
 
     // Strict pass: each banner = exactly 3 legs (2 low-odds + 1 high-odds).
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3; i++) {
       const picks: Pick[] = [];
       const used = new Set<string | number>();
       let lowCount = 0;

@@ -637,6 +637,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       if (/nations league women|world cup.*women|women.*world cup/.test(l)) return true;
 
       // ── ALLOWLIST ── only show leagues from the configured list ─────────────
+      // Block non-soccer world cups (3x3 basketball, FIBA, etc.)
+      if (/\b3x3\b|fiba|basketball.*world|world.*basketball/.test(l)) return true;
+
       // UEFA / FIFA international competitions — always allowed (men's only after the block above)
       if (/champions league|europa league|conference league|nations league/.test(l)) return false;
       if (/world cup|copa do mundo|copa mundial/.test(l)) return false;
