@@ -3,9 +3,10 @@ import { useApp } from '@/react-app/contexts/AppContext';
 
 interface WorldCupBannerProps {
   variant?: 'compact' | 'hero';
+  disableLink?: boolean;
 }
 
-export default function WorldCupBanner({ variant = 'compact' }: WorldCupBannerProps) {
+export default function WorldCupBanner({ variant = 'compact', disableLink: _disableLink }: WorldCupBannerProps) {
   const { setSelectedCategory } = useApp();
   const wrapRef = useRef<HTMLDivElement>(null);
 

@@ -15,6 +15,7 @@ import { useEventSearch } from '../hooks/useEventSearch';
 import { useUpcomingCache } from '../hooks/useUpcomingCache';
 import { useGroupedEvents } from '../hooks/useGroupedEvents';
 import { useTopLeagues } from '../hooks/useTopLeagues';
+import { useBatchMarketSignals } from '../hooks/useBatchMarketSignals';
 import type { Event } from '../../shared/types';
 
 interface HomeProps {
@@ -115,6 +116,17 @@ function Home({ mode = 'home' }: HomeProps) {
   }, [mergedLive]);
 
   const { upcomingEvents } = useUpcomingCache(pregame);
+
+  // ── Live critical-event signals (VAR, gol, pênalti, grande chance) ──────
+  // Polls /api/events/:id/incidents every 7s for each live soccer match and
+  // computes the CTA state (goal/var_review/penalty/cards/big_chance).
+  // Passed as `signals` prop to each live EventCard so the card can show the
+  // correct overlay and block odds during critical moments.
+  const { signals: liveSignals } = useBatchMarketSignals({
+    events: processedLive,
+    enabled: processedLive.length > 0,
+    maxEvents: 20,
+  });
 
   // Busca
   const { query, setQuery } = useEventSearch();
@@ -1011,11 +1023,13 @@ function Home({ mode = 'home' }: HomeProps) {
                               {(() => {
                                 const out: any[] = [];
                                 for (const ev of events) {
+                                  const evId = String(ev?.id ?? ev?.fixture?.id ?? ev?.external_event_id ?? '').trim();
                                   out.push(
                                     <EventCard
                                       key={mergeKeyOf(ev)}
                                       event={ev}
                                       onOpenEvent={() => handleOpenEvent(ev)}
+                                      signals={liveSignals[evId]}
                                     />,
                                   );
                                   globalIdx++;
