@@ -1239,7 +1239,27 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
       const odds = await fetchOddsStrict(sport, id, { forceAll: true }).catch(() => null);
       const markets = odds?.markets || {};
-      sendJson(res, 200, { home: odds?.home || 0, draw: odds?.draw || 0, away: odds?.away || 0, markets });
+
+      // Derive suspended status from live event cache
+      const cachedEv = lastEventById.get(id)?.data;
+      const isSuspended = !!(
+        cachedEv?.suspended ||
+        cachedEv?.status?.blocked === '1' ||
+        cachedEv?.status?.stopped === '1' ||
+        String(cachedEv?.status?.short || '').toUpperCase() === 'SUSPENDED'
+      );
+      const suspendedReason = String(
+        cachedEv?.suspended_reason || cachedEv?.status?.reason || ''
+      );
+
+      sendJson(res, 200, {
+        home: odds?.home || 0,
+        draw: odds?.draw || 0,
+        away: odds?.away || 0,
+        markets,
+        suspended: isSuspended,
+        suspended_reason: suspendedReason,
+      });
       return true;
     }
 

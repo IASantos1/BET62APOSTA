@@ -128,6 +128,7 @@ export default function EventDetails() {
   const [realtimeOdds, setRealtimeOdds] = useState<any | null>(null);
   const [oddsSuspended, setOddsSuspended] = useState(false);
   const [oddsSuspendedReason, setOddsSuspendedReason] = useState<string>('');
+  const [currentIncidents, setCurrentIncidents] = useState<any[]>([]);
 
   // --- Fetch Event (fallback: only when local events are ready but event not found) ---
   useEffect(() => {
@@ -187,6 +188,37 @@ export default function EventDetails() {
       const stLong = String((displayEvent as any)?.fixture?.status?.long || (displayEvent as any)?.status_long || '').toUpperCase();
       const live = Number((displayEvent as any)?.is_live || 0) === 1 || ['LIVE','1H','2H','HT','ET','P','PEN','Q1','Q2','Q3','Q4','OT','P1','P2','P3','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(st) || /IN\s*PLAY|HALF|SET|QUARTER|INNING/.test(stLong);
       timeoutId = setTimeout(tick, live ? 5000 : 60_000);
+    };
+
+    tick();
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [id, displayEvent]);
+
+  // --- Poll match incidents for live events (feeds SubOddsModel crit-state machine) ---
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (cancelled) return;
+      // Only meaningful for live matches
+      const st = String(((displayEvent as any)?.status?.short || (displayEvent as any)?.status || '')).toUpperCase().trim();
+      const isLiveNow = Number((displayEvent as any)?.is_live || 0) === 1 ||
+        ['LIVE','1H','2H','HT','ET','P','PEN','Q1','Q2','Q3','Q4','OT','P1','P2','P3','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(st);
+      if (isLiveNow) {
+        try {
+          const sportParam = (displayEvent as any)?.sport ? `?sport=${encodeURIComponent(String((displayEvent as any).sport))}` : '';
+          const data = await apiFetch<any>(`/api/events/${id}/incidents${sportParam}`, { cache: 'no-store' });
+          if (!cancelled && Array.isArray(data?.incidents) && data.incidents.length > 0) {
+            setCurrentIncidents(data.incidents);
+          }
+        } catch { /* silent */ }
+      }
+      timeoutId = setTimeout(tick, isLiveNow ? 12_000 : 60_000);
     };
 
     tick();
@@ -446,7 +478,7 @@ export default function EventDetails() {
             labelOutcome={handleLabelOutcome}
             applyMarginClamp={applyMarginClamp}
             suspendedMarkets={[]}
-            liveEvents={[]}
+            liveEvents={currentIncidents}
             liveTimer={liveTimer || (liveElapsed > 0 ? `${liveElapsed}` : '')}
             isLive={isLive}
           />
