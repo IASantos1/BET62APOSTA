@@ -17,10 +17,12 @@ const runOnce = async () => {
   const regionsEnv = String(process.env.ODDS_REGIONS || '').trim()
   const marketsEnv = String(process.env.ODDS_MARKETS || '').trim()
   const updateIntervalMs = Number(process.env.UPDATE_INTERVAL_MS || (15*60*1000))
+  const probeHealth = await http(base + '/health', { cache: 'no-store' })
+  const isNodeApi = probeHealth.status === 200
   const now = Date.now()
   const lastStr = String(globalThis.__lastOddsUpdateTs || '')
   const lastTs = lastStr ? Number(lastStr) : 0
-  if (!Number.isFinite(lastTs) || (now - lastTs) >= updateIntervalMs) {
+  if (!isNodeApi && (!Number.isFinite(lastTs) || (now - lastTs) >= updateIntervalMs)) {
     const sports = sportsEnv ? sportsEnv.split(',').map((x) => x.trim()).filter(Boolean) : ['soccer_france_ligue_1','soccer_brazil_campeonato_brasileiro_serie_a']
     try {
       const body = JSON.stringify({ sports, mode: 'all', regions: regionsEnv || undefined, markets: marketsEnv || undefined })
@@ -33,12 +35,19 @@ const runOnce = async () => {
     }
     globalThis.__lastOddsUpdateTs = String(now)
   }
-  const tests = [
-    { name: 'odds/status', url: base + '/api/odds/status', expect: [200] },
-    { name: 'metrics/odds', url: base + '/api/metrics/odds', expect: [200, 403, 401] },
-    { name: 'metrics/users', url: base + '/api/metrics/users', expect: [200, 403, 401] },
-    { name: 'auth/me', url: base + '/api/auth/me', expect: [200, 401] },
-  ]
+  const tests = isNodeApi
+    ? [
+        { name: 'health', url: base + '/health', expect: [200] },
+        { name: 'pricing/config', url: base + '/api/pricing/config', expect: [200] },
+        { name: 'auth/me', url: base + '/api/auth/me', expect: [200, 401] },
+        { name: 'events/by-sport', url: base + '/api/events/by-sport?sports=all&include=odds&markets=full&realtime=0&days=1', expect: [200, 500] },
+      ]
+    : [
+        { name: 'odds/status', url: base + '/api/odds/status', expect: [200] },
+        { name: 'metrics/odds', url: base + '/api/metrics/odds', expect: [200, 403, 401] },
+        { name: 'metrics/users', url: base + '/api/metrics/users', expect: [200, 403, 401] },
+        { name: 'auth/me', url: base + '/api/auth/me', expect: [200, 401] },
+      ]
   let fails = 0
   const ts = new Date().toISOString()
   for (const t of tests) {

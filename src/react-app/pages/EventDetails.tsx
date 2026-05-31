@@ -183,7 +183,10 @@ export default function EventDetails() {
         }
       } catch { /* silent */ }
       inflight = false;
-      timeoutId = setTimeout(tick, 60_000);
+      const st = String(((displayEvent as any)?.status?.short || (displayEvent as any)?.fixture?.status?.short || (displayEvent as any)?.status || '')).toUpperCase().trim();
+      const stLong = String((displayEvent as any)?.fixture?.status?.long || (displayEvent as any)?.status_long || '').toUpperCase();
+      const live = Number((displayEvent as any)?.is_live || 0) === 1 || ['LIVE','1H','2H','HT','ET','P','PEN','Q1','Q2','Q3','Q4','OT','P1','P2','P3','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(st) || /IN\s*PLAY|HALF|SET|QUARTER|INNING/.test(stLong);
+      timeoutId = setTimeout(tick, live ? 5000 : 60_000);
     };
 
     tick();
@@ -191,7 +194,7 @@ export default function EventDetails() {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [id]);
+  }, [id, displayEvent]);
 
   const onSelect = useCallback((label: string, odd: number) => {
     if (!displayEvent) return;

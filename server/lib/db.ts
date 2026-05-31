@@ -6,11 +6,9 @@ export type Db = {
   pool: pg.Pool;
 };
 
-export function createPool(): pg.Pool {
+export function createPool(): pg.Pool | null {
   const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error('DATABASE_URL is not set');
-  }
+  if (!connectionString) return null;
   return new Pool({
     connectionString,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
@@ -20,7 +18,8 @@ export function createPool(): pg.Pool {
   });
 }
 
-export async function ensureSchema(pool: pg.Pool): Promise<void> {
+export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
+  if (!pool) return;
   const sql = [
     `CREATE TABLE IF NOT EXISTS users (
       id            TEXT        PRIMARY KEY,

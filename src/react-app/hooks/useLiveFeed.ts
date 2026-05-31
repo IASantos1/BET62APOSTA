@@ -1,6 +1,25 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiFetch } from '../utils/api';
 
+const __DBG_URL = (import.meta.env.DEV && (import.meta as any).env?.VITE_DEBUG_SERVER_URL)
+  ? String((import.meta as any).env.VITE_DEBUG_SERVER_URL)
+  : '';
+const __DBG_SESSION = (import.meta.env.DEV && (import.meta as any).env?.VITE_DEBUG_SESSION)
+  ? String((import.meta as any).env.VITE_DEBUG_SESSION)
+  : '';
+const __dbg = (hypothesisId: string, msg: string, data: any) => {
+  try {
+    if (!__DBG_URL || !__DBG_SESSION) return;
+    fetch(__DBG_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: __DBG_SESSION, runId: 'pre', hypothesisId, location: 'src/react-app/hooks/useLiveFeed.ts', msg, data, ts: Date.now() }),
+    }).catch(() => null);
+  } catch {
+    void 0;
+  }
+};
+
 // Helper for robust outcome matching
 const getOutcome = (outcomes: any[], keys: string[]) => 
     outcomes.find(o => 
@@ -39,10 +58,12 @@ const parseJsonLoose = (v: any) => {
 
 const parseLiveEvent = (item: any) => {
     if (!item) return null;
+    const rawId = String(item.external_event_id || item.id || item.fixture?.id || '').trim();
 
     // Safety: Hide Finished/Abnormal statuses from Live Feed
     const status = String(item.fixture?.status?.short || item.status?.short || item.status || '').toUpperCase().trim();
     if (['FT', 'AET', 'PEN', 'FT_PEN', 'FIN', 'FINAL', 'ENDED', 'AOT', 'AP', 'POST', 'SUSP', 'TBD', 'WO', 'ABD', 'AWD', 'CANC', 'NS_CANC'].includes(status)) {
+        __dbg('H5', 'drop-finished', { id: rawId, status });
         return null;
     }
     
@@ -58,10 +79,12 @@ const parseLiveEvent = (item: any) => {
                  const dYearAdj = new Date(d);
                  dYearAdj.setFullYear(new Date(now).getFullYear());
                  if (dYearAdj.getTime() < now - 5 * 60 * 60 * 1000) {
+                     __dbg('H5', 'drop-old-year-adjusted', { id: rawId, dstr: String(dstr || ''), now });
                      return null;
                  }
              } else {
                  if (d.getTime() < now - 5 * 60 * 60 * 1000) {
+                     __dbg('H5', 'drop-old', { id: rawId, dstr: String(dstr || ''), now });
                      return null;
                  }
              }
@@ -86,7 +109,10 @@ const parseLiveEvent = (item: any) => {
         status: item.status && typeof item.status === 'object' ? item.status : { short: item.status || 'LIVE', elapsed: item.elapsed || 0, timer: item.timer || '' },
       };
 
-    if (!teams || !teams.home?.name || !teams.away?.name) return null;
+    if (!teams || !teams.home?.name || !teams.away?.name) {
+      __dbg('H3', 'drop-no-teams', { id: rawId, home: String(item.home_team || item.teams?.home?.name || ''), away: String(item.away_team || item.teams?.away?.name || '') });
+      return null;
+    }
 
     let h = item.home_odd;
     let d = item.draw_odd;
@@ -214,6 +240,16 @@ const parseLiveEvent = (item: any) => {
         goals: scoreObj,
         markets: markets
     };
+    const st = String(ev.fixture?.status?.short || '').toUpperCase().trim();
+    const stLong = String(ev.fixture?.status?.long || ev.status_long || '').toUpperCase();
+    if (st === 'HT' || /HALF\s*TIME|INTERVAL/.test(stLong)) {
+      ev.fixture.status = { ...(ev.fixture.status || {}), short: 'HT', elapsed: 0, timer: '' };
+      ev.timer = '';
+      ev.elapsed = 0;
+    }
+    // #region debug-point D:client-merge-odds-clock
+    fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({sessionId:"live-delay-clock",runId:"pre",hypothesisId:"D",location:"src/react-app/hooks/useLiveFeed.ts:parseLiveEvent",msg:"[DEBUG] client parse/merge",data:{id:ev.id,sport:String(ev.sport||""),status:String(ev.fixture?.status?.short||""),elapsed:Number(ev.fixture?.status?.elapsed||0),timer:String(ev.fixture?.status?.timer||""),homeOdd:Number(ev.home_odd||0),drawOdd:Number(ev.draw_odd||0),awayOdd:Number(ev.away_odd||0),src:{rawTimer:String(item.timer||item.fixture?.status?.timer||""),rawElapsed:Number(item.elapsed||item.fixture?.status?.elapsed||0),eventDate:String(item.event_date||item.fixture?.date||""),homeOdd:Number(item.home_odd||0),drawOdd:Number(item.draw_odd||0),awayOdd:Number(item.away_odd||0)}},ts:Date.now()})}).catch(()=>{});
+    // #endregion
     return ev;
 };
 
@@ -231,14 +267,20 @@ export function useLiveFeed(sport?: string) {
   // Poll function
   const fetchLiveEvents = useCallback(async () => {
       try {
-          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&include=odds&only=live&days=0&requireOdds=1`;
+          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&include=odds&markets=full&only=live&days=0`;
           const data = await apiFetch<any>(url, { cache: 'no-store' });
           
           const list = Array.isArray(data) ? data : (data && Array.isArray(data.live) ? data.live : null);
           if (!list) return;
+          if (list.length === 0) {
+            __dbg('H2', 'poll-empty', { sport: String(sport || 'all') });
+            setLastUpdatedAt(Date.now());
+            return;
+          }
+          __dbg('H2', 'poll-data', { sport: String(sport || 'all'), count: list.length });
 
           const now = Date.now();
-          const graceMs = 5 * 60_000;
+          const graceMs = 120_000;
           setEventsMap((prev) => {
               const next = new Map<string, any>(prev);
               const seen = new Set<string>();
@@ -304,19 +346,24 @@ export function useLiveFeed(sport?: string) {
     let lastInteractionAt = Date.now();
     let hiddenAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
     let wakeInFlight = false;
+    const log = (hypothesisId: string, msg: string, data: any) => {
+      fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({sessionId:"live-delay-clock",runId:"pre",hypothesisId,location:"src/react-app/hooks/useLiveFeed.ts",msg:`[DEBUG] ${msg}`,data,ts:Date.now()})}).catch(()=>{});
+    };
 
     const loop = async () => {
       if (cancelled) return;
+      if (wsOk) return;
       if (inflight) {
         timeoutId = setTimeout(loop, 1500);
         return;
       }
       inflight = true;
       try {
+        log('A', 'poll tick (ws not ok)', { sport: String(sport || 'all') });
         await fetchLiveEvents();
       } finally {
         inflight = false;
-        timeoutId = setTimeout(loop, wsOk ? 15_000 : 10_000);
+        timeoutId = setTimeout(loop, 10_000);
       }
     };
 
@@ -365,7 +412,8 @@ export function useLiveFeed(sport?: string) {
       ws.onopen = () => {
         wsOk = true;
         setIsConnected(true);
-        // Fetch immediately on WS connect to warm up odds cache quickly
+        __dbg('H1', 'ws-open', { url: wsUrl, sport: String(sport || 'all') });
+        log('A', 'ws open', { url: wsUrl, sport: String(sport || 'all') });
         fetchLiveEvents().catch(() => void 0);
         if (pingId) clearInterval(pingId);
         pingId = setInterval(() => {
@@ -375,12 +423,16 @@ export function useLiveFeed(sport?: string) {
       ws.onclose = () => {
         wsOk = false;
         setIsConnected(false);
+        __dbg('H1', 'ws-close', { url: wsUrl, sport: String(sport || 'all') });
+        log('A', 'ws close', { url: wsUrl, sport: String(sport || 'all') });
         if (pingId) { clearInterval(pingId); pingId = null; }
         loop();
       };
       ws.onerror = () => {
         wsOk = false;
         setIsConnected(false);
+        __dbg('H1', 'ws-error', { url: wsUrl, sport: String(sport || 'all') });
+        log('A', 'ws error', { url: wsUrl, sport: String(sport || 'all') });
         if (pingId) { clearInterval(pingId); pingId = null; }
         loop();
       };
@@ -389,7 +441,14 @@ export function useLiveFeed(sport?: string) {
           const msg = JSON.parse(String((evt as any)?.data || ''));
           if (msg?.type === 'snapshot' && Array.isArray(msg?.live)) {
             const now = Date.now();
-            const graceMs = 5 * 60_000;
+            const graceMs = 120_000;
+            if (msg.live.length === 0) {
+              __dbg('H1', 'ws-snapshot-empty', { sport: String(sport || 'all') });
+              setLastUpdatedAt(now);
+              return;
+            }
+            __dbg('H1', 'ws-snapshot', { sport: String(sport || 'all'), count: msg.live.length });
+            log('A', 'ws snapshot', { sport: String(sport || 'all'), count: msg.live.length });
             setEventsMap((prev) => {
               const next = new Map<string, any>(prev);
               const seen = new Set<string>();
@@ -474,11 +533,7 @@ export function useLiveFeed(sport?: string) {
   }, [fetchLiveEvents, wsUrl]);
 
   const liveEvents = useMemo(() => {
-    return Array.from(eventsMap.values()).filter((e: any) => {
-      const h = Number(e?.home_odd || 0);
-      const a = Number(e?.away_odd || 0);
-      return h > 1 && a > 1;
-    });
+    return Array.from(eventsMap.values());
   }, [eventsMap]);
 
   return { 

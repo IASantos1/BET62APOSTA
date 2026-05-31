@@ -8,6 +8,38 @@ let consecutiveRateLimits = 0;
 const MIN_REQUEST_INTERVAL = 50; // ✅ 50ms = 1200 req/min = 72.000 req/hora
 const MAX_BACKOFF = 30000; // ✅ Máximo 30 segundos de backoff
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function controlledApiFetch(path: string, options: RequestInit = {}) {
+  const attempt = async () => {
+    const { throttle, waitMs } = shouldThrottleRequest();
+    if (throttle && waitMs > 0) {
+      await sleep(waitMs);
+    }
+    lastApiCallTimestamp = Date.now();
+    return apiFetch(path, options);
+  };
+
+  try {
+    const data = await attempt();
+    handleSuccessfulRequest();
+    return data;
+  } catch (error: any) {
+    if (isRateLimitError(error)) {
+      handleRateLimitError();
+      if (rateLimitBackoffMs > 0) {
+        await sleep(rateLimitBackoffMs);
+      }
+      const data = await attempt();
+      handleSuccessfulRequest();
+      return data;
+    }
+    throw error;
+  }
+}
+
 /**
  * ✅ THROTTLE GLOBAL - Garante intervalo mínimo entre chamadas
  */
@@ -129,7 +161,7 @@ export async function saveOddsSnapshot(payload: {
   source?: string;
 }): Promise<void> {
   try {
-    await apiFetch('/sports/odds-history', {
+    await controlledApiFetch('/sports/odds-history', {
       method: 'POST',
       body: JSON.stringify({
         fixture_id: payload.fixtureId,
@@ -167,7 +199,7 @@ export async function getOddsHistory(fixtureId: string, limit: number = 200): Pr
   });
 
   try {
-    const data = await apiFetch(`/sports/odds-history?${params.toString()}`, {
+    const data = await controlledApiFetch(`/sports/odds-history?${params.toString()}`, {
       method: 'GET',
     });
     const history = Array.isArray(data?.history) ? data.history : [];
@@ -250,7 +282,7 @@ export const api = {
   bets: {
     async getAll(userId: string): Promise<FrontendBet[]> {
       console.log('📊 Buscando apostas do utilizador:', userId);
-      const data = await apiFetch('/bets', { method: 'GET' });
+      const data = await controlledApiFetch('/bets', { method: 'GET' });
       const list: BackendBet[] = Array.isArray(data?.bets) ? data.bets : [];
       return list.map(mapBetFromBackend);
     },
@@ -271,7 +303,7 @@ export const api = {
         selections: Array.isArray(bet.selections) ? bet.selections : [],
       };
 
-      const data = await apiFetch('/wallet/bet', {
+      const data = await controlledApiFetch('/wallet/bet', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
@@ -294,12 +326,12 @@ export const api = {
 
   profiles: {
     async getByUserId(_userId: string) {
-      const data = await apiFetch('/profile', { method: 'GET' });
+      const data = await controlledApiFetch('/profile', { method: 'GET' });
       return data?.profile || null;
     },
 
     async updateBalance(_profileId: string, amount: number, operation: 'add' | 'subtract') {
-      await apiFetch('/profile/balance', {
+      await controlledApiFetch('/profile/balance', {
         method: 'POST',
         body: JSON.stringify({
           amount,
@@ -323,7 +355,7 @@ export const api = {
         completed_at: transaction.completed_at,
       };
 
-      const data = await apiFetch('/transactions', {
+      const data = await controlledApiFetch('/transactions', {
         method: 'POST',
         body: JSON.stringify(payload),
       });

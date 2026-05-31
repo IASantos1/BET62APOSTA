@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { useSportsEvents } from '@/react-app/hooks/useSportsEvents';
@@ -8,14 +8,14 @@ import EventCard from '../components/EventCard';
 import { Sidebar } from '../components/Sidebar';
 import { BannerCarousel } from '../components/BannerCarousel';
 import { BetSlip } from '../components/BetSlip';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { getSportIcon } from '../../shared/helpers';
 import { useEventSearch } from '../hooks/useEventSearch';
 import { useUpcomingCache } from '../hooks/useUpcomingCache';
 import { useGroupedEvents } from '../hooks/useGroupedEvents';
 import { useTopLeagues } from '../hooks/useTopLeagues';
-import { useBatchMarketSignals } from '../hooks/useBatchMarketSignals';
 import type { Event } from '../../shared/types';
+import { Trophy } from 'lucide-react';
 
 interface HomeProps {
   mode?: 'home' | 'live';
@@ -61,13 +61,41 @@ const isFinishedEvent = (e: any) => {
 };
 
 function Home({ mode = 'home' }: HomeProps) {
-  const { darkMode, selectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
+  const { darkMode, selectedCategory, setSelectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
   const navigate = useNavigate();
+  const [worldCupLogo, setWorldCupLogo] = useState<string>('');
 
   // Dados principais
-  const { live: httpLive, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || 'all', { only: 'both' });
+  const isMainSports =
+    !selectedCategory ||
+    selectedCategory === 'all' ||
+    selectedCategory === 'soccer-all' ||
+    selectedCategory === 'todos';
+
+  const { live: httpLive, pregame, loading: eventsLoading } = useSportsEvents(
+    selectedCategory || 'all',
+    {
+      only: mode === 'home' ? 'pregame' : mode === 'live' ? 'live' : 'both',
+      days: mode === 'home' && isMainSports ? 7 : undefined,
+    },
+  );
+
+  const todayKey = useMemo(() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }, []);
+
+  const { pregame: pregame7Days } = useSportsEvents('all', {
+    only: 'pregame',
+    days: 8,
+    enabled: mode === 'live',
+    requireOdds: false,
+  });
   const loading = eventsLoading;
-  const showBanner = true;
+  const showBanner = mode === 'home';
   
   const { liveEvents: wsLiveEvents } = useLiveFeed('all');
   const mergedLive = useMergedEvents(httpLive, wsLiveEvents);
@@ -84,6 +112,45 @@ function Home({ mode = 'home' }: HomeProps) {
 
   // Busca
   const { query, setQuery } = useEventSearch();
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (mode !== 'home') return;
+      try {
+        const r = await fetch('/api/world-cup-2026', { cache: 'no-store' });
+        if (!r.ok) {
+          if (!cancelled) setWorldCupLogo('');
+          return;
+        }
+        const data = await r.json().catch(() => null);
+        const pick = (x: any): string => {
+          if (!x) return '';
+          const cands = [
+            x.logo,
+            x.data?.logo,
+            x.data?.tournament?.logo,
+            x.tournament?.logo,
+            x.data?.uniqueTournament?.logo,
+            x.uniqueTournament?.logo,
+            x.image,
+            x.data?.image,
+          ];
+          for (const c of cands) {
+            const s = String(c || '').trim();
+            if (s) return s;
+          }
+          return '';
+        };
+        const logo = pick(data);
+        if (!cancelled) setWorldCupLogo(logo);
+      } catch {
+        if (!cancelled) setWorldCupLogo('');
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [mode]);
 
   // Agrupamento
   const activeTopLeagues = useTopLeagues(processedLive, upcomingEvents);
@@ -130,234 +197,170 @@ function Home({ mode = 'home' }: HomeProps) {
       });
   }, [processedLive, upcomingEvents]);
 
-  const featuredUpcoming = useMemo(() => {
-    const cat = String(selectedCategory || 'all').toLowerCase();
-    if (cat !== 'all') return [];
-    if (query.trim()) return [];
+  const sortedUpcoming7Days = useMemo(() => {
+    if (mode !== 'live') return [];
+    const liveIds = new Set(processedLive.map(e => mergeKeyOf(e)));
+    const list = Array.isArray(pregame7Days) ? pregame7Days : [];
+    return list
+      .filter(e => {
+        if (!e) return false;
+        if (liveIds.has(mergeKeyOf(e))) return false;
+        const rawDate = (e as any)?.event_date ?? (e as any)?.start_time ?? (e as any)?.fixture?.date ?? '';
+        const m = typeof rawDate === 'string' ? rawDate.match(/\d{4}-\d{2}-\d{2}/) : null;
+        const dayKey = m?.[0] || '';
+        if (dayKey && dayKey === todayKey) return false;
+        const h = (e.home_team || '').trim();
+        const a = (e.away_team || '').trim();
+        if (!h || !a || h === 'undefined' || a === 'undefined' || h === 'Home Team' || a === 'Away Team') return false;
+        if (e.id === 'undefined' || !e.id) return false;
+        const homeOdd = Number((e as any)?.home_odd || 0);
+        const awayOdd = Number((e as any)?.away_odd || 0);
+        if (homeOdd > 1.01 && awayOdd > 1.01) return true;
+        const mk = (e as any)?.markets ?? (e as any)?.odds;
+        if (mk && typeof mk === 'object' && !Array.isArray(mk)) return Object.keys(mk).length > 0;
+        if (Array.isArray(mk)) return mk.length > 0;
+        return false;
+      })
+      .sort((a, b) => {
+        const ta = new Date(a.event_date || a.start_time || a.fixture?.date || 0).getTime();
+        const tb = new Date(b.event_date || b.start_time || b.fixture?.date || 0).getTime();
+        return ta - tb;
+      });
+  }, [mode, processedLive, pregame7Days, todayKey]);
 
-    const sportKey = (ev: any) => {
-      const s = String(ev?.sport || '').toLowerCase();
+  const featuredUpcomingGroups = useMemo(() => {
+    if (mode !== 'home') return [];
+    if (!isMainSports) return [];
+    const normalizeSport = (raw: any) => {
+      const s = String(raw || '').toLowerCase().trim();
       if (s.includes('soccer') || (s.includes('football') && !s.includes('american')) || s.includes('futebol')) return 'soccer';
-      if (s.includes('tennis') || s.includes('tênis') || s.includes('tenis')) return 'tennis';
-      if (s.includes('basket')) return 'basketball';
-      if (s.includes('hockey')) return 'hockey';
-      if (s.includes('baseball')) return 'baseball';
-      return 'other';
+      if (s.includes('tennis') || s.includes('tenis') || s.includes('ténis')) return 'tennis';
+      if (s.includes('basketball') || s.includes('basquete')) return 'basketball';
+      if (s.includes('ice-hockey') || s.includes('ice hockey') || s.includes('hockey') || s.includes('hóquei')) return 'ice-hockey';
+      if (s.includes('baseball') || s.includes('beisebol')) return 'baseball';
+      return s || 'other';
     };
-
-    const leagueKey = (ev: any) => {
-      const l = (ev as any)?.league_name ?? (ev as any)?.league?.name ?? (ev as any)?.league ?? '';
-      const c = (ev as any)?.country ?? (ev as any)?.league?.country ?? '';
-      return `${String(l)} ${String(c)}`.trim().toLowerCase();
+    const leagueNameOf = (e: any) => {
+      const l = e?.league;
+      const raw = typeof l === 'string' ? l : l?.name;
+      return String(raw || e?.league_name || '').toLowerCase().trim();
     };
-
-    const startTs = (ev: any) => new Date(ev?.event_date || ev?.start_time || ev?.fixture?.date || 0).getTime();
-    const dayKey = (ev: any) => {
-      const t = startTs(ev);
-      if (!Number.isFinite(t) || t <= 0) return 99;
-      const d0 = new Date();
-      d0.setHours(0, 0, 0, 0);
-      const d1 = new Date(t);
-      d1.setHours(0, 0, 0, 0);
-      const diff = Math.floor((d1.getTime() - d0.getTime()) / 86400000);
-      return diff < 0 ? 0 : diff;
-    };
-
-    const soccerLeagueScore = (l: string) => {
-      const s = l;
-      if (/(champions league|uefa.*champions)/.test(s)) return 120;
-      if (/(europa league|uefa.*europa)/.test(s)) return 110;
-      if (/(conference league|uefa.*conference)/.test(s)) return 105;
-      if (/premier league/.test(s)) return 100;
-      if (/(la liga|primera|laliga)/.test(s)) return 95;
-      if (/serie a/.test(s)) return 95;
-      if (/bundesliga/.test(s)) return 92;
-      if (/(ligue 1|league 1)/.test(s)) return 90;
-      if (/(eredivisie)/.test(s)) return 84;
-      if (/(primeira liga|liga portugal)/.test(s)) return 82;
-      if (/(brasileir|serie a brazil)/.test(s)) return 82;
-      if (/(mls|major league soccer)/.test(s)) return 78;
-      if (/(copa libertadores|libertadores)/.test(s)) return 80;
-      if (/(copa sudamericana|sudamericana)/.test(s)) return 72;
-      if (/(fa cup|copa del rey|coppa italia|dfb pokal)/.test(s)) return 70;
-      return 40;
-    };
-
-    const genericLeagueScore = (sport: string, l: string) => {
-      const s = l;
-      if (sport === 'basketball') {
-        if (/(nba)/.test(s)) return 100;
-        if (/(euroleague|euroliga)/.test(s)) return 92;
-        if (/(ncaa)/.test(s)) return 80;
-        return 40;
+    const countryOf = (e: any) => String(e?.country || '').toLowerCase().trim();
+    const importanceScore = (sport: string, e: any) => {
+      const league = leagueNameOf(e);
+      const country = countryOf(e);
+      const name = `${country} ${league}`;
+      if (sport === 'soccer') {
+        if (/champions|uefa\s*champions|ucl/.test(name)) return 120;
+        if (/premier\s*league|epl/.test(name)) return 115;
+        if (/la\s*liga|laliga|primera/.test(name)) return 110;
+        if (/serie\s*a\b/.test(name) && /ital/i.test(name)) return 110;
+        if (/bundesliga/.test(name)) return 105;
+        if (/ligue\s*1/.test(name)) return 100;
+        if (/brasil|brazil|brasileir|campeonato\s*brasileiro|serie\s*a\b/.test(name)) return 108;
+        if (/copa\s*do\s*brasil/.test(name)) return 95;
+        if (/libertadores|sudamericana/.test(name)) return 92;
+        return 10;
       }
       if (sport === 'tennis') {
-        if (/(grand slam|atp|wta)/.test(s)) return 90;
-        if (/(challenger|itf)/.test(s)) return 60;
-        return 40;
+        if (/grand\s*slam|wimbledon|roland|australian|us\s*open/.test(name)) return 110;
+        if (/atp\b/.test(name)) return 100;
+        if (/wta\b/.test(name)) return 95;
+        if (/challenger/.test(name)) return 70;
+        return 10;
       }
-      if (sport === 'hockey') {
-        if (/(nhl)/.test(s)) return 95;
-        if (/(khl)/.test(s)) return 80;
-        return 40;
+      if (sport === 'basketball') {
+        if (/\bnba\b/.test(name)) return 110;
+        if (/euroleague/.test(name)) return 95;
+        if (/ncaa/.test(name)) return 80;
+        return 10;
+      }
+      if (sport === 'ice-hockey') {
+        if (/\bnhl\b/.test(name)) return 110;
+        if (/\bshl\b/.test(name)) return 85;
+        if (/\bkhl\b/.test(name)) return 80;
+        return 10;
       }
       if (sport === 'baseball') {
-        if (/(mlb)/.test(s)) return 95;
-        if (/(npb|kbo)/.test(s)) return 80;
-        return 40;
+        if (/\bmlb\b/.test(name)) return 110;
+        return 10;
       }
-      return 40;
+      return 0;
     };
-
-    const quotas: Record<string, number> = { soccer: 15, tennis: 10, basketball: 10, hockey: 5, baseball: 5 };
-    const bySport: Record<string, any[]> = { soccer: [], tennis: [], basketball: [], hockey: [], baseball: [] };
-    for (const ev of sortedUpcoming) {
-      const sk = sportKey(ev);
-      if (!(sk in bySport)) continue;
-      bySport[sk].push(ev);
-    }
-
-    const pickSoccer = () => {
-      const buckets: Record<number, any[]> = {};
-      for (const ev of bySport.soccer) {
-        const dk = Math.min(6, dayKey(ev));
-        (buckets[dk] || (buckets[dk] = [])).push(ev);
-      }
-      for (const [k, arr] of Object.entries(buckets)) {
-        arr.sort((a: any, b: any) => {
-          const sa = soccerLeagueScore(leagueKey(a));
-          const sb = soccerLeagueScore(leagueKey(b));
-          if (sa !== sb) return sb - sa;
-          return startTs(a) - startTs(b);
-        });
-        buckets[Number(k)] = arr;
-      }
-      const out: any[] = [];
-      let guard = 0;
-      while (out.length < quotas.soccer && guard < 400) {
-        guard++;
-        let progressed = false;
-        for (let dk = 0; dk <= 6; dk++) {
-          const arr = buckets[dk] || [];
-          if (arr.length) {
-            out.push(arr.shift());
-            progressed = true;
-          }
-          if (out.length >= quotas.soccer) break;
-        }
-        if (!progressed) break;
+    const bySport = (events: Event[]) => {
+      const out = new Map<string, Event[]>();
+      for (const e of events) {
+        const sport = normalizeSport((e as any)?.sport);
+        if (!out.has(sport)) out.set(sport, []);
+        out.get(sport)!.push(e);
       }
       return out;
     };
-
-    const pickGeneric = (sport: 'tennis' | 'basketball' | 'hockey' | 'baseball') => {
-      const arr = [...bySport[sport]];
-      arr.sort((a: any, b: any) => {
-        const sa = genericLeagueScore(sport, leagueKey(a));
-        const sb = genericLeagueScore(sport, leagueKey(b));
-        if (sa !== sb) return sb - sa;
-        return startTs(a) - startTs(b);
-      });
-      return arr.slice(0, quotas[sport]);
+    const pickQuota = (events: Event[], sport: string, limit: number) => {
+      const minScoreBySport: Record<string, number> = {
+        'soccer': 90,
+        'tennis': 70,
+        'basketball': 70,
+        'ice-hockey': 80,
+        'baseball': 90,
+      };
+      const minScore = minScoreBySport[sport] ?? 0;
+      const items = [...events]
+        .map((e) => {
+          const start = new Date((e as any).event_date || (e as any).start_time || (e as any).fixture?.date || 0).getTime();
+          return { e, start, score: importanceScore(sport, e) };
+        })
+        .sort((a, b) => (b.score - a.score) || (a.start - b.start));
+      const picked: Event[] = [];
+      const preferred = items.filter((x) => x.score >= minScore);
+      for (const it of preferred) {
+        if (picked.length >= limit) break;
+        picked.push(it.e);
+      }
+      if (picked.length < limit) {
+        const pickedSet = new Set(picked.map((e) => mergeKeyOf(e)));
+        const fallback = items
+          .filter((x) => !pickedSet.has(mergeKeyOf(x.e)))
+          .sort((a, b) => a.start - b.start);
+        for (const it of fallback) {
+          if (picked.length >= limit) break;
+          picked.push(it.e);
+        }
+      }
+      return picked;
     };
+    const source = sortedUpcoming as Event[];
+    const m = bySport(source);
+    const quotas: Array<{ sport: string; label: string; limit: number }> = [
+      { sport: 'soccer', label: 'Futebol', limit: 15 },
+      { sport: 'tennis', label: 'Ténis', limit: 10 },
+      { sport: 'basketball', label: 'Basquetebol', limit: 10 },
+      { sport: 'ice-hockey', label: 'Hóquei', limit: 5 },
+      { sport: 'baseball', label: 'Beisebol', limit: 5 },
+    ];
+    const groups: Array<[string, Event[]]> = [];
+    for (const q of quotas) {
+      const list = m.get(q.sport) || [];
+      const picked = pickQuota(list, q.sport, q.limit);
+      if (picked.length) groups.push([q.label, picked]);
+    }
+    return groups;
+  }, [isMainSports, mode, sortedUpcoming]);
 
-    const picksBySport: Record<string, any[]> = {
-      soccer: pickSoccer(),
-      tennis: pickGeneric('tennis'),
-      basketball: pickGeneric('basketball'),
-      hockey: pickGeneric('hockey'),
-      baseball: pickGeneric('baseball'),
-    };
-
-    const order = ['soccer', 'tennis', 'basketball', 'hockey', 'baseball'];
-    const result: any[] = [];
-    for (const k of order) result.push(...(picksBySport[k] || []));
-    return result.slice(0, 45);
-  }, [sortedUpcoming, selectedCategory, query]);
-
-  const showFeatured = mode === 'home' && String(selectedCategory || 'all').toLowerCase() === 'all' && !query.trim();
-
-  const featuredSet = useMemo(() => {
-    const s = new Set<string>();
-    for (const e of featuredUpcoming as any[]) s.add(mergeKeyOf(e));
-    return s;
-  }, [featuredUpcoming]);
-
-  const weekAll = useMemo(() => {
-    const cat = String(selectedCategory || 'all').toLowerCase();
-    if (cat !== 'all') return [];
-    if (query.trim()) return [];
-
-    const sportKey = (ev: any) => {
-      const s = String(ev?.sport || '').toLowerCase();
-      if (s.includes('soccer') || (s.includes('football') && !s.includes('american')) || s.includes('futebol')) return 'soccer';
-      if (s.includes('tennis') || s.includes('tênis') || s.includes('tenis')) return 'tennis';
-      if (s.includes('basket')) return 'basketball';
-      if (s.includes('hockey')) return 'hockey';
-      if (s.includes('baseball')) return 'baseball';
-      return 'other';
-    };
-
-    const order = new Map<string, number>([['soccer', 0], ['tennis', 1], ['basketball', 2], ['hockey', 3], ['baseball', 4]]);
-
-    const now = Date.now();
-    const d0 = new Date(now);
-    d0.setHours(0, 0, 0, 0);
-    const startOfToday = d0.getTime();
-    const endOfWeek = startOfToday + 7 * 24 * 60 * 60 * 1000;
-
-    const startTs = (ev: any) => new Date(ev?.event_date || ev?.start_time || ev?.fixture?.date || 0).getTime();
-
-    const arr = sortedUpcoming
-      .filter((e: any) => !featuredSet.has(mergeKeyOf(e)))
-      .filter((e: any) => {
-        const t = startTs(e);
-        if (!Number.isFinite(t) || t <= 0) return false;
-        return t >= startOfToday && t < endOfWeek;
-      })
-      .sort((a: any, b: any) => {
-        const oa = order.get(sportKey(a)) ?? 9;
-        const ob = order.get(sportKey(b)) ?? 9;
-        if (oa !== ob) return oa - ob;
-        return startTs(a) - startTs(b);
-      });
-
-    return arr;
-  }, [mode, selectedCategory, query, sortedUpcoming, featuredSet]);
-
-  const [weekLimit, setWeekLimit] = useState(20);
-  useEffect(() => {
-    setWeekLimit(20);
-  }, [mode, selectedCategory, query, weekAll.length]);
-  const weekSentinelRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = weekSentinelRef.current;
-    if (!el) return;
-    if (weekLimit >= weekAll.length) return;
-    const obs = new IntersectionObserver((entries) => {
-      if (!entries.some((e) => e.isIntersecting)) return;
-      setWeekLimit((x) => Math.min(weekAll.length, x + 20));
-    }, { root: null, rootMargin: '200px', threshold: 0.01 });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [mode, weekLimit, weekAll.length]);
-  const weekVisible = useMemo(() => weekAll.slice(0, weekLimit), [weekAll, weekLimit]);
-
-  // Home shows both live (capped at 45) + pregame; Live shows all live + week pregame
-  const displayedLive    = processedLive.slice(0, 45);
-  const displayedUpcoming = mode === 'home' ? (showFeatured ? (featuredUpcoming as any) : sortedUpcoming) : [];
+  // Strict separation: Desporto = pregame only | AO VIVO = live only
+  const displayedLive    = mode === 'live' ? processedLive : [];
+  const displayedUpcoming = mode === 'home' ? sortedUpcoming : [];
 
   const groupedLive = useGroupedEvents(displayedLive, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
-
-  const isLiveMode = mode === 'live';
-  const hasLiveEvents = displayedLive.length > 0;
-  const { signals: liveSignals } = useBatchMarketSignals({ events: displayedLive, enabled: hasLiveEvents, maxEvents: 40 })
+  const groupedNext7 = useGroupedEvents(mode === 'live' ? (sortedUpcoming7Days as Event[]) : [], query);
 
   const MAX_EVENTS = mode === 'live' ? 120 : 60; // live≤120, pregame≤60
 
   const limitedUpcoming = useMemo(() => {
-    if (showFeatured) return [];
+    if (mode === 'home' && isMainSports && featuredUpcomingGroups.length > 0) {
+      return featuredUpcomingGroups;
+    }
     let remaining = MAX_EVENTS;
     const result: [string, Event[]][] = [];
 
@@ -370,14 +373,32 @@ function Home({ mode = 'home' }: HomeProps) {
       }
     }
     return result;
-  }, [groupedUpcoming, showFeatured, MAX_EVENTS]);
+  }, [groupedUpcoming, MAX_EVENTS, mode, isMainSports, featuredUpcomingGroups]);
+
+  const limitedNext7 = useMemo(() => {
+    if (mode !== 'live') return [];
+    let remaining = 300;
+    const result: [string, Event[]][] = [];
+    for (const [league, events] of groupedNext7) {
+      if (remaining <= 0) break;
+      const take = Math.min(events.length, remaining);
+      if (take > 0) {
+        result.push([league, events.slice(0, take)]);
+        remaining -= take;
+      }
+    }
+    return result;
+  }, [groupedNext7, mode]);
 
   const noSearchResults = useMemo(() => {
     if (!query.trim()) return false;
     const liveCount = groupedLive.reduce((acc, [, ev]) => acc + ev.length, 0);
     const upCount = limitedUpcoming.reduce((acc, [, ev]) => acc + ev.length, 0);
-    return liveCount + upCount === 0;
-  }, [groupedLive, limitedUpcoming, query]);
+    const next7Count = limitedNext7.reduce((acc, [, ev]) => acc + ev.length, 0);
+    return liveCount + upCount + next7Count === 0;
+  }, [groupedLive, limitedUpcoming, limitedNext7, query]);
+
+  const upcomingIsFeatured = mode === 'home' && isMainSports && featuredUpcomingGroups.length > 0;
 
   const handleOpenEvent = (event: Event) => {
     navigate(`/event/${event.id}`);
@@ -489,26 +510,28 @@ function Home({ mode = 'home' }: HomeProps) {
     };
 
     const candidates = multiplesSource
-      .filter((e: any) => e && e.id != null)
-      .filter((e: any) => String((e as any).home_team || '').trim() && String((e as any).away_team || '').trim())
-      .map((e: any) => {
+      .filter((e) => e && e.id != null)
+      .filter((e) => String((e as any).home_team || '').trim() && String((e as any).away_team || '').trim())
+      .map((e) => {
         const start = new Date((e as any).event_date || (e as any).start_time || (e as any).fixture?.date || 0).getTime();
         const sport = String((e as any).sport || 'soccer');
         return { e, start, sport };
       })
-      .sort((a: any, b: any) => {
+      .sort((a, b) => {
         const sa = a.sport === 'soccer' ? 0 : 1;
         const sb = b.sport === 'soccer' ? 0 : 1;
         if (sa !== sb) return sa - sb;
         return a.start - b.start;
       })
-      .map((x: any) => x.e);
+      .map((x) => x.e);
 
     const banners: Banner[] = [];
     let cursor = 0;
     for (let i = 0; i < 4; i++) {
       const picks: Pick[] = [];
       const used = new Set<string | number>();
+      let lowCount = 0;
+      let highCount = 0;
       let guard = 0;
       while (picks.length < 4 && guard < candidates.length * 2) {
         const ev = candidates[cursor % Math.max(1, candidates.length)];
@@ -518,11 +541,20 @@ function Home({ mode = 'home' }: HomeProps) {
         if (used.has(key)) continue;
         const pick = pickFromEvent(ev);
         if (!pick) continue;
-        if (pick.odd <= 1.05) continue;
+
+        const odd = Number(pick.odd || 0);
+        const isLow = odd > 1.01 && odd < 2.0;
+        const isHigh = odd >= 2.5 && odd <= 3.5;
+        if (!isLow && !isHigh) continue;
+        if (isLow && lowCount >= 3) continue;
+        if (isHigh && highCount >= 1) continue;
+
         used.add(key);
         picks.push(pick);
+        if (isLow) lowCount += 1;
+        if (isHigh) highCount += 1;
       }
-      if (picks.length === 4) {
+      if (picks.length === 4 && lowCount === 3 && highCount === 1) {
         const totalOdd = picks.reduce((acc, p) => acc * p.odd, 1);
         const legsOddStr = picks.map((p) => p.odd.toFixed(2)).join(' × ');
         banners.push({ id: `multi_${i}`, picks, totalOdd, legsOddStr });
@@ -549,25 +581,30 @@ function Home({ mode = 'home' }: HomeProps) {
             <span className="text-red-600 font-black">🔥</span>
             <span className="text-sm font-extrabold uppercase tracking-wider">Múltiplas em destaque</span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); go(idx - 1); }}
-              className={`px-2 py-1 rounded-lg text-xs font-bold ${darkMode ? 'bg-gray-800 text-gray-200 hover:bg-gray-750' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); go(idx + 1); }}
-              className={`px-2 py-1 rounded-lg text-xs font-bold ${darkMode ? 'bg-gray-800 text-gray-200 hover:bg-gray-750' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-            >
-              ›
-            </button>
-          </div>
         </div>
 
-        <div className="relative w-full overflow-hidden">
+        <div
+          className="relative w-full overflow-hidden"
+          style={{ touchAction: 'pan-y' }}
+          onPointerDown={(e) => {
+            (e.currentTarget as any).__swipeX = e.clientX;
+            (e.currentTarget as any).__swipeId = e.pointerId;
+            try { (e.currentTarget as any).setPointerCapture?.(e.pointerId); } catch { void 0 }
+          }}
+          onPointerUp={(e) => {
+            const startX = Number((e.currentTarget as any).__swipeX || 0);
+            const dx = e.clientX - startX;
+            (e.currentTarget as any).__swipeX = 0;
+            try { (e.currentTarget as any).releasePointerCapture?.(e.pointerId); } catch { void 0 }
+            if (Math.abs(dx) < 40) return;
+            if (dx > 0) go(idx - 1);
+            else go(idx + 1);
+          }}
+          onPointerCancel={(e) => {
+            (e.currentTarget as any).__swipeX = 0;
+            try { (e.currentTarget as any).releasePointerCapture?.(e.pointerId); } catch { void 0 }
+          }}
+        >
           <div
             className="flex transition-transform duration-500"
             style={{ transform: `translateX(-${idx * 100}%)` }}
@@ -671,10 +708,10 @@ function Home({ mode = 'home' }: HomeProps) {
   const [showIntro] = useState(false);
 
   useEffect(() => {
-    if (processedLive.length > 0 || upcomingEvents.length > 0) {
+    if ((processedLive.length > 0 || upcomingEvents.length > 0) && !hasEverHadEvents) {
       setHasEverHadEvents(true);
     }
-  }, [processedLive.length, upcomingEvents.length]);
+  }, [processedLive, upcomingEvents, hasEverHadEvents]);
 
   // Caso não apareça nada (primeira carga, sem eventos) - REMOVIDO POR SOLICITAÇÃO
   // if (!loading && !hasEverHadEvents && groupedLive.length === 0 && limitedUpcoming.length === 0) { ... }
@@ -715,73 +752,64 @@ function Home({ mode = 'home' }: HomeProps) {
 
       {/* Mobile Sidebar Overlay */}
 
-      {/* Banner promocional */}
-      {showBanner && ( 
-   <section className="relative w-full overflow-hidden"> 
-     {/* Fundo com gradiente animado + partículas */} 
-     <div className="absolute inset-0 bg-gradient-to-r from-indigo-950 via-purple-950 to-pink-950 animate-gradient-x"></div> 
-     
-     {/* Partículas / faíscas douradas sutis */} 
-     <div className="absolute inset-0 pointer-events-none"> 
-       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(255,215,0,0.08)_0%,transparent_50%)] animate-pulse-slow"></div> 
-       <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_70%,rgba(255,215,0,0.06)_0%,transparent_60%)] animate-pulse-slower"></div> 
-     </div> 
- 
-     {/* Overlay de brilho/gloss */} 
-     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shine-slow"></div> 
- 
-     {/* Conteúdo principal */} 
-    <div className="relative z-10 w-full mx-auto px-2 py-1 md:py-2 flex flex-col md:flex-row items-center justify-between gap-1 md:gap-2"> 
-      {/* Texto */} 
-      <div className="text-center md:text-left"> 
-        <div className="inline-flex items-center gap-2 mb-1"> 
-          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center shadow-lg animate-pulse-slow"> 
-            <svg className="w-3 h-3 text-gray-900" fill="currentColor" viewBox="0 0 24 24"> 
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /> 
-              <path d="M11 7h2v6h-2zM11 15h2v2h-2z" /> 
-            </svg> 
-          </div> 
-          <h3 className="text-sm md:text-base font-extrabold uppercase tracking-wider bg-gradient-to-r from-yellow-300 via-amber-200 to-yellow-300 bg-clip-text text-transparent drop-shadow-lg"> 
-            Boas-Vindas Exclusiva 
-          </h3> 
-        </div> 
+      {showBanner && (
+        <section className="relative w-full overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-emerald-950 via-slate-950 to-amber-950 animate-gradient-x"></div>
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(255,215,0,0.10)_0%,transparent_55%)] animate-pulse-slow"></div>
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_75%_70%,rgba(16,185,129,0.08)_0%,transparent_60%)] animate-pulse-slower"></div>
+          </div>
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shine-slow"></div>
 
-        <p className="text-base md:text-lg font-bold text-white mb-0.5 drop-shadow-md"> 
-          Deposite <span className="text-yellow-400">20€</span> e receba 
-        </p> 
+          <div className="relative z-10 w-full mx-auto px-2 py-2 md:py-3 flex flex-col md:flex-row items-center justify-between gap-2">
+            <div className="text-center md:text-left">
+              <div className="inline-flex items-center gap-2 mb-1">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-300 to-amber-500 flex items-center justify-center shadow-lg">
+                  <img
+                    src={worldCupLogo || "https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/FIFA_World_Cup_Trophy_%28Ank_Kumar%2C_Infosys_Limited%29_02.jpg/500px-FIFA_World_Cup_Trophy_%28Ank_Kumar%2C_Infosys_Limited%29_02.jpg"}
+                    alt="Taça da Copa do Mundo"
+                    className="w-5 h-5 object-cover rounded-sm"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  />
+                  <Trophy className="w-4 h-4 text-gray-900" />
+                </div>
+                <h3 className="text-sm md:text-base font-extrabold uppercase tracking-wider bg-gradient-to-r from-yellow-300 via-amber-200 to-yellow-300 bg-clip-text text-transparent drop-shadow-lg">
+                  FIFA World Cup 2026
+                </h3>
+              </div>
 
-        <div className="flex flex-col md:flex-row items-center gap-2 md:gap-3 mb-1"> 
-          <div className="text-2xl md:text-3xl font-black text-yellow-400 tracking-tight drop-shadow-2xl animate-pulse-slow"> 
-            10€ FREE BET 
-          </div> 
-          <div className="text-xs md:text-sm text-gray-200 font-medium"> 
-            após 4 apostas qualificadas 
-          </div> 
-        </div> 
+              <p className="text-base md:text-lg font-bold text-white mb-0.5 drop-shadow-md">
+                Junho 2026: a Copa do Mundo começa agora
+              </p>
 
-        <p className="text-[10px] md:text-xs text-gray-300 max-w-lg mx-auto md:mx-0 leading-relaxed"> 
-          Aproveite já esta oferta limitada. Apenas o lucro da freebet é sacável. Validade: 7 dias. 
-        </p> 
-      </div> 
+              <p className="text-[10px] md:text-xs text-gray-200 max-w-lg mx-auto md:mx-0 leading-relaxed">
+                Clique para ver todos os jogos e apostar rapidamente.
+              </p>
+            </div>
 
-      {/* Botão CTA com pulso e brilho */} 
-      <Link 
-        to="/deposit" 
-        className="group relative inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 rounded-lg font-bold text-sm uppercase tracking-wider text-white shadow-xl shadow-green-900/40 transition-all duration-300 hover:shadow-green-500/60 hover:scale-105 active:scale-95 overflow-hidden" 
-      > 
-        {/* Efeito de brilho no botão */} 
-        <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-out"></span> 
-
-        <span className="relative z-10">Depositar Agora</span> 
-
-        {/* Ícone animado */} 
-        <svg className="w-4 h-4 relative z-10 group-hover:translate-x-1 transition-transform" fill="currentColor" viewBox="0 0 24 24"> 
-          <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z" /> 
-        </svg> 
-      </Link> 
-    </div> 
-   </section> 
- )}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCategory('all');
+                navigate({ pathname: '/', search: 'q=world%20cup' });
+                setTimeout(() => {
+                  const el = document.getElementById('events');
+                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 0);
+              }}
+              className="group relative inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-300 hover:to-amber-400 rounded-lg font-bold text-sm uppercase tracking-wider text-gray-900 shadow-xl shadow-amber-900/40 transition-all duration-300 hover:shadow-amber-500/50 hover:scale-105 active:scale-95 overflow-hidden"
+            >
+              <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-out"></span>
+              <span className="relative z-10">Aposta já</span>
+              <svg className="w-4 h-4 relative z-10 group-hover:translate-x-1 transition-transform" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z" />
+              </svg>
+            </button>
+          </div>
+        </section>
+      )}
 
       <div className="flex items-start gap-4 w-full px-2 py-6">
         {/* Sidebar */}
@@ -825,7 +853,7 @@ function Home({ mode = 'home' }: HomeProps) {
           <BannerCarousel />
 
           {/* Eventos */}
-          <section>
+          <section id="events">
             <div className="flex items-center gap-3 mb-5">
               {mode === 'live' ? (
                 <>
@@ -842,7 +870,7 @@ function Home({ mode = 'home' }: HomeProps) {
                       <path d="M8 5v14l11-7z" />
                     </svg>
                   </div>
-                  <h2 className="text-2xl font-bold uppercase tracking-wide">Desporto</h2>
+                  <h2 className="text-2xl font-bold uppercase tracking-wide">Pré-Jogos</h2>
                 </>
               )}
             </div>
@@ -852,23 +880,11 @@ function Home({ mode = 'home' }: HomeProps) {
                 <div className="animate-spin h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
                 <p className="text-gray-500">Carregando eventos...</p>
               </div>
-            ) : (groupedLive.length > 0 || limitedUpcoming.length > 0 || (showFeatured && (featuredUpcoming as any[]).length > 0) || weekVisible.length > 0) ? (
+            ) : (groupedLive.length > 0 || limitedUpcoming.length > 0 || limitedNext7.length > 0) ? (
               <div className="space-y-12">
-                {/* LIVE SECTION — shown in all modes when there are live events */}
+                {/* LIVE SECTION — shown only in mode='live' */}
                 {groupedLive.length > 0 && (
                   <div className="space-y-6">
-                    {/* Ao Vivo sub-header (shown in home mode since live mode already has the main header) */}
-                    {mode === 'home' && (
-                      <div className="flex items-center gap-3 px-1">
-                        <span className="relative flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
-                        </span>
-                        <h3 className="text-lg font-bold uppercase tracking-wide text-red-500">
-                          Ao Vivo <span className="text-sm font-normal opacity-70 ml-1">({displayedLive.length})</span>
-                        </h3>
-                      </div>
-                    )}
                      <div className="space-y-8">
                         {(() => {
                           let globalIdx = 0;
@@ -904,7 +920,6 @@ function Home({ mode = 'home' }: HomeProps) {
                                       key={mergeKeyOf(ev)}
                                       event={ev}
                                       onOpenEvent={() => handleOpenEvent(ev)}
-                                      signals={liveSignals[String((ev as any)?.id ?? (ev as any)?.fixture?.id ?? (ev as any)?.external_event_id ?? '')]}
                                     />,
                                   );
                                   globalIdx++;
@@ -919,65 +934,69 @@ function Home({ mode = 'home' }: HomeProps) {
                   </div>
                 )}
 
-                {weekVisible.length > 0 && (
+                {limitedNext7.length > 0 && (
                   <div className="space-y-6">
-                    <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
-                      <h2 className="text-xl font-bold uppercase tracking-wide">
-                        {mode === 'home' ? 'Próximos 7 Dias' : 'Jogos da Semana'}
-                      </h2>
-                    </div>
-                    <div className="flex flex-col gap-4">
-                      {weekVisible.map((ev: any) => (
-                        <EventCard
-                          key={mergeKeyOf(ev)}
-                          event={ev}
-                          onOpenEvent={() => handleOpenEvent(ev)}
-                        />
-                      ))}
-                    </div>
-                    {weekLimit < weekAll.length && (
-                      <div ref={weekSentinelRef} className="py-6 flex items-center justify-center">
-                        <div className="flex items-center gap-3 text-sm font-bold text-gray-400">
-                          <div className="animate-spin h-5 w-5 border-2 border-gray-500 border-t-transparent rounded-full" />
-                          Carregando jogos da semana...
+                     {groupedLive.length > 0 && (
+                        <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
+                           <h2 className="text-xl font-bold uppercase tracking-wide">Próximos 7 dias</h2>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                     )}
+                     <div className="space-y-8">
+                        {(() => {
+                          let globalIdx = 0;
+                          let inserted = false;
+                          return limitedNext7.map(([league, events]) => (
+                            <div key={`next7-${league}`} className="space-y-4">
+                            <div className={`px-5 py-3 rounded-xl font-bold text-sm uppercase tracking-wider flex items-center gap-4 ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>
+                              {(() => {
+                                const firstEvent = events[0] || {};
+                                const leagueObj = (firstEvent as any).league as any;
+                                const leagueNameRaw = (typeof leagueObj === 'string' ? leagueObj : leagueObj?.name) || league;
+                                const countryRaw = (firstEvent as any).country || '';
+                                const sport = (firstEvent as any).sport || 'soccer';
+                                const icon = getSportIcon(sport);
+                                
+                                const displayText = (countryRaw && leagueNameRaw && countryRaw !== leagueNameRaw) 
+                                  ? `${countryRaw} - ${leagueNameRaw}` 
+                                  : (leagueNameRaw || countryRaw || 'Unknown League');
 
-                {showFeatured && (featuredUpcoming as any[]).length > 0 && (
-                  <div className="space-y-6">
-                    <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
-                      <h2 className="text-xl font-bold uppercase tracking-wide">Destaques</h2>
-                    </div>
-                    <div className="flex flex-col gap-4">
-                      {(() => {
-                        const out: any[] = [];
-                        let inserted = false;
-                        let idx = 0;
-                        for (const ev of featuredUpcoming as any[]) {
-                          out.push(
-                            <EventCard
-                              key={mergeKeyOf(ev)}
-                              event={ev}
-                              onOpenEvent={() => handleOpenEvent(ev)}
-                            />,
-                          );
-                          idx++;
-                          if (!inserted && idx === 2) {
-                            inserted = true;
-                            out.push(<MultipleCarousel key="pre_multi_once" instanceKey="pre_once" />);
-                          }
-                        }
-                        return out;
-                      })()}
-                    </div>
+                                return (
+                                  <>
+                                    <img src={icon} alt={sport} className="w-7 h-7 object-contain" />
+                                    <span>{displayText}</span>
+                                  </>
+                                );
+                              })()}
+                            </div>
+                            <div className="flex flex-col gap-4">
+                              {(() => {
+                                const out: any[] = [];
+                                for (const ev of events) {
+                                  out.push(
+                                    <EventCard
+                                      key={`next7_${mergeKeyOf(ev)}`}
+                                      event={ev}
+                                      onOpenEvent={() => handleOpenEvent(ev)}
+                                    />,
+                                  );
+                                  globalIdx++;
+                                  if (!inserted && globalIdx === 2) {
+                                    inserted = true;
+                                    out.push(<MultipleCarousel key="next7_multi_once" instanceKey="next7_once" />);
+                                  }
+                                }
+                                return out;
+                              })()}
+                            </div>
+                            </div>
+                          ));
+                        })()}
+                     </div>
                   </div>
                 )}
 
                 {/* UPCOMING SECTION */}
-                {(!showFeatured && limitedUpcoming.length > 0) && (
+                {limitedUpcoming.length > 0 && (
                   <div className="space-y-6">
                      {groupedLive.length > 0 && (
                         <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
@@ -994,12 +1013,20 @@ function Home({ mode = 'home' }: HomeProps) {
                             <div className={`px-5 py-3 rounded-xl font-bold text-sm uppercase tracking-wider flex items-center gap-4 ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>
                               {(() => {
                                 const firstEvent = events[0] || {};
+                                const sport = firstEvent.sport || 'soccer';
+                                const icon = getSportIcon(sport);
+                                if (upcomingIsFeatured) {
+                                  return (
+                                    <>
+                                      <img src={icon} alt={sport} className="w-7 h-7 object-contain" />
+                                      <span>{league}</span>
+                                    </>
+                                  );
+                                }
+
                                 const leagueObj = firstEvent.league as any;
                                 const leagueNameRaw = (typeof leagueObj === 'string' ? leagueObj : leagueObj?.name) || league;
                                 const countryRaw = firstEvent.country || '';
-                                const sport = firstEvent.sport || 'soccer';
-                                const icon = getSportIcon(sport);
-                                
                                 const displayText = (countryRaw && leagueNameRaw && countryRaw !== leagueNameRaw) 
                                   ? `${countryRaw} - ${leagueNameRaw}` 
                                   : (leagueNameRaw || countryRaw || 'Unknown League');

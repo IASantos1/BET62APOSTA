@@ -32,7 +32,7 @@ export interface OddsResult {
   markets: Record<string, any[]>;
 }
 
-function apiHeaders(apiKey: string): HeadersInit {
+function apiHeaders(apiKey: string): Record<string, string> {
   return {
     'x-api-key': apiKey,
     accept: 'application/json',
@@ -203,114 +203,173 @@ function deriveElapsedAndTimer(sport: string, e: any): { elapsed: number; timer:
     break;
   }
 
-  const startTs = num(e?.startTimestamp);
-  const statusText = String(e?.status?.description ?? e?.status?.type ?? e?.status ?? '').toLowerCase();
   const sportKey = normalizeSportKey(sport);
-
-  if (elapsed === 0 && startTs > 0 && isLive(statusText)) {
-    const now = Date.now();
-    const diffMin = Math.floor((now - startTs * 1000) / 60000);
-    if (diffMin > 0 && diffMin < 400) elapsed = diffMin;
-  }
 
   if (!timer && elapsed > 0) {
     if (sportKey === 'soccer' || sportKey === 'football') timer = `${elapsed}'`;
     else timer = String(elapsed);
   }
 
+  void import('node:fs').then((fs) => {
+    let u = '';
+    let s = '';
+    try {
+      const env = fs.readFileSync('.dbg/live-delay-clock.env', 'utf8');
+      u = /DEBUG_SERVER_URL=(.+)/.exec(env)?.[1] || '';
+      s = /DEBUG_SESSION_ID=(.+)/.exec(env)?.[1] || '';
+    } catch { void 0; }
+    if (!u || !s) return;
+    const status = String(e?.status?.description ?? e?.status?.type ?? e?.status ?? e?.statusCode ?? e?.statusText ?? '');
+    fetch(u, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: s,
+        runId: 'pre',
+        hypothesisId: 'B',
+        location: 'server/services/sportsApiPro.ts:deriveElapsedAndTimer',
+        msg: '[DEBUG] deriveElapsedAndTimer',
+        data: {
+          sport: String(sport || ''),
+          sportKey,
+          status,
+          elapsed,
+          timer,
+          candidates: {
+            elapsed: {
+              e: e?.elapsed ?? null,
+              timeElapsed: e?.time?.elapsed ?? null,
+              timeMinute: e?.time?.minute ?? null,
+              minute: e?.minute ?? null,
+              statusElapsed: e?.status?.elapsed ?? null,
+              statusMinute: e?.status?.minute ?? null,
+              clockMinute: e?.clock?.minute ?? null,
+              clockMinutes: e?.clock?.minutes ?? null,
+            },
+            timer: {
+              e: e?.timer ?? null,
+              timeTimer: e?.time?.timer ?? null,
+              clockDisplay: e?.clock?.display ?? null,
+              clockTime: e?.clock?.time ?? null,
+              statusTimer: e?.status?.timer ?? null,
+            },
+          },
+          start: { startTimestamp: e?.startTimestamp ?? null, startTime: e?.startTime ?? null, event_date: e?.event_date ?? null },
+        },
+        ts: Date.now(),
+      }),
+    }).catch(() => null);
+  }).catch(() => null);
+
   return { elapsed: Number.isFinite(elapsed) ? elapsed : 0, timer };
 }
 
 function extractTennisSets(e: any): Record<string, { home: number | null; away: number | null }> | null {
-  const pairs: Array<{ home: number | null; away: number | null }> = [];
+  const byIndex = new Map<number, { home: number | null; away: number | null }>();
   const toNumOrNull = (v: any): number | null => {
     const n = typeof v === 'string' ? Number(v) : Number(v);
     return Number.isFinite(n) ? n : null;
   };
-  const fromSetsObject = (obj: any): Array<{ home: number | null; away: number | null }> => {
-    if (!obj || typeof obj !== 'object') return [];
-    const out: Array<{ home: number | null; away: number | null }> = [];
-    const read = (k: string) => {
-      const v = (obj as any)[k];
-      if (!v || typeof v !== 'object') return null;
-      const h = toNumOrNull((v as any).home ?? (v as any).h ?? (v as any).homeScore);
-      const a = toNumOrNull((v as any).away ?? (v as any).a ?? (v as any).awayScore);
-      if (h === null && a === null) return null;
-      return { home: h, away: a };
-    };
-    for (let i = 1; i <= 5; i++) {
+  const put = (idx: number, pair: { home: number | null; away: number | null } | null) => {
+    if (!pair) return;
+    if (!Number.isFinite(idx) || idx < 1 || idx > 10) return;
+    if (pair.home === null && pair.away === null) return;
+    const prev = byIndex.get(idx);
+    if (!prev) {
+      byIndex.set(idx, pair);
+      return;
+    }
+    const home = prev.home === null ? pair.home : prev.home;
+    const away = prev.away === null ? pair.away : prev.away;
+    byIndex.set(idx, { home, away });
+  };
+
+  const readPairFromObj = (obj: any, key: string): { home: number | null; away: number | null } | null => {
+    const v = obj?.[key];
+    if (!v || typeof v !== 'object') return null;
+    const h = toNumOrNull((v as any).home ?? (v as any).h ?? (v as any).homeScore);
+    const a = toNumOrNull((v as any).away ?? (v as any).a ?? (v as any).awayScore);
+    if (h === null && a === null) return null;
+    return { home: h, away: a };
+  };
+
+  const mergeSetsObject = (obj: any) => {
+    if (!obj || typeof obj !== 'object') return;
+    for (let i = 1; i <= 10; i++) {
       const cands = [`s${i}`, `set${i}`, `set_${i}`, `SET${i}`, `SET_${i}`, `period${i}`, `p${i}`];
-      let found: { home: number | null; away: number | null } | null = null;
       for (const k of cands) {
-        found = read(k);
-        if (found) break;
-      }
-      if (found) out.push(found);
-    }
-    return out;
-  };
-  const fromPeriodArray = (arr: any): Array<{ home: number | null; away: number | null }> => {
-    if (!Array.isArray(arr)) return [];
-    const out: Array<{ home: number | null; away: number | null }> = [];
-    for (const it of arr) {
-      if (it == null) continue;
-      if (typeof it === 'object') {
-        const h = toNumOrNull((it as any).home ?? (it as any).homeScore ?? (it as any).home_points ?? (it as any).h);
-        const a = toNumOrNull((it as any).away ?? (it as any).awayScore ?? (it as any).away_points ?? (it as any).a);
-        if (h !== null || a !== null) out.push({ home: h, away: a });
+        const found = readPairFromObj(obj, k);
+        if (found) {
+          put(i, found);
+          break;
+        }
       }
     }
-    return out;
   };
-  const s0 =
-    fromSetsObject(e?.score?.sets) ||
-    fromSetsObject(e?.sets) ||
-    fromSetsObject(e?.setScores) ||
-    fromSetsObject(e?.periodScores);
-  if (s0.length > 0) pairs.push(...s0);
+
+  const mergePeriodArray = (arr: any) => {
+    if (!Array.isArray(arr)) return;
+    for (let i = 0; i < arr.length; i++) {
+      const it = arr[i];
+      if (!it || typeof it !== 'object') continue;
+      const h = toNumOrNull((it as any).home ?? (it as any).homeScore ?? (it as any).home_points ?? (it as any).h);
+      const a = toNumOrNull((it as any).away ?? (it as any).awayScore ?? (it as any).away_points ?? (it as any).a);
+      if (h === null && a === null) continue;
+      put(i + 1, { home: h, away: a });
+    }
+  };
+
+  mergeSetsObject(e?.score?.sets);
+  mergeSetsObject(e?.sets);
+  mergeSetsObject(e?.setScores);
+  mergeSetsObject(e?.periodScores);
 
   const hs = e?.homeScore;
   const as = e?.awayScore;
   if (hs && as && typeof hs === 'object' && typeof as === 'object') {
-    const out: Array<{ home: number | null; away: number | null }> = [];
     for (let i = 1; i <= 5; i++) {
       const h = toNumOrNull((hs as any)[`period${i}`]);
       const a = toNumOrNull((as as any)[`period${i}`]);
-      if (h !== null || a !== null) out.push({ home: h, away: a });
+      if (h !== null || a !== null) put(i, { home: h, away: a });
     }
-    if (out.length > 0) pairs.push(...out);
   }
 
-  const a1 = fromPeriodArray(e?.periods ?? e?.scores ?? e?.score?.periods ?? e?.score?.scores);
-  if (a1.length > 0) pairs.push(...a1);
+  mergePeriodArray(e?.periods ?? e?.scores ?? e?.score?.periods ?? e?.score?.scores);
   const hPeriods = e?.homeScore?.periods ?? e?.homeScore?.periodScores ?? e?.homeScore?.scores ?? null;
   const aPeriods = e?.awayScore?.periods ?? e?.awayScore?.periodScores ?? e?.awayScore?.scores ?? null;
   if (Array.isArray(hPeriods) && Array.isArray(aPeriods) && hPeriods.length > 0) {
     for (let i = 0; i < Math.max(hPeriods.length, aPeriods.length); i++) {
       const h = toNumOrNull(hPeriods[i]);
       const a = toNumOrNull(aPeriods[i]);
-      if (h !== null || a !== null) pairs.push({ home: h, away: a });
+      if (h !== null || a !== null) put(i + 1, { home: h, away: a });
     }
   }
-  const limited = pairs.slice(0, 5);
-  if (limited.length === 0) return null;
+  if (byIndex.size === 0) return null;
   const out: Record<string, { home: number | null; away: number | null }> = {};
-  for (let i = 0; i < limited.length; i++) {
-    out[`s${i + 1}`] = { home: limited[i].home, away: limited[i].away };
+  for (let i = 1; i <= 5; i++) {
+    const x = byIndex.get(i);
+    if (!x) continue;
+    out[`s${i}`] = { home: x.home, away: x.away };
   }
+  if (Object.keys(out).length === 0) return null;
   return out;
 }
 
 function deriveTennisSetNumber(status: any, tennisSets: Record<string, { home: number | null; away: number | null }> | null): number | null {
   const s = statusText(status).toUpperCase();
-  const m1 = s.match(/\bS(?:ET)?\s*(\d)\b/);
+  const m1 = s.match(/\bS(?:ET)?\s*(\d{1,2})\b/);
   if (m1) {
     const n = Number(m1[1]);
     if (Number.isFinite(n) && n >= 1 && n <= 5) return n;
   }
-  const m2 = s.match(/\b(\d)(?:ST|ND|RD|TH)\s+SET\b/);
+  const m2 = s.match(/\b(\d{1,2})(?:ST|ND|RD|TH)\s+SET\b/);
   if (m2) {
     const n = Number(m2[1]);
+    if (Number.isFinite(n) && n >= 1 && n <= 5) return n;
+  }
+  const m3 = s.match(/\b(\d{1,2})\s*[º°]?\s*SET\b/);
+  if (m3) {
+    const n = Number(m3[1]);
     if (Number.isFinite(n) && n >= 1 && n <= 5) return n;
   }
   if (tennisSets) {
@@ -461,6 +520,9 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   const statusObj = e?.status ?? status;
   const live = isLive(statusObj);
   const t = live ? deriveElapsedAndTimer(sport, e) : { elapsed: 0, timer: '' };
+  // #region debug-point C:normalize-event-clock
+  void import('node:fs').then((fs) => { let u = 'http://127.0.0.1:7777/event', s = 'live-delay-clock'; try { const env = fs.readFileSync('.dbg/live-delay-clock.env', 'utf8'); u = /DEBUG_SERVER_URL=(.+)/.exec(env)?.[1] || u; s = /DEBUG_SESSION_ID=(.+)/.exec(env)?.[1] || s; } catch { void 0; } const keys = e && typeof e === 'object' ? Object.keys(e) : []; const keyMatches = keys.filter((k) => /elapsed|minute|timer|clock|time/i.test(k)).slice(0, 50); fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: s, runId: 'pre', hypothesisId: 'C', location: 'server/services/sportsApiPro.ts:normalizeEvent', msg: '[DEBUG] normalizeEvent clock/status', data: { sport: String(sport || ''), id, status: String(status || ''), isLive: live, computedDate: date, elapsed: t.elapsed, timer: t.timer, raw: { startTimestamp: e?.startTimestamp ?? null, startTime: e?.startTime ?? null, event_date: e?.event_date ?? null, time: e?.time ?? null, clock: e?.clock ?? null, minute: e?.minute ?? null, elapsed: e?.elapsed ?? null }, keyMatches }, ts: Date.now() }) }).catch(() => null); }).catch(() => null);
+  // #endregion
 
   const sLower = String(sport || '').toLowerCase();
   const tennisSets = sLower.includes('tennis') || sLower.includes('tênis') ? extractTennisSets(e) : null;
@@ -575,24 +637,31 @@ async function fetchJson(url: string, apiKey: string, timeoutMs: number = 15000)
   }
 }
 
+const __live_cache = new Map<string, { ts: number; data: NormalizedEvent[] }>();
+
 export async function fetchSportsApiProLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const primarySub = toSubdomain(sport);
   const primaryUrl = `https://v2.${primarySub}.sportsapipro.com/api/live`;
-  const jsonPrimary = await fetchJson(primaryUrl, apiKey, 6500);
+  const jsonPrimary = await fetchJson(primaryUrl, apiKey, 8000);
   const itemsPrimary = extractEvents(jsonPrimary);
   let items = itemsPrimary;
 
   const fallbackSub = normalizeSportKey(sport);
   if (items.length === 0 && fallbackSub && fallbackSub !== primarySub) {
     const fallbackUrl = `https://v2.${fallbackSub}.sportsapipro.com/api/live`;
-    const jsonFallback = await fetchJson(fallbackUrl, apiKey, 6500);
+    const jsonFallback = await fetchJson(fallbackUrl, apiKey, 8000);
     items = extractEvents(jsonFallback);
+  }
+  if (!jsonPrimary && items.length === 0) {
+    const cached = __live_cache.get(sport);
+    if (cached && Date.now() - cached.ts < 120_000) return cached.data;
   }
   const out: NormalizedEvent[] = [];
   for (const e of items) {
     const n = normalizeEvent(sport, e);
     if (n) out.push(n);
   }
+  __live_cache.set(sport, { ts: Date.now(), data: out });
   return out;
 }
 
@@ -612,6 +681,34 @@ export async function fetchSportsApiProSchedule(apiKey: string, sport: string, d
   const out: NormalizedEvent[] = [];
   for (const e of items) {
     const n = normalizeEvent(sport, e);
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+export async function fetchSportsApiProWorldCup2026(apiKey: string): Promise<any | null> {
+  const url = 'https://v2.football.sportsapipro.com/api/world-cup-2026';
+  return fetchJson(url, apiKey, 9000);
+}
+
+export async function fetchSportsApiProWorldCup2026Info(apiKey: string): Promise<any | null> {
+  const url = 'https://v2.football.sportsapipro.com/api/world-cup-2026/info';
+  return fetchJson(url, apiKey, 9000);
+}
+
+export async function fetchSportsApiProWorldCup2026Groups(apiKey: string): Promise<any | null> {
+  const url = 'https://v2.football.sportsapipro.com/api/world-cup-2026/groups';
+  return fetchJson(url, apiKey, 9000);
+}
+
+export async function fetchSportsApiProWorldCup2026Matches(apiKey: string, page: number): Promise<NormalizedEvent[]> {
+  const p = Number.isFinite(page) ? Math.max(0, Math.min(20, Math.floor(page))) : 0;
+  const url = `https://v2.football.sportsapipro.com/api/world-cup-2026/matches?page=${p}`;
+  const json = await fetchJson(url, apiKey, 9000);
+  const items = extractEvents(json);
+  const out: NormalizedEvent[] = [];
+  for (const e of items) {
+    const n = normalizeEvent('soccer', e);
     if (n) out.push(n);
   }
   return out;
@@ -898,6 +995,9 @@ function normalizeOutcomeName(name: any): string {
   if (s === 'home' || s === '1') return 'home';
   if (s === 'away' || s === '2') return 'away';
   if (s === 'draw' || s === 'x' || s === 'tie') return 'draw';
+  if (s === 'empate') return 'draw';
+  if (s === 'casa' || s === 'mandante') return 'home';
+  if (s === 'fora' || s === 'visitante') return 'away';
   return s;
 }
 
@@ -969,47 +1069,13 @@ export async function fetchSportsApiProMatchOddsPreMatch(
   return fetchSportsApiProMatchOddsGeneric(apiKey, sport, matchId, 'pre-match', opts);
 }
 
-async function fetchSportsApiProMatchOddsGeneric(
-  apiKey: string,
+export function parseSportsApiProMatchOddsPayload(
   sport: string,
-  matchId: string,
-  mode: 'all' | 'live' | 'pre-match',
+  payload: any,
   opts?: { homeTeam?: string; awayTeam?: string }
-): Promise<OddsResult | null> {
-  const sub = toSubdomain(sport);
-  // Primary endpoint: /api/match/{id}/odds (no suffix) — returns data.featured with 1X2
-  const primaryUrl = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds`;
-  const primaryJson = await fetchJson(primaryUrl, apiKey);
-
-  // Extract h2h from the featured format: data.featured.fullTime or data.featured.default
-  // Do NOT return early — always continue to fetch the full /odds/{mode} endpoint for all markets
-  let featuredH2H: { home: number; draw: number; away: number; sels: any[] } | null = null;
-  if (primaryJson?.data?.featured) {
-    const featured = primaryJson.data.featured;
-    const market = featured.fullTime ?? featured.default ?? featured.match ?? null;
-    if (market && Array.isArray(market.choices) && !market.suspended) {
-      const choices = market.choices;
-      let home = 0, draw = 0, away = 0;
-      const h2hSelections: any[] = [];
-      for (const c of choices) {
-        const odd = parseOddDecimal(c?.fractionalValue ?? c?.decimalOdds ?? c?.odd ?? c?.price);
-        const name = String(c?.name ?? '').trim();
-        const sel = { label: name, odd };
-        h2hSelections.push(sel);
-        if (name === '1') home = odd;
-        else if (name === 'X') draw = odd;
-        else if (name === '2') away = odd;
-      }
-      if (h2hSelections.length) featuredH2H = { home, draw, away, sels: h2hSelections };
-    }
-  }
-
-  // Always fetch the suffixed endpoint for the full market set
-  const url = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/${mode}`;
-  const json = await fetchJson(url, apiKey);
-  if (!json) return null;
-
-  const rows = extractOddsAll(json);
+): OddsResult | null {
+  if (!payload) return null;
+  const rows = extractOddsAll(payload);
   if (!rows.length) return null;
 
   type SelectionMap = Map<string, { label: string; odd: number; point?: string }>;
@@ -1025,15 +1091,13 @@ async function fetchSportsApiProMatchOddsGeneric(
     const k = `${normalizeLineName(value)}|${p}`;
     const prev = mk.get(k);
     if (!prev || odd > prev.odd) {
-      const out: any = { label: value, odd };
+      const out: any = { label: value, value, odd };
       if (p) out.point = p;
       mk.set(k, out);
     }
   };
 
   for (const row of rows) {
-    // SportsApiPro v2 uses: marketName, marketGroup, marketPeriod, choices[].fractionalValue
-    // Legacy formats use: lineType, lineName, options[].rate/odd/price
     const lineType = row?.lineType ?? row?.type ?? row?.line_type ?? '';
     const lineName =
       row?.lineName ??
@@ -1048,7 +1112,6 @@ async function fetchSportsApiProMatchOddsGeneric(
     const marketPeriod = row?.marketPeriod ?? row?.market_period ?? row?.period ?? '';
     const key = marketKeyFromOddsAll(String(lineType || ''), String(lineName || ''), String(marketGroup || ''), String(marketPeriod || ''));
     if (!key) continue;
-    // Skip suspended markets
     if (row?.suspended === true || row?.suspended === 1 || row?.suspended === '1') continue;
     // Separate live vs pre-match rows — live data always has priority for the same market key
     const isLiveRow = row?.isLive === true || row?.isLive === 1 || row?.isLive === 'true';
@@ -1064,8 +1127,6 @@ async function fetchSportsApiProMatchOddsGeneric(
     for (const opt of options) {
       if (opt?.suspended === true || opt?.suspended === 1) continue;
       const rawName = opt?.name ?? opt?.label ?? opt?.option ?? opt?.value ?? '';
-      // SportsApiPro v2: fractionalValue is the current live/prematch odd (string like "17/5")
-      // initialFractionalValue is the opening odd — we want the current one
       const odd = parseOddDecimal(
         opt?.rate ?? opt?.odd ?? opt?.price ?? opt?.decimalValue ?? opt?.decimal ??
         opt?.fractionalValue ?? opt?.initialFractionalValue ?? opt?.value
@@ -1114,27 +1175,59 @@ async function fetchSportsApiProMatchOddsGeneric(
   let draw = 0;
   let away = 0;
   const isTennis = normalizeSportKey(sport) === 'tennis';
+  const isSoccer = (() => {
+    const s = normalizeSportKey(sport);
+    return s === 'soccer' || s === 'football';
+  })();
   const homeKey = isTennis ? canonicalTennisTeamKey(String(opts?.homeTeam || '')) : normalizeLineName(String(opts?.homeTeam || ''));
   const awayKey = isTennis ? canonicalTennisTeamKey(String(opts?.awayTeam || '')) : normalizeLineName(String(opts?.awayTeam || ''));
 
   for (const s of h2h) {
-    const rawLabel = s?.label ?? s?.value ?? s?.name ?? '';
-    const n = normalizeOutcomeName(rawLabel);
+    const name = s?.label ?? s?.value ?? s?.name ?? '';
+    const n = normalizeOutcomeName(name);
     const odd = parseOddDecimal(s?.odd);
     if (!(odd > 1)) continue;
-    const nk = isTennis ? canonicalTennisTeamKey(String(rawLabel)) : normalizeLineName(String(rawLabel));
-    if (n === 'home' || (homeKey && nk && (nk === homeKey || nk.includes(homeKey) || homeKey.includes(nk)))) home = home || odd;
-    else if (n === 'away' || (awayKey && nk && (nk === awayKey || nk.includes(awayKey) || awayKey.includes(nk)))) away = away || odd;
-    else if (n === 'draw') draw = draw || odd;
+    const nk = isTennis ? canonicalTennisTeamKey(String(name || '')) : normalizeLineName(String(name || ''));
+    if (n === 'home' || (homeKey && nk && (nk === homeKey || nk.includes(homeKey) || homeKey.includes(nk)))) home = Math.max(home || 0, odd);
+    else if (n === 'away' || (awayKey && nk && (nk === awayKey || nk.includes(awayKey) || awayKey.includes(nk)))) away = Math.max(away || 0, odd);
+    else if (n === 'draw') draw = Math.max(draw || 0, odd);
     else if (isTennis && homeKey && awayKey && nk && !(home > 1 && away > 1)) {
       const sHome = tokenSetSimilarity(nk, homeKey);
       const sAway = tokenSetSimilarity(nk, awayKey);
-      if (sHome >= 0.75 && sHome >= sAway + 0.06) home = home || odd;
-      else if (sAway >= 0.75 && sAway >= sHome + 0.06) away = away || odd;
+      if (sHome >= 0.75 && sHome >= sAway + 0.06) home = Math.max(home || 0, odd);
+      else if (sAway >= 0.75 && sAway >= sHome + 0.06) away = Math.max(away || 0, odd);
+    } else if (isSoccer && homeKey && awayKey && nk && !(home > 1 && away > 1)) {
+      const sHome = tokenSetSimilarity(nk, homeKey);
+      const sAway = tokenSetSimilarity(nk, awayKey);
+      if (sHome >= 0.72 && sHome >= sAway + 0.08) home = Math.max(home || 0, odd);
+      else if (sAway >= 0.72 && sAway >= sHome + 0.08) away = Math.max(away || 0, odd);
     }
   }
 
-  if (!(home > 1) || !(away > 1)) {
+  if (isSoccer && (!(home > 1) || !(away > 1)) && homeKey && awayKey) {
+    type Cand = { odd: number; sHome: number; sAway: number };
+    const cands: Cand[] = [];
+    for (const s of h2h) {
+      const name = s?.value ?? s?.label;
+      const n = normalizeOutcomeName(name);
+      if (n === 'draw') continue;
+      const odd = parseOddDecimal(s?.odd);
+      if (!(odd > 1)) continue;
+      const nk = normalizeLineName(String(name || ''));
+      if (!nk) continue;
+      cands.push({ odd, sHome: tokenSetSimilarity(nk, homeKey), sAway: tokenSetSimilarity(nk, awayKey) });
+    }
+    if (!(home > 1) && cands.length) {
+      const bestHome = cands.reduce((m, x) => (x.sHome > m.sHome ? x : m), cands[0]);
+      if (bestHome.sHome >= 0.55) home = bestHome.odd;
+    }
+    if (!(away > 1) && cands.length) {
+      const bestAway = cands.reduce((m, x) => (x.sAway > m.sAway ? x : m), cands[0]);
+      if (bestAway.sAway >= 0.55) away = bestAway.odd;
+    }
+  }
+
+  if (!isSoccer && (!(home > 1) || !(away > 1))) {
     const out: number[] = [];
     for (const s of h2h) {
       const n = normalizeOutcomeName(s?.label ?? s?.value ?? s?.name ?? '');
@@ -1150,19 +1243,22 @@ async function fetchSportsApiProMatchOddsGeneric(
     }
   }
 
-  // Merge featured h2h into outMarkets if not already present (featured h2h takes priority for h2h key)
-  if (featuredH2H && featuredH2H.sels.length) {
-    if (!outMarkets['h2h'] || !outMarkets['h2h'].length) {
-      outMarkets['h2h'] = featuredH2H.sels;
-    }
-    // Also use featured odds for home/draw/away if not set
-    if (!(home > 1)) home = featuredH2H.home;
-    if (!(draw > 1)) draw = featuredH2H.draw;
-    if (!(away > 1)) away = featuredH2H.away;
-  }
-
   if (Object.keys(outMarkets).length === 0 && !(home > 1) && !(away > 1)) return null;
   return { home, draw, away, markets: outMarkets };
+}
+
+async function fetchSportsApiProMatchOddsGeneric(
+  apiKey: string,
+  sport: string,
+  matchId: string,
+  mode: 'all' | 'live' | 'pre-match',
+  opts?: { homeTeam?: string; awayTeam?: string }
+): Promise<OddsResult | null> {
+  const sub = toSubdomain(sport);
+  const url = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/${mode}`;
+  const json = await fetchJson(url, apiKey);
+  if (!json) return null;
+  return parseSportsApiProMatchOddsPayload(sport, json, opts);
 }
 
 export async function fetchSportsApiProMatchStatistics(apiKey: string, sport: string, matchId: string): Promise<any | null> {

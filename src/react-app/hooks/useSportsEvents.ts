@@ -2,6 +2,25 @@ import { useState, useEffect, useRef } from 'react';
 import { Event } from '../../shared/types';
 import { apiFetch } from '../utils/api';
 
+const __DBG_URL = (import.meta.env.DEV && (import.meta as any).env?.VITE_DEBUG_SERVER_URL)
+  ? String((import.meta as any).env.VITE_DEBUG_SERVER_URL)
+  : '';
+const __DBG_SESSION = (import.meta.env.DEV && (import.meta as any).env?.VITE_DEBUG_SESSION)
+  ? String((import.meta as any).env.VITE_DEBUG_SESSION)
+  : '';
+const __dbg = (hypothesisId: string, msg: string, data: any) => {
+  try {
+    if (!__DBG_URL || !__DBG_SESSION) return;
+    fetch(__DBG_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: __DBG_SESSION, runId: 'pre', hypothesisId, location: 'src/react-app/hooks/useSportsEvents.ts', msg, data, ts: Date.now() }),
+    }).catch(() => null);
+  } catch {
+    void 0;
+  }
+};
+
 const normalizeTeam = (s: string) =>
   String(s || '')
     .normalize('NFD')
@@ -110,7 +129,10 @@ const normalizeMarkets = (evt: Event): Event => {
 
 type OnlyMode = 'live' | 'pregame' | 'both';
 
-export function useSportsEvents(category: string | null, opts?: { only?: OnlyMode }) {
+export function useSportsEvents(
+  category: string | null,
+  opts?: { only?: OnlyMode; days?: number; enabled?: boolean; requireOdds?: boolean },
+) {
   const [live, setLive] = useState<Event[]>([]);
   const [pregame, setPregame] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
@@ -227,7 +249,7 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
         const prevMarketsRaw = (p as any)?.markets ?? (p as any)?.odds;
         const nextMarketsEmpty = mkEmpty(nextMarketsRaw);
         const prevMarketsEmpty = mkEmpty(prevMarketsRaw);
-        let merged: any = { ...(p as any), ...(e as any), __lastSeenAt: now };
+        const merged: any = { ...(p as any), ...(e as any), __lastSeenAt: now };
         if (hn <= 1 && hp > 1) merged.home_odd = (p as any).home_odd;
         if (dn <= 1 && dp > 1) merged.draw_odd = (p as any).draw_odd;
         if (an <= 1 && ap > 1) merged.away_odd = (p as any).away_odd;
@@ -267,18 +289,30 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
   };
 
   // Fallback para 'all' se category for nulo
-  const safeCategory = category || 'all';
+  const safeCategory = typeof category === 'string' && category ? category : 'all';
   const cacheKey = `sportsEvents:${safeCategory}:v1`;
 
   useEffect(() => {
     const controller = new AbortController();
     abortRef.current = controller;
     let isActive = true;
+    const enabled = opts?.enabled !== false;
+    const daysOverrideRaw = typeof opts?.days === 'number' && Number.isFinite(opts.days) ? Math.floor(opts.days) : null;
+    const daysOverride = daysOverrideRaw == null ? null : Math.max(0, Math.min(14, daysOverrideRaw));
     const only: OnlyMode = onlyMode;
     const idleMs = 60_000;
     let lastInteractionAt = Date.now();
     let hiddenAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
     let wakeInFlight = false;
+
+    if (!enabled) {
+      setLoading(false);
+      updateState([], []);
+      return () => {
+        isActive = false;
+        controller.abort();
+      };
+    }
 
     let hadCache = false;
     if (typeof window !== 'undefined') {
@@ -371,14 +405,18 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
         params.set('include', 'odds');
         params.set('realtime', only === 'pregame' ? '0' : '1');
         params.set('only', only);
-        params.set('requireOdds', '1');
+        const requireOdds = opts?.requireOdds !== false;
+        if (requireOdds) params.set('requireOdds', '1');
         const days =
-          only === 'live'
-            ? '0'
-            : '7';
+          daysOverride != null
+            ? String(daysOverride)
+            : (only === 'live'
+                ? '0'
+                : (sportParam === 'all' ? '2' : '7'));
         params.set('days', days);
 
                 const url = `/api/events/by-sport?${params.toString()}`;
+        __dbg('H2', 'http-fetch-start', { category: String(safeCategory || ''), sports: String(sportParam || ''), league: leagueFilter || null, url });
         let data = await apiFetch<any>(url, { signal: controller.signal, timeout: only === 'pregame' ? 20000 : 12000 });
 
         let liveCount = Array.isArray(data?.live) ? data.live.length : 0;
@@ -393,16 +431,20 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
           p2.set('include', 'odds');
           p2.set('realtime', only === 'live' ? '1' : '0');
           p2.set('only', only);
-          p2.set('requireOdds', '1');
+          if (requireOdds) p2.set('requireOdds', '1');
           const days2 =
-            only === 'live'
-              ? '0'
-              : '7';
+            daysOverride != null
+              ? String(daysOverride)
+              : (only === 'live'
+                  ? '0'
+                  : (sportParam === 'all' ? '2' : '7'));
           p2.set('days', days2);
           data = await apiFetch<any>(`/api/events/by-sport?${p2.toString()}`, { signal: controller.signal, timeout: only === 'pregame' ? 20000 : 12000 });
           liveCount = Array.isArray(data?.live) ? data.live.length : 0;
           pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
+          __dbg('H2', 'http-fetch-fallback-all', { from: String(safeCategory || ''), liveCount, pregameCount });
         }
+        __dbg('H2', 'http-fetch-done', { category: String(safeCategory || ''), sports: String(sportParam || ''), liveCount, pregameCount });
 
         /*
         console.log('[useSportsEvents] API Response:', { 
@@ -498,6 +540,18 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
             return [...withOdds, ...withoutOdds].slice(0, max);
           };
           
+          const isUpcomingFetch = only === 'pregame' && safeCategory === 'all' && daysOverride != null && Number(daysOverride) >= 7;
+          if (isUpcomingFetch) {
+            const finalPregame = preferOdds(pregameEvents.filter(isTodayAdjusted), 300);
+            updateState([], finalPregame);
+            if (typeof window !== 'undefined') {
+              try {
+                localStorage.setItem(cacheKey, JSON.stringify({ live: [], pregame: finalPregame }));
+              } catch { void 0; }
+            }
+            return;
+          }
+
                   const filteredLive = liveEvents; 
                   const pregameBase = preferOdds(pregameEvents.filter(isTodayAdjusted), safeCategory === 'all' ? 120 : 60);
 
@@ -734,9 +788,14 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
             return;
         }
  
+        if (isFirstLoadRef.current && !hadCache) {
+          __dbg('H2', 'http-empty-first-load', { category: String(safeCategory || ''), sports: String(sportParam || '') });
+          updateState([], []);
+        }
         return;
       } catch (err: any) { 
         if (controller.signal.aborted) return; 
+        __dbg('H2', 'http-fetch-error', { category: String(safeCategory || ''), message: String(err?.message || err), name: String(err?.name || '' ) });
       } finally { 
         if (isActive) { 
           setLoading(false); 
@@ -779,7 +838,7 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
     // Initial fetch
     fetchData();
 
-            const intervalTime = only === 'live' ? 5000 : 15000;
+            const intervalTime = safeCategory === 'all' ? 10_000 : 15_000;
     let timeoutId: NodeJS.Timeout;
 
     const scheduleNext = () => {
@@ -818,7 +877,7 @@ export function useSportsEvents(category: string | null, opts?: { only?: OnlyMod
         window.removeEventListener('wheel', onActivity);
       }
     };
-  }, [category, safeCategory, onlyMode]); 
+  }, [safeCategory, onlyMode, opts?.days, opts?.enabled, opts?.requireOdds]); 
  
   return { live, pregame, loading }; 
 }

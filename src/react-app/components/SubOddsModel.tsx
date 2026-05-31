@@ -273,24 +273,79 @@ export function SubOddsModel({
       (eventOdds && (eventOdds as any)['match_winner']);
     const list = Array.isArray(raw) ? raw : (raw?.outcomes || raw?.values || []);
     const isSuspended = raw?.suspended === true || raw?.status === 'suspended';
+
+    const sportKey = String((event as any)?.sport || '').toLowerCase();
+    const isSoccer = sportKey === 'soccer' || (sportKey.includes('football') && !sportKey.includes('american'));
+    const homeTeam = (() => {
+      const a = String((event as any)?.home_team || '').trim();
+      if (a) return a;
+      const b = String((event as any)?.teams?.home?.name || '').trim();
+      if (b) return b;
+      const c = String((event as any)?.home?.name || '').trim();
+      if (c) return c;
+      const m = String((event as any)?.match || '').split(' vs ');
+      return String(m?.[0] || '').trim();
+    })();
+    const awayTeam = (() => {
+      const a = String((event as any)?.away_team || '').trim();
+      if (a) return a;
+      const b = String((event as any)?.teams?.away?.name || '').trim();
+      if (b) return b;
+      const c = String((event as any)?.away?.name || '').trim();
+      if (c) return c;
+      const m = String((event as any)?.match || '').split(' vs ');
+      return String(m?.[1] || '').trim();
+    })();
+    const homeName = homeTeam.toLowerCase().trim();
+    const awayName = awayTeam.toLowerCase().trim();
+
+    const norm = (v: any) =>
+      String(v ?? '')
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, ' ');
+
+    const soccerType = (o: any): 'home' | 'draw' | 'away' | '' => {
+      const rawName = norm(o?.label || o?.outcome || o?.name || o?.value || '');
+      const rawSel = norm(o?.selection || o?.id || o?.key || o?.side || '');
+      const s = norm(`${rawSel} ${rawName}`.trim());
+      if (!s) return '';
+      if (s === 'x' || s.includes(' draw') || s === 'draw' || s.includes(' empate') || s === 'empate' || s.includes(' tie') || s === 'tie') return 'draw';
+      if (s === '1' || s.includes(' home') || s === 'home' || s.includes(' casa') || s === 'casa' || s.includes(' mandante') || s === 'mandante') return 'home';
+      if (s === '2' || s.includes(' away') || s === 'away' || s.includes(' fora') || s === 'fora' || s.includes(' visitante') || s === 'visitante') return 'away';
+      if (homeName && (s.includes(homeName) || homeName.includes(s))) return 'home';
+      if (awayName && (s.includes(awayName) || awayName.includes(s))) return 'away';
+      return '';
+    };
     
     const mapped = list.map((o: any) => {
       const v0 = Number(o?.odd || 0)
       const v = applyMarginClamp('h2h', v0)
-      const lbl = labelOutcome('h2h', String(o?.label || o?.outcome || o?.name || o?.value || ''))
-      return { label: lbl, odd: v } as MarketItem
+      const rawName = String(o?.label || o?.outcome || o?.name || o?.value || '')
+      const t = isSoccer ? soccerType(o) : ''
+      const lbl = isSoccer
+        ? (t === 'home' ? (homeTeam || 'Casa') : t === 'draw' ? 'Empate' : t === 'away' ? (awayTeam || 'Fora') : labelOutcome('h2h', rawName))
+        : labelOutcome('h2h', rawName)
+      const key = isSoccer && t ? t : lbl
+      const slot = isSoccer ? (t === 'home' ? 0 : t === 'draw' ? 1 : t === 'away' ? 2 : 9) : 9
+      return { label: lbl, odd: v, selection: lbl, name: key, header: String(slot) } as MarketItem
     }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd > 0))
     
-    const order = new Map<string, number>([['Casa',0],['Empate',1],['Fora',2]])
     const by = new Map<string, MarketItem>();
     for (const it of mapped) {
-       const key = String(it.label || '');
+       const key = String(it.name || it.label || '');
        const prev = by.get(key);
        if (!prev || it.odd > prev.odd) by.set(key, it);
     }
     const deduped = Array.from(by.values());
-    return deduped.sort((a, b) => (order.get(a.label) ?? 9) - (order.get(b.label) ?? 9))
-  }, [eventOdds, applyMarginClamp, labelOutcome])
+    const getSlot = (it: MarketItem) => {
+      const n = Number((it as any)?.header ?? 9);
+      return Number.isFinite(n) ? n : 9;
+    };
+    return deduped
+      .map((it) => ({ ...it, header: undefined }))
+      .sort((a, b) => getSlot(a) - getSlot(b))
+  }, [event, eventOdds, applyMarginClamp, labelOutcome])
 
   const resultadoRegulamentar = useMemo(() => {
      if (h2hInternalItems.length > 0) return h2hInternalItems;
@@ -546,12 +601,11 @@ export function SubOddsModel({
     }
   }, [liveEvents, isLive]);
 
-  // ─────────────────────────────────────────────────────────────────────
-  // "APOSTA JÁ" mode: collapse 1X2 into single button when match is decided
-  // Triggers: any odd ≤ 1.01, score 2-0 at min ≥ 80, score diff ≥ 3
-  // ─────────────────────────────────────────────────────────────────────
   const apostaJaActive = useMemo(() => {
     if (!isLive) return false;
+    const sportKey = String((event as any)?.sport || '').toLowerCase();
+    const isSoccer = sportKey === 'soccer' || (sportKey.includes('football') && !sportKey.includes('american'));
+    if (!isSoccer) return false;
     let h = 0, a = 0;
     const goals = (event as any)?.goals;
     if (goals && typeof goals === 'object') {
@@ -561,13 +615,14 @@ export function SubOddsModel({
       try { const g = JSON.parse(goals); h = Number(g.home || 0); a = Number(g.away || 0); } catch { h = 0; a = 0; }
     }
     const diff = Math.abs(h - a);
-    if (diff >= 3) return true;
     const minute = parseInt(String(liveTimer || '').replace(/[^\d]/g, ''), 10) || 0;
-    if (diff >= 2 && minute >= 80) return true;
-    for (const it of resultadoRegulamentar) {
-      const v = Number(it.odd);
-      if (v > 0 && v <= 1.01) return true;
-    }
+    const fav = resultadoRegulamentar
+      .map((x) => Number(x.odd))
+      .filter((x) => Number.isFinite(x) && x > 1)
+      .reduce((m, x) => (x < m ? x : m), Number.POSITIVE_INFINITY);
+    if (!Number.isFinite(fav)) return false;
+    if (fav <= 1.2) return true;
+    if (minute >= 75 && diff >= 2 && fav <= 1.35) return true;
     return false;
   }, [isLive, event, liveTimer, resultadoRegulamentar]);
 

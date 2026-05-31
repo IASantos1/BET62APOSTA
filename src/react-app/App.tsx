@@ -72,9 +72,38 @@ const eventTrans = {
 };
 
 export default function App() {
+  const [showIntro, setShowIntro] = useState(() => {
+    try { return !sessionStorage.getItem('bet62_intro_shown'); } catch { return true; }
+  });
+
+  useEffect(() => {
+    if (showIntro) {
+      try { sessionStorage.setItem('bet62_intro_shown', '1'); } catch { /* empty */ }
+      const t = setTimeout(() => setShowIntro(false), 3200);
+      return () => clearTimeout(t);
+    }
+  }, [showIntro]);
+
+  useEffect(() => {
+    try {
+      const keys = Object.keys(localStorage || {});
+      keys.forEach((k) => {
+        if (
+          k.startsWith('event_') ||
+          k.startsWith('events_cache_') ||
+          k.startsWith('odds_cache_') ||
+          k.startsWith('upcoming_cache_')
+        ) {
+          try { localStorage.removeItem(k); } catch { /* empty */ }
+        }
+      });
+      try { localStorage.removeItem('home:pregame:v2'); } catch { /* empty */ }
+      try { if ((window as any).caches) (window as any).caches.delete('betarena-static-v1'); } catch { /* empty */ }
+    } catch { /* empty */ }
+  }, []);
   return (
     <ErrorBoundary>
-      <Bet62Intro />
+      {showIntro && <Bet62Intro />}
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <AppProvider>

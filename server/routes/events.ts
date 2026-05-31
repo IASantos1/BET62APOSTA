@@ -8,6 +8,10 @@ import {
   fetchSportsApiProMatchStatistics,
   fetchSportsApiProMatchIncidents,
   fetchSportsApiProSchedule,
+  fetchSportsApiProWorldCup2026,
+  fetchSportsApiProWorldCup2026Groups,
+  fetchSportsApiProWorldCup2026Info,
+  fetchSportsApiProWorldCup2026Matches,
 } from '../services/sportsApiPro';
 import { deriveAdditionalMarkets } from '../services/marketDerivation';
 import { sendJson, badRequest } from '../lib/http';
@@ -18,6 +22,7 @@ type AnyEvent = any;
 
 const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball'];
 const ODDS_FRESH_TTL_MS = 90_000;
+const LIVE_ODDS_FRESH_TTL_MS = 8_000;
 const ODDS_STALE_TTL_MS = 15 * 60_000;
 const LIVE_HOLD_MS = 6 * 60_000;
 
@@ -73,12 +78,14 @@ export type EventsService = {
   setOddsOverride: (eventId: string, odds: { home_odd?: number; draw_odd?: number; away_odd?: number }) => Promise<void>;
 };
 
-export function createEventsService(pool: pg.Pool, apiKey: string): EventsService {
+export function createEventsService(pool: pg.Pool | null, apiKey: string): EventsService {
   const liveCache = new Map<string, CacheEntry<AnyEvent[]>>();
   const scheduleCache = new Map<string, CacheEntry<AnyEvent[]>>();
   const oddsCache = new Map<string, CacheEntry<any>>();
   const oddsInflight = new Map<string, Promise<any | null>>();
   const bySportCache = new Map<string, CacheEntry<{ live: AnyEvent[]; pregame: AnyEvent[] }>>();
+  const worldCupCache = new Map<string, CacheEntry<any>>();
+  const worldCupMatchesCache = new Map<string, CacheEntry<AnyEvent[]>>();
   const oddsQueue: Array<{ sport: string; matchId: string }> = [];
   const oddsQueued = new Set<string>();
   let oddsQueueInFlight = 0;
@@ -287,9 +294,39 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     return normalized;
   };
 
+  const fetchWorldCupMeta = async (kind: 'tournament' | 'info' | 'groups'): Promise<any | null> => {
+    const key = `meta:${kind}`;
+    const cached = worldCupCache.get(key);
+    if (cached && ttlOk(cached.ts, 60 * 60_000)) return cached.data;
+    let data: any | null = null;
+    if (kind === 'tournament') data = await fetchSportsApiProWorldCup2026(apiKey).catch(() => null);
+    if (kind === 'info') data = await fetchSportsApiProWorldCup2026Info(apiKey).catch(() => null);
+    if (kind === 'groups') data = await fetchSportsApiProWorldCup2026Groups(apiKey).catch(() => null);
+    worldCupCache.set(key, { ts: nowMs(), data });
+    return data;
+  };
+
+  const fetchWorldCupMatches = async (page: number): Promise<AnyEvent[]> => {
+    const p = Number.isFinite(page) ? Math.max(0, Math.min(20, Math.floor(page))) : 0;
+    const key = `matches:${p}`;
+    const cached = worldCupMatchesCache.get(key);
+    if (cached && ttlOk(cached.ts, 20 * 60_000)) return cached.data;
+    const list = await fetchSportsApiProWorldCup2026Matches(apiKey, p).catch(() => []);
+    const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
+      const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
+      const out = { ...e, id, sport: 'soccer' };
+      rememberSport(id, 'soccer');
+      lastEventById.set(id, { ts: nowMs(), data: out });
+      return out;
+    });
+    worldCupMatchesCache.set(key, { ts: nowMs(), data: normalized });
+    return normalized;
+  };
+
   const getOverride = async (eventId: string): Promise<{ home_odd: number | null; draw_odd: number | null; away_odd: number | null } | null> => {
     const c = overridesCache.get(eventId);
     if (c && ttlOk(c.ts, 10_000)) return c.data;
+    if (!pool) return null;
     const r = await pool.query(`SELECT home_odd, draw_odd, away_odd FROM odds_overrides WHERE event_id = $1 LIMIT 1`, [eventId]);
     const row = r.rows?.[0];
     if (!row) return null;
@@ -358,7 +395,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
         fetchSportsApiProMatchOddsLive(apiKey, sport, normalizedId, opts).catch(() => null),
         fetchSportsApiProMatchOddsPreMatch(apiKey, sport, normalizedId, opts).catch(() => null),
       ]);
-      const merged = mergeOddsResults([allResult, liveResult, preResult].filter(Boolean));
+      const merged = mergeOddsResults([liveResult, allResult, preResult].filter(Boolean));
       if (merged && merged.markets && typeof merged.markets === 'object') {
         const derived = deriveAdditionalMarkets(
           merged.markets,
@@ -392,7 +429,8 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const key = `${sport}:${matchId}`;
     const cached = oddsCache.get(key);
 
-    if (cached && cached.data != null && ttlOk(cached.ts, ODDS_FRESH_TTL_MS)) {
+    const freshTtl = ctx.isLive ? LIVE_ODDS_FRESH_TTL_MS : ODDS_FRESH_TTL_MS;
+    if (cached && cached.data != null && ttlOk(cached.ts, freshTtl)) {
       return cached.data;
     }
 
@@ -471,7 +509,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const out: R[] = new Array(items.length);
     let idx = 0;
     const run = async () => {
-      while (true) {
+      for (;;) {
         const i = idx++;
         if (i >= items.length) return;
         out[i] = await fn(items[i]);
@@ -500,6 +538,15 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
 
     const includeLive = only === 'both' || only === 'live';
     const includePregame = only === 'both' || only === 'pregame';
+    const days = Math.max(0, Math.min(14, Number.isFinite(daysAhead) ? daysAhead : 0));
+    const now = nowMs();
+    const toStartMs = (e: any) => {
+      const raw = (e as any)?.event_date ?? (e as any)?.fixture?.date ?? (e as any)?.start_time ?? (e as any)?.startTimestamp;
+      if (!raw) return 0;
+      if (typeof raw === 'number') return raw > 10_000_000_000 ? raw : raw * 1000;
+      const t = new Date(String(raw)).getTime();
+      return Number.isFinite(t) ? t : 0;
+    };
 
     if (includeLive && sports.length > 0) {
       const lists = await mapLimit(sports, 5, (s) => fetchLive(s).catch(() => []));
@@ -509,15 +556,6 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     }
 
     if (includePregame && sports.length > 0) {
-      const days = Math.max(0, Math.min(14, Number.isFinite(daysAhead) ? daysAhead : 0));
-      const now = nowMs();
-      const toStartMs = (e: any) => {
-        const raw = (e as any)?.event_date ?? (e as any)?.fixture?.date ?? (e as any)?.start_time ?? (e as any)?.startTimestamp;
-        if (!raw) return 0;
-        if (typeof raw === 'number') return raw > 10_000_000_000 ? raw : raw * 1000;
-        const t = new Date(String(raw)).getTime();
-        return Number.isFinite(t) ? t : 0;
-      };
       const isNotStartedLike = (e: any) => {
         const status = (e as any)?.status ?? (e as any)?.fixture?.status ?? '';
         const raw =
@@ -553,6 +591,17 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       for (const sched of lists) {
         preAll.push(...(sched || []).filter(isPregameCandidate));
       }
+
+      if (sports.some((s) => {
+        const k = String(s || '').toLowerCase().trim();
+        return k === 'soccer' || k === 'football' || k === 'all';
+      })) {
+        const pages = [0, 1, 2, 3];
+        const wcLists = await mapLimit(pages, 2, (p) => fetchWorldCupMatches(p).catch(() => []));
+        for (const sched of wcLists) {
+          preAll.push(...(sched || []).filter(isPregameCandidate));
+        }
+      }
     }
 
     const cleanLeague = String(league || '').trim().toLowerCase();
@@ -564,14 +613,6 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     const isBlockedLeague = (leagueName: string, country?: string): boolean => {
       const l = leagueName.toLowerCase();
       const c = (country || '').toLowerCase();
-
-      // Block women's leagues
-      if (l.includes("women") || l.includes("woman") || l.includes("feminino") ||
-          l.includes("femenino") || l.includes("damen") || l.includes("nwsl") ||
-          l.includes("saff women") || l.includes("damallsvenskan") || l.includes("liga f ") ||
-          l.includes("women's") || l.includes("womens") || l.includes("féminin") ||
-          l.includes("feminine") || l.includes("femmes") || l.includes("feminin") ||
-          l.includes("toppserien") || l.includes("wsl")) return true;
 
       // Block youth / junior / reserve
       if (/\bu\d{2}\b/.test(l) || l.includes("youth") || l.includes("junior") ||
@@ -628,16 +669,9 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
     }
 
     const sortStable = (arr: AnyEvent[]) => {
-      const toMs = (e: any) => {
-        const raw = (e as any)?.event_date ?? (e as any)?.fixture?.date ?? (e as any)?.start_time ?? (e as any)?.startTimestamp;
-        if (!raw) return 0;
-        if (typeof raw === 'number') return raw > 10_000_000_000 ? raw : raw * 1000;
-        const t = new Date(String(raw)).getTime();
-        return Number.isFinite(t) ? t : 0;
-      };
       return [...arr].sort((a: any, b: any) => {
-        const at = toMs(a);
-        const bt = toMs(b);
+        const at = toStartMs(a);
+        const bt = toStartMs(b);
         if (at && bt && at !== bt) return at - bt;
         const al = String((a as any)?.league || '');
         const bl = String((b as any)?.league || '');
@@ -647,12 +681,83 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       });
     };
 
+    const dayKeyOf = (e: any): string => {
+      const raw = (e as any)?.event_date ?? (e as any)?.fixture?.date ?? (e as any)?.start_time ?? (e as any)?.startTimestamp;
+      if (typeof raw === 'string') {
+        const m = raw.match(/\d{4}-\d{2}-\d{2}/);
+        if (m) return m[0] || '';
+      }
+      const t = toStartMs(e);
+      return t ? ymd(new Date(t)) : '';
+    };
+
+    const spreadAcrossDays = (arr: AnyEvent[], desiredDays: number, overallLimit: number): AnyEvent[] => {
+      const list = Array.isArray(arr) ? arr : [];
+      if (overallLimit <= 0) return [];
+      if (list.length <= overallLimit) return list;
+      if (desiredDays <= 1) return list.slice(0, overallLimit);
+
+      const byDay = new Map<string, AnyEvent[]>();
+      for (const e of list) {
+        const k = dayKeyOf(e);
+        if (!k) continue;
+        const bucket = byDay.get(k);
+        if (bucket) bucket.push(e);
+        else byDay.set(k, [e]);
+      }
+
+      const expectedDays: string[] = [];
+      for (let i = 0; i < Math.min(14, desiredDays); i++) {
+        const d = new Date();
+        d.setDate(d.getDate() + i);
+        expectedDays.push(ymd(d));
+      }
+
+      const perDayLimit = Math.max(10, Math.floor(overallLimit / Math.max(1, expectedDays.length)));
+      const out: AnyEvent[] = [];
+      const taken = new Map<string, number>();
+      const idx = new Map<string, number>();
+
+      for (;;) {
+        if (out.length >= overallLimit) break;
+        let progressed = false;
+        for (const d of expectedDays) {
+          if (out.length >= overallLimit) break;
+          const bucket = byDay.get(d);
+          if (!bucket || bucket.length === 0) continue;
+          const used = taken.get(d) || 0;
+          if (used >= perDayLimit) continue;
+          const i = idx.get(d) || 0;
+          if (i >= bucket.length) continue;
+          out.push(bucket[i]);
+          idx.set(d, i + 1);
+          taken.set(d, used + 1);
+          progressed = true;
+        }
+        if (!progressed) break;
+      }
+
+      for (const d of expectedDays) {
+        if (out.length >= overallLimit) break;
+        const bucket = byDay.get(d);
+        if (!bucket || bucket.length === 0) continue;
+        const i0 = idx.get(d) || 0;
+        for (let i = i0; i < bucket.length && out.length < overallLimit; i++) {
+          out.push(bucket[i]);
+        }
+      }
+
+      return out.length > 0 ? out : list.slice(0, overallLimit);
+    };
+
     const filterBlocked = (arr: AnyEvent[]) =>
       allowBlocked
         ? arr
         : arr.filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || '')));
     const live = sortStable(filterBlocked(filterLeague(liveAll))).slice(0, 120);
-    const pregame = sortStable(filterBlocked(filterLeague(preAll))).slice(0, 120);
+    const preSorted = sortStable(filterBlocked(filterLeague(preAll)));
+    const preLimit = days > 1 ? 300 : 120;
+    const pregame = days > 1 ? spreadAcrossDays(preSorted, days, preLimit) : preSorted.slice(0, preLimit);
 
     if (!includeOdds) {
       return { live, pregame };
@@ -670,49 +775,46 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       return cached.data;
     };
 
-    const hasPrimaryOddsFromOdds = (odds: any): boolean => {
-      const h = Number(odds?.home || 0);
-      const a = Number(odds?.away || 0);
-      if (h > 1 && a > 1) return true;
-      const mkObj = odds?.markets && typeof odds.markets === 'object' ? odds.markets : null;
-      if (!mkObj) return false;
-      const h2h = (mkObj as any).h2h || (mkObj as any)['1x2'] || (mkObj as any).main || (mkObj as any).match_winner;
-      const sels = Array.isArray(h2h) ? h2h : (h2h?.selections || h2h?.outcomes || h2h?.values || []);
-      if (!Array.isArray(sels)) return false;
-      const ok = sels.filter((s: any) => Number(s?.odd || s?.price || s?.value || 0) > 1).length;
-      return ok >= 2;
+    const hasAnyMarkets = (mkObj: any): boolean => {
+      if (!mkObj || typeof mkObj !== 'object') return false;
+      if (Array.isArray(mkObj)) return mkObj.length > 0;
+      const entries = Object.entries(mkObj as Record<string, any>).slice(0, 80);
+      for (const [, v] of entries) {
+        if (!v) continue;
+        if (Array.isArray(v) && v.length > 0) return true;
+        if (typeof v === 'object') {
+          const inner = (v as any).selections || (v as any).outcomes || (v as any).values || (v as any).lines;
+          if (Array.isArray(inner) && inner.length > 0) return true;
+          if (Object.keys(v as any).length > 0) return true;
+        }
+      }
+      return Object.keys(mkObj as any).length > 0;
     };
 
-    const hasPrimaryOddsEvent = (e: any) => {
+    const hasAnyOddsFromOdds = (odds: any): boolean => {
+      const h = Number(odds?.home || 0);
+      const d = Number(odds?.draw || 0);
+      const a = Number(odds?.away || 0);
+      if (h > 1 && a > 1) return true;
+      if (d > 1) return true;
+      const mkObj = odds?.markets && typeof odds.markets === 'object' ? odds.markets : null;
+      return hasAnyMarkets(mkObj);
+    };
+
+    const hasAnyOddsEvent = (e: any) => {
       const h = Number(e?.home_odd || 0);
+      const d = Number(e?.draw_odd || 0);
       const a = Number(e?.away_odd || 0);
       if (h > 1 && a > 1) return true;
+      if (d > 1) return true;
       const mkRaw = (e as any)?.markets ?? (e as any)?.odds;
-      const mkObj =
-        mkRaw && typeof mkRaw === 'object' && !Array.isArray(mkRaw)
-          ? mkRaw
-          : parseMarkets(mkRaw);
-      if (!mkObj || typeof mkObj !== 'object') return false;
-      const h2h =
-        (mkObj as any).h2h ||
-        (mkObj as any)['1x2'] ||
-        (mkObj as any).main ||
-        (mkObj as any).match_winner;
-      const sels = Array.isArray(h2h) ? h2h : (h2h?.selections || h2h?.outcomes || h2h?.values || []);
-      if (!Array.isArray(sels)) return false;
-      const ok = sels.filter((s: any) => Number(s?.odd || s?.price || s?.value || 0) > 1).length;
-      return ok >= 2;
+      const mkObj = mkRaw && typeof mkRaw === 'object' ? mkRaw : parseMarkets(mkRaw);
+      return hasAnyMarkets(mkObj);
     };
 
     if (realtime) {
       const budget0 = { remaining: 0 };
 
-      // In realtime mode we must NOT filter by requireOdds — on the first (cold-start)
-      // request the odds cache is empty, so filtering would drop every event and the
-      // frontend would always show an empty list.  Events without cached odds will
-      // have their odds fields at 0; the UI renders "-" in that case, which is correct.
-      // Background odds fetches are already queued above (queueOddsRefresh) so the
-      // next poll (≈7 s) will carry the real odds from cache.
       const liveFiltered = includeLive ? live : [];
       const preFiltered = includePregame ? pregame : [];
 
@@ -733,16 +835,16 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       preEnriched = [...headEnriched, ...tail];
     }
 
-    const filteredLive = requireOdds && includeLive ? liveEnriched.filter(hasPrimaryOddsEvent) : liveEnriched;
+    const filteredLive = requireOdds && includeLive ? liveEnriched.filter(hasAnyOddsEvent) : liveEnriched;
     const filteredPregame = requireOdds && includePregame
       ? preEnriched.filter((e: any) => {
-          if (hasPrimaryOddsEvent(e)) return true;
+          if (hasAnyOddsEvent(e)) return true;
           const sport = String(e?.sport || '').trim();
           if (!sport) return false;
           const id = matchIdOf(e);
           if (!id) return false;
           const odds = oddsFromCache(sport, id);
-          return odds ? hasPrimaryOddsFromOdds(odds) : false;
+          return odds ? hasAnyOddsFromOdds(odds) : false;
         })
       : preEnriched;
     return { live: filteredLive, pregame: filteredPregame };
@@ -797,6 +899,32 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
       ).catch(() => ({ live: [], pregame: [] }));
       bySportCache.set(cacheKey, { ts: nowMs(), data });
       sendJson(res, 200, data);
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/world-cup-2026') {
+      const data = await fetchWorldCupMeta('tournament').catch(() => null);
+      sendJson(res, 200, data || {});
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/world-cup-2026/info') {
+      const data = await fetchWorldCupMeta('info').catch(() => null);
+      sendJson(res, 200, data || {});
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/world-cup-2026/groups') {
+      const data = await fetchWorldCupMeta('groups').catch(() => null);
+      sendJson(res, 200, data || {});
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/world-cup-2026/matches') {
+      const pageRaw = Number(url.searchParams.get('page') || 0);
+      const page = Number.isFinite(pageRaw) ? Math.max(0, Math.min(20, Math.floor(pageRaw))) : 0;
+      const data = await fetchWorldCupMatches(page).catch(() => []);
+      sendJson(res, 200, { page, matches: data });
       return true;
     }
 
@@ -1196,7 +1324,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
   };
 
   const getAdminOddsEvents = async (): Promise<any[]> => {
-    const data = await buildBySport('all', true, null, false, true);
+    const data = await buildBySport('all', true, null, false, true, 'both', 7, false, false);
     const all = [...data.live, ...data.pregame];
     return all.map((e: any) => ({
       id: String(e.id),
@@ -1212,6 +1340,7 @@ export function createEventsService(pool: pg.Pool, apiKey: string): EventsServic
   };
 
   const setOddsOverride = async (eventId: string, odds: { home_odd?: number; draw_odd?: number; away_odd?: number }): Promise<void> => {
+    if (!pool) throw new Error('Database not configured');
     const ho = odds.home_odd != null ? Number(odds.home_odd) : null;
     const doo = odds.draw_odd != null ? Number(odds.draw_odd) : null;
     const ao = odds.away_odd != null ? Number(odds.away_odd) : null;

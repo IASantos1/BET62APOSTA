@@ -12,8 +12,6 @@ import { handleUsersRoutes } from './routes/users';
 import { handleAdminRoutes } from './routes/admin';
 import { createLiveWs } from './ws/liveWs';
 
-const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 3000);
-
 const loadEnvFile = (filePath: string) => {
   try {
     if (!fs.existsSync(filePath)) return;
@@ -37,12 +35,19 @@ const loadEnvFile = (filePath: string) => {
 loadEnvFile(path.resolve(process.cwd(), 'env', '.env'));
 loadEnvFile(path.resolve(process.cwd(), '.env'));
 
+const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.API_PORT || 3000);
+
 let pool: ReturnType<typeof createPool> | null = null;
 let dbReady = false;
 try {
   pool = createPool();
-  await ensureSchema(pool);
-  dbReady = true;
+  if (!pool) {
+    dbReady = false;
+    console.warn('[server] WARNING: DATABASE_URL is not set. Auth/bets/wallet/admin routes are disabled.');
+  } else {
+    await ensureSchema(pool);
+    dbReady = true;
+  }
 } catch (e: any) {
   console.error('[server] DB init failed:', String(e?.message || e));
   pool = null;
@@ -157,21 +162,53 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (await tryServeStatic(req, res, url)) return;
-
-    if (await events.handleEventsRoutes(req, res, url)) return;
-    if (!dbReady) {
-      if (url.pathname.startsWith('/api/auth') || url.pathname.startsWith('/api/users') || url.pathname.startsWith('/api/wallet') || url.pathname.startsWith('/api/bets') || url.pathname.startsWith('/api/favorites') || url.pathname.startsWith('/api/admin')) {
-        sendJson(res, 503, { error: 'Database unavailable' });
+    const isApi = url.pathname === '/api' || url.pathname.startsWith('/api/');
+    if (isApi) {
+      if (req.method === 'GET' && url.pathname === '/api/pricing/config') {
+        sendJson(res, 200, { betDefault: 10 });
         return;
       }
+
+      if (await events.handleEventsRoutes(req, res, url)) return;
+      if (!dbReady) {
+        if (url.pathname === '/api/auth/me' && req.method === 'GET') {
+          sendJson(res, 200, { user: null });
+          return;
+        }
+        if (url.pathname === '/api/users/is-operator' && req.method === 'GET') {
+          sendJson(res, 200, { operator: false });
+          return;
+        }
+        if (url.pathname === '/api/users/profile' && req.method === 'GET') {
+          sendJson(res, 200, { self_exclude: 0, self_exclude_until: null });
+          return;
+        }
+        if (
+          url.pathname.startsWith('/api/auth') ||
+          url.pathname.startsWith('/api/users') ||
+          url.pathname.startsWith('/api/metrics') ||
+          url.pathname.startsWith('/api/wallet') ||
+          url.pathname.startsWith('/api/bets') ||
+          url.pathname.startsWith('/api/favorites') ||
+          url.pathname.startsWith('/api/admin')
+        ) {
+          sendJson(res, 503, { error: 'Database unavailable' });
+          return;
+        }
+      }
+
+      if (pool && (await handleAuthRoutes(pool, req, res, url))) return;
+      if (pool && (await handleUsersRoutes(pool, req, res, url))) return;
+      if (pool && (await handleWalletRoutes(pool, req, res, url))) return;
+      if (pool && (await handleBetRoutes(pool, req, res, url))) return;
+      if (pool && (await handleFavoriteRoutes(pool, req, res, url))) return;
+      if (pool && (await handleAdminRoutes(pool, events, req, res, url))) return;
+
+      notFound(res);
+      return;
     }
-    if (pool && (await handleAuthRoutes(pool, req, res, url))) return;
-    if (pool && (await handleUsersRoutes(pool, req, res, url))) return;
-    if (pool && (await handleWalletRoutes(pool, req, res, url))) return;
-    if (pool && (await handleBetRoutes(pool, req, res, url))) return;
-    if (pool && (await handleFavoriteRoutes(pool, req, res, url))) return;
-    if (pool && (await handleAdminRoutes(pool, events, req, res, url))) return;
+
+    if (await tryServeStatic(req, res, url)) return;
 
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '')) {
       sendJson(res, 200, { ok: true, service: 'api' });

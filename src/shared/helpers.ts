@@ -25,8 +25,8 @@ export const formatLeagueHeader = (rawInput: any) => {
         raw = ''; 
     }
 
-    raw = raw.replace(/^soccer\s*[-:.]?\s*/i, '');
-    raw = raw.replace(/^(tennis|basketball|baseball|volleyball|handball|rugby|mma|american\s*football|american-football|ice\s*hockey|ice-hockey|golf|formula1|cricket)\s*[-:.]?\s*/i, '');
+    raw = raw.replace(/^soccer\s*(?:-|:|\.)?\s*/i, '');
+    raw = raw.replace(/^(tennis|basketball|baseball|volleyball|handball|rugby|mma|american\s*football|american-football|ice\s*hockey|ice-hockey|golf|formula1|cricket)\s*(?:-|:|\.)?\s*/i, '');
     
     // FIX: Clean up specific bad patterns like " - ó" (El Salvador issue)
     raw = raw.replace(/\s*[-·]\s*ó$/i, '');
@@ -366,7 +366,7 @@ export const formatLeagueHeader = (rawInput: any) => {
 
   // Clean up country name if it has "soccer" prefix
     if (country) {
-        country = country.replace(/^soccer\s*[-:.]?\s*/i, '');
+        country = country.replace(/^soccer\s*(?:-|:|\.)?\s*/i, '');
     }
 
     // FALLBACK: Advanced Regex Matching (ported from EventCard logic)
@@ -943,10 +943,6 @@ export const labelOutcome = (market: string, name: string, homeTeam?: string, aw
     const safeName = String(name || '');
     const m = String(market || '').toLowerCase();
     const n = safeName.toLowerCase();
-    
-    // For tennis/basketball/baseball 2-way h2h: show player/team names when available
-    if ((n === '1' || n === 'home' || n === 'home team') && homeTeam) return homeTeam;
-    if ((n === '2' || n === 'away' || n === 'away team') && awayTeam) return awayTeam;
 
     // Global translation for Home/Draw/Away (generic matches)
     if (n === 'home' || n === '1' || n === 'casa' || n === 'home team') return 'Casa';

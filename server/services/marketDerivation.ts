@@ -9,7 +9,7 @@ export type MarketMap = Record<string, Selection[]>;
 
 function poissonPMF(lambda: number, k: number): number {
   if (k < 0 || lambda <= 0 || !Number.isFinite(lambda)) return k === 0 ? 1 : 0;
-  let logP = -lambda + k * Math.log(lambda);
+  const logP = -lambda + k * Math.log(lambda);
   let logFact = 0;
   for (let i = 2; i <= k; i++) logFact += Math.log(i);
   return Math.min(1, Math.max(0, Math.exp(logP - logFact)));

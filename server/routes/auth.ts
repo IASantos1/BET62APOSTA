@@ -84,42 +84,38 @@ async function issueTokens(pool: pg.Pool, userId: string, req: http.IncomingMess
   const sessionsIssuedType = colType(sessionsCols, 'issued_at');
   const sessionsIssuedIsTs = sessionsIssuedType.includes('timestamp') || sessionsIssuedType.includes('date');
 
-  try {
-    if (sessionsHasIssuedAt) {
-      if (sessionsExpiresIsTs || sessionsIssuedIsTs) {
-        await pool.query(
-          `INSERT INTO sessions (token, user_id, issued_at, expires_at)
-           VALUES ($1, $2, to_timestamp($3 / 1000.0), to_timestamp($4 / 1000.0))
-           ON CONFLICT (token) DO NOTHING`,
-          [token, userId, now, expiresAtMs],
-        );
-      } else {
-        await pool.query(
-          `INSERT INTO sessions (token, user_id, issued_at, expires_at)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (token) DO NOTHING`,
-          [token, userId, now, expiresAtMs],
-        );
-      }
+  if (sessionsHasIssuedAt) {
+    if (sessionsExpiresIsTs || sessionsIssuedIsTs) {
+      await pool.query(
+        `INSERT INTO sessions (token, user_id, issued_at, expires_at)
+         VALUES ($1, $2, to_timestamp($3 / 1000.0), to_timestamp($4 / 1000.0))
+         ON CONFLICT (token) DO NOTHING`,
+        [token, userId, now, expiresAtMs],
+      );
     } else {
-      if (sessionsExpiresIsTs) {
-        await pool.query(
-          `INSERT INTO sessions (token, user_id, expires_at)
-           VALUES ($1, $2, to_timestamp($3 / 1000.0))
-           ON CONFLICT (token) DO NOTHING`,
-          [token, userId, expiresAtMs],
-        );
-      } else {
-        await pool.query(
-          `INSERT INTO sessions (token, user_id, expires_at)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (token) DO NOTHING`,
-          [token, userId, expiresAtMs],
-        );
-      }
+      await pool.query(
+        `INSERT INTO sessions (token, user_id, issued_at, expires_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (token) DO NOTHING`,
+        [token, userId, now, expiresAtMs],
+      );
     }
-  } catch (e) {
-    throw e;
+  } else {
+    if (sessionsExpiresIsTs) {
+      await pool.query(
+        `INSERT INTO sessions (token, user_id, expires_at)
+         VALUES ($1, $2, to_timestamp($3 / 1000.0))
+         ON CONFLICT (token) DO NOTHING`,
+        [token, userId, expiresAtMs],
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO sessions (token, user_id, expires_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (token) DO NOTHING`,
+        [token, userId, expiresAtMs],
+      );
+    }
   }
 
   const refreshCols = await getTableCols(pool, 'refresh_tokens').catch(() => []);
@@ -288,7 +284,10 @@ export async function handleAuthRoutes(
 
   if (req.method === 'GET' && path === '/api/auth/me') {
     const u = await requireUser(pool, req);
-    if (!u) return unauthorized(res), true;
+    if (!u) {
+      sendJson(res, 200, { user: null });
+      return true;
+    }
     const kyc = u.kyc_verified ? 'verified' : 'unverified';
     sendJson(res, 200, {
       user: {

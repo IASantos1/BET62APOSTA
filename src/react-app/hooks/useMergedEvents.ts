@@ -33,6 +33,16 @@ const isNonEmptyMarkets = (v: any) => (Array.isArray(v) ? v.length > 0 : isNonEm
 
 const isNonEmptyString = (v: any) => typeof v === 'string' && v.trim().length > 0;
 
+const hasAnyOdds = (e: any) => {
+  const h = Number(e?.home_odd || 0);
+  const d = Number(e?.draw_odd || 0);
+  const a = Number(e?.away_odd || 0);
+  if (h > 1 && a > 1) return true;
+  if (d > 1) return true;
+  const mk = e?.markets ?? e?.odds;
+  return isNonEmptyMarkets(mk);
+};
+
 const pickTimer = (wsTimer: any, httpTimer: any) => {
   if (isNonEmptyString(wsTimer)) return String(wsTimer).trim();
   if (isNonEmptyString(httpTimer)) return String(httpTimer).trim();
@@ -148,6 +158,10 @@ export function useMergedEvents(
         const a = (e.away_team || '').trim();
         if (!h || !a || h === 'undefined' || a === 'undefined' || h === 'Home Team' || a === 'Away Team') return false;
         if (e.id === 'undefined' || !e.id) return false;
+
+        const st = statusKeyOf(e);
+        const isLive = Number((e as any).is_live) === 1 || st === 'LIVE' || ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN'].includes(st);
+        if (isLive && !hasAnyOdds(e)) return false;
         return true;
     }).sort((a, b) => {
       const aStatus = statusKeyOf(a);

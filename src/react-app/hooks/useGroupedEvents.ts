@@ -4,14 +4,20 @@ import type { Event } from '@/shared/types';
 export function useGroupedEvents(events: Event[], query: string) {
     // 1. Filter
     const filtered = useMemo(() => {
-        if (!query) return events;
-        const q = query.toLowerCase();
-        return events.filter(e => 
-            e.match.toLowerCase().includes(q) || 
-            e.league.toLowerCase().includes(q) ||
-            e.home_team.toLowerCase().includes(q) ||
-            e.away_team.toLowerCase().includes(q)
-        );
+        const q = String(query || '').toLowerCase().trim();
+        if (!q) return events;
+        return events.filter((e: any) => {
+            const match = String(e?.match || '').toLowerCase();
+            const league = String(e?.league || '').toLowerCase();
+            const home = String(e?.home_team || '').toLowerCase();
+            const away = String(e?.away_team || '').toLowerCase();
+            return (
+                match.includes(q) ||
+                league.includes(q) ||
+                home.includes(q) ||
+                away.includes(q)
+            );
+        });
     }, [events, query]);
 
     // 2. Group & Sort

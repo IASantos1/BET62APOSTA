@@ -1,6 +1,7 @@
 import { useApp } from '@/react-app/contexts/AppContext';
 import { Gift, Info } from 'lucide-react';
 import { usePromotionProgress } from '@/react-app/hooks/usePromotionProgress';
+import { Link } from 'react-router-dom';
 
 export default function Promotions() {
   const { darkMode, user } = useApp();
@@ -20,6 +21,55 @@ export default function Promotions() {
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+      <section className="relative w-full overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-r from-indigo-950 via-purple-950 to-pink-950 animate-gradient-x"></div>
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(255,215,0,0.08)_0%,transparent_50%)] animate-pulse-slow"></div>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_70%,rgba(255,215,0,0.06)_0%,transparent_60%)] animate-pulse-slower"></div>
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shine-slow"></div>
+
+        <div className="relative z-10 w-full mx-auto px-3 py-3 md:py-4 flex flex-col md:flex-row items-center justify-between gap-3">
+          <div className="text-center md:text-left">
+            <div className="inline-flex items-center gap-2 mb-1">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center shadow-lg animate-pulse-slow">
+                <svg className="w-3.5 h-3.5 text-gray-900" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
+                  <path d="M11 7h2v6h-2zM11 15h2v2h-2z" />
+                </svg>
+              </div>
+              <h3 className="text-sm md:text-base font-extrabold uppercase tracking-wider bg-gradient-to-r from-yellow-300 via-amber-200 to-yellow-300 bg-clip-text text-transparent drop-shadow-lg">
+                Boas-Vindas Exclusiva
+              </h3>
+            </div>
+
+            <p className="text-base md:text-lg font-bold text-white mb-0.5 drop-shadow-md">
+              Deposite <span className="text-yellow-400">20€</span> e receba
+            </p>
+
+            <div className="flex flex-col md:flex-row items-center gap-2 md:gap-3">
+              <div className="text-2xl md:text-3xl font-black text-yellow-400 tracking-tight drop-shadow-2xl animate-pulse-slow">
+                10€ FREE BET
+              </div>
+              <div className="text-xs md:text-sm text-gray-200 font-medium">
+                após 4 apostas qualificadas
+              </div>
+            </div>
+          </div>
+
+          <Link
+            to="/deposit"
+            className="group relative inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 rounded-lg font-bold text-sm uppercase tracking-wider text-white shadow-xl shadow-green-900/40 transition-all duration-300 hover:shadow-green-500/60 hover:scale-105 active:scale-95 overflow-hidden"
+          >
+            <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-out"></span>
+            <span className="relative z-10">Depositar Agora</span>
+            <svg className="w-4 h-4 relative z-10 group-hover:translate-x-1 transition-transform" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z" />
+            </svg>
+          </Link>
+        </div>
+      </section>
+
       {/* Banner Hero */}
       <div className="relative bg-gradient-to-r from-blue-900 to-blue-800 text-white py-12 px-4 overflow-hidden">
         <div className="absolute top-0 right-0 opacity-10 transform translate-x-1/4 -translate-y-1/4">

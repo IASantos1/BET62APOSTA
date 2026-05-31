@@ -42,6 +42,10 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
   const eventLeague = event.league?.name || event.league || 'Unknown League'; // Handle object or string
   const eventSport = event.sport;
   const sport = eventSport ? normalizeSport(eventSport) : getSportFromLeague(typeof eventLeague === 'string' ? eventLeague : (eventLeague?.name || ''));
+  const isWorldCup = useMemo(() => {
+    const l = String(typeof eventLeague === 'string' ? eventLeague : (eventLeague?.name || '')).toLowerCase();
+    return l.includes('world cup') || l.includes('copa do mundo') || l.includes('worldcup');
+  }, [eventLeague]);
 
   // Removed useRealtimeOdds hook
   
@@ -162,11 +166,22 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     };
 
     const setsRoot = obj.sets || obj.set || {};
-    const s1 = readSetPair(setsRoot.s1 || setsRoot.set1);
-    const s2 = readSetPair(setsRoot.s2 || setsRoot.set2);
-    const s3 = readSetPair(setsRoot.s3 || setsRoot.set3);
-    const s4 = readSetPair(setsRoot.s4 || setsRoot.set4);
-    const s5 = readSetPair(setsRoot.s5 || setsRoot.set5);
+    const maxIdx = (() => {
+      if (!setsRoot || typeof setsRoot !== 'object') return 0;
+      let m = 0;
+      for (const k of Object.keys(setsRoot)) {
+        const mm = /^(?:s|set)\s*(\d{1,2})$/i.exec(String(k).trim());
+        if (!mm) continue;
+        const n = Number(mm[1]);
+        if (Number.isFinite(n) && n > m) m = n;
+      }
+      return Math.min(10, Math.max(0, m));
+    })();
+    const sets: Array<{ home: number | null; away: number | null }> = [];
+    for (let i = 1; i <= maxIdx; i++) {
+      const v = (setsRoot as any)[`s${i}`] ?? (setsRoot as any)[`set${i}`] ?? (setsRoot as any)[`S${i}`] ?? (setsRoot as any)[`SET${i}`];
+      sets.push(readSetPair(v));
+    }
 
     const normalizePoint = (v: any): '15' | '30' | '40' | 'AD' | null => {
       const s = String(v ?? '').trim().toUpperCase();
@@ -181,14 +196,9 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     const pHome = normalizePoint(pointRoot.home ?? pointRoot.h ?? obj.pointHome ?? obj.homePoint);
     const pAway = normalizePoint(pointRoot.away ?? pointRoot.a ?? obj.pointAway ?? obj.awayPoint);
 
-    const hasAnySet =
-      s1.home != null || s1.away != null ||
-      s2.home != null || s2.away != null ||
-      s3.home != null || s3.away != null ||
-      s4.home != null || s4.away != null ||
-      s5.home != null || s5.away != null;
+    const hasAnySet = sets.some((s) => s.home != null || s.away != null);
 
-    return { hasAnySet, s1, s2, s3, s4, s5, pHome, pAway };
+    return { hasAnySet, sets, pHome, pAway };
   }, [event, sport]);
 
   // useTrend hook imported from @/react-app/hooks/useTrend
@@ -367,7 +377,6 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     }
   }, [liveEventList, isLiveEvent]);
 
-  // Toast notification when signals change (deduped)
   useEffect(() => {
     if (!isLiveEvent) return;
     const effectiveCrit: CritState = apiCritState !== 'idle' ? (apiCritState as CritState) : critState;
@@ -376,14 +385,10 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     if (lastNotifCritRef.current === key) return;
     lastNotifCritRef.current = key;
     const msg = CRIT_NOTIF[effectiveCrit];
-    if (msg) {
-      const matchStr = String(event.match || `${homeTeamName} vs ${awayTeamName}`);
-      addNotification({ type: 'info', message: `${matchStr}: ${msg}` });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiCritState, critState, isLiveEvent]);
-
-  // "Aposta Já" trigger: ONLY when any 1X2 odd ≤ 1.01 (match practically decided)
+    if (!msg) return;
+    const matchStr = String((event as any)?.match || `${homeTeamName} vs ${awayTeamName}`);
+    addNotification({ type: 'info', message: `${matchStr}: ${msg}` });
+  }, [addNotification, apiCritState, critState, event, eventId, homeTeamName, awayTeamName, isLiveEvent]);
   const apostaJaActive = useMemo(() => {
     if (!isLiveEvent) return false;
     if (hh > 0 && hh <= 1.01) return true;
@@ -446,6 +451,16 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="font-bold uppercase tracking-tight">{leagueLabel}</span>
+                    {isWorldCup && (
+                      <img
+                        src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/FIFA_World_Cup_Trophy_%28Ank_Kumar%2C_Infosys_Limited%29_02.jpg/250px-FIFA_World_Cup_Trophy_%28Ank_Kumar%2C_Infosys_Limited%29_02.jpg"
+                        alt="Taça da Copa do Mundo"
+                        className="w-4 h-4 object-cover rounded-sm"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    )}
                     {country && <span className="opacity-70 font-normal hidden sm:inline">· {country}</span>}
                     
                     <div className="flex items-center gap-1 ml-1 pl-1 border-l border-gray-300 dark:border-gray-600">
@@ -472,22 +487,22 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                   const statusShort = String(event?.status ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
                   const statusLong = String(event?.fixture?.status?.long ?? (event as any)?.status_long ?? '').toUpperCase().trim();
                   const setNumFromStatus = (() => {
-                    const m1 = statusShort.match(/^S(\d)$/);
+                    const m1 = statusShort.match(/^S(\d{1,2})$/);
                     if (m1) return Number(m1[1]);
-                    const m2 = statusLong.match(/\bSET\s*(\d)\b/);
+                    const m2 = statusLong.match(/\bSET\s*(\d{1,2})\b/);
                     if (m2) return Number(m2[1]);
-                    const m3 = statusShort.match(/\bSET\s*(\d)\b/);
+                    const m3 = statusShort.match(/\bSET\s*(\d{1,2})\b/);
                     if (m3) return Number(m3[1]);
-                    const m4 = statusShort.match(/\b(\d)(?:ST|ND|RD|TH)\s+SET\b/);
+                    const m4 = statusShort.match(/\b(\d{1,2})(?:ST|ND|RD|TH)\s+SET\b/);
                     if (m4) return Number(m4[1]);
-                    const m5 = statusLong.match(/\b(\d)(?:ST|ND|RD|TH)\s+SET\b/);
+                    const m5 = statusLong.match(/\b(\d{1,2})(?:ST|ND|RD|TH)\s+SET\b/);
                     if (m5) return Number(m5[1]);
                     return 0;
                   })();
 
-                  const setsAll = tennisScore ? [tennisScore.s1, tennisScore.s2, tennisScore.s3, tennisScore.s4, tennisScore.s5] : [];
+                  const setsAll = tennisScore?.sets || [];
                   let maxWithAny = 0;
-                  for (let i = 0; i < Math.min(5, setsAll.length); i++) {
+                  for (let i = 0; i < Math.min(10, setsAll.length); i++) {
                     const s = setsAll[i];
                     if (!s) continue;
                     if (s.home != null || s.away != null) maxWithAny = i + 1;
@@ -499,7 +514,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                       ? Math.min(maxCols, Math.max(1, setNumFromStatus || 1, maxWithAny))
                       : Math.min(maxCols, maxWithAny);
                   const showSets = cols > 0 && (isLiveEvent || !!tennisScore?.hasAnySet);
-                  const sets = setsAll.slice(0, cols || 0);
+                  const sets = Array.from({ length: cols }, (_, i) => setsAll[i] || { home: null, away: null });
 
                   return (
                     <div
@@ -565,19 +580,19 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                 const statusShort = String(event?.status ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
                 const statusLong = String(event?.fixture?.status?.long ?? (event as any)?.status_long ?? '').toUpperCase().trim();
                 const setNumFromStatus = (() => {
-                  const m1 = statusShort.match(/^S(\d)$/);
+                  const m1 = statusShort.match(/^S(\d{1,2})$/);
                   if (m1) return Number(m1[1]);
-                  const m2 = statusLong.match(/\bSET\s*(\d)\b/);
+                  const m2 = statusLong.match(/\bSET\s*(\d{1,2})\b/);
                   if (m2) return Number(m2[1]);
-                  const m3 = statusShort.match(/\bSET\s*(\d)\b/);
+                  const m3 = statusShort.match(/\bSET\s*(\d{1,2})\b/);
                   if (m3) return Number(m3[1]);
-                  const m4 = statusShort.match(/\b(\d)(?:ST|ND|RD|TH)\s+SET\b/);
+                  const m4 = statusShort.match(/\b(\d{1,2})(?:ST|ND|RD|TH)\s+SET\b/);
                   if (m4) return Number(m4[1]);
-                  const m5 = statusLong.match(/\b(\d)(?:ST|ND|RD|TH)\s+SET\b/);
+                  const m5 = statusLong.match(/\b(\d{1,2})(?:ST|ND|RD|TH)\s+SET\b/);
                   if (m5) return Number(m5[1]);
                   return 0;
                 })();
-                const setLabel = setNumFromStatus >= 1 && setNumFromStatus <= 5 ? `${setNumFromStatus}º SET` : '';
+                const setLabel = setNumFromStatus >= 1 ? `${setNumFromStatus}º SET` : '';
                 const timer = String((event as any).timer || (event as any).fixture?.status?.timer || '').trim();
 
                 return (
@@ -622,7 +637,6 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
 
               let homeScore = formatScore(rawHome);
               let awayScore = formatScore(rawAway);
-              let minuteFromScore: number | null = null;
               let forceTimer: string = '';
 
               if (isLiveEvent && (homeScore === undefined || awayScore === undefined) && (event as any).score) {
@@ -660,7 +674,6 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                             if (minLen === 3 && minN < 100) continue;
                             if (minN < 0 || minN > 130) continue;
                             as = awayN;
-                            minuteFromScore = minN;
                             break;
                           }
                         }
@@ -736,7 +749,6 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                   if (timer) return timer;
                   if (statusU === '1H' || statusU === '2H') return elapsed > 0 ? `${elapsed}'` : statusU;
                   if (elapsed > 0) return `${elapsed}'`;
-                  if (minuteFromScore !== null && minuteFromScore > 0) return `${minuteFromScore}'`;
                   return '';
                 }
 
