@@ -129,16 +129,29 @@ const normalizeMarkets = (evt: Event): Event => {
 
 type OnlyMode = 'live' | 'pregame' | 'both';
 
+// ── Module-level in-memory cache ──────────────────────────────────────────────
+// Survives React remounts so navigating between / and /live is instant.
+interface _SCacheEntry { live: Event[]; pregame: Event[]; ts: number; }
+const _sCache = new Map<string, _SCacheEntry>();
+const _S_FRESH_MS = 45_000; // 45 s — matches the polling interval
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function useSportsEvents(
   category: string | null,
   opts?: { only?: OnlyMode; days?: number; enabled?: boolean; requireOdds?: boolean },
 ) {
-  const [live, setLive] = useState<Event[]>([]);
-  const [pregame, setPregame] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Compute cache key here so useState lazy-initialisers can use it.
+  const _safeCategory0 = typeof category === 'string' && category ? category : 'all';
+  const _cacheKey0 = `sportsEvents:${_safeCategory0}:v1`;
+  const _cacheEntry0 = _sCache.get(_cacheKey0);
+  const _hasFresh0 = _cacheEntry0 != null && Date.now() - _cacheEntry0.ts < _S_FRESH_MS;
+
+  const [live, setLive] = useState<Event[]>(() => _hasFresh0 ? _cacheEntry0!.live : []);
+  const [pregame, setPregame] = useState<Event[]>(() => _hasFresh0 ? _cacheEntry0!.pregame : []);
+  const [loading, setLoading] = useState(!_hasFresh0);
   // `ready` flips true only after the first *network* response (not cache),
   // so consumers can hold a stable first render until real data has settled.
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(_hasFresh0);
 
   // Stable primitive to avoid opts object causing effect re-runs
   const onlyMode: OnlyMode = opts?.only || 'both';
@@ -308,8 +321,11 @@ export function useSportsEvents(
     let hiddenAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
     let wakeInFlight = false;
 
-    // Re-engage the readiness gate on every (re)load cycle (e.g. category change).
-    setReady(false);
+    // Only reset the readiness gate when no fresh in-memory data exists.
+    // With a hot module cache the UI shows stale data instantly; don't flash blank.
+    const _memEntry = _sCache.get(cacheKey);
+    const _memFresh = _memEntry != null && Date.now() - _memEntry.ts < _S_FRESH_MS;
+    if (!_memFresh) setReady(false);
 
     if (!enabled) {
       setLoading(false);
@@ -551,6 +567,7 @@ export function useSportsEvents(
           if (isUpcomingFetch) {
             const finalPregame = preferOdds(pregameEvents.filter(isTodayAdjusted), 300);
             updateState([], finalPregame);
+            _sCache.set(cacheKey, { live: [], pregame: finalPregame, ts: Date.now() });
             if (typeof window !== 'undefined') {
               try {
                 localStorage.setItem(cacheKey, JSON.stringify({ live: [], pregame: finalPregame }));
@@ -637,6 +654,7 @@ export function useSportsEvents(
 
           if (import.meta.env.DEV) console.log('[events] loaded live:', finalLive.length, 'pregame:', finalPregame.length);
           updateState(finalLive, finalPregame);
+          _sCache.set(cacheKey, { live: finalLive, pregame: finalPregame, ts: Date.now() });
           if (typeof window !== 'undefined') {
             try {
               localStorage.setItem(cacheKey, JSON.stringify({ live: finalLive, pregame: finalPregame }));

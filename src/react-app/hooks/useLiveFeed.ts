@@ -253,13 +253,25 @@ const parseLiveEvent = (item: any) => {
     return ev;
 };
 
+// ── Module-level live-feed cache ──────────────────────────────────────────────
+// Keyed by sport string. Survives remounts so /live → / → /live is instant.
+const _liveCache = new Map<string, { map: Map<string, any>; ts: number }>();
+const _LIVE_FRESH_MS = 30_000;
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function useLiveFeed(sport?: string) {
-  const [eventsMap, setEventsMap] = useState<Map<string, any>>(new Map());
+  const _sportKey = sport || 'all';
+  const _lEntry = _liveCache.get(_sportKey);
+  const _lFresh = _lEntry != null && Date.now() - _lEntry.ts < _LIVE_FRESH_MS;
+
+  const [eventsMap, setEventsMap] = useState<Map<string, any>>(() =>
+    _lFresh ? new Map(_lEntry!.map) : new Map()
+  );
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
   // True once the feed has produced its first response (poll or WS snapshot),
   // even if empty — lets consumers know the live source has settled.
-  const [hasLoaded, setHasLoaded] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(_lFresh);
 
   const wsUrl = useMemo(() => {
     if (typeof window === 'undefined') return '';
@@ -330,6 +342,7 @@ export function useLiveFeed(sport?: string) {
                   if (!lastSeen) continue;
                   if (now - lastSeen > graceMs) next.delete(id);
               }
+              _liveCache.set(_sportKey, { map: next, ts: now });
               return next;
           });
           setLastUpdatedAt(now);
@@ -497,6 +510,7 @@ export function useLiveFeed(sport?: string) {
                 if (!lastSeen) continue;
                 if (now - lastSeen > graceMs) next.delete(id);
               }
+              _liveCache.set(_sportKey, { map: next, ts: now });
               return next;
             });
             setLastUpdatedAt(now);

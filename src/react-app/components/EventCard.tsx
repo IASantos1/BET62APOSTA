@@ -3,11 +3,55 @@ import { useMemo, useState, memo, useEffect, useRef, Fragment } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { formatLeagueHeader, abbreviateTeamName, getSportFromLeague, getSportIcon, labelOutcome } from '@/shared/helpers';
-import type { LiveScore, SuspendedMarket } from '@/shared/types'; 
+import type { LiveScore, SuspendedMarket } from '@/shared/types';
 import type { LiveCardSignals } from '@/react-app/hooks/useBatchMarketSignals';
-// import { useRealtimeOdds } from '@/react-app/hooks/useRealtimeOdds'; // Removed
-// import { normalizeOdds } from '@/react-app/services/oddsNormalizer'; // Removed
 import { useTrend } from '@/react-app/hooks/useTrend';
+
+// ── Module-level clock singleton ──────────────────────────────────────────────
+// One shared interval drives all live cards; no per-card timers.
+let _clockTick = 0;
+const _clockSubs = new Set<() => void>();
+let _clockTimer: ReturnType<typeof setInterval> | null = null;
+function _subClock(fn: () => void) {
+  _clockSubs.add(fn);
+  if (!_clockTimer) {
+    _clockTimer = setInterval(() => {
+      _clockTick++;
+      _clockSubs.forEach(f => { try { f(); } catch { /* */ } });
+    }, 20_000);
+  }
+  return () => {
+    _clockSubs.delete(fn);
+    if (_clockSubs.size === 0 && _clockTimer) { clearInterval(_clockTimer); _clockTimer = null; }
+  };
+}
+
+// Football period clock — estimates current minute from kick-off time when
+// the API (Statpal) does not return an elapsed field.
+function computeFootballClock(
+  eventDate: string | undefined,
+  apiElapsed: number,
+  apiTimer: string,
+  statusU: string,
+): string {
+  if (statusU === 'HT') return 'HT';
+  if (statusU === 'ET' || statusU === 'ET1' || statusU === 'ET2') return 'ET';
+  if (statusU === 'PEN' || statusU === 'P') return 'PEN';
+  const baseMin = apiElapsed > 0
+    ? apiElapsed
+    : (apiTimer ? (parseInt(apiTimer.replace(/[^0-9]/g, ''), 10) || 0) : 0);
+  if (baseMin > 0) return `${baseMin}'`;
+  if (!eventDate) return '';
+  const kickoff = new Date(eventDate).getTime();
+  if (!Number.isFinite(kickoff) || kickoff <= 0) return '';
+  const totalMins = Math.floor((Date.now() - kickoff) / 60_000);
+  if (totalMins < 0) return '';
+  if (totalMins <= 46) return `${Math.min(totalMins, 45)}'`;
+  if (totalMins <= 61) return 'HT';
+  if (totalMins <= 106) return `${Math.min(45 + (totalMins - 61), 90)}'`;
+  return '90+';
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const normalizeSport = (s: string) => {
   const v = String(s || '').toLowerCase();
@@ -122,6 +166,14 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     ]);
     return liveStatuses.has(status);
   }, [event]);
+
+  // Subscribe to the module-level clock for live soccer — so the minute badge
+  // updates every 20 s without per-card timers.
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    if (!isLiveEvent || sport !== 'soccer') return;
+    return _subClock(() => setClockTick(t => t + 1));
+  }, [isLiveEvent, sport]);
 
   const isFinishedEvent = useMemo(() => {
     const statusRaw = String(event?.status ?? event?.fixture?.status?.short ?? event?.fixture?.status?.long ?? '');
@@ -603,7 +655,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                       <span className="text-xs font-bold text-red-600">AO VIVO</span>
                     )}
                     {timer ? (
-                      <span className={`text-[10px] font-bold ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{timer}</span>
+                      <span className="text-[10px] font-bold text-[#39FF14]">{timer}</span>
                     ) : null}
                   </span>
                 );
@@ -737,19 +789,18 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
 
                 if (sport === 'soccer') {
                   if (forceTimer) return forceTimer;
-                  // Status checks FIRST — never override HT/PEN/ET with a raw timer string
-                  if (statusU === 'HT') return 'HT';
-                  if (statusU === 'ET') return 'ET';
-                  if (statusU === 'PEN' || statusU === 'P') return 'PEN';
+                  // Rare statuses that computeFootballClock doesn't handle
                   if (statusU === 'AT' || statusU === 'ST') return statusU;
                   if (/HALF\s*TIME|INTERVAL/.test(cu)) return 'HT';
                   if (/EXTRA\s*TIME/.test(cu)) return 'ET';
-                  if (/PEN/.test(cu)) return 'PEN';
-                  // Now use raw timer from API (already validated as running period)
-                  if (timer) return timer;
-                  if (statusU === '1H' || statusU === '2H') return elapsed > 0 ? `${elapsed}'` : statusU;
-                  if (elapsed > 0) return `${elapsed}'`;
-                  return '';
+                  if (/^PEN/.test(cu) && statusU !== '1H' && statusU !== '2H') return 'PEN';
+                  // Uses API elapsed + kick-off estimate when Statpal gives no minute.
+                  return computeFootballClock(
+                    String((event as any)?.event_date || (event as any)?.fixture?.date || ''),
+                    elapsed,
+                    timer,
+                    statusU,
+                  );
                 }
 
                 if (sport === 'basketball') {
@@ -803,7 +854,12 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                   <span className="flex flex-col items-center shrink-0 px-1 gap-0.5">
                     <span className="text-xs font-bold text-red-600">{scoreStr || 'AO VIVO'}</span>
                     {displayTimer && (
-                      <span className="text-[10px] font-bold text-red-600 bg-red-600/10 rounded px-1 leading-tight">{displayTimer}</span>
+                      <span
+                        className="text-[10px] font-bold rounded px-1 leading-tight"
+                        style={sport === 'soccer'
+                          ? { color: '#39FF14', background: 'rgba(57,255,20,0.12)' }
+                          : { color: '#ef4444', background: 'rgba(239,68,68,0.10)' }}
+                      >{displayTimer}</span>
                     )}
                   </span>
                 );
