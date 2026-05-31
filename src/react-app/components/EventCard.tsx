@@ -388,6 +388,29 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     return Array.isArray(b) ? b : [];
   }, [event]);
 
+  // Red-card badge count per team — parsed from match event list
+  const { homeRedCards, awayRedCards } = useMemo(() => {
+    if (!isLiveEvent || liveEventList.length === 0) return { homeRedCards: 0, awayRedCards: 0 };
+    let home = 0;
+    let away = 0;
+    const hNorm = String(homeTeamName || '').toLowerCase();
+    const aNorm = String(awayTeamName || '').toLowerCase();
+    for (const ev of liveEventList) {
+      const type   = String(ev?.type   || '').toLowerCase();
+      const detail = String(ev?.detail || '').toLowerCase();
+      const isRed  = type === 'red_card' || type === 'red card'
+        || /red.?card|cart[aã]o.?vermelho/i.test(`${type} ${detail}`);
+      if (!isRed) continue;
+      const teamRaw = String(ev?.team?.name || ev?.club || ev?.team_name || ev?.team || '').toLowerCase();
+      const side    = String(ev?.side || ev?.team_side || ev?.team_type || '').toLowerCase();
+      const matchesHome = side === 'home' || (hNorm.length >= 4 && teamRaw.includes(hNorm.slice(0, 5)));
+      const matchesAway = side === 'away' || (aNorm.length >= 4 && teamRaw.includes(aNorm.slice(0, 5)));
+      if (matchesHome) home++;
+      else if (matchesAway) away++;
+    }
+    return { homeRedCards: home, awayRedCards: away };
+  }, [isLiveEvent, liveEventList, homeTeamName, awayTeamName]);
+
   // Duration config per state
   const CRIT_DURATIONS: Record<CritState, number> = {
     idle: 0, goal: 18000, var_penalty: 25000, penalty: 20000,
@@ -673,8 +696,15 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
             </span>
           ) : (
             <span className="flex items-center gap-2 w-full justify-start">
-              <div className="flex items-center gap-2 min-w-0 max-w-[46%]">
+              <div className="flex items-center gap-1.5 min-w-0 max-w-[46%]">
                 <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(homeTeamName)}</span>
+                {isLiveEvent && homeRedCards > 0 && (
+                  <span
+                    className="flex-shrink-0 inline-flex items-center justify-center rounded-[3px] text-[9px] font-black text-white leading-none shadow-sm"
+                    style={{ background: '#dc2626', width: 15, height: 19 }}
+                    title={`${homeRedCards} cartão(s) vermelho(s)`}
+                  >{homeRedCards}</span>
+                )}
               </div>
 
               {(() => {
@@ -884,8 +914,15 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
               );
             })()}
            
-            <div className="flex items-center gap-2 min-w-0 max-w-[46%]">
+            <div className="flex items-center gap-1.5 min-w-0 max-w-[46%]">
               <span className="text-sm font-semibold truncate leading-tight">{cleanTeam(awayTeamName)}</span>
+              {isLiveEvent && awayRedCards > 0 && (
+                <span
+                  className="flex-shrink-0 inline-flex items-center justify-center rounded-[3px] text-[9px] font-black text-white leading-none shadow-sm"
+                  style={{ background: '#dc2626', width: 15, height: 19 }}
+                  title={`${awayRedCards} cartão(s) vermelho(s)`}
+                >{awayRedCards}</span>
+              )}
             </div>
           </span>
           )}
@@ -974,6 +1011,18 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                       </span>
                     )}
                   </button>
+                </div>
+              );
+            }
+
+            // Globally suspended live event — show prominent lock banner
+            if (isSuspended && isLiveEvent && effectiveCrit === 'idle') {
+              return (
+                <div className="w-full sm:w-[320px] lg:w-[400px]">
+                  <div className="w-full h-12 rounded-lg font-black text-sm uppercase tracking-wider text-slate-200/90 bg-gradient-to-r from-slate-600 to-slate-700 ring-1 ring-slate-400/40 flex items-center justify-center gap-2 select-none cursor-default">
+                    <span>🔒</span>
+                    <span>Odds Suspensas</span>
+                  </div>
                 </div>
               );
             }
