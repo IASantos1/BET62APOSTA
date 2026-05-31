@@ -849,8 +849,8 @@ function Home({ mode = 'home' }: HomeProps) {
 
         {/* Conteúdo principal */}
         <main className="flex-1 min-w-0 space-y-8">
-          {/* Banner Carousel */}
-          <BannerCarousel />
+          {/* Banner Carousel — apenas na página principal */}
+          {showBanner && <BannerCarousel />}
 
           {/* Eventos */}
           <section id="events">
