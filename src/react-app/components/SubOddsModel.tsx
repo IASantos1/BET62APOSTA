@@ -941,11 +941,44 @@ export function SubOddsModel({
 
       // Totals (gols, cantos, cartões, períodos/quartos/innings/sets/games)
       const TOTALS_KEYS = new Set(['totals','corners_total','cards_total','goals_total','team_totals','match_goals','match_total_games','total_sets','current_set_totals','set_1_totals','set_2_totals','set_3_totals','corners_2_way','cards_in_match','innings_totals','inning_totals']);
+      // Per-line derived keys (totals_0_5, totals_1_5, corners_total_0_5 …) — suppress here,
+      // their items are merged into the parent market table below.
+      if (/^totals_[\d_]+$/.test(key) || /^corners_total_[\d_]+$/.test(key)) return null;
+
       if (TOTALS_KEYS.has(key) || /_totals$/.test(key) || /_total$/.test(key) || /^total_/.test(key) || /over.under/i.test(key)) {
           if (totalsItems.length === 0 && (key !== 'totals' ? getMarketItems(key).length === 0 : true)) return null;
           
-          const targetItems = key === 'totals' ? totalsItems : getMarketItems(key);
-          
+          // For main totals / corners_total, merge in any derived per-line sub-keys so
+          // everything appears in one consolidated table instead of duplicate cards.
+          const targetItems = (() => {
+            const base = key === 'totals' ? totalsItems : getMarketItems(key);
+            const subPattern = key === 'totals'
+              ? /^totals_[\d_]+$/
+              : key === 'corners_total'
+                ? /^corners_total_[\d_]+$/
+                : null;
+            if (!subPattern) return base;
+            const allOddsKeys = Object.keys({ ...(eventOdds || {}), ...(normalizedMarkets || {}) });
+            const subKeys = [...new Set(allOddsKeys)].filter(k => subPattern.test(k));
+            if (subKeys.length === 0) return base;
+            // Build a set of line values already present in the API data
+            const existingLines = new Set(
+              base
+                .map((x: MarketItem) => String(x.handicap ?? '').trim())
+                .filter(Boolean)
+            );
+            const extra: MarketItem[] = [];
+            for (const sk of subKeys) {
+              for (const item of getMarketItems(sk)) {
+                const line = String(item.handicap ?? item.point ?? '').trim();
+                if (line && !existingLines.has(line) && Number(item.odd) > 0) {
+                  extra.push({ ...item, handicap: line });
+                }
+              }
+            }
+            return [...base, ...extra];
+          })();
+
           const formatTotalNumber = (label: string) => {
             const m = /([0-9]+(?:\.[0-9]+)?|[0-9]+(?:,[0-9]+)?)/.exec(String(label || ''))
             if (!m) return ''
@@ -955,16 +988,10 @@ export function SubOddsModel({
             const normalizeHalf = s.includes('soccer') || s.includes('football')
             return normalizeHalf && Number.isFinite(n) && Number.isInteger(n) ? String(n + 0.5) : raw
           }
-          const maxLine = (() => {
-            if (key !== 'totals') return 999
-            const s = String(event?.sport || '').toLowerCase()
-            return (s.includes('soccer') || s.includes('football')) ? 5.5 : 999
-          })();
           const okLine = (lbl: string) => {
             const n = Number(lbl);
             if (!Number.isFinite(n)) return false;
             if (n < 0) return false;
-            if (n > maxLine) return false;
             return true;
           };
 
@@ -981,7 +1008,7 @@ export function SubOddsModel({
               const line = toLine(x)
               return { ...x, handicap: line, selection: line ? `Acima de ${line}` : x.label } as MarketItem
             })
-            .filter((x: MarketItem) => okLine(String(x.handicap || '')) && Number(x.odd) > 1.01 && Number(x.odd) < 25)
+            .filter((x: MarketItem) => okLine(String(x.handicap || '')) && Number(x.odd) >= 1.00 && Number(x.odd) < 100)
             .sort((a: MarketItem, b: MarketItem) => Number(a.handicap) - Number(b.handicap));
 
           const under = targetItems
@@ -990,7 +1017,7 @@ export function SubOddsModel({
               const line = toLine(x)
               return { ...x, handicap: line, selection: line ? `Abaixo de ${line}` : x.label } as MarketItem
             })
-            .filter((x: MarketItem) => okLine(String(x.handicap || '')) && Number(x.odd) > 1.01 && Number(x.odd) < 25)
+            .filter((x: MarketItem) => okLine(String(x.handicap || '')) && Number(x.odd) >= 1.00 && Number(x.odd) < 100)
             .sort((a: MarketItem, b: MarketItem) => Number(a.handicap) - Number(b.handicap));
              
           if (over.length === 0 && under.length === 0) return null;
