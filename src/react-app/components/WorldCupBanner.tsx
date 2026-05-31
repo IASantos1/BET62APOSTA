@@ -1,12 +1,12 @@
-import { useNavigate } from 'react-router-dom';
 import { useRef } from 'react';
+import { useApp } from '@/react-app/contexts/AppContext';
 
 interface WorldCupBannerProps {
   variant?: 'compact' | 'hero';
 }
 
 export default function WorldCupBanner({ variant = 'compact' }: WorldCupBannerProps) {
-  const navigate = useNavigate();
+  const { setSelectedCategory } = useApp();
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -31,7 +31,7 @@ export default function WorldCupBanner({ variant = 'compact' }: WorldCupBannerPr
       ref={wrapRef}
       onMouseMove={handleMove}
       onMouseLeave={handleLeave}
-      onClick={() => navigate('/copa-do-mundo')}
+      onClick={() => setSelectedCategory('copa-do-mundo')}
       className="relative w-full overflow-hidden rounded-2xl cursor-pointer select-none"
       style={{
         transition: 'transform 0.2s ease',
@@ -39,7 +39,6 @@ export default function WorldCupBanner({ variant = 'compact' }: WorldCupBannerPr
           '0 24px 60px rgba(0,0,0,0.7), 0 4px 20px rgba(212,151,43,0.4), inset 0 0 0 1px rgba(255,215,120,0.25)',
       }}
     >
-      {/* Main image */}
       <img
         src="/assets/copa-do-mundo-2026.jpeg"
         alt="Copa do Mundo 2026 – BET62"
@@ -48,7 +47,6 @@ export default function WorldCupBanner({ variant = 'compact' }: WorldCupBannerPr
         style={{ display: 'block' }}
       />
 
-      {/* Dark gradient overlay for text legibility */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -57,7 +55,6 @@ export default function WorldCupBanner({ variant = 'compact' }: WorldCupBannerPr
         }}
       />
 
-      {/* Gold top border glow */}
       <div
         className="absolute top-0 left-0 right-0 h-[2px] pointer-events-none"
         style={{
@@ -67,7 +64,6 @@ export default function WorldCupBanner({ variant = 'compact' }: WorldCupBannerPr
         }}
       />
 
-      {/* Shine sweep on hover */}
       <div
         className="absolute inset-0 pointer-events-none opacity-0 hover:opacity-100"
         style={{
@@ -77,55 +73,42 @@ export default function WorldCupBanner({ variant = 'compact' }: WorldCupBannerPr
         }}
       />
 
-      {/* Bottom text overlay */}
       <div className="absolute bottom-0 left-0 right-0 px-4 py-4 flex items-end justify-between pointer-events-none">
-        {/* Left: title + subtitle */}
         <div className="space-y-0.5">
           <div
             className="text-[10px] font-black uppercase tracking-[0.22em] leading-none"
             style={{ color: 'rgba(255,215,80,0.85)' }}
           >
             FIFA ·{' '}
-            <span className="text-white/60">
-              EUA · CANADÁ · MÉXICO
-            </span>
+            <span className="text-white/60">EUA · CANADÁ · MÉXICO</span>
           </div>
           <div
             className={`font-black uppercase leading-none tracking-tight ${isHero ? 'text-2xl md:text-3xl' : 'text-lg md:text-2xl'}`}
-            style={{
-              color: '#fff',
-              textShadow: '0 2px 12px rgba(0,0,0,0.8)',
-            }}
+            style={{ color: '#fff', textShadow: '0 2px 12px rgba(0,0,0,0.8)' }}
           >
             Copa do Mundo{' '}
             <span
               style={{
                 color: '#ffd040',
-                textShadow:
-                  '0 0 18px rgba(255,200,40,0.8), 0 2px 8px rgba(0,0,0,0.7)',
+                textShadow: '0 0 18px rgba(255,200,40,0.8), 0 2px 8px rgba(0,0,0,0.7)',
               }}
             >
               2026
             </span>
           </div>
-          <div
-            className="text-[11px] font-semibold"
-            style={{ color: 'rgba(255,255,255,0.60)' }}
-          >
+          <div className="text-[11px] font-semibold" style={{ color: 'rgba(255,255,255,0.60)' }}>
             48 selecções · 104 jogos · começa 11 junho
           </div>
         </div>
 
-        {/* Right: APOSTE AGORA button */}
         <button
           type="button"
-          onClick={(ev) => { ev.stopPropagation(); navigate('/copa-do-mundo'); }}
+          onClick={(ev) => { ev.stopPropagation(); setSelectedCategory('copa-do-mundo'); }}
           className="pointer-events-auto shrink-0 ml-3 flex items-center gap-1.5 rounded-xl px-4 py-2.5 font-black uppercase text-[11px] tracking-wide"
           style={{
             background: 'linear-gradient(135deg, #f5c018 0%, #e8a000 100%)',
             color: '#1a0a00',
-            boxShadow:
-              '0 4px 18px rgba(245,192,24,0.55), inset 0 1px 0 rgba(255,255,255,0.25)',
+            boxShadow: '0 4px 18px rgba(245,192,24,0.55), inset 0 1px 0 rgba(255,255,255,0.25)',
             border: '1px solid rgba(255,230,100,0.4)',
           }}
         >
@@ -134,17 +117,13 @@ export default function WorldCupBanner({ variant = 'compact' }: WorldCupBannerPr
         </button>
       </div>
 
-      {/* Pulse dot */}
       <span
         className="absolute right-4 top-4 pointer-events-none"
         style={{ animation: 'wcPulse 2.4s ease-in-out infinite' }}
       >
         <span
           className="block w-2.5 h-2.5 rounded-full"
-          style={{
-            background: 'rgba(255,215,80,0.85)',
-            boxShadow: '0 0 8px 3px rgba(255,200,50,0.5)',
-          }}
+          style={{ background: 'rgba(255,215,80,0.85)', boxShadow: '0 0 8px 3px rgba(255,200,50,0.5)' }}
         />
       </span>
 

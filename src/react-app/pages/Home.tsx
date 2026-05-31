@@ -61,8 +61,11 @@ const isFinishedEvent = (e: any) => {
 };
 
 function Home({ mode = 'home' }: HomeProps) {
-  const { darkMode, selectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
+  const { darkMode, selectedCategory, setSelectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
   const navigate = useNavigate();
+
+  // Copa do Mundo inline filter mode
+  const isWorldCupMode = selectedCategory === 'copa-do-mundo';
 
   // Dados principais
   const isMainSports =
@@ -71,11 +74,15 @@ function Home({ mode = 'home' }: HomeProps) {
     selectedCategory === 'soccer-all' ||
     selectedCategory === 'todos';
 
+  // Copa mode: fetch all events (client filters WC leagues); requireOdds=1 is on by default
+  const apiCategory = isWorldCupMode ? 'all' : (selectedCategory || 'all');
+  const apiDays = isWorldCupMode ? 30 : (mode === 'home' && isMainSports ? 7 : undefined);
+
   const { live: httpLive, pregame, loading: eventsLoading, ready: eventsReady } = useSportsEvents(
-    selectedCategory || 'all',
+    apiCategory,
     {
       only: mode === 'home' ? 'pregame' : mode === 'live' ? 'live' : 'both',
-      days: mode === 'home' && isMainSports ? 7 : undefined,
+      days: apiDays,
     },
   );
 
@@ -342,7 +349,15 @@ function Home({ mode = 'home' }: HomeProps) {
 
   // Strict separation: Desporto = pregame only | AO VIVO = live only
   const displayedLive    = mode === 'live' ? processedLive : [];
-  const displayedUpcoming = mode === 'home' ? sortedUpcoming : [];
+  const displayedUpcoming = useMemo(() => {
+    const base = mode === 'home' ? sortedUpcoming : [];
+    if (!isWorldCupMode) return base;
+    // Copa mode: only World Cup league events (requireOdds=1 already strips odds-less events at API level)
+    return base.filter((e: any) => {
+      const l = String(e.league?.name || e.league || '').toLowerCase();
+      return /world cup|copa do mundo|copa mundial|fifa world|copa del mundo/.test(l);
+    });
+  }, [mode, sortedUpcoming, isWorldCupMode]);
 
   const groupedLive = useGroupedEvents(displayedLive, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
@@ -815,13 +830,45 @@ function Home({ mode = 'home' }: HomeProps) {
 
         {/* Conteúdo principal */}
         <main className="flex-1 min-w-0 space-y-8">
-          {/* Banner Carousel — apenas na página principal */}
-          {showBanner && <BannerCarousel />}
-          {/* Copa do Mundo 2026 banner — dentro da coluna principal para não sobrepor menus laterais */}
-          {showBanner && <WorldCupBanner variant="compact" />}
+          {/* Banners — apenas quando NÃO está no modo Copa */}
+          {showBanner && !isWorldCupMode && <BannerCarousel />}
+          {showBanner && !isWorldCupMode && <WorldCupBanner variant="compact" />}
+
+          {/* Cabeçalho Copa do Mundo inline */}
+          {isWorldCupMode && (
+            <div className="space-y-4">
+              <WorldCupBanner variant="compact" />
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">🏆</span>
+                  <h2
+                    className="text-xl font-black uppercase tracking-wide"
+                    style={{
+                      background: 'linear-gradient(90deg, #ffd040, #f5a623)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                    }}
+                  >
+                    Copa do Mundo 2026
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory(null)}
+                  className="flex items-center gap-1.5 text-sm font-semibold text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/10"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Fechar
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Eventos */}
           <section id="events">
+            {!isWorldCupMode && (
             <div className="flex items-center gap-3 mb-5">
               {mode === 'live' ? (
                 <>
@@ -842,6 +889,7 @@ function Home({ mode = 'home' }: HomeProps) {
                 </>
               )}
             </div>
+            )}
 
             {!revealed ? (
               <div className="text-center py-20">
