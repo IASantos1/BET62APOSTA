@@ -645,14 +645,14 @@ function Home({ mode = 'home' }: HomeProps) {
     const banners: Banner[] = [];
     let cursor = 0;
 
-    // Strict pass: each banner = exactly 4 legs (3 low-odds + 1 high-odds).
+    // Strict pass: each banner = exactly 3 legs (2 low-odds + 1 high-odds).
     for (let i = 0; i < 3; i++) {
       const picks: Pick[] = [];
       const used = new Set<string | number>();
       let lowCount = 0;
       let highCount = 0;
       let guard = 0;
-      while (picks.length < 4 && guard < candidates.length * 2) {
+      while (picks.length < 3 && guard < candidates.length * 2) {
         const ev = candidates[cursor % Math.max(1, candidates.length)];
         cursor++;
         guard++;
@@ -665,7 +665,7 @@ function Home({ mode = 'home' }: HomeProps) {
         const isLow = odd > 1.01 && odd < 2.0;
         const isHigh = odd >= 2.5 && odd <= 3.5;
         if (!isLow && !isHigh) continue;
-        if (isLow && lowCount >= 3) continue;
+        if (isLow && lowCount >= 2) continue;
         if (isHigh && highCount >= 1) continue;
 
         used.add(key);
@@ -673,7 +673,7 @@ function Home({ mode = 'home' }: HomeProps) {
         if (isLow) lowCount += 1;
         if (isHigh) highCount += 1;
       }
-      if (picks.length === 4 && lowCount === 3 && highCount === 1) {
+      if (picks.length === 3 && lowCount === 2 && highCount === 1) {
         const totalOdd = picks.reduce((acc, p) => acc * p.odd, 1);
         const legsOddStr = picks.map((p) => p.odd.toFixed(2)).join(' × ');
         banners.push({ id: `multi_${i}`, picks, totalOdd, legsOddStr });
@@ -681,7 +681,7 @@ function Home({ mode = 'home' }: HomeProps) {
     }
 
     // Relaxed fallback: if the strict mix never materialises (e.g. no high-odds
-    // leg available), still build 4-leg banners from any valid picks so the
+    // leg available), still build 3-leg banners from any valid picks so the
     // "Múltiplas em destaque" carousel never disappears.
     if (banners.length === 0) {
       let fbCursor = 0;
@@ -689,7 +689,7 @@ function Home({ mode = 'home' }: HomeProps) {
         const picks: Pick[] = [];
         const used = new Set<string | number>();
         let guard = 0;
-        while (picks.length < 4 && guard < candidates.length * 2) {
+        while (picks.length < 3 && guard < candidates.length * 2) {
           const ev = candidates[fbCursor % Math.max(1, candidates.length)];
           fbCursor++;
           guard++;
@@ -702,7 +702,7 @@ function Home({ mode = 'home' }: HomeProps) {
           used.add(key);
           picks.push(pick);
         }
-        if (picks.length === 4) {
+        if (picks.length === 3) {
           const totalOdd = picks.reduce((acc, p) => acc * p.odd, 1);
           const legsOddStr = picks.map((p) => p.odd.toFixed(2)).join(' × ');
           banners.push({ id: `multi_fb_${i}`, picks, totalOdd, legsOddStr });
@@ -763,7 +763,7 @@ function Home({ mode = 'home' }: HomeProps) {
                 <div className={`rounded-xl border p-5 ${darkMode ? 'bg-gray-950/40 border-gray-800' : 'bg-gray-50 border-gray-200'}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-sm font-black uppercase tracking-wider">Múltipla de 4 eventos</div>
+                      <div className="text-sm font-black uppercase tracking-wider">Múltipla de 3 eventos</div>
                       <div className={`text-xs mt-1 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Odd total: {b.legsOddStr}</div>
                     </div>
                     <div className="text-right">
@@ -772,7 +772,7 @@ function Home({ mode = 'home' }: HomeProps) {
                     </div>
                   </div>
 
-                  <div className="mt-4 space-y-3 min-h-[180px]">
+                  <div className="mt-4 space-y-3 min-h-[126px]">
                     {b.picks.map((p, i) => (
                       <div key={`${instanceKey}_${b.id}_leg_${i}`} className={`rounded-lg px-3 py-3 border ${darkMode ? 'border-gray-800 bg-gray-900/40' : 'border-gray-200 bg-white'}`}>
                         <div className="flex items-center justify-between gap-3">

@@ -230,6 +230,23 @@ export function SubOddsModel({
     return c as any
   }, [marketSignals.cta, marketSignals.varActive])
 
+  // Per-market post-goal suspension window (each market stays suspended
+  // for a different duration after a goal, like real bookmakers)
+  const getGoalWindowSuspended = (key?: string): boolean => {
+    if (!lastGoalAt || !isLive) return false;
+    const elapsed = Date.now() - lastGoalAt;
+    if (elapsed > 65_000) return false;
+    const k = (key || '').toLowerCase();
+    let ms: number;
+    if (/corner|escanteio/.test(k)) ms = 5_000;
+    else if (/card|cart/.test(k)) ms = 5_000;
+    else if (/correct_score|exact_score/.test(k)) ms = 30_000;
+    else if (/half|1st_|2nd_/.test(k)) ms = 20_000;
+    else if (/h2h|handicap|spreads|double_chance|dnb|draw_no_bet|winning_margin/.test(k)) ms = 60_000;
+    else ms = 45_000;
+    return elapsed < ms;
+  };
+
   const getSuspendedReason = (marketKey?: string) => {
     if (isGlobalSuspended) return 'EVENT_FROZEN';
     const effective = apiCritState !== 'idle' ? apiCritState : critState
@@ -240,6 +257,8 @@ export function SubOddsModel({
       if (effective === 'penalty') return 'PENALTY';
       if (effective === 'cards') return 'CARD';
     }
+    // Per-market goal suspension window (independent of critState — lasts much longer)
+    if (marketKey && getGoalWindowSuspended(marketKey)) return 'GOAL';
     return marketKey ? suspendedMap.get(marketKey) : undefined;
   };
 
@@ -568,6 +587,8 @@ export function SubOddsModel({
   // ─────────────────────────────────────────────────────────────────────
   type CritState = 'idle' | 'big_chance' | 'var_review' | 'var_penalty' | 'goal' | 'penalty' | 'cards';
   const [critState, setCritState] = useState<CritState>('idle');
+  const [lastGoalAt, setLastGoalAt] = useState<number>(0);
+  const [, setMarketTick] = useState<number>(0);
   const lastEventIdRef = useRef<string>('');
 
   // Watch live events and trigger critical state on goal/var/big-chance/penalty
@@ -594,12 +615,21 @@ export function SubOddsModel({
 
     if (next) {
       setCritState(next);
+      if (next === 'goal') setLastGoalAt(Date.now());
       // Phase duration: goal is most prominent
       const dur = next === 'goal' ? 12000 : next === 'var_penalty' ? 10000 : 8000;
       const t = setTimeout(() => setCritState('idle'), dur);
       return () => clearTimeout(t);
     }
   }, [liveEvents, isLive]);
+
+  // Tick every 5s while within the goal suspension window to force re-renders
+  useEffect(() => {
+    if (!isLive || !lastGoalAt) return;
+    if (Date.now() - lastGoalAt > 65_000) return;
+    const t = setInterval(() => setMarketTick(n => n + 1), 5_000);
+    return () => clearInterval(t);
+  }, [isLive, lastGoalAt]);
 
   const apostaJaActive = useMemo(() => {
     if (!isLive) return false;
@@ -647,8 +677,20 @@ export function SubOddsModel({
   }, [isLive, event]);
 
   const isMarketLiquidated = (key: string): boolean => {
-    if (!isSoccerLive || liveElapsedMinute < 85) return false;
+    if (!isSoccerLive) return false;
     const min = liveElapsedMinute;
+
+    // 1st half markets are liquidated when we enter the 2nd half (46'+)
+    if (min > 45) {
+      const FIRST_HALF_ONLY = new Set([
+        '1st_half', 'first_half_h2h', 'half_time_result', 'first_half_result',
+        '1st_half_totals', '1st_half_goal_odd_even', '1st_half_correct_score',
+        'double_chance_1st_half', 'draw_no_bet_1st_half', 'btts_first_half',
+      ]);
+      if (FIRST_HALF_ONLY.has(key)) return true;
+    }
+
+    if (min < 85) return false;
 
     const ALWAYS_KEEP = new Set([
       'h2h', 'h2h_3_way', '1x2', 'main', 'match_winner', 'moneyline',
@@ -1025,6 +1067,21 @@ export function SubOddsModel({
           const title = getMarketTitle(key, event?.sport);
           const susp = getSuspendedReason(key);
 
+          // ── Dead-line logic: Under X.5 is permanently dead when score exceeds it ──
+          const _cg = currentGoals;
+          const _teamGoalsForKey = (): number => {
+            if (!_cg || !isSoccerLive) return -1;
+            if (key === 'home_team_totals') return Number(_cg.home);
+            if (key === 'away_team_totals') return Number(_cg.away);
+            return Number(_cg.home) + Number(_cg.away);  // main totals
+          };
+          const _teamGoals = _teamGoalsForKey();
+          const isUnderLineDead = (lineStr: string): boolean => {
+            if (_teamGoals < 0) return false;
+            const lv = Number(lineStr);
+            return Number.isFinite(lv) && _teamGoals > lv;
+          };
+
           // Pair over/under by line value
           const overMap = new Map<string, MarketItem>(over.map((x: MarketItem) => [String(x.handicap || ''), x] as [string, MarketItem]));
           const underMap = new Map<string, MarketItem>(under.map((x: MarketItem) => [String(x.handicap || ''), x] as [string, MarketItem]));
@@ -1047,18 +1104,22 @@ export function SubOddsModel({
                   const rowBg = i % 2 === 0
                     ? (darkMode ? 'bg-gray-800/30' : 'bg-gray-50/80')
                     : '';
+                  const underDead = isUnderLineDead(line);
                   const renderBtn = (item: MarketItem | undefined, side: 'a' | 'b') => {
                     if (!item) return <div className="w-24" />;
                     const f = fair ? fair[side] : null;
+                    const isDead = side === 'b' && underDead;
+                    const isBlocked = !!susp || isDead;
                     const sideLabel = side === 'a' ? 'Acima de' : 'Abaixo de';
                     const priceStr = Number(item.odd) > 0 ? Number(item.odd).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
                     return (
                       <button
-                        onClick={susp ? undefined : () => onSelect(String(item.selection || item.label), item.odd)}
-                        disabled={!!susp}
+                        onClick={isBlocked ? undefined : () => onSelect(String(item.selection || item.label), item.odd)}
+                        disabled={isBlocked}
                         title={f ? `Odd justa: ${formatFairOdd(f.fair)}${f.isValue ? ` · valor +${(f.edge * 100).toFixed(1)}%` : ''}` : undefined}
                         className={`w-24 h-12 rounded-lg font-bold tabular-nums transition-all duration-200 relative
-                          ${susp ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
+                          ${isDead ? 'bg-gray-800/50 text-gray-500 cursor-not-allowed opacity-40 line-through'
+                            : susp ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
                             : f?.isValue
                               ? 'bg-emerald-600 text-white hover:bg-emerald-500 active:scale-95 ring-1 ring-emerald-300'
                               : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
@@ -1067,11 +1128,16 @@ export function SubOddsModel({
                           <span className="text-[10px] font-extrabold uppercase tracking-wider">
                             {sideLabel} {line}
                           </span>
-                          <span className="text-sm font-black">{priceStr}</span>
+                          <span className="text-sm font-black">{isDead ? 'DEAD' : priceStr}</span>
                         </div>
-                        {f?.isValue && (
+                        {f?.isValue && !isDead && (
                           <span className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-black text-[8px] font-black px-1 py-0.5 rounded-full leading-none shadow">
                             ★
+                          </span>
+                        )}
+                        {isDead && (
+                          <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 bg-red-900/80 text-red-200 text-[8px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap leading-none">
+                            LIQUIDADO
                           </span>
                         )}
                       </button>
@@ -1204,6 +1270,288 @@ export function SubOddsModel({
           </MarketCard>
         );
       }
+
+      // ── Derived server markets — explicit renderers ──────────────────────
+
+      // First/Last Team to Score — 3-column layout
+      if (key === 'first_team_to_score' || key === 'team_to_score_last') {
+        const items = getMarketItems(key);
+        if (!items || items.length === 0) return null;
+        const title = key === 'first_team_to_score' ? 'Primeira Equipa a Marcar' : 'Última Equipa a Marcar';
+        const susp = getSuspendedReason(key);
+        const isSusp = !!susp;
+        const cols = items.length <= 2 ? 'grid-cols-2' : 'grid-cols-3';
+        return (
+          <MarketCard title={title} darkMode={darkMode} noPad>
+            <div className={`grid ${cols} gap-2 p-3`}>
+              {items.map((item: MarketItem, i: number) => {
+                const val = Number(item.odd);
+                const disabled = isSusp || !(val > 0);
+                return (
+                  <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
+                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined} />
+                );
+              })}
+            </div>
+          </MarketCard>
+        );
+      }
+
+      // Winning Margin / Goals Range — flat list
+      if (key === 'winning_margin' || key === 'goals_range') {
+        const items = getMarketItems(key);
+        if (!items || items.length === 0) return null;
+        const title = key === 'winning_margin' ? 'Margem de Vitória' : 'Intervalo de Golos';
+        const susp = getSuspendedReason(key);
+        return (
+          <MarketCard title={title} darkMode={darkMode}>
+            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
+          </MarketCard>
+        );
+      }
+
+      // Exact Goals per team
+      if (key === 'exact_home_goals' || key === 'exact_away_goals') {
+        const items = getMarketItems(key);
+        if (!items || items.length === 0) return null;
+        const title = key === 'exact_home_goals' ? 'Golos Exactos — Casa' : 'Golos Exactos — Fora';
+        const susp = getSuspendedReason(key);
+        return (
+          <MarketCard title={title} darkMode={darkMode}>
+            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
+          </MarketCard>
+        );
+      }
+
+      // Win to Nil / Team Clean Sheet — 2-column pairs
+      if (key === 'win_to_nil' || key === 'team_clean_sheet') {
+        const items = getMarketItems(key);
+        if (!items || items.length < 2) return null;
+        const titleMap: Record<string, string> = { win_to_nil: 'Vitória sem Sofrer', team_clean_sheet: 'Baliza a Zero' };
+        const susp = getSuspendedReason(key);
+        return (
+          <MarketCard title={titleMap[key] || key} darkMode={darkMode}>
+            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+          </MarketCard>
+        );
+      }
+
+      // BTTS derivatives (2-column)
+      if (key === 'btts_first_half' || key === 'btts_second_half' || key === 'btts_and_result') {
+        const items = getMarketItems(key);
+        if (!items || items.length === 0) return null;
+        const titleMap: Record<string, string> = {
+          btts_first_half: 'Ambas Marcam — 1º Tempo',
+          btts_second_half: 'Ambas Marcam — 2º Tempo',
+          btts_and_result: 'Ambas Marcam + Resultado',
+        };
+        const susp = getSuspendedReason(key);
+        const cols = key === 'btts_and_result' ? undefined : 2;
+        return (
+          <MarketCard title={titleMap[key] || key} darkMode={darkMode}>
+            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} columns={cols} darkMode={darkMode} />
+          </MarketCard>
+        );
+      }
+
+      // Goals Odd/Even variants
+      if (/goal_odd_even|odd_even/.test(key)) {
+        const items = getMarketItems(key);
+        if (!items || items.length === 0) return null;
+        const title = key.includes('1st') ? 'Golos Par/Ímpar — 1º Tempo'
+          : key.includes('2nd') ? 'Golos Par/Ímpar — 2º Tempo' : 'Golos Par/Ímpar';
+        const susp = getSuspendedReason(key);
+        return (
+          <MarketCard title={title} darkMode={darkMode}>
+            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+          </MarketCard>
+        );
+      }
+
+      // Highest Scoring Half / Half with Most Goals — 3-column
+      if (key === 'highest_scoring_half' || key === 'half_with_most_goals') {
+        const items = getMarketItems(key);
+        if (!items || items.length === 0) return null;
+        const susp = getSuspendedReason(key);
+        const isSusp = !!susp;
+        const cols = items.length <= 2 ? 'grid-cols-2' : 'grid-cols-3';
+        return (
+          <MarketCard title="Tempo com Mais Golos" darkMode={darkMode} noPad>
+            <div className={`grid ${cols} gap-2 p-3`}>
+              {items.map((item: MarketItem, i: number) => {
+                const val = Number(item.odd);
+                const disabled = isSusp || !(val > 0);
+                return (
+                  <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
+                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined} />
+                );
+              })}
+            </div>
+          </MarketCard>
+        );
+      }
+
+      // Score Both Halves — 2-column paired
+      if (key === 'score_both_halves') {
+        const items = getMarketItems(key);
+        if (!items || items.length < 2) return null;
+        const susp = getSuspendedReason(key);
+        return (
+          <MarketCard title="Marca nos Dois Tempos" darkMode={darkMode}>
+            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+          </MarketCard>
+        );
+      }
+
+      // Penalty Scored
+      if (key === 'penalty_scored') {
+        const items = getMarketItems(key);
+        if (!items || items.length < 2) return null;
+        const susp = getSuspendedReason(key);
+        return (
+          <MarketCard title="Pênalti Marcado" darkMode={darkMode}>
+            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+          </MarketCard>
+        );
+      }
+
+      // European Handicap lines — 3-column per line
+      if (/^handicap_european_/.test(key)) {
+        const items = getMarketItems(key);
+        if (!items || items.length < 2) return null;
+        const m = /^handicap_european_(neg)?(\d+)$/.exec(key);
+        const sign = m?.[1] === 'neg' ? '-' : '+';
+        const num = m?.[2] || '';
+        const susp = getSuspendedReason(key);
+        const isSusp = !!susp;
+        const cols = items.length <= 2 ? 'grid-cols-2' : 'grid-cols-3';
+        return (
+          <MarketCard title={`Handicap Europeu ${sign}${num}`} darkMode={darkMode} noPad>
+            <div className={`grid ${cols} gap-2 p-3`}>
+              {items.map((item: MarketItem, i: number) => {
+                const val = Number(item.odd);
+                const disabled = isSusp || !(val > 0);
+                return (
+                  <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
+                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined} />
+                );
+              })}
+            </div>
+          </MarketCard>
+        );
+      }
+
+      // Double Chance 1st Half — 3-column
+      if (key === 'double_chance_1st_half') {
+        const items = getMarketItems(key);
+        if (!items || items.length < 2) return null;
+        const susp = getSuspendedReason(key);
+        const isSusp = !!susp;
+        const cols = items.length <= 2 ? 'grid-cols-2' : 'grid-cols-3';
+        return (
+          <MarketCard title="Dupla Chance — 1º Tempo" darkMode={darkMode} noPad>
+            <div className={`grid ${cols} gap-2 p-3`}>
+              {items.map((item: MarketItem, i: number) => {
+                const val = Number(item.odd);
+                const disabled = isSusp || !(val > 0);
+                return (
+                  <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
+                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined} />
+                );
+              })}
+            </div>
+          </MarketCard>
+        );
+      }
+
+      // Draw No Bet 1st Half — 2-column
+      if (key === 'draw_no_bet_1st_half') {
+        const items = getMarketItems(key);
+        if (!items || items.length < 2) return null;
+        const susp = getSuspendedReason(key);
+        const isSusp = !!susp;
+        return (
+          <MarketCard title="Empate Anula Aposta — 1º Tempo" darkMode={darkMode} noPad>
+            <div className="grid grid-cols-2 gap-2 p-3">
+              {items.map((item: MarketItem, i: number) => {
+                const val = Number(item.odd);
+                const disabled = isSusp || !(val > 0);
+                return (
+                  <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
+                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
+                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined} />
+                );
+              })}
+            </div>
+          </MarketCard>
+        );
+      }
+
+      // 1st/2nd Half Correct Score — 3-column grouped
+      if (key === '1st_half_correct_score' || key === '2nd_half_correct_score') {
+        const rawItems = getMarketItems(key);
+        if (!rawItems || rawItems.length === 0) return null;
+        const title = key === '1st_half_correct_score' ? 'Placar Correto — 1º Tempo' : 'Placar Correto — 2º Tempo';
+        const susp = getSuspendedReason(key);
+        const isSusp = !!susp;
+        const parseScore = (label: string) => {
+          const m = /(\d+)\s*[-:]\s*(\d+)/.exec(String(label || ''));
+          return m ? { h: parseInt(m[1]), a: parseInt(m[2]) } : null;
+        };
+        const scored = rawItems
+          .map((it: MarketItem) => ({ it, s: parseScore(String(it.label)) }))
+          .filter((x: any) => x.s) as Array<{ it: MarketItem; s: { h: number; a: number } }>;
+        scored.sort((a, b) => (a.s.h + a.s.a) - (b.s.h + b.s.a) || a.s.h - b.s.h);
+        const homeWins: MarketItem[] = [], draws: MarketItem[] = [], awayWins: MarketItem[] = [];
+        for (const { it, s } of scored) {
+          if (s.h > s.a) homeWins.push(it);
+          else if (s.h === s.a) draws.push(it);
+          else awayWins.push(it);
+        }
+        const maxRows = Math.max(homeWins.length, draws.length, awayWins.length, 1);
+        const colData = [
+          { label: 'Casa', items: homeWins, color: 'text-blue-400' },
+          { label: 'Empate', items: draws, color: 'text-yellow-400' },
+          { label: 'Fora', items: awayWins, color: 'text-red-400' },
+        ];
+        return (
+          <MarketCard title={title} darkMode={darkMode} noPad>
+            <div className="grid grid-cols-3 gap-3 p-3">
+              {colData.map(col => (
+                <div key={col.label} className="flex flex-col gap-2">
+                  <div className={`text-[10px] font-extrabold uppercase tracking-wider text-center py-1.5 ${col.color} ${darkMode ? 'bg-gray-800/60' : 'bg-gray-50'} rounded-lg`}>
+                    {col.label}
+                  </div>
+                  {Array.from({ length: maxRows }).map((_, i) => {
+                    const item = col.items[i];
+                    if (!item) return <div key={i} className="h-12" />;
+                    const val = Number(item.odd);
+                    const pStr = val > 0 ? val.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+                    return (
+                      <button key={i} onClick={isSusp ? undefined : () => onSelect(item.label, val)} disabled={isSusp}
+                        className={`w-full h-12 rounded-xl font-black tabular-nums flex flex-col items-center justify-center ${isSusp ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}>
+                        <span className="text-[12px] font-extrabold">{item.label}</span>
+                        <span className="text-sm">{pStr}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </MarketCard>
+        );
+      }
+
+      // ── End of derived market renderers ──────────────────────────────────
 
       // Generic
       const items = getMarketItems(key);
@@ -1341,8 +1689,8 @@ export function SubOddsModel({
               else if (/handicap/.test(lk)) add('Handicap', k);
               else if (/player_|scorer|goal_scorer|jogador/.test(lk)) add('Jogadores', k);
               else if (/double_chance|dnb|draw_no_bet/.test(lk)) add('Dupla Chance', k);
-              else if (/totals|btts|goal|goals|team_totals|minute_goals|exact_goals|goal_range|odd_even|next_goal|first_goal|last_goal/.test(lk)) add('Gols', k);
-              else if (/h2h|result|winner|winning|margin|match_winner/.test(lk)) add('Resultados', k);
+              else if (/totals|btts|goal|goals|team_totals|minute_goals|exact_goals|goals_range|odd_even|next_goal|first_goal|last_goal|first_team_to_score|team_to_score_last|clean_sheet|win_to_nil|highest_scoring_half|score_both_halves|penalty_scored/.test(lk)) add('Gols', k);
+              else if (/h2h|result|winner|winning_margin|winning|margin|match_winner/.test(lk)) add('Resultados', k);
               else add('Especiais', k);
           }
 
