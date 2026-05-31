@@ -14,7 +14,6 @@ export default defineConfig(({ mode }) => {
       __READDY_PROJECT_ID__: JSON.stringify(''),
       __READDY_VERSION_ID__: JSON.stringify(''),
       __READDY_AI_DOMAIN__: JSON.stringify(''),
-      __STRIPE_PUBLIC_KEY__: JSON.stringify(env.STRIPE_PUBLIC_KEY || env.VITE_STRIPE_PUBLIC_KEY || ''),
     },
     envPrefix: ['VITE_'],
     server: {

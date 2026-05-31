@@ -4,49 +4,7 @@ import { apiFetch } from '@/react-app/utils/api';
 
 const QUICK_AMOUNTS = [10, 25, 50, 100, 200, 500];
 
-type Method = 'card' | 'mbway' | 'multibanco';
-
-const CardForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
-  const { darkMode } = useApp();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      await apiFetch('/api/wallet/deposit/card', {
-        method: 'POST',
-        body: JSON.stringify({ amount })
-      });
-      onSuccess();
-    } catch (err: any) {
-      const msg = String(err?.message || '');
-      setError(/401|Unauthorized/i.test(msg) ? 'Sessão expirada. Faz login novamente.' : msg || 'Erro ao processar pagamento');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className={`p-4 rounded-xl border-2 border-dashed ${darkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
-        <p className={`text-sm text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-          Pagamento por cartão — processado pelo servidor
-        </p>
-      </div>
-      {error && <p className="text-red-500 text-sm">{error}</p>}
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-500 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
-      >
-        {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> A processar...</> : `💳 Pagar €${amount.toFixed(2)}`}
-      </button>
-    </form>
-  );
-};
+type Method = 'mbway' | 'multibanco';
 
 const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
   const { addNotification, darkMode } = useApp();
@@ -277,7 +235,7 @@ export default function DepositPage() {
   const { darkMode, user, openAuthModal } = useApp();
   const [amount, setAmount] = useState("25");
   const [amountError, setAmountError] = useState("");
-  const [method, setMethod] = useState<Method>('card');
+  const [method, setMethod] = useState<Method>('mbway');
   const [success, setSuccess] = useState(false);
 
   const numAmount = parseFloat(amount) || 0;
@@ -298,20 +256,6 @@ export default function DepositPage() {
   const handleSuccess = () => setSuccess(true);
 
   const PaymentLogo = ({ method: m }: { method: Method }) => {
-    if (m === 'card') return (
-      <span className="flex items-center gap-1">
-        <svg viewBox="0 0 48 30" width="34" height="22" xmlns="http://www.w3.org/2000/svg">
-          <rect width="48" height="30" rx="4" fill="#fff" stroke="#e5e7eb"/>
-          <text x="24" y="21" textAnchor="middle" fontSize="13" fill="#1A1F71" fontFamily="'Arial Black','Helvetica Neue',sans-serif" fontWeight="900" fontStyle="italic" letterSpacing="-0.5">VISA</text>
-        </svg>
-        <svg viewBox="0 0 48 30" width="34" height="22" xmlns="http://www.w3.org/2000/svg">
-          <rect width="48" height="30" rx="4" fill="#fff" stroke="#e5e7eb"/>
-          <circle cx="20" cy="15" r="8" fill="#EB001B"/>
-          <circle cx="28" cy="15" r="8" fill="#F79E1B"/>
-          <path d="M24 9.2a8 8 0 0 1 0 11.6 8 8 0 0 1 0-11.6z" fill="#FF5F00"/>
-        </svg>
-      </span>
-    );
     if (m === 'mbway') return (
       <svg viewBox="0 0 60 24" width="50" height="20" xmlns="http://www.w3.org/2000/svg">
         <rect width="60" height="24" rx="4" fill="#E30613"/>
@@ -331,7 +275,6 @@ export default function DepositPage() {
   };
 
   const methodTabs: { key: Method; label: string }[] = [
-    { key: 'card', label: 'Cartão' },
     { key: 'mbway', label: 'MBway' },
     { key: 'multibanco', label: 'Multibanco' },
   ];
@@ -420,7 +363,6 @@ export default function DepositPage() {
             <p className="text-center text-gray-500 text-sm py-4">Seleciona um valor mínimo de €{minDeposit.toFixed(2)}</p>
           ) : (
             <>
-              {method === 'card' && <CardForm amount={numAmount} onSuccess={handleSuccess} />}
               {method === 'mbway' && <MBWayForm amount={numAmount} onSuccess={handleSuccess} />}
               {method === 'multibanco' && <MultibancoForm amount={numAmount} onSuccess={handleSuccess} />}
             </>

@@ -10,9 +10,6 @@ export interface WalletTransaction {
   status: string;
   payment_method?: string;
   description?: string;
-  stripe_session_id?: string;
-  stripe_payment_intent?: string;
-  confirmed_by_webhook?: boolean;
   created_at: string;
   completed_at?: string;
 }

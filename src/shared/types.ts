@@ -1,25 +1,8 @@
-/// <reference types="@cloudflare/workers-types" />
-import z from "zod";
-
 export interface Env {
-  DB: D1Database;
-  STRIPE_SECRET_KEY: string;
-  STRIPE_WEBHOOK_SECRET: string;
-  BANXA_API_KEY: string;
-  BANXA_API_SECRET: string;
-  GUARDARIAN_API_KEY: string;
-  GUARDARIAN_API_SECRET: string;
-  FIREBLOCKS_API_KEY: string;
-  FIREBLOCKS_API_SECRET: string;
-  FIREBLOCKS_WEBHOOK_PUBLIC_KEY: string;
-  NUVEI_WEBHOOK_SECRET: string;
   ADMIN_TOKEN?: string;
   BOOTSTRAP_TOKEN?: string;
   ADMIN_USER?: string;
   ADMIN_PASS?: string;
-  PAYPAL_CLIENT_ID?: string;
-  PAYPAL_CLIENT_SECRET?: string;
-  PAYPAL_ENVIRONMENT?: string;
   API_SPORTS_KEY?: string;
   SPORTSAPI_PRO_KEY?: string;
   ODDS_API_KEY?: string;

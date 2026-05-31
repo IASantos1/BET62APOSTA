@@ -10,11 +10,10 @@ import { useLimits } from '../../hooks/useLimits';
 import { useNotification } from '../../contexts/NotificationContext';
 import { apiFetch } from '../../services/backendClient';
 import MBWayForm from './components/MBWayForm';
-import CardForm from './components/CardForm';
 import MultibancoForm from './components/MultibancoForm';
 import TransferForm from './components/TransferForm';
 
-type PaymentMethod = 'mbway' | 'card' | 'multibanco' | 'transfer' | null;
+type PaymentMethod = 'mbway' | 'multibanco' | 'transfer' | null;
 
 const paymentMethods = [
   {
@@ -25,16 +24,6 @@ const paymentMethods = [
     color: 'from-red-500 to-red-600',
     bgLight: 'bg-red-50',
     borderActive: 'border-red-400 ring-2 ring-red-100',
-    time: 'Instantâneo',
-  },
-  {
-    id: 'card',
-    name: 'Cartões',
-    icon: 'ri-visa-line',
-    description: 'Visa, Mastercard',
-    color: 'from-blue-500 to-blue-600',
-    bgLight: 'bg-blue-50',
-    borderActive: 'border-blue-400 ring-2 ring-blue-200',
     time: 'Instantâneo',
   },
   {
@@ -177,17 +166,7 @@ export default function DepositPage() {
 
   /** Handlers for each specific payment form */
   const handleMBWaySubmit = (_phone: string) => {
-    // MB WAY agora é totalmente gerido pelo Stripe + webhook no MBWayForm
-    // Não criamos transação pendente manual aqui para evitar mensagens inconsistentes
     setSuccessMessage('');
-  };
-
-  const handleCardSubmit = async () => {
-    await fetchBalance();
-    setSuccessMessage(`Depósito de €${depositAmount.toFixed(2)} via PayPal (Cartão) confirmado!`);
-    setStep('amount');
-    setAmount('');
-    setSelectedMethod(null);
   };
 
   const handleMultibancoSubmit = () => {
@@ -447,9 +426,6 @@ export default function DepositPage() {
               {/* Specific payment form */}
               {selectedMethod === 'mbway' && (
                 <MBWayForm amount={depositAmount} onSubmit={handleMBWaySubmit} loading={loading} />
-              )}
-              {selectedMethod === 'card' && (
-                <CardForm amount={depositAmount} onSubmit={handleCardSubmit} loading={loading} />
               )}
               {selectedMethod === 'multibanco' && (
                 <MultibancoForm amount={depositAmount} onSubmit={handleMultibancoSubmit} loading={loading} />
