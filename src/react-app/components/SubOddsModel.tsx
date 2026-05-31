@@ -626,8 +626,93 @@ export function SubOddsModel({
     return false;
   }, [isLive, event, liveTimer, resultadoRegulamentar]);
 
+  // ── Live elapsed minute (for progressive market liquidation) ──────────
+  const liveElapsedMinute = useMemo(() => {
+    if (!isLive) return 0;
+    const fromTimer = parseInt(String(liveTimer || '').replace(/[^\d]/g, ''), 10);
+    if (fromTimer > 0) return fromTimer;
+    const elapsed = Number((event as any)?.elapsed ?? (event as any)?.fixture?.status?.elapsed ?? 0);
+    return elapsed || 0;
+  }, [isLive, liveTimer, event]);
+
+  // ── Market liquidation: progressive hiding of markets as game approaches 90' ──
+  // Soccer only. Tiers:
+  //   < 60 min  → all markets visible
+  //   60–75 min → hide exotic/specials (correct score, scorers, specials)
+  //   75–85 min → keep only core (h2h, totals, handicap, btts, double_chance, dnb, 2nd-half)
+  //   85–90 min → keep only h2h + totals + double_chance
+  //   90+       → only h2h survives
+  const isSoccerLive = useMemo(() => {
+    if (!isLive) return false;
+    const s = String((event as any)?.sport || '').toLowerCase();
+    return s === 'soccer' || (s.includes('football') && !s.includes('american'));
+  }, [isLive, event]);
+
+  const isMarketLiquidated = (key: string): boolean => {
+    if (!isSoccerLive || liveElapsedMinute <= 0) return false;
+    const min = liveElapsedMinute;
+
+    const ALWAYS_KEEP = new Set([
+      'h2h', 'h2h_3_way', '1x2', 'main', 'match_winner', 'moneyline',
+    ]);
+    if (ALWAYS_KEEP.has(key)) return false;
+
+    // 90+ min: only h2h survives
+    if (min >= 90) return true;
+
+    // 85–90 min: h2h + totals + double_chance
+    if (min >= 85) {
+      const keep85 = new Set(['totals', 'double_chance']);
+      return !keep85.has(key);
+    }
+
+    // 75–85 min: core markets only
+    if (min >= 75) {
+      const keep75 = new Set([
+        'totals', 'handicap', 'spreads', 'btts', 'double_chance', 'dnb', 'draw_no_bet',
+        'second_half_h2h', '2nd_half', '2nd_half_totals',
+      ]);
+      return !keep75.has(key);
+    }
+
+    // 60–75 min: hide exotic / specials
+    if (min >= 60) {
+      const exotic60 = new Set([
+        'correct_score', 'exact_score', 'score_exact', '1st_half_correct_score', '2nd_half_correct_score',
+        'btts_and_result', 'comeback_win', 'score_both_halves', 'win_both_halves', 'goal_in_each_half',
+        'minute_goals', 'first_goal_scorer', 'anytime_goal_scorer', 'player_goal_scorer_anytime',
+        'first_team_to_score', 'team_to_score_last', 'team_to_score_first', 'team_clean_sheet',
+        'winning_margin', 'goals_range', 'penalty_scored', 'half_time_full_time',
+        'own_goal', '1st_half_goal_range', '2nd_half_goal_range',
+        'home_goals_odd_even', 'away_goals_odd_even', 'btts_first_half',
+        'home_team_totals', 'away_team_totals', 'exact_home_goals', 'exact_away_goals',
+        'home_corners_total', 'away_corners_total', 'home_cards_total', 'away_cards_total',
+        'corners_btts', 'corner_handicap', 'corners_2_way',
+        'win_to_nil', 'goals_odd_even', 'total_goal_odd_even',
+        'first_goal', 'last_goal', 'next_goal',
+      ]);
+      return exotic60.has(key);
+    }
+
+    return false;
+  };
+
+  // Liquidation tier label for display badge
+  const liquidationTier = useMemo((): string | null => {
+    if (!isSoccerLive || liveElapsedMinute <= 0) return null;
+    const min = liveElapsedMinute;
+    if (min >= 90) return '90+\'';
+    if (min >= 85) return `${min}' — só mercados essenciais`;
+    if (min >= 75) return `${min}' — mercados reduzidos`;
+    if (min >= 60) return `${min}' — exóticos suspensos`;
+    return null;
+  }, [isSoccerLive, liveElapsedMinute]);
+
   // --- Render each market as a card ---
   const renderMarketContent = (key: string) => {
+      // Progressive market liquidation: hide markets based on elapsed minute
+      if (isMarketLiquidated(key)) return null;
+
       if (key !== 'h2h' && ['h2h_3_way', '1x2', 'main', 'match_winner'].includes(key)) {
           if (resultadoRegulamentar.length > 0) return null;
       }
@@ -1417,7 +1502,23 @@ export function SubOddsModel({
 
   return (
     <div className={`${darkMode ? 'bg-gray-800 border border-gray-700' : 'bg-gray-50 border border-gray-200'} rounded-2xl p-2 md:p-3`}>
-      
+
+      {/* Market Liquidation Badge */}
+      {liquidationTier && (
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 mb-3 rounded-lg text-[11px] font-bold uppercase tracking-wide"
+          style={{
+            background: 'rgba(234,88,12,0.12)',
+            border: '1px solid rgba(234,88,12,0.35)',
+            color: '#f97316',
+          }}
+        >
+          <span style={{ animation: 'wcPulse 1.8s ease-in-out infinite', display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#f97316', flexShrink: 0 }} />
+          ⏱ {liquidationTier} · mercados em liquidação
+          <style>{`@keyframes wcPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(1.85)}}`}</style>
+        </div>
+      )}
+
       {/* Navigation Tabs */}
       <div className="flex overflow-x-auto pb-2 mb-4 gap-2 no-scrollbar">
          {(() => {
