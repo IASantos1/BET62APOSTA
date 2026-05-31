@@ -1,0 +1,620 @@
+No tênis, a lógica de “sumir mercados / reduzir liquidez visível” em live é ainda mais agressiva do que no futebol, porque o esporte é estado-sequencial de alta granularidade (ponto → game → set → match). Isso faz com que o sistema trabalhe com micro-suspensões + reprecificação contínua por estado do saque e break probability.
+
+Vou te mapear exatamente como casas sérias normalmente organizam isso por categoria.
+
+1. PRINCÍPIO DO TÊNIS (fundamental)
+
+No tênis, o mercado depende quase inteiramente de:
+
+Quem está sacando
+Placar do game (0-15, 30-30 etc.)
+Break point / set point / match point
+Momentum (sequência de pontos)
+
+👉 Isso gera repricing a cada ponto, não apenas a cada game.
+
+2. ESTADO GLOBAL: O QUE ACONTECE EM LIVE
+
+Sempre que ocorre:
+
+ponto
+break
+fim de game
+fim de set
+
+o sistema executa:
+
+Suspensão de 2–10 segundos
+Recalcula probabilidades
+Aplica filtros de mercado
+Reabre subset de mercados
+3. MATRIZ DE MERCADOS POR CATEGORIA
+A) VENCEDOR (MATCH WINNER)
+
+✔ Sempre ativo (quase sempre)
+
+Após eventos:
+
+odds mudam fortemente após break
+não costuma sumir
+
+❗ Mas pode ser suspenso:
+
+durante breakpoint
+durante saque decisivo (match point)
+B) SET ATUAL (CURRENT SET WINNER)
+
+Esse é altamente dinâmico.
+
+Pode:
+
+✔ permanecer ativo
+❌ ser suspenso frequentemente
+
+Após break:
+
+reprice forte
+pode ocultar temporariamente durante game crítico
+C) SETS (TOTAL DE SETS / OVER UNDER SETS)
+
+Exemplo: Over 2.5 sets
+
+Regra:
+
+✔ Mantido enquanto:
+
+ainda há possibilidade matemática
+
+❌ Some quando:
+
+resultado já elimina cenário
+
+Exemplo:
+
+2–0 → Over 3.5 sets some
+1–0 em sets → Over/Under ajustado forte
+D) HANDICAP (GAMES / SET HANDICAP)
+
+Esse é o núcleo do “sumir mercado”.
+
+Após eventos críticos:
+break
+fim de set
+início de novo set
+O que acontece:
+
+✔ Linhas próximas:
+
+-1.5 games
++1.5 games
+
+❌ Linhas que somem:
+
+handicaps extremos (ex: -6.5 quando já impossível)
+linhas que não fazem mais sentido estatístico
+Exemplo real:
+
+Se jogador A está ganhando fácil:
+
++6.5 do adversário → some
+-6.5 do favorito → some
+só ficam linhas centrais
+E) JOGOS (TOTAL DE GAMES / OVER UNDER GAMES)
+Muito sensível ao saque
+
+✔ Mantém:
+
+linhas médias (ex: 18.5, 20.5 games)
+
+❌ Some quando:
+
+já atingiu threshold matemático
+ou distribuição ficou impossível
+
+Exemplo:
+
+6–0 3–0 → over altos podem desaparecer
+under baixos já “settled” são removidos
+F) ESPECIAIS (SPECIALS)
+
+Aqui entram:
+
+próximo game winner
+próximo ponto
+próximo break
+tie-break yes/no
+double fault markets
+Regra geral:
+
+❌ São os primeiros a serem removidos do front-end
+
+Por quê:
+
+alta volatilidade
+dependência de ponto atual
+risco extremo de arbitragem
+Exemplos de comportamento:
+“Next game winner” → some em breakpoint
+“Will there be a break in next game?” → suspenso durante game
+“Next point winner” → micro-market, quase sempre suspenso
+4. MOMENTOS CRÍTICOS (onde tudo some)
+
+No tênis, os mercados são removidos automaticamente em:
+
+🔴 Break point
+quase todos mercados suspensos
+🔴 Deuce (40-40)
+redução forte de mercados especiais
+🔴 Match point
+apenas winner pode ficar ativo
+🔴 Tie-break
+reprecificação agressiva a cada ponto
+muitos mercados desaparecem temporariamente
+5. REGRAS DE “SUMIR DO FRONT-END” NO TÊNIS
+
+Casas usam 4 filtros principais:
+
+1. STATE DEPENDENCY FILTER
+
+Se o mercado depende do estado atual do ponto:
+
+some em break point
+some em 40-40
+2. MATHEMATICAL ELIMINATION
+
+Se resultado já não pode acontecer:
+
+remove automaticamente
+3. VOLATILITY LOCK
+
+Se risco de erro de pricing é alto:
+
+suspende temporariamente
+remove do UI por segurança
+4. STAKE CONTROL FILTER
+
+Se há exposição alta:
+
+reduz mercados disponíveis
+esconde linhas marginais
+6. RESUMO POR CATEGORIA (o que você pediu)
+🎾 VENCEDOR
+
+✔ quase sempre ativo
+❌ suspenso em pontos críticos
+
+🎾 SET ATUAL
+
+✔ ativo
+❌ suspenso em break / game decisivo
+
+🎾 SETS
+
+✔ ativo até eliminação matemática
+❌ some quando cenário impossível
+
+🎾 HANDICAP
+
+✔ linhas centrais
+❌ linhas extremas somem rápido
+
+🎾 JOGOS
+
+✔ ativo
+❌ reduz conforme placar se distancia
+
+🎾 ESPECIAIS
+
+❌ mais instáveis
+❌ somem frequentemente em live points
+
+7. SE QUISER O PRÓXIMO NÍVEL
+
+Posso te montar exatamente:
+
+regra em JSON (rules engine tipo sportsbook real)
+thresholds por mercado (ex: break probability cutoff)
+arquitetura de trading de tênis ao vivo
+ou 
+simulação de engine tipo Bet365/Betfair
+
+Só diz o nível que você quer: técnico ou implementação.
+
+basquete Todos
+Vencedor
+Spread
+1ºQ
+2ºQ
+3ºQ
+4ºQ
+
+No basquete, a lógica de “liquidez visível / sumir mercados” em live betting é essencialmente um market lifecycle control baseado em tempo + posse + score differential + run probability. É bem mais estável que tênis, mas mais dinâmico que futebol, porque há segmentação por quartos (quarters) e ritmo contínuo.
+
+Vou te mapear por categoria exatamente como casas de apostas estruturam isso.
+
+1. PRINCÍPIO DO BASQUETE EM LIVE
+
+O sistema trabalha com:
+
+tempo restante (game clock)
+diferença de pontos (spread dinâmico)
+pace (posses por minuto)
+runs (sequências de pontos)
+probabilidade de comeback
+
+👉 O ponto-chave:
+
+quanto menos tempo resta, menos mercados fazem sentido → mais “sumidos” ou fechados.
+
+2. MOMENTOS DE SUSPENSÃO (regra geral)
+
+Quase todos os mercados são suspensos automaticamente em:
+
+cesta (principalmente 3PT)
+timeout
+falta revisada
+último minuto do jogo
+lances livres decisivos
+
+Depois disso:
+
+reprecificação (1–5 segundos)
+reabertura parcial de mercados
+3. MATRIZ POR CATEGORIA
+A) VENCEDOR (MATCH WINNER)
+
+✔ Sempre ativo durante quase todo o jogo
+
+Comportamento em live:
+odds mudam continuamente
+forte sensibilidade ao “run”
+ajuste mais agressivo no 4º quarto
+
+❌ pode ser suspenso:
+
+último minuto (posse crítica)
+free throws decisivos
+
+✔ nunca “some permanentemente”
+
+B) SPREAD (HANDICAP / LINHA)
+
+Ex: -4.5 / +4.5
+
+Esse é o mercado mais sensível do basquete.
+Durante o jogo:
+
+✔ sempre ativo
+
+Mas:
+
+❌ algumas linhas somem conforme o tempo passa
+
+REGRA DE SUMIÇO DO SPREAD
+1º tempo:
+spreads completos disponíveis
+3º quarto:
+linhas extremas começam a desaparecer
+4º quarto (especialmente último 3 min):
+só spreads curtos ficam visíveis
+spreads longos somem
+Exemplo prático:
+
+Se jogo está:
+
+102–85 no 4Q
+
+Então:
+
+-15.5 some
++15.5 some
+só ficam:
+-3.5
++3.5
+-1.5
+C) 1º QUARTO (1Q)
+
+✔ mercado independente
+
+Lógica:
+ativo apenas durante o 1Q
+após fim do quarto → fechado permanentemente
+Durante o jogo:
+
+✔ totalmente ativo
+❌ some após buzzer do 1Q
+
+D) 2º QUARTO (2Q)
+
+Mesmo modelo do 1Q:
+
+✔ ativo durante o período
+❌ fechado após intervalo (halftime)
+
+E) 3º QUARTO (3Q)
+
+✔ ativo durante o período
+❌ fechado após 3Q
+
+comportamento live:
+forte ajuste após halftime
+spreads recalibrados com base em momentum do 2Q
+F) 4º QUARTO (4Q)
+Aqui acontece 80% da dinâmica de “sumir mercado”
+Regra principal:
+
+quanto menor o tempo restante, mais mercados são removidos
+
+Últimos 5 minutos:
+
+✔ mantém:
+
+winner
+spread curto
+total points (altamente ajustado)
+
+❌ some:
+
+spreads longos
+props complexas
+mercados derivados
+Últimos 2 minutos:
+só mercados essenciais permanecem
+forte suspensão após cada posse
+Últimos 30 segundos:
+
+✔ apenas:
+
+winner (às vezes suspenso)
+algumas linhas de spread extremamente curtas
+4. TIPOS DE REMOÇÃO DE MERCADO
+
+No basquete, “sumir do front-end” segue 3 regras:
+
+1. TIME DECAY RULE
+
+Quanto menos tempo:
+
+menos mercados
+2. SCORE STABILITY RULE
+
+Se diferença é grande:
+
+spreads extremos somem
+totals longos somem
+3. POSSESSION CRITICALITY RULE
+
+Se posse é crítica:
+
+suspende tudo temporariamente
+5. RESUMO POR CATEGORIA (o que você pediu)
+🏀 VENCEDOR
+
+✔ sempre ativo
+❌ suspenso em momentos críticos (últimos segundos)
+
+🏀 SPREAD
+
+✔ ativo durante todo jogo
+❌ linhas extremas somem no 4Q
+❌ reduz para spreads curtos no final
+
+🏀 1º QUARTO
+
+✔ ativo apenas no período
+❌ some após término
+
+🏀 2º QUARTO
+
+✔ ativo apenas no período
+❌ some após halftime
+
+🏀 3º QUARTO
+
+✔ ativo apenas no período
+❌ some após 3Q
+
+🏀 4º QUARTO
+
+✔ ativo com restrição crescente
+❌ quase todos mercados somem no final
+❌ apenas core markets permanecem
+
+6. O QUE REALMENTE ACONTECE TECNICAMENTE
+
+O sistema roda:
+
+Event detection (cesta, falta, timeout)
+Pause markets (200ms–5s)
+Repricing engine:
+score impact model
+time remaining decay
+possession weighting
+Filter engine:
+remove low probability markets
+remove high exposure lines
+collapse market ladder
+Reopen subset
+7. SE QUISER O PRÓXIMO PASSO
+
+Posso te entregar isso em nível de implementação real:
+
+regras JSON de sportsbook (tipo rule engine)
+thresholds exatos de remoção por minuto
+modelo de spread dinâmico (real trading model)
+ou arquitetura tipo NBA betting engine (Bet365 style)
+
+Só diz: quer mais conceitual ou engenharia real de sistema.
+
+basebol Todos
+Resultado
+Corridas
+1º Inning
+
+Basebol (MLB-style) é um dos sistemas mais “estruturados” de live betting porque o jogo é event-driven (out + inning + run expectancy), não contínuo. Isso faz com que a lógica de “sumir mercados” seja muito mais rígida e baseada em estado do inning e elegibilidade estatística do jogo.
+
+Vou mapear exatamente por categoria como você pediu.
+
+1. PRINCÍPIO DO BASEBOL EM LIVE
+
+O sistema usa três variáveis principais:
+
+inning atual (1–9+)
+outs no inning (0–2)
+runners em base (estado de ocupação)
+run expectancy matrix
+
+👉 Ou seja:
+
+cada pitch pode alterar completamente o risco do mercado
+
+2. SUSPENSÕES PADRÃO (toda casa faz isso)
+
+Mercados são suspensos automaticamente em:
+
+pitch (arremesso importante)
+hit (rebatida)
+home run
+mudança de pitcher
+review (VAR equivalente MLB)
+fim de inning
+
+Depois:
+
+recalcula odds
+reabre subset de mercados
+3. MATRIZ POR CATEGORIA
+A) RESULTADO (MATCH RESULT / MONEYLINE)
+
+✔ Sempre ativo durante quase todo o jogo
+
+Comportamento:
+odds mudam fortemente por inning
+grande impacto de pitchers
+runs têm peso exponencial
+
+❌ pode ser suspenso:
+
+mudança de pitcher
+bases loaded
+inning crítico (8º/9º inning com runners)
+
+✔ nunca some permanentemente
+
+B) CORRIDAS (RUNS / TOTAL RUNS / OVER UNDER)
+
+Esse é o núcleo da liquidez.
+
+✔ ativo durante todo o jogo
+
+Mas com forte reprecificação por:
+
+inning
+outs
+bullpen vs starter
+momentum de runs
+❌ quando some ou reduz
+1. AFTER RUN EVENT
+após home run ou múltiplas runs → suspensão breve
+2. ENDGAME DECAY
+8º/9º inning:
+linhas altas (ex: over 10.5) podem sumir
+linhas já “matematicamente resolvidas” são removidas
+Exemplo:
+
+Se jogo está 7–2 no 8º inning:
+
+Over 10.5 → some
+Under 3.5 → some
+só linhas centrais permanecem
+C) 1º INNING (FIRST INNING)
+
+Esse é um mercado separado e altamente volátil.
+
+✔ ativo somente no 1º inning
+comportamento:
+odds mudam a cada out
+extremamente sensível a:
+leadoff hit
+home run inicial
+strikeout sequence
+❌ some completamente após o inning
+
+Exemplo de remoção:
+
+“1st inning total runs”
+“1st inning winner”
+“no run 1st inning”
+
+👉 todos são settled/closed após top/bottom 1st
+
+4. LÓGICA DE “SUMIR MERCADO” NO BASEBOL
+
+Aqui é bem determinístico.
+
+1. INNING COMPLETION RULE
+
+Quando inning termina:
+
+todos mercados do inning são fechados
+não voltam mais
+2. MATHEMATICAL RESOLUTION RULE
+
+Se resultado já não pode mudar significativamente:
+
+remove linhas extremas de total runs
+remove spreads irrelevantes
+3. PITCHER CHANGE RULE
+
+Quando pitcher muda:
+
+suspende todos mercados
+reabre com novo modelo de probabilidade
+4. RUN EVENT VOLATILITY RULE
+
+Após home run ou rally:
+
+suspende total runs
+recalcula run expectancy
+5. RESUMO POR CATEGORIA (o que você pediu)
+⚾ RESULTADO (MONEYLINE)
+
+✔ sempre ativo
+❌ suspenso em eventos críticos (pitcher change, bases loaded)
+
+⚾ CORRIDAS (TOTAL RUNS)
+
+✔ ativo durante todo jogo
+❌ linhas extremas somem no final do jogo
+❌ suspenso após eventos de run
+
+⚾ 1º INNING
+
+✔ ativo somente no inning
+❌ some totalmente após 3 outs no 1º inning
+
+6. O QUE REALMENTE ACONTECE NA ENGINE
+
+Fluxo típico:
+
+Pitch event detectado
+Micro-suspensão (200ms–2s)
+Atualização de estado:
+outs
+base runners
+score
+Recompute run expectancy model
+Apply filters:
+remove resolved markets
+collapse extreme lines
+adjust volatility
+Reopen markets subset
+7. DIFERENÇA DO BASEBOL vs OUTROS ESPORTES
+Futebol → evento lento (gol)
+Tênis → ponto a ponto
+Basquete → posse a posse
+Basebol → pitch a pitch (mais granular de todos)
+
+👉 Por isso:
+
+é o esporte com maior número de micro-suspensões e reabertura de mercados
