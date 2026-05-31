@@ -72,7 +72,7 @@ function Home({ mode = 'home' }: HomeProps) {
     selectedCategory === 'soccer-all' ||
     selectedCategory === 'todos';
 
-  const { live: httpLive, pregame, loading: eventsLoading } = useSportsEvents(
+  const { live: httpLive, pregame, loading: eventsLoading, ready: eventsReady } = useSportsEvents(
     selectedCategory || 'all',
     {
       only: mode === 'home' ? 'pregame' : mode === 'live' ? 'live' : 'both',
@@ -88,16 +88,16 @@ function Home({ mode = 'home' }: HomeProps) {
     return `${yyyy}-${mm}-${dd}`;
   }, []);
 
-  const { pregame: pregame7Days } = useSportsEvents('all', {
+  const { pregame: pregame7Days, ready: pregame7Ready } = useSportsEvents('all', {
     only: 'pregame',
     days: 8,
     enabled: mode === 'live',
     requireOdds: false,
   });
-  const loading = eventsLoading;
+  void eventsLoading;
   const showBanner = mode === 'home';
   
-  const { liveEvents: wsLiveEvents } = useLiveFeed('all');
+  const { liveEvents: wsLiveEvents, hasLoaded: liveFeedLoaded } = useLiveFeed('all');
   const mergedLive = useMergedEvents(httpLive, wsLiveEvents);
   const processedLive = useMemo(() => {
     const map = new Map<string, Event>();
@@ -112,6 +112,39 @@ function Home({ mode = 'home' }: HomeProps) {
 
   // Busca
   const { query, setQuery } = useEventSearch();
+
+  // ── Reveal gate ────────────────────────────────────────────────
+  // Em vez de mostrar jogos a "pingar" um a um, esperamos que TODAS as
+  // fontes de dados assentem (rede HTTP real + feed ao vivo + próximos 7
+  // dias) e revelamos tudo de uma só vez, num bloco estável com fade-in.
+  const [revealed, setRevealed] = useState(false);
+
+  // Re-engaja a porta sempre que muda o modo ou a categoria.
+  useEffect(() => {
+    setRevealed(false);
+  }, [mode, selectedCategory]);
+
+  useEffect(() => {
+    if (revealed) return;
+
+    // A fonte primária (HTTP) tem de ter respondido pela rede (não só cache).
+    const primaryReady = eventsReady;
+    // Em "ao vivo" também esperamos o feed ao vivo e os próximos 7 dias.
+    const liveSourcesReady = mode === 'live' ? (liveFeedLoaded && pregame7Ready) : true;
+
+    if (primaryReady && liveSourcesReady) {
+      // Pequena janela de assentamento para o merge final entrar num único lote.
+      const settleMs = mode === 'live' ? 350 : 150;
+      const t = setTimeout(() => setRevealed(true), settleMs);
+      return () => clearTimeout(t);
+    }
+  }, [revealed, eventsReady, liveFeedLoaded, pregame7Ready, mode]);
+
+  // Tecto de segurança: nunca segurar o ecrã mais do que 6s.
+  useEffect(() => {
+    const cap = setTimeout(() => setRevealed(true), 6000);
+    return () => clearTimeout(cap);
+  }, [mode, selectedCategory]);
 
   useEffect(() => {
     let cancelled = false;
@@ -875,13 +908,13 @@ function Home({ mode = 'home' }: HomeProps) {
               )}
             </div>
 
-            {loading ? (
+            {!revealed ? (
               <div className="text-center py-20">
                 <div className="animate-spin h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
                 <p className="text-gray-500">Carregando eventos...</p>
               </div>
             ) : (groupedLive.length > 0 || limitedUpcoming.length > 0 || limitedNext7.length > 0) ? (
-              <div className="space-y-12">
+              <div className="space-y-12 events-reveal">
                 {/* LIVE SECTION — shown only in mode='live' */}
                 {groupedLive.length > 0 && (
                   <div className="space-y-6">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef } from 'react';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { usePromotionProgress } from '@/react-app/hooks/usePromotionProgress';
 import { Link } from 'react-router-dom';
@@ -161,13 +161,6 @@ function PromoCard({ icon, tag, title, subtitle, highlight, gradient, glowColor,
 export default function Promotions() {
   const { user } = useApp();
   const { progress, loading } = usePromotionProgress(user?.id);
-  const [ticker, setTicker] = useState(0);
-
-  // Animate the progress bar
-  useEffect(() => {
-    const t = setInterval(() => setTicker((n) => n + 1), 50);
-    return () => clearInterval(t);
-  }, []);
 
   const bonusReceived = Math.min(progress.deposit, 100);
   const rolloverTarget = bonusReceived * 5;

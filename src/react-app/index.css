@@ -134,3 +134,10 @@
  .animate-pulse-slower { 
    animation: pulse-slower 10s infinite ease-in-out; 
  }
+@keyframes events-reveal-in {
+  0%   { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.events-reveal {
+  animation: events-reveal-in 0.45s ease-out both;
+}

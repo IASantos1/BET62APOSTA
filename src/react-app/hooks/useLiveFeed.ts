@@ -257,6 +257,9 @@ export function useLiveFeed(sport?: string) {
   const [eventsMap, setEventsMap] = useState<Map<string, any>>(new Map());
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
+  // True once the feed has produced its first response (poll or WS snapshot),
+  // even if empty — lets consumers know the live source has settled.
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const wsUrl = useMemo(() => {
     if (typeof window === 'undefined') return '';
@@ -272,6 +275,7 @@ export function useLiveFeed(sport?: string) {
           
           const list = Array.isArray(data) ? data : (data && Array.isArray(data.live) ? data.live : null);
           if (!list) return;
+          setHasLoaded(true);
           if (list.length === 0) {
             __dbg('H2', 'poll-empty', { sport: String(sport || 'all') });
             setLastUpdatedAt(Date.now());
@@ -442,6 +446,7 @@ export function useLiveFeed(sport?: string) {
           if (msg?.type === 'snapshot' && Array.isArray(msg?.live)) {
             const now = Date.now();
             const graceMs = 120_000;
+            setHasLoaded(true);
             if (msg.live.length === 0) {
               __dbg('H1', 'ws-snapshot-empty', { sport: String(sport || 'all') });
               setLastUpdatedAt(now);
@@ -540,6 +545,7 @@ export function useLiveFeed(sport?: string) {
     liveEvents, 
     events: liveEvents, 
     isConnected,
+    hasLoaded,
     lastUpdatedAt, 
     reconnect: fetchLiveEvents // Manual refresh
   };

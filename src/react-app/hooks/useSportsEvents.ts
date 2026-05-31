@@ -136,6 +136,9 @@ export function useSportsEvents(
   const [live, setLive] = useState<Event[]>([]);
   const [pregame, setPregame] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  // `ready` flips true only after the first *network* response (not cache),
+  // so consumers can hold a stable first render until real data has settled.
+  const [ready, setReady] = useState(false);
 
   // Stable primitive to avoid opts object causing effect re-runs
   const onlyMode: OnlyMode = opts?.only || 'both';
@@ -305,8 +308,12 @@ export function useSportsEvents(
     let hiddenAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
     let wakeInFlight = false;
 
+    // Re-engage the readiness gate on every (re)load cycle (e.g. category change).
+    setReady(false);
+
     if (!enabled) {
       setLoading(false);
+      setReady(true);
       updateState([], []);
       return () => {
         isActive = false;
@@ -799,6 +806,7 @@ export function useSportsEvents(
       } finally { 
         if (isActive) { 
           setLoading(false); 
+          setReady(true);
           isFirstLoadRef.current = false; 
         } 
       } 
@@ -879,5 +887,5 @@ export function useSportsEvents(
     };
   }, [safeCategory, onlyMode, opts?.days, opts?.enabled, opts?.requireOdds]); 
  
-  return { live, pregame, loading }; 
+  return { live, pregame, loading, ready }; 
 }
