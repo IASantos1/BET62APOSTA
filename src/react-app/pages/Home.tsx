@@ -397,7 +397,7 @@ function Home({ mode = 'home' }: HomeProps) {
     navigate(`/event/${event.id}`);
   };
 
-  const multiplesSource = mode === 'home' ? displayedUpcoming : processedLive;
+  const multiplesSource = displayedUpcoming;
 
   const multipleBanners = useMemo(() => {
     type Pick = { event: Event; selection: string; market: string; odd: number };
@@ -1016,7 +1016,7 @@ function Home({ mode = 'home' }: HomeProps) {
                                     />,
                                   );
                                   globalIdx++;
-                                  if (!inserted && globalIdx === 2) {
+                                  if (mode === 'home' && !inserted && globalIdx === 2) {
                                     inserted = true;
                                     out.push(<MultipleCarousel key="pre_multi_once" instanceKey="pre_once" />);
                                   }
