@@ -659,7 +659,17 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                   return 0;
                 })();
                 const setLabel = setNumFromStatus >= 1 ? `${setNumFromStatus}º SET` : '';
-                const timer = String((event as any).timer || (event as any).fixture?.status?.timer || '').trim();
+                const timerRaw = String((event as any).timer || (event as any).fixture?.status?.timer || '').trim();
+                // For live soccer, use the advancing clock so the badge never lags behind the API poll.
+                const timer = (sport === 'soccer' && isLiveEvent)
+                  ? computeFootballClock(
+                      String((event as any)?.event_date || (event as any)?.fixture?.date || ''),
+                      Number((event as any).elapsed ?? (event as any).fixture?.status?.elapsed ?? 0) || 0,
+                      timerRaw,
+                      statusU,
+                      Number((event as any)?.__lastSeenAt || 0) || undefined,
+                    )
+                  : timerRaw;
 
                 return (
                   <span className="absolute right-0 top-0 flex flex-col items-end gap-0.5">

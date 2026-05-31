@@ -777,15 +777,9 @@ function Home({ mode = 'home' }: HomeProps) {
 
       {/* Mobile Sidebar Overlay */}
 
-      {showBanner && (
-        <section className="relative w-full px-2 pt-3">
-          <WorldCupBanner variant="compact" />
-        </section>
-      )}
-
       <div className="flex items-start gap-4 w-full px-2 py-6">
         {/* Sidebar */}
-        <aside className={`hidden lg:block w-72 shrink-0 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} border-r`}>
+        <aside className={`hidden lg:block w-72 shrink-0 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto ${darkMode ? 'bg-[#0c1110] border-[#1e2d28]' : 'bg-white border-gray-200'} border-r`}>
           <div className="p-4 space-y-5">
             {/* Busca */}
             <input
@@ -823,6 +817,8 @@ function Home({ mode = 'home' }: HomeProps) {
         <main className="flex-1 min-w-0 space-y-8">
           {/* Banner Carousel — apenas na página principal */}
           {showBanner && <BannerCarousel />}
+          {/* Copa do Mundo 2026 banner — dentro da coluna principal para não sobrepor menus laterais */}
+          {showBanner && <WorldCupBanner variant="compact" />}
 
           {/* Eventos */}
           <section id="events">
@@ -1046,7 +1042,7 @@ function Home({ mode = 'home' }: HomeProps) {
         </main>
 
         {/* BetSlip lateral */}
-        <aside className={`hidden xl:block w-96 shrink-0 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} border-l`}>
+        <aside className={`hidden xl:block w-96 shrink-0 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto ${darkMode ? 'bg-[#0c1110] border-[#1e2d28]' : 'bg-white border-gray-200'} border-l`}>
           <div className="p-5">
             <BetSlip />
           </div>
