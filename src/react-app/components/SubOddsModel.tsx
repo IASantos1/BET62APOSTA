@@ -313,6 +313,32 @@ export function SubOddsModel({
     return null;
   }, [event]);
 
+  // Current live corner count — used to resolve corners_total lines
+  const currentCorners = useMemo(() => {
+    const ev = event as any;
+    // Try combined total first
+    const tot = ev?.corners ?? ev?.corner_kicks ?? ev?.stats?.corners ?? ev?.stats?.corner_kicks;
+    if (tot != null) { const n = Number(tot); if (Number.isFinite(n) && n >= 0) return n; }
+    // Try home + away
+    const h = Number(ev?.home_corners ?? ev?.stats?.home_corners ?? NaN);
+    const a = Number(ev?.away_corners ?? ev?.stats?.away_corners ?? NaN);
+    if (Number.isFinite(h) && Number.isFinite(a)) return h + a;
+    return -1;
+  }, [event]);
+
+  // Current live card count (yellow + red, both teams) — used to resolve cards_total lines
+  const currentCards = useMemo(() => {
+    const ev = event as any;
+    const tot = ev?.cards ?? ev?.total_cards ?? ev?.stats?.cards ?? ev?.stats?.total_cards;
+    if (tot != null) { const n = Number(tot); if (Number.isFinite(n) && n >= 0) return n; }
+    const yh = Number(ev?.home_yellow_cards ?? ev?.stats?.home_yellow_cards ?? NaN);
+    const ya = Number(ev?.away_yellow_cards ?? ev?.stats?.away_yellow_cards ?? NaN);
+    const rh = Number(ev?.home_red_cards ?? ev?.stats?.home_red_cards ?? 0);
+    const ra = Number(ev?.away_red_cards ?? ev?.stats?.away_red_cards ?? 0);
+    if (Number.isFinite(yh) && Number.isFinite(ya)) return yh + ya + (Number.isFinite(rh) ? rh : 0) + (Number.isFinite(ra) ? ra : 0);
+    return -1;
+  }, [event]);
+
   // --- Lógica de Odds Principais ---
   const h2hInternalItems = useMemo(() => {
     const raw =
@@ -1110,42 +1136,27 @@ export function SubOddsModel({
           const title = getMarketTitle(key, event?.sport);
           const susp = getSuspendedReason(key);
 
-          // ── Dead-line logic: Under X.5 is permanently dead when score exceeds it ──
-          //    Over X.5 is GUARANTEED when score already exceeds it (shows GARANTIDO)
+          // ── Dead-line logic: when running total EXCEEDS a line value, both Over and
+          //    Under for that line are fully settled → hide the entire row.
+          //    Each market type uses its own running stat (goals / corners / cards).
           const _cg = currentGoals;
 
-          // For team_totals, detect home/away from the item's name or label
-          const _getItemTeamGoals = (item: MarketItem): number => {
-            if (!_cg) return -1;
-            const combo = (String(item.name || '') + ' ' + String(item.label || '')).toLowerCase();
-            if (key === 'home_team_totals' || combo.includes('home') || combo.includes('casa') || combo.includes('home team')) {
-              return Number(_cg.home);
-            }
-            if (key === 'away_team_totals' || combo.includes('away') || combo.includes('fora') || combo.includes('away team') || combo.includes('visitor')) {
-              return Number(_cg.away);
-            }
-            // Main totals or ambiguous: use total goals
-            return Number(_cg.home) + Number(_cg.away);
+          const _statForKey = (): number => {
+            if (!isSoccerLive) return -1;
+            if (key === 'home_team_totals') return _cg ? Number(_cg.home) : -1;
+            if (key === 'away_team_totals') return _cg ? Number(_cg.away) : -1;
+            if (/corners?_total|corners?_2_way/i.test(key)) return currentCorners;
+            if (/cards?_total|cards?_in_match/i.test(key)) return currentCards;
+            // Default: total goals (main totals, goals_total, etc.)
+            return _cg ? Number(_cg.home) + Number(_cg.away) : -1;
           };
+          const _runningTotal = _statForKey();
 
-          const _teamGoalsForKey = (): number => {
-            if (!_cg || !isSoccerLive) return -1;
-            if (key === 'home_team_totals') return Number(_cg.home);
-            if (key === 'away_team_totals') return Number(_cg.away);
-            return Number(_cg.home) + Number(_cg.away);
-          };
-          const _teamGoals = _teamGoalsForKey();
-          const isUnderLineDead = (lineStr: string): boolean => {
-            if (!isSoccerLive) return false;
-            if (_teamGoals < 0) return false;
+          // True when running total has already passed the line → row is fully settled
+          const isLineResolved = (lineStr: string): boolean => {
+            if (_runningTotal < 0) return false;
             const lv = Number(lineStr);
-            return Number.isFinite(lv) && _teamGoals > lv;
-          };
-          const isOverGuaranteed = (lineStr: string): boolean => {
-            if (!isSoccerLive) return false;
-            if (_teamGoals < 0) return false;
-            const lv = Number(lineStr);
-            return Number.isFinite(lv) && _teamGoals > lv;
+            return Number.isFinite(lv) && _runningTotal > lv;
           };
 
           // Pair over/under by line value
@@ -1153,6 +1164,10 @@ export function SubOddsModel({
           const underMap = new Map<string, MarketItem>(under.map((x: MarketItem) => [String(x.handicap || ''), x] as [string, MarketItem]));
           const allLines = Array.from(new Set([...over.map((x: MarketItem) => String(x.handicap || '')), ...under.map((x: MarketItem) => String(x.handicap || ''))]))
             .sort((a, b) => Number(a) - Number(b));
+          // Hide resolved lines entirely (running total already exceeded the line)
+          const visibleLines = isSoccerLive
+            ? allLines.filter(line => !isLineResolved(line))
+            : allLines;
 
           return (
             <MarketCard title={title} darkMode={darkMode} noPad>
@@ -1160,7 +1175,7 @@ export function SubOddsModel({
                 <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Linha</div>
                 <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Acima</div>
                 <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Abaixo</div>
-                {allLines.map((line, i) => {
+                {visibleLines.map((line, i) => {
                   const o = overMap.get(line);
                   const u = underMap.get(line);
                   // ── Fair odds (no-vig) for this line ──
@@ -1170,29 +1185,21 @@ export function SubOddsModel({
                   const rowBg = i % 2 === 0
                     ? (darkMode ? 'bg-gray-800/30' : 'bg-gray-50/80')
                     : '';
-                  const underDead = isUnderLineDead(line);
-                  const overWon = isOverGuaranteed(line);
                   const renderBtn = (item: MarketItem | undefined, side: 'a' | 'b') => {
                     if (!item) return <div className="w-24" />;
                     const f = fair ? fair[side] : null;
-                    const isDead = side === 'b' && underDead;
-                    const isGuaranteed = side === 'a' && overWon;
-                    const isBlocked = !!susp || isDead;
+                    const isBlocked = !!susp;
                     const sideLabel = side === 'a' ? 'Acima de' : 'Abaixo de';
                     const priceStr = Number(item.odd) > 0 ? Number(item.odd).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
                     return (
                       <button
                         onClick={isBlocked ? undefined : () => onSelect(String(item.selection || item.label), item.odd)}
                         disabled={isBlocked}
-                        title={isGuaranteed ? 'Garantido pelo marcador atual' : f ? `Odd justa: ${formatFairOdd(f.fair)}${f.isValue ? ` · valor +${(f.edge * 100).toFixed(1)}%` : ''}` : undefined}
+                        title={f ? `Odd justa: ${formatFairOdd(f.fair)}${f.isValue ? ` · valor +${(f.edge * 100).toFixed(1)}%` : ''}` : undefined}
                         className={`w-24 h-12 rounded-lg font-bold tabular-nums transition-all duration-200 relative
-                          ${isDead
-                            ? 'bg-gray-800/50 text-gray-500 cursor-not-allowed opacity-40 line-through'
-                            : susp
+                          ${susp
                               ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
-                              : isGuaranteed
-                                ? 'bg-emerald-700 text-white ring-2 ring-emerald-400 ring-opacity-70 cursor-pointer hover:bg-emerald-600 active:scale-95'
-                                : f?.isValue
+                              : f?.isValue
                                   ? 'bg-emerald-600 text-white hover:bg-emerald-500 active:scale-95 ring-1 ring-emerald-300'
                                   : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
                       >
@@ -1200,23 +1207,11 @@ export function SubOddsModel({
                           <span className="text-[10px] font-extrabold uppercase tracking-wider">
                             {sideLabel} {line}
                           </span>
-                          <span className="text-sm font-black">
-                            {isDead ? 'DEAD' : isGuaranteed ? '✓ GANHO' : priceStr}
-                          </span>
+                          <span className="text-sm font-black">{priceStr}</span>
                         </div>
-                        {!isDead && !susp && isGuaranteed && (
-                          <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 bg-emerald-400 text-black text-[8px] font-black px-1.5 py-0.5 rounded-full whitespace-nowrap leading-none shadow">
-                            GARANTIDO
-                          </span>
-                        )}
-                        {!isDead && !isGuaranteed && f?.isValue && (
+                        {!susp && f?.isValue && (
                           <span className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-black text-[8px] font-black px-1 py-0.5 rounded-full leading-none shadow">
                             ★
-                          </span>
-                        )}
-                        {isDead && (
-                          <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 bg-red-900/80 text-red-200 text-[8px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap leading-none">
-                            LIQUIDADO
                           </span>
                         )}
                       </button>
