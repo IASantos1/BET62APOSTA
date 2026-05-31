@@ -3,11 +3,60 @@ import { useNavigate } from 'react-router-dom';
 import WorldCupBanner from '../components/WorldCupBanner';
 import WorldCupMatchCard from '../components/WorldCupMatchCard';
 
-const KICKOFF_FROM = new Date('2026-06-11T00:00:00.000Z').getTime();
+// ── Module-level cache so navigation back to this page is instant ──────────
+const _cache: {
+  matches: any[];
+  matchesTs: number;
+  odds: Record<string, { home_odd: number; draw_odd: number; away_odd: number }>;
+  oddsTs: number;
+} = { matches: [], matchesTs: 0, odds: {}, oddsTs: 0 };
 
-async function fetchOddsForEvent(id: string): Promise<{ home_odd: number; draw_odd: number; away_odd: number } | null> {
+const MATCHES_TTL = 10 * 60 * 1000; // 10 min
+const ODDS_TTL = 5 * 60 * 1000;     // 5 min
+const WC_PAGES = [0, 1, 2, 3];      // 4 pages × 30 = up to 120 matches
+
+function isFreshMatches() { return _cache.matchesTs > 0 && Date.now() - _cache.matchesTs < MATCHES_TTL; }
+function isFreshOdds()    { return _cache.oddsTs > 0 && Date.now() - _cache.oddsTs < ODDS_TTL; }
+
+async function loadAllMatches(): Promise<any[]> {
+  if (isFreshMatches()) return _cache.matches;
+
+  // Fetch all pages in parallel
+  const results = await Promise.all(
+    WC_PAGES.map((p) =>
+      fetch(`/api/world-cup-2026/matches?page=${p}`)
+        .then((r) => (r.ok ? r.json().catch(() => null) : null))
+        .catch(() => null),
+    ),
+  );
+
+  const seen = new Set<string>();
+  const all: any[] = [];
+  for (const data of results) {
+    const list: any[] = Array.isArray(data?.matches) ? data.matches : [];
+    for (const m of list) {
+      const canonicalId =
+        String(m?.id || '').trim() ||
+        String(m?.external_event_id || '').split('_').pop() ||
+        '';
+      const key = canonicalId || String(m?.external_event_id || '').trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      if (canonicalId) m.id = canonicalId;
+      all.push(m);
+    }
+  }
+
+  _cache.matches = all;
+  _cache.matchesTs = Date.now();
+  return all;
+}
+
+async function fetchOdds(
+  id: string,
+): Promise<{ home_odd: number; draw_odd: number; away_odd: number } | null> {
   try {
-    const r = await fetch(`/api/events/${encodeURIComponent(id)}/odds?sport=soccer`, { cache: 'no-store' });
+    const r = await fetch(`/api/events/${encodeURIComponent(id)}/odds?sport=soccer`);
     if (!r.ok) return null;
     const d = await r.json().catch(() => null);
     if (!d) return null;
@@ -21,28 +70,38 @@ async function fetchOddsForEvent(id: string): Promise<{ home_odd: number; draw_o
   }
 }
 
-async function batchFetchOdds(
+async function loadOdds(
   ids: string[],
-  onUpdate: (id: string, odds: { home_odd: number; draw_odd: number; away_odd: number }) => void,
-  concurrency = 6,
+  onUpdate: (id: string, o: { home_odd: number; draw_odd: number; away_odd: number }) => void,
+  cancelled: () => boolean,
+  concurrency = 8,
 ) {
   const queue = [...ids];
   const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
     while (queue.length) {
+      if (cancelled()) return;
       const id = queue.shift();
       if (!id) break;
-      const odds = await fetchOddsForEvent(id);
-      if (odds) onUpdate(id, odds);
+      const odds = await fetchOdds(id);
+      if (odds && !cancelled()) {
+        _cache.odds[id] = odds;
+        onUpdate(id, odds);
+      }
     }
   });
   await Promise.all(workers);
+  if (!cancelled()) _cache.oddsTs = Date.now();
 }
+
+const KICKOFF_FROM = new Date('2026-06-11T00:00:00.000Z').getTime();
 
 export default function WorldCupPage() {
   const navigate = useNavigate();
-  const [matches, setMatches] = useState<any[]>([]);
-  const [oddsMap, setOddsMap] = useState<Record<string, { home_odd: number; draw_odd: number; away_odd: number }>>({});
-  const [loading, setLoading] = useState(true);
+  const [matches, setMatches] = useState<any[]>(isFreshMatches() ? _cache.matches : []);
+  const [oddsMap, setOddsMap] = useState<Record<string, { home_odd: number; draw_odd: number; away_odd: number }>>(
+    isFreshOdds() ? { ..._cache.odds } : {},
+  );
+  const [loading, setLoading] = useState(!isFreshMatches());
   const [error, setError] = useState(false);
   const cancelledRef = useRef(false);
 
@@ -50,50 +109,37 @@ export default function WorldCupPage() {
     cancelledRef.current = false;
 
     const run = async () => {
-      setLoading(true);
-      setError(false);
       try {
-        const all: any[] = [];
-        const seen = new Set<string>();
-
-        for (let page = 0; page < 12; page++) {
-          const r = await fetch(`/api/world-cup-2026/matches?page=${page}`, { cache: 'no-store' });
-          if (!r.ok) break;
-          const data = await r.json().catch(() => null);
-          const list: any[] = Array.isArray(data?.matches) ? data.matches : [];
-          if (!list.length) break;
-          let added = 0;
-          for (const m of list) {
-            const canonicalId =
-              String(m?.id || '').trim() ||
-              String(m?.fixture?.id || '').trim() ||
-              String(m?.external_event_id || '').split('_').pop() ||
-              '';
-            const dedupeKey = canonicalId || String(m?.external_event_id || '').trim();
-            if (!dedupeKey || seen.has(dedupeKey)) continue;
-            seen.add(dedupeKey);
-            if (canonicalId) m.id = canonicalId;
-            all.push(m);
-            added++;
-          }
-          if (added === 0) break;
+        // Step 1 — matches (may be instant from cache)
+        const all = await loadAllMatches();
+        if (!cancelledRef.current) {
+          setMatches(all);
+          setLoading(false);
         }
 
-        if (!cancelledRef.current) setMatches(all);
+        // Step 2 — odds (skip if cache is still warm)
+        if (isFreshOdds() && !cancelledRef.current) {
+          setOddsMap({ ..._cache.odds });
+          return;
+        }
 
-        // Fetch odds for all matches in parallel
         const ids = all.map((m) => String(m.id || '')).filter(Boolean);
-        if (ids.length) {
-          await batchFetchOdds(ids, (id, odds) => {
+        if (!ids.length) return;
+
+        await loadOdds(
+          ids,
+          (id, odds) => {
             if (!cancelledRef.current) {
               setOddsMap((prev) => ({ ...prev, [id]: odds }));
             }
-          });
-        }
+          },
+          () => cancelledRef.current,
+        );
       } catch {
-        if (!cancelledRef.current) setError(true);
-      } finally {
-        if (!cancelledRef.current) setLoading(false);
+        if (!cancelledRef.current) {
+          setError(true);
+          setLoading(false);
+        }
       }
     };
 
@@ -106,8 +152,7 @@ export default function WorldCupPage() {
       matches.map((m) => {
         const id = String(m.id || '');
         const odds = oddsMap[id];
-        if (!odds) return m;
-        return { ...m, ...odds };
+        return odds ? { ...m, ...odds } : m;
       }),
     [matches, oddsMap],
   );

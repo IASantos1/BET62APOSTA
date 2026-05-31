@@ -611,49 +611,159 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     };
 
     const isBlockedLeague = (leagueName: string, country?: string): boolean => {
-      const l = leagueName.toLowerCase();
-      const c = (country || '').toLowerCase();
+      const l = leagueName.toLowerCase().trim();
+      const c = (country || '').toLowerCase().trim();
 
-      // Block youth / junior / reserve
-      if (/\bu\d{2}\b/.test(l) || l.includes("youth") || l.includes("junior") ||
-          l.includes("u-17") || l.includes("u-21") || l.includes("u-23") ||
-          l.includes("under-17") || l.includes("under-21") || l.includes("under-23") ||
-          l.includes("under 17") || l.includes("under 21") || l.includes("under 23") ||
-          l.includes("revelacao") || l.includes("primavera") || l.includes("nextgen") ||
-          l.includes("reserve") || l.includes("akademi") || l.includes("juvenil") ||
-          l.includes("sub-17") || l.includes("sub-20") || l.includes("sub-21") ||
-          l.includes("sub-23")) return true;
+      if (!l) return true;
 
-      // Block amateur leagues
-      if (l.includes("amateur") || l.includes("amateure") || l.includes("amador") ||
-          l.includes("amatör")) return true;
+      // Always block youth / junior / reserve regardless of country
+      if (/\bu\d{2}\b/.test(l) || /\bsub-?\d{2}\b/.test(l) ||
+          /youth|junior|revelacao|primavera|nextgen|reserve|akademi|juvenil/.test(l) ||
+          /under-?\d{2}|under \d{2}/.test(l) ||
+          l.includes('u-17') || l.includes('u-21') || l.includes('u-23')) return true;
 
-      // Block very low-tier / regional leagues
-      if (l.includes("regionalliga") || l.includes("kakkonen") || l.includes("gamma ethniki") ||
-          l.includes("esiliiga") || l.includes("derde divisie") || l.includes("vierde") ||
-          l.includes("quinta") || l.includes("6th division") || l.includes("7th division")) return true;
+      // Always block amateur
+      if (/amateur|amateure|amador|amatör/.test(l)) return true;
 
-      // Block friendly / test matches
-      if (l.includes("friendly") || l.includes("amistoso") || l.includes("amical") ||
-          l.includes("testspiel")) return true;
+      // Always block women's competitions
+      if (/\bwomen\b|\bwoman\b|feminino|femenino|\bdamen\b|\bféminine\b|toppserien|\bwsl\b|\bnwsl\b/.test(l)) return true;
 
-      // Block Middle East / MENA countries — EXCEPT Saudi Arabia, Egypt, Israel, Turkey, Greece
-      const ALLOWED_MENA = ["saudi", "saudi arabia", "egypt", "egyptian", "israel", "israeli", "turkey", "turkish", "greece", "greek"];
-      const BLOCKED_MENA = [
-        "qatar", "qatari", "uae", "united arab", "kuwait", "kuwaiti",
-        "bahrain", "bahraini", "oman", "omani", "jordan", "jordanian",
-        "iraq", "iraqi", "syria", "syrian", "lebanon", "lebanese",
-        "palestine", "palestinian", "yemen", "yemeni", "iran", "iranian",
-        "libya", "libyan", "algeria", "algerian", "morocco", "moroccan",
-        "tunisia", "tunisian", "sudan", "sudanese", "uzbek", "uzbekistan",
-        "tajik", "kyrgyz", "afghan", "pakistan", "pakistan",
-      ];
-      const leagueAndCountry = l + ' ' + c;
-      const isAllowed = ALLOWED_MENA.some(a => leagueAndCountry.includes(a));
-      const isBlocked = BLOCKED_MENA.some(b => leagueAndCountry.includes(b));
-      if (isBlocked && !isAllowed) return true;
+      // Block testspiel
+      if (/testspiel/.test(l)) return true;
 
-      return false;
+      // Block known lower-division names that might leak through
+      if (/série d|serie d|série e|serie e/.test(l)) return true; // Brazil 4th+ div
+      if (/mls next pro/.test(l)) return true;                    // MLS reserve tier
+      if (/nations league women|world cup.*women|women.*world cup/.test(l)) return true;
+
+      // ── ALLOWLIST ── only show leagues from the configured list ─────────────
+      // UEFA / FIFA international competitions — always allowed (men's only after the block above)
+      if (/champions league|europa league|conference league|nations league/.test(l)) return false;
+      if (/world cup|copa do mundo|copa mundial/.test(l)) return false;
+      if (/friendly international|international friendly/.test(l)) return false;
+      if (/club friendl/.test(l)) return false;
+      if (/olympics|olympic games|jogos ol[íi]mpicos/.test(l)) return false;
+      if (/supercopa|super cup|uefa super/.test(l)) return false;
+      if (/euro 20\d{2}|euro qualif|world cup qualif/.test(l)) return false;
+
+      // England
+      if (/england|inglaterra/.test(c)) {
+        if (/premier league|championship|fa cup|efl cup|carabao|league one|league two|league cup/.test(l)) return false;
+      }
+
+      // Spain
+      if (/spain|espanha|españa/.test(c)) {
+        if (/la liga|liga 2|segunda divisi|copa del rey/.test(l)) return false;
+      }
+
+      // Germany
+      if (/germany|alemanha|deutschland/.test(c)) {
+        if (/bundesliga|dfb.?pokal/.test(l)) return false;
+      }
+
+      // Italy
+      if (/italy|ital/.test(c)) {
+        if (/serie a|serie b|coppa italia/.test(l)) return false;
+      }
+
+      // France
+      if (/france|fran[cç]/.test(c)) {
+        if (/ligue 1|ligue 2|coupe de france/.test(l)) return false;
+      }
+
+      // Netherlands / Países Baixos
+      if (/netherlands|holland|holanda|pa[íi]ses baixos/.test(c)) {
+        if (/eredivisie|eerste divisie|knvb/.test(l)) return false;
+      }
+
+      // Portugal
+      if (/portugal/.test(c) || /portugal/.test(l)) {
+        if (/liga portugal|primeira liga|ta[çc]a de portugal|ta[çc]a da liga/.test(l)) return false;
+      }
+      // Also match by league name alone (proxy returns "Liga Portugal" without country sometimes)
+      if (/liga portugal|ta[çc]a de portugal|ta[çc]a da liga/.test(l)) return false;
+
+      // Brazil
+      if (/brazil|brasil/.test(c)) {
+        if (/brasileir|serie [abc]|copa do brasil|campeonato paulista|campeonato carioca|campeonato mineiro|campeonato ga[uú]cho|campeonato baiano|campeonato pernambucano/.test(l)) return false;
+      }
+      // By league name alone
+      if (/brasileir|copa do brasil/.test(l)) return false;
+
+      // Argentina
+      if (/argentina/.test(c)) {
+        if (/liga profesional|primera nacional|copa argentina|primera divisi/.test(l)) return false;
+      }
+      if (/liga profesional argentina/.test(l)) return false;
+
+      // USA
+      if (/united states|usa|estados unidos/.test(c)) {
+        if (/\bmls\b|us open cup|\busl\b/.test(l)) return false;
+      }
+      if (/\bmls\b|us open cup/.test(l)) return false;
+
+      // Turkey
+      if (/turkey|turquia|türkiye/.test(c)) {
+        if (/s[üu]per lig|turkish cup|1\. lig/.test(l)) return false;
+      }
+      if (/s[üu]per lig/.test(l)) return false;
+
+      // Belgium
+      if (/belgium|belgi[qe]|bélgica/.test(c)) {
+        if (/jupiler|pro league|belgian cup/.test(l)) return false;
+      }
+      if (/jupiler/.test(l)) return false;
+
+      // Colombia
+      if (/colombia/.test(c)) {
+        if (/primera a|primera b|liga bet?play|copa colombia/.test(l)) return false;
+      }
+
+      // Denmark
+      if (/denmark|dinamarca|danmark/.test(c)) {
+        if (/superliga|danish cup|DBU/.test(l)) return false;
+      }
+
+      // Greece
+      if (/greece|gr[eé]cia|grecia|ellada/.test(c)) {
+        if (/super league|greek cup/.test(l)) return false;
+      }
+
+      // Japan
+      if (/japan|jap[oã]o/.test(c)) {
+        if (/j1 league|j2 league|emperor/.test(l)) return false;
+      }
+      if (/j1 league|j2 league/.test(l)) return false;
+
+      // Mexico
+      if (/mexico|méx/.test(c)) {
+        if (/liga mx|copa mx|expansi[oó]n/.test(l)) return false;
+      }
+      if (/liga mx/.test(l)) return false;
+
+      // Saudi Arabia
+      if (/saudi/.test(c)) {
+        if (/pro league|professional league|saudi/.test(l)) return false;
+      }
+      if (/saudi pro league|saudi professional/.test(l)) return false;
+
+      // Switzerland
+      if (/switzerland|su[íi][çc]a|schweiz/.test(c)) {
+        if (/super league|swiss cup|challenge league/.test(l)) return false;
+      }
+
+      // Uruguay
+      if (/uruguay/.test(c)) {
+        if (/primera divisi/.test(l)) return false;
+      }
+
+      // Scotland — allow all recognised Scottish leagues
+      if (/scotland|esc[oó]cia/.test(c)) {
+        if (/premiership|cup|championship|league/.test(l)) return false;
+      }
+
+      // Everything else is blocked
+      return true;
     };
 
     if (includeLive) {
