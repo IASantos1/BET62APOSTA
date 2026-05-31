@@ -143,6 +143,27 @@ export async function handleAdminRoutes(
     return true;
   }
 
+  if (req.method === 'POST' && path === '/api/admin/paypal/test') {
+    const clientId = process.env.PAYPAL_CLIENT_ID;
+    const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      sendJson(res, 200, { ok: false, error: 'Credenciais PayPal não configuradas' });
+      return true;
+    }
+    try {
+      const authString = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+      const tokenRes = await fetch('https://api-m.paypal.com/v1/oauth2/token', {
+        method: 'POST',
+        headers: { Authorization: `Basic ${authString}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'grant_type=client_credentials',
+      });
+      sendJson(res, 200, { ok: tokenRes.ok });
+    } catch {
+      sendJson(res, 200, { ok: false, error: 'Erro ao testar conexão PayPal' });
+    }
+    return true;
+  }
+
   if (req.method === 'POST' && path === '/api/admin/test-sports-key') {
     const body = await readJsonBody<TestKeyBody>(req).catch(() => null);
     if (!body?.key) return badRequest(res, 'Missing key'), true;
