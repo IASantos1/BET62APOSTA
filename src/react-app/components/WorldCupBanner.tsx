@@ -1,13 +1,12 @@
 import { useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useApp } from '@/react-app/contexts/AppContext';
 
 interface WorldCupBannerProps {
   variant?: 'compact' | 'hero';
-  disableLink?: boolean;
 }
 
-export default function WorldCupBanner({ variant = 'compact', disableLink = false }: WorldCupBannerProps) {
-  const navigate = useNavigate();
+export default function WorldCupBanner({ variant = 'compact' }: WorldCupBannerProps) {
+  const { setSelectedCategory } = useApp();
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -25,10 +24,6 @@ export default function WorldCupBanner({ variant = 'compact', disableLink = fals
     }
   };
 
-  const goToCopa = () => {
-    if (!disableLink) navigate('/copa-do-mundo');
-  };
-
   const isHero = variant === 'hero';
 
   return (
@@ -36,8 +31,8 @@ export default function WorldCupBanner({ variant = 'compact', disableLink = fals
       ref={wrapRef}
       onMouseMove={handleMove}
       onMouseLeave={handleLeave}
-      onClick={goToCopa}
-      className={`relative w-full overflow-hidden rounded-2xl ${disableLink ? '' : 'cursor-pointer'} select-none`}
+      onClick={() => setSelectedCategory('copa-do-mundo')}
+      className="relative w-full overflow-hidden rounded-2xl cursor-pointer select-none"
       style={{
         transition: 'transform 0.2s ease',
         boxShadow:
@@ -106,22 +101,20 @@ export default function WorldCupBanner({ variant = 'compact', disableLink = fals
           </div>
         </div>
 
-        {!disableLink && (
-          <button
-            type="button"
-            onClick={(ev) => { ev.stopPropagation(); goToCopa(); }}
-            className="pointer-events-auto shrink-0 ml-3 flex items-center gap-1.5 rounded-xl px-4 py-2.5 font-black uppercase text-[11px] tracking-wide"
-            style={{
-              background: 'linear-gradient(135deg, #f5c018 0%, #e8a000 100%)',
-              color: '#1a0a00',
-              boxShadow: '0 4px 18px rgba(245,192,24,0.55), inset 0 1px 0 rgba(255,255,255,0.25)',
-              border: '1px solid rgba(255,230,100,0.4)',
-            }}
-          >
-            <span>🏆</span>
-            <span>Aposte Agora</span>
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={(ev) => { ev.stopPropagation(); setSelectedCategory('copa-do-mundo'); }}
+          className="pointer-events-auto shrink-0 ml-3 flex items-center gap-1.5 rounded-xl px-4 py-2.5 font-black uppercase text-[11px] tracking-wide"
+          style={{
+            background: 'linear-gradient(135deg, #f5c018 0%, #e8a000 100%)',
+            color: '#1a0a00',
+            boxShadow: '0 4px 18px rgba(245,192,24,0.55), inset 0 1px 0 rgba(255,255,255,0.25)',
+            border: '1px solid rgba(255,230,100,0.4)',
+          }}
+        >
+          <span>🏆</span>
+          <span>Aposte Agora</span>
+        </button>
       </div>
 
       <span

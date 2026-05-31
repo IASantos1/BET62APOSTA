@@ -128,12 +128,14 @@ function Home({ mode = 'home' }: HomeProps) {
   // ── Copa do Mundo data source ───────────────────────────────────
   const [copaMatches, setCopaMatches] = useState<any[]>([]);
   const [copaLoading, setCopaLoading] = useState(false);
+  const [copaOddsMap, setCopaOddsMap] = useState<Record<string, { home: number; draw: number; away: number }>>({});
 
   useEffect(() => {
-    if (!isWorldCupMode) { setCopaMatches([]); return; }
+    if (!isWorldCupMode) { setCopaMatches([]); setCopaOddsMap({}); return; }
     let cancelled = false;
     setCopaLoading(true);
     setCopaMatches([]);
+    setCopaOddsMap({});
 
     const isPlaceholder = (name: string) => {
       if (!name || name.length < 2) return true;
@@ -145,23 +147,58 @@ function Home({ mode = 'home' }: HomeProps) {
 
     fetch('/api/world-cup-2026/matches?limit=200')
       .then(r => r.json())
-      .then((data: any) => {
+      .then(async (data: any) => {
         if (cancelled) return;
         const all: any[] = Array.isArray(data?.matches) ? data.matches : [];
         const real = all.filter(m =>
           !isPlaceholder(m.home_team) && !isPlaceholder(m.away_team)
         );
-        // Sort by date ascending
         real.sort((a, b) =>
           new Date(a.event_date || 0).getTime() - new Date(b.event_date || 0).getTime()
         );
         setCopaMatches(real);
+
+        // Fetch odds per match in background (concurrency 5)
+        const queue = [...real];
+        const worker = async () => {
+          while (queue.length) {
+            if (cancelled) return;
+            const m = queue.shift();
+            if (!m) break;
+            const id = String(m.id || '').trim();
+            if (!id) continue;
+            try {
+              const r = await fetch(`/api/events/${encodeURIComponent(id)}/odds?sport=soccer`);
+              if (!r.ok || cancelled) continue;
+              const d = await r.json().catch(() => null);
+              if (!d || cancelled) continue;
+              const home = Number(d.home || 0);
+              const draw = Number(d.draw || 0);
+              const away = Number(d.away || 0);
+              if (home > 1.01 && away > 1.01) {
+                setCopaOddsMap(prev => ({ ...prev, [id]: { home, draw, away } }));
+              }
+            } catch { /* ignore */ }
+          }
+        };
+        await Promise.all(Array.from({ length: 5 }, worker));
       })
       .catch(() => { if (!cancelled) setCopaMatches([]); })
       .finally(() => { if (!cancelled) setCopaLoading(false); });
 
     return () => { cancelled = true; };
   }, [isWorldCupMode]);
+
+  // Merge fetched odds into Copa matches
+  const copaMatchesEnriched = useMemo(() => {
+    if (!isWorldCupMode || Object.keys(copaOddsMap).length === 0) return copaMatches;
+    return copaMatches.map(m => {
+      const id = String(m.id || '');
+      const o = copaOddsMap[id];
+      if (!o) return m;
+      return { ...m, home_odd: o.home, draw_odd: o.draw, away_odd: o.away };
+    });
+  }, [copaMatches, copaOddsMap, isWorldCupMode]);
 
   // Re-engaja a porta sempre que muda o modo ou a categoria.
   useEffect(() => {
@@ -397,10 +434,10 @@ function Home({ mode = 'home' }: HomeProps) {
   // Strict separation: Desporto = pregame only | AO VIVO = live only
   const displayedLive    = mode === 'live' ? processedLive : [];
   const displayedUpcoming = useMemo(() => {
-    // Copa mode: use the dedicated Copa endpoint data (real teams, no placeholders)
-    if (isWorldCupMode) return copaMatches;
+    // Copa mode: use enriched Copa data (real teams + fetched odds)
+    if (isWorldCupMode) return copaMatchesEnriched;
     return mode === 'home' ? sortedUpcoming : [];
-  }, [mode, sortedUpcoming, isWorldCupMode, copaMatches]);
+  }, [mode, sortedUpcoming, isWorldCupMode, copaMatchesEnriched]);
 
   const groupedLive = useGroupedEvents(displayedLive, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
