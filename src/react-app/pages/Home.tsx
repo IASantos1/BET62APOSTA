@@ -697,7 +697,7 @@ function Home({ mode = 'home' }: HomeProps) {
         <section className="w-full px-2">
           <Link to="/promotions" className="block w-full rounded-xl overflow-hidden">
             <img
-              src="https://coresg-normal.trae.ai/api/ide/v1/text_to_image?prompt=BET62%20sports%20betting%20promotional%20banner%2C%20world%20cup%20trophy%20center%2C%20gold%20black%20stadium%20lights%2C%20premium%20glossy%20design%2C%20Portuguese%20headline%20%22COPA%20DO%20MUNDO%202026%22%2C%20subtitle%20%22APOSTE%20NOS%204%20PRIMEIROS%20JOGOS%22%2C%20four%20match%20cards%20with%20flags%20and%20dates%2C%20big%20red%20button%20text%20%22APOSTE%20AGORA%22%2C%2016%3A9%2C%20high%20detail%2C%20sharp%20typography&image_size=landscape_16_9"
+              src="/banners/copa-2026.png"
               alt="Copa do Mundo 2026"
               className="w-full h-[160px] md:h-[220px] object-cover"
               loading="lazy"
