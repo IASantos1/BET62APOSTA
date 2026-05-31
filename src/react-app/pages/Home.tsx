@@ -8,7 +8,7 @@ import EventCard from '../components/EventCard';
 import { Sidebar } from '../components/Sidebar';
 import { BannerCarousel } from '../components/BannerCarousel';
 import { BetSlip } from '../components/BetSlip';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { getSportIcon } from '../../shared/helpers';
 import { useEventSearch } from '../hooks/useEventSearch';
 import { useUpcomingCache } from '../hooks/useUpcomingCache';
@@ -67,6 +67,11 @@ function Home({ mode = 'home' }: HomeProps) {
   const { live: httpLive, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || 'all');
   const loading = eventsLoading;
   const showBanner = true;
+  const hardNavigate = (to: string) => (e: any) => {
+    if (e?.metaKey || e?.ctrlKey || e?.shiftKey || e?.altKey) return;
+    e?.preventDefault?.();
+    window.location.assign(to);
+  };
   
   const { liveEvents: wsLiveEvents } = useLiveFeed('all');
   const mergedLive = useMergedEvents(httpLive, wsLiveEvents);
@@ -695,14 +700,19 @@ function Home({ mode = 'home' }: HomeProps) {
       {/* Banner promocional */}
       {showBanner && ( 
         <section className="w-full px-2">
-          <Link to="/promotions" className="block w-full rounded-xl overflow-hidden">
+          <a
+            href="/promotions"
+            className="block w-full rounded-xl overflow-hidden"
+            onPointerDown={hardNavigate('/promotions')}
+            onClick={hardNavigate('/promotions')}
+          >
             <img
               src="/banners/copa-2026.png"
               alt="Copa do Mundo 2026"
               className="w-full h-[160px] md:h-[220px] object-cover"
               loading="lazy"
             />
-          </Link>
+          </a>
         </section>
  )}
 
