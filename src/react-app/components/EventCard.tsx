@@ -28,19 +28,33 @@ function _subClock(fn: () => void) {
 
 // Football period clock — estimates current minute from kick-off time when
 // the API (Statpal) does not return an elapsed field.
+// `lastSeenAt` = Date.now() when the event data was last received from the API.
+// We add the minutes elapsed since then so the badge ticks forward between polls.
 function computeFootballClock(
   eventDate: string | undefined,
   apiElapsed: number,
   apiTimer: string,
   statusU: string,
+  lastSeenAt?: number,
 ): string {
   if (statusU === 'HT') return 'HT';
   if (statusU === 'ET' || statusU === 'ET1' || statusU === 'ET2') return 'ET';
   if (statusU === 'PEN' || statusU === 'P') return 'PEN';
+
+  // Minutes elapsed since the API last refreshed this event's data.
+  const msSinceUpdate = lastSeenAt && lastSeenAt > 0 ? Math.max(0, Date.now() - lastSeenAt) : 0;
+  const tickAdj = Math.floor(msSinceUpdate / 60_000);
+
   const baseMin = apiElapsed > 0
     ? apiElapsed
     : (apiTimer ? (parseInt(apiTimer.replace(/[^0-9]/g, ''), 10) || 0) : 0);
-  if (baseMin > 0) return `${baseMin}'`;
+
+  if (baseMin > 0) {
+    // Advance by time-since-last-update so the clock ticks between API polls.
+    return `${baseMin + tickAdj}'`;
+  }
+
+  // Fallback: derive minute entirely from kick-off timestamp.
   if (!eventDate) return '';
   const kickoff = new Date(eventDate).getTime();
   if (!Number.isFinite(kickoff) || kickoff <= 0) return '';
@@ -795,11 +809,13 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                   if (/EXTRA\s*TIME/.test(cu)) return 'ET';
                   if (/^PEN/.test(cu) && statusU !== '1H' && statusU !== '2H') return 'PEN';
                   // Uses API elapsed + kick-off estimate when Statpal gives no minute.
+                  // __lastSeenAt lets the clock advance between API polls.
                   return computeFootballClock(
                     String((event as any)?.event_date || (event as any)?.fixture?.date || ''),
                     elapsed,
                     timer,
                     statusU,
+                    Number((event as any)?.__lastSeenAt || 0) || undefined,
                   );
                 }
 
