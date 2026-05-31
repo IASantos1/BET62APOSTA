@@ -274,12 +274,43 @@ export function SubOddsModel({
 
   // Current live score — used to block impossible correct-score outcomes
   const currentGoals = useMemo(() => {
-    const goals = (event as any)?.goals;
-    if (!goals) return null;
-    const g = typeof goals === 'string' ? (() => { try { return JSON.parse(goals); } catch { return null; } })() : goals;
-    if (!g) return null;
-    const h = Number(g.home ?? 0); const a = Number(g.away ?? 0);
-    return (h > 0 || a > 0) ? { home: h, away: a } : null;
+    const ev = event as any;
+
+    // 1) Direct integer columns from DB (score_home / score_away)
+    const sh = ev?.score_home; const sa = ev?.score_away;
+    if (sh != null && sa != null) {
+      const h = Number(sh); const a = Number(sa);
+      if (Number.isFinite(h) && Number.isFinite(a) && (h > 0 || a > 0)) return { home: h, away: a };
+      if (Number.isFinite(h) && Number.isFinite(a)) return { home: h, away: a };
+    }
+
+    // 2) goals object (live sync enrichment)
+    const goals = ev?.goals;
+    if (goals) {
+      const g = typeof goals === 'string'
+        ? (() => { try { return JSON.parse(goals); } catch { return null; } })()
+        : goals;
+      if (g) {
+        const h = Number(g.home ?? g.localteam_score ?? g.home_score ?? 0);
+        const a = Number(g.away ?? g.visitorteam_score ?? g.away_score ?? 0);
+        if (Number.isFinite(h) && Number.isFinite(a)) return { home: h, away: a };
+      }
+    }
+
+    // 3) score TEXT column (JSON string e.g. '{"home":1,"away":0}')
+    const score = ev?.score;
+    if (score) {
+      const s = typeof score === 'string'
+        ? (() => { try { return JSON.parse(score); } catch { return null; } })()
+        : score;
+      if (s) {
+        const h = Number(s.home ?? s.localteam_score ?? s.home_score ?? 0);
+        const a = Number(s.away ?? s.visitorteam_score ?? s.away_score ?? 0);
+        if (Number.isFinite(h) && Number.isFinite(a)) return { home: h, away: a };
+      }
+    }
+
+    return null;
   }, [event]);
 
   // --- Lógica de Odds Principais ---
@@ -634,16 +665,12 @@ export function SubOddsModel({
   const apostaJaActive = useMemo(() => {
     if (!isLive) return false;
     const sportKey = String((event as any)?.sport || '').toLowerCase();
-    const isSoccer = sportKey === 'soccer' || (sportKey.includes('football') && !sportKey.includes('american'));
+    const isSoccer = sportKey.includes('soccer') || sportKey === 'football' || sportKey === 'futebol' ||
+      (sportKey.includes('football') && !sportKey.includes('american') && !sportKey.includes('gaelic'));
     if (!isSoccer) return false;
-    let h = 0, a = 0;
-    const goals = (event as any)?.goals;
-    if (goals && typeof goals === 'object') {
-      h = Number(goals.home ?? goals.localteam_score ?? 0);
-      a = Number(goals.away ?? goals.visitorteam_score ?? 0);
-    } else if (typeof goals === 'string') {
-      try { const g = JSON.parse(goals); h = Number(g.home || 0); a = Number(g.away || 0); } catch { h = 0; a = 0; }
-    }
+    // Use the already-robust currentGoals (reads score_home/score_away, goals, score JSON)
+    const h = Number(currentGoals?.home ?? 0);
+    const a = Number(currentGoals?.away ?? 0);
     const diff = Math.abs(h - a);
     const minute = parseInt(String(liveTimer || '').replace(/[^\d]/g, ''), 10) || 0;
     const fav = resultadoRegulamentar
@@ -672,8 +699,13 @@ export function SubOddsModel({
   //   90+       → apenas H2H
   const isSoccerLive = useMemo(() => {
     if (!isLive) return false;
-    const s = String((event as any)?.sport || '').toLowerCase();
-    return s === 'soccer' || (s.includes('football') && !s.includes('american'));
+    const s = String((event as any)?.sport || (event as any)?.sport_key || '').toLowerCase();
+    return (
+      s.includes('soccer') ||
+      s === 'football' ||
+      s === 'futebol' ||
+      (s.includes('football') && !s.includes('american') && !s.includes('gaelic') && !s.includes('aussie'))
+    );
   }, [isLive, event]);
 
   const isMarketLiquidated = (key: string): boolean => {
@@ -1039,9 +1071,20 @@ export function SubOddsModel({
 
           const isOver = (lbl: string) => /acima|over|mais/i.test(String(lbl || ''))
           const isUnder = (lbl: string) => /abaixo|under|menos/i.test(String(lbl || ''))
+          const _isSoccer = String((event as any)?.sport || '').toLowerCase().includes('soccer') ||
+            String((event as any)?.sport || '').toLowerCase().includes('football') ||
+            String((event as any)?.sport || '').toLowerCase().includes('futebol');
           const toLine = (x: MarketItem) => {
-            const line = String(x.handicap || formatTotalNumber(x.label) || '').trim()
-            return line
+            // Use handicap field first, fall back to extracting number from label
+            const raw = (x.handicap != null && String(x.handicap).trim() !== '')
+              ? String(x.handicap).trim()
+              : formatTotalNumber(x.label) || '';
+            const n = parseFloat(raw);
+            // For soccer: normalize integer lines to half-lines (0→0.5, 1→1.5, etc.)
+            if (_isSoccer && Number.isFinite(n) && Number.isInteger(n) && n >= 0) {
+              return String(n + 0.5);
+            }
+            return raw;
           }
 
           const over = targetItems
@@ -1068,15 +1111,38 @@ export function SubOddsModel({
           const susp = getSuspendedReason(key);
 
           // ── Dead-line logic: Under X.5 is permanently dead when score exceeds it ──
+          //    Over X.5 is GUARANTEED when score already exceeds it (shows GARANTIDO)
           const _cg = currentGoals;
+
+          // For team_totals, detect home/away from the item's name or label
+          const _getItemTeamGoals = (item: MarketItem): number => {
+            if (!_cg) return -1;
+            const combo = (String(item.name || '') + ' ' + String(item.label || '')).toLowerCase();
+            if (key === 'home_team_totals' || combo.includes('home') || combo.includes('casa') || combo.includes('home team')) {
+              return Number(_cg.home);
+            }
+            if (key === 'away_team_totals' || combo.includes('away') || combo.includes('fora') || combo.includes('away team') || combo.includes('visitor')) {
+              return Number(_cg.away);
+            }
+            // Main totals or ambiguous: use total goals
+            return Number(_cg.home) + Number(_cg.away);
+          };
+
           const _teamGoalsForKey = (): number => {
             if (!_cg || !isSoccerLive) return -1;
             if (key === 'home_team_totals') return Number(_cg.home);
             if (key === 'away_team_totals') return Number(_cg.away);
-            return Number(_cg.home) + Number(_cg.away);  // main totals
+            return Number(_cg.home) + Number(_cg.away);
           };
           const _teamGoals = _teamGoalsForKey();
           const isUnderLineDead = (lineStr: string): boolean => {
+            if (!isSoccerLive) return false;
+            if (_teamGoals < 0) return false;
+            const lv = Number(lineStr);
+            return Number.isFinite(lv) && _teamGoals > lv;
+          };
+          const isOverGuaranteed = (lineStr: string): boolean => {
+            if (!isSoccerLive) return false;
             if (_teamGoals < 0) return false;
             const lv = Number(lineStr);
             return Number.isFinite(lv) && _teamGoals > lv;
@@ -1105,10 +1171,12 @@ export function SubOddsModel({
                     ? (darkMode ? 'bg-gray-800/30' : 'bg-gray-50/80')
                     : '';
                   const underDead = isUnderLineDead(line);
+                  const overWon = isOverGuaranteed(line);
                   const renderBtn = (item: MarketItem | undefined, side: 'a' | 'b') => {
                     if (!item) return <div className="w-24" />;
                     const f = fair ? fair[side] : null;
                     const isDead = side === 'b' && underDead;
+                    const isGuaranteed = side === 'a' && overWon;
                     const isBlocked = !!susp || isDead;
                     const sideLabel = side === 'a' ? 'Acima de' : 'Abaixo de';
                     const priceStr = Number(item.odd) > 0 ? Number(item.odd).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
@@ -1116,21 +1184,32 @@ export function SubOddsModel({
                       <button
                         onClick={isBlocked ? undefined : () => onSelect(String(item.selection || item.label), item.odd)}
                         disabled={isBlocked}
-                        title={f ? `Odd justa: ${formatFairOdd(f.fair)}${f.isValue ? ` · valor +${(f.edge * 100).toFixed(1)}%` : ''}` : undefined}
+                        title={isGuaranteed ? 'Garantido pelo marcador atual' : f ? `Odd justa: ${formatFairOdd(f.fair)}${f.isValue ? ` · valor +${(f.edge * 100).toFixed(1)}%` : ''}` : undefined}
                         className={`w-24 h-12 rounded-lg font-bold tabular-nums transition-all duration-200 relative
-                          ${isDead ? 'bg-gray-800/50 text-gray-500 cursor-not-allowed opacity-40 line-through'
-                            : susp ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
-                            : f?.isValue
-                              ? 'bg-emerald-600 text-white hover:bg-emerald-500 active:scale-95 ring-1 ring-emerald-300'
-                              : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
+                          ${isDead
+                            ? 'bg-gray-800/50 text-gray-500 cursor-not-allowed opacity-40 line-through'
+                            : susp
+                              ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
+                              : isGuaranteed
+                                ? 'bg-emerald-700 text-white ring-2 ring-emerald-400 ring-opacity-70 cursor-pointer hover:bg-emerald-600 active:scale-95'
+                                : f?.isValue
+                                  ? 'bg-emerald-600 text-white hover:bg-emerald-500 active:scale-95 ring-1 ring-emerald-300'
+                                  : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}
                       >
                         <div className="flex flex-col items-center justify-center leading-[1.05]">
                           <span className="text-[10px] font-extrabold uppercase tracking-wider">
                             {sideLabel} {line}
                           </span>
-                          <span className="text-sm font-black">{isDead ? 'DEAD' : priceStr}</span>
+                          <span className="text-sm font-black">
+                            {isDead ? 'DEAD' : isGuaranteed ? '✓ GANHO' : priceStr}
+                          </span>
                         </div>
-                        {f?.isValue && !isDead && (
+                        {!isDead && !susp && isGuaranteed && (
+                          <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 bg-emerald-400 text-black text-[8px] font-black px-1.5 py-0.5 rounded-full whitespace-nowrap leading-none shadow">
+                            GARANTIDO
+                          </span>
+                        )}
+                        {!isDead && !isGuaranteed && f?.isValue && (
                           <span className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-black text-[8px] font-black px-1 py-0.5 rounded-full leading-none shadow">
                             ★
                           </span>
