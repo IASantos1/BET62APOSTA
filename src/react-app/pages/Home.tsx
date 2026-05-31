@@ -694,70 +694,16 @@ function Home({ mode = 'home' }: HomeProps) {
 
       {/* Banner promocional */}
       {showBanner && ( 
-   <section className="relative w-full overflow-hidden"> 
-     {/* Fundo com gradiente animado + partículas */} 
-     <div className="absolute inset-0 bg-gradient-to-r from-indigo-950 via-purple-950 to-pink-950 animate-gradient-x"></div> 
-     
-     {/* Partículas / faíscas douradas sutis */} 
-     <div className="absolute inset-0 pointer-events-none"> 
-       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(255,215,0,0.08)_0%,transparent_50%)] animate-pulse-slow"></div> 
-       <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_70%,rgba(255,215,0,0.06)_0%,transparent_60%)] animate-pulse-slower"></div> 
-     </div> 
- 
-     {/* Overlay de brilho/gloss */} 
-     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shine-slow"></div> 
- 
-     {/* Conteúdo principal */} 
-    <div className="relative z-10 w-full mx-auto px-2 py-1 md:py-2 flex flex-col md:flex-row items-center justify-between gap-1 md:gap-2"> 
-      {/* Texto */} 
-      <div className="text-center md:text-left"> 
-        <div className="inline-flex items-center gap-2 mb-1"> 
-          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center shadow-lg animate-pulse-slow"> 
-            <svg className="w-3 h-3 text-gray-900" fill="currentColor" viewBox="0 0 24 24"> 
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /> 
-              <path d="M11 7h2v6h-2zM11 15h2v2h-2z" /> 
-            </svg> 
-          </div> 
-          <h3 className="text-sm md:text-base font-extrabold uppercase tracking-wider bg-gradient-to-r from-yellow-300 via-amber-200 to-yellow-300 bg-clip-text text-transparent drop-shadow-lg"> 
-            Boas-Vindas Exclusiva 
-          </h3> 
-        </div> 
-
-        <p className="text-base md:text-lg font-bold text-white mb-0.5 drop-shadow-md"> 
-          Deposite <span className="text-yellow-400">20€</span> e receba 
-        </p> 
-
-        <div className="flex flex-col md:flex-row items-center gap-2 md:gap-3 mb-1"> 
-          <div className="text-2xl md:text-3xl font-black text-yellow-400 tracking-tight drop-shadow-2xl animate-pulse-slow"> 
-            10€ FREE BET 
-          </div> 
-          <div className="text-xs md:text-sm text-gray-200 font-medium"> 
-            após 4 apostas qualificadas 
-          </div> 
-        </div> 
-
-        <p className="text-[10px] md:text-xs text-gray-300 max-w-lg mx-auto md:mx-0 leading-relaxed"> 
-          Aproveite já esta oferta limitada. Apenas o lucro da freebet é sacável. Validade: 7 dias. 
-        </p> 
-      </div> 
-
-      {/* Botão CTA com pulso e brilho */} 
-      <Link 
-        to="/deposit" 
-        className="group relative inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 rounded-lg font-bold text-sm uppercase tracking-wider text-white shadow-xl shadow-green-900/40 transition-all duration-300 hover:shadow-green-500/60 hover:scale-105 active:scale-95 overflow-hidden" 
-      > 
-        {/* Efeito de brilho no botão */} 
-        <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-out"></span> 
-
-        <span className="relative z-10">Depositar Agora</span> 
-
-        {/* Ícone animado */} 
-        <svg className="w-4 h-4 relative z-10 group-hover:translate-x-1 transition-transform" fill="currentColor" viewBox="0 0 24 24"> 
-          <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z" /> 
-        </svg> 
-      </Link> 
-    </div> 
-   </section> 
+        <section className="w-full px-2">
+          <Link to="/promotions" className="block w-full rounded-xl overflow-hidden">
+            <img
+              src="https://coresg-normal.trae.ai/api/ide/v1/text_to_image?prompt=BET62%20sports%20betting%20promotional%20banner%2C%20world%20cup%20trophy%20center%2C%20gold%20black%20stadium%20lights%2C%20premium%20glossy%20design%2C%20Portuguese%20headline%20%22COPA%20DO%20MUNDO%202026%22%2C%20subtitle%20%22APOSTE%20NOS%204%20PRIMEIROS%20JOGOS%22%2C%20four%20match%20cards%20with%20flags%20and%20dates%2C%20big%20red%20button%20text%20%22APOSTE%20AGORA%22%2C%2016%3A9%2C%20high%20detail%2C%20sharp%20typography&image_size=landscape_16_9"
+              alt="Copa do Mundo 2026"
+              className="w-full h-[160px] md:h-[220px] object-cover"
+              loading="lazy"
+            />
+          </Link>
+        </section>
  )}
 
       <div className="flex items-start gap-4 w-full px-2 py-6">
