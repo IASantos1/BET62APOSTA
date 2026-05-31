@@ -125,6 +125,44 @@ function Home({ mode = 'home' }: HomeProps) {
   // dias) e revelamos tudo de uma só vez, num bloco estável com fade-in.
   const [revealed, setRevealed] = useState(false);
 
+  // ── Copa do Mundo data source ───────────────────────────────────
+  const [copaMatches, setCopaMatches] = useState<any[]>([]);
+  const [copaLoading, setCopaLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isWorldCupMode) { setCopaMatches([]); return; }
+    let cancelled = false;
+    setCopaLoading(true);
+    setCopaMatches([]);
+
+    const isPlaceholder = (name: string) => {
+      if (!name || name.length < 2) return true;
+      if (name.includes('/')) return true;          // "3A/3B/3C/3D"
+      if (/^\d[A-Z]/.test(name)) return true;       // "2A", "1C"
+      if (/^[A-HW]\d/.test(name)) return true;      // "G1", "W73", "H2"
+      return false;
+    };
+
+    fetch('/api/world-cup-2026/matches?limit=200')
+      .then(r => r.json())
+      .then((data: any) => {
+        if (cancelled) return;
+        const all: any[] = Array.isArray(data?.matches) ? data.matches : [];
+        const real = all.filter(m =>
+          !isPlaceholder(m.home_team) && !isPlaceholder(m.away_team)
+        );
+        // Sort by date ascending
+        real.sort((a, b) =>
+          new Date(a.event_date || 0).getTime() - new Date(b.event_date || 0).getTime()
+        );
+        setCopaMatches(real);
+      })
+      .catch(() => { if (!cancelled) setCopaMatches([]); })
+      .finally(() => { if (!cancelled) setCopaLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [isWorldCupMode]);
+
   // Re-engaja a porta sempre que muda o modo ou a categoria.
   useEffect(() => {
     setRevealed(false);
@@ -132,6 +170,15 @@ function Home({ mode = 'home' }: HomeProps) {
 
   useEffect(() => {
     if (revealed) return;
+
+    // Copa mode: reveal when copa fetch finishes
+    if (isWorldCupMode) {
+      if (!copaLoading) {
+        const t = setTimeout(() => setRevealed(true), 150);
+        return () => clearTimeout(t);
+      }
+      return;
+    }
 
     // A fonte primária (HTTP) tem de ter respondido pela rede (não só cache).
     const primaryReady = eventsReady;
@@ -144,7 +191,7 @@ function Home({ mode = 'home' }: HomeProps) {
       const t = setTimeout(() => setRevealed(true), settleMs);
       return () => clearTimeout(t);
     }
-  }, [revealed, eventsReady, liveFeedLoaded, pregame7Ready, mode]);
+  }, [revealed, eventsReady, liveFeedLoaded, pregame7Ready, mode, isWorldCupMode, copaLoading]);
 
   // Tecto de segurança: nunca segurar o ecrã mais do que 6s.
   useEffect(() => {
@@ -350,14 +397,10 @@ function Home({ mode = 'home' }: HomeProps) {
   // Strict separation: Desporto = pregame only | AO VIVO = live only
   const displayedLive    = mode === 'live' ? processedLive : [];
   const displayedUpcoming = useMemo(() => {
-    const base = mode === 'home' ? sortedUpcoming : [];
-    if (!isWorldCupMode) return base;
-    // Copa mode: only World Cup league events (requireOdds=1 already strips odds-less events at API level)
-    return base.filter((e: any) => {
-      const l = String(e.league?.name || e.league || '').toLowerCase();
-      return /world cup|copa do mundo|copa mundial|fifa world|copa del mundo/.test(l);
-    });
-  }, [mode, sortedUpcoming, isWorldCupMode]);
+    // Copa mode: use the dedicated Copa endpoint data (real teams, no placeholders)
+    if (isWorldCupMode) return copaMatches;
+    return mode === 'home' ? sortedUpcoming : [];
+  }, [mode, sortedUpcoming, isWorldCupMode, copaMatches]);
 
   const groupedLive = useGroupedEvents(displayedLive, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
