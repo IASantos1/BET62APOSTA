@@ -248,6 +248,9 @@ export default function EventDetails() {
     });
   }, [displayEvent, addToBetSlip]);
 
+  // Must be declared before any conditional return (Rules of Hooks)
+  const isLiveRef = useRef(false);
+
   if (loading) return <div className="p-8 text-center"><div className="animate-spin h-8 w-8 border-4 border-red-600 border-t-transparent rounded-full mx-auto"></div></div>;
   if (error || !displayEvent) return <div className="p-8 text-center text-red-600">{error || 'Evento não encontrado'}</div>;
 
@@ -263,7 +266,6 @@ export default function EventDetails() {
   ]);
   const isLive = displayEvent.is_live === 1 || liveStatuses.has(statusKey);
   // Latch: once an event is known live, never revert the score display (prevents "VS" flicker)
-  const isLiveRef = useRef(false);
   if (isLive) isLiveRef.current = true;
   const hasBeenLive = isLiveRef.current;
   // Status checks take priority: HT/ET/PEN must never show a running minute
