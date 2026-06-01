@@ -3,8 +3,6 @@ import type pg from 'pg';
 import {
   fetchSportsApiProLive,
   fetchSportsApiProMatchOddsAll,
-  fetchSportsApiProMatchOddsLive,
-  fetchSportsApiProMatchOddsPreMatch,
   fetchSportsApiProMatchStatistics,
   fetchSportsApiProMatchIncidents,
   fetchSportsApiProSchedule,
@@ -22,7 +20,9 @@ type CacheEntry<T> = { ts: number; data: T };
 
 type AnyEvent = any;
 
-const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball'];
+const SPORTS_DEFAULT = ['soccer', 'tennis'];
+// Sports with a working /api/live endpoint on SportsApiPro
+const LIVE_CAPABLE = new Set(['soccer', 'football', 'futebol', 'tennis']);
 const ODDS_FRESH_TTL_MS = 90_000;
 const LIVE_ODDS_FRESH_TTL_MS = 8_000;
 const ODDS_STALE_TTL_MS = 15 * 60_000;
@@ -80,12 +80,27 @@ export type EventsService = {
   setOddsOverride: (eventId: string, odds: { home_odd?: number; draw_odd?: number; away_odd?: number }) => Promise<void>;
 };
 
+function getBaselineOdds(sport: string): { home: number; draw: number; away: number } {
+  const s = String(sport || '').toLowerCase().trim();
+  if (s === 'soccer' || s === 'football') return { home: 2.10, draw: 3.30, away: 3.20 };
+  if (s === 'tennis') return { home: 1.85, draw: 0, away: 2.10 };
+  if (s === 'basketball') return { home: 1.90, draw: 0, away: 1.90 };
+  if (s === 'baseball') return { home: 1.95, draw: 0, away: 1.95 };
+  if (s === 'ice-hockey' || s === 'hockey') return { home: 2.10, draw: 3.40, away: 3.30 };
+  if (s === 'volleyball') return { home: 1.80, draw: 0, away: 2.00 };
+  if (s === 'handball') return { home: 1.90, draw: 3.50, away: 2.10 };
+  if (s === 'rugby') return { home: 1.75, draw: 0, away: 2.10 };
+  return { home: 1.90, draw: 0, away: 1.90 };
+}
+
 export function createEventsService(pool: pg.Pool | null, apiKey: string): EventsService {
   const liveCache = new Map<string, CacheEntry<AnyEvent[]>>();
   const scheduleCache = new Map<string, CacheEntry<AnyEvent[]>>();
   const oddsCache = new Map<string, CacheEntry<any>>();
   const oddsInflight = new Map<string, Promise<any | null>>();
   const bySportCache = new Map<string, CacheEntry<{ live: AnyEvent[]; pregame: AnyEvent[] }>>();
+  // Deduplication: one build per cacheKey at a time — prevents concurrent API floods
+  const bySportInFlight = new Map<string, Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }>>();
   const worldCupCache = new Map<string, CacheEntry<any>>();
   const worldCupMatchesCache = new Map<string, CacheEntry<AnyEvent[]>>();
   const oddsQueue: Array<{ sport: string; matchId: string }> = [];
@@ -214,18 +229,19 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     if (oddsQueueStarted) return;
     oddsQueueStarted = true;
     setInterval(() => {
-      if (oddsQueueInFlight >= 6) return;
-      const next = oddsQueue.shift();
-      if (!next) return;
-      const key = `${next.sport}:${next.matchId}`;
-      oddsQueueInFlight += 1;
-      fetchOddsStrict(next.sport, next.matchId)
-        .catch(() => null)
-        .finally(() => {
-          oddsQueueInFlight -= 1;
-          oddsQueued.delete(key);
-        });
-    }, 120);
+      while (oddsQueueInFlight < 20 && oddsQueue.length > 0) {
+        const next = oddsQueue.shift();
+        if (!next) break;
+        const key = `${next.sport}:${next.matchId}`;
+        oddsQueueInFlight += 1;
+        fetchOddsStrict(next.sport, next.matchId)
+          .catch(() => null)
+          .finally(() => {
+            oddsQueueInFlight -= 1;
+            oddsQueued.delete(key);
+          });
+      }
+    }, 60);
   };
 
   const fetchLive = async (sport: string): Promise<AnyEvent[]> => {
@@ -273,34 +289,43 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     return normalized;
   };
 
-  const fetchSchedule = async (sport: string, date: string): Promise<AnyEvent[]> => {
-    const key = `${sport}:${date}`;
-    const cached = scheduleCache.get(key);
-    if (cached && ttlOk(cached.ts, 20 * 60_000)) return cached.data;
-    if (cached && ttlOk(cached.ts, 3 * 60 * 60 * 1000)) {
-      fetchSportsApiProSchedule(apiKey, sport, date)
-        .then((list) => {
-          const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
-            const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
-            const out = { ...e, id, sport };
-            rememberSport(id, sport);
-            lastEventById.set(id, { ts: nowMs(), data: out });
-            return out;
-          });
-          scheduleCache.set(key, { ts: nowMs(), data: normalized });
-        })
-        .catch(() => void 0);
-      return cached.data;
-    }
-    const list = await fetchSportsApiProSchedule(apiKey, sport, date).catch(() => []);
-    const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
+  const normalizeScheduleList = (list: any[], sport: string): AnyEvent[] =>
+    (Array.isArray(list) ? list : []).map((e: any) => {
       const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
       const out = { ...e, id, sport };
       rememberSport(id, sport);
       lastEventById.set(id, { ts: nowMs(), data: out });
       return out;
     });
-    scheduleCache.set(key, { ts: nowMs(), data: normalized });
+
+  const fetchSchedule = async (sport: string, date: string): Promise<AnyEvent[]> => {
+    const key = `${sport}:${date}`;
+    const cached = scheduleCache.get(key);
+    // Fresh cache: serve immediately
+    if (cached && ttlOk(cached.ts, 20 * 60_000)) return cached.data;
+    // Stale-while-revalidate (up to 3h): serve stale, refresh in background
+    if (cached && ttlOk(cached.ts, 3 * 60 * 60 * 1000)) {
+      fetchSportsApiProSchedule(apiKey, sport, date)
+        .then((list) => {
+          if (list && list.length > 0) {
+            scheduleCache.set(key, { ts: nowMs(), data: normalizeScheduleList(list, sport) });
+          }
+        })
+        .catch(() => void 0);
+      return cached.data;
+    }
+    // Very stale (>3h) or cold: try fresh fetch; on failure keep/return any stale data
+    const list = await fetchSportsApiProSchedule(apiKey, sport, date).catch(() => null);
+    if (list === null) {
+      // API failed (timeout/rate-limit): return stale data if available, otherwise empty
+      if (cached) return cached.data;
+      return [];
+    }
+    const normalized = normalizeScheduleList(list, sport);
+    // Only overwrite cache if we got real data (prevents caching empty on rate-limit recovery)
+    if (normalized.length > 0 || !cached) {
+      scheduleCache.set(key, { ts: nowMs(), data: normalized });
+    }
     return normalized;
   };
 
@@ -399,13 +424,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     if (inflight) return inflight;
     const p = (async () => {
       const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam };
-      // Fetch all 3 endpoints in parallel to get maximum market coverage
-      const [allResult, liveResult, preResult] = await Promise.all([
-        fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts).catch(() => null),
-        fetchSportsApiProMatchOddsLive(apiKey, sport, normalizedId, opts).catch(() => null),
-        fetchSportsApiProMatchOddsPreMatch(apiKey, sport, normalizedId, opts).catch(() => null),
-      ]);
-      const merged = mergeOddsResults([liveResult, allResult, preResult].filter(Boolean));
+      // Single 'all' endpoint returns live + prematch odds in one call — no need to call all 3
+      const allResult = await fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts).catch(() => null);
+      const merged = allResult ?? null;
       if (merged && merged.markets && typeof merged.markets === 'object') {
         const derived = deriveAdditionalMarkets(
           merged.markets,
@@ -492,12 +513,17 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       fullMarkets
         ? marketsAll
         : pruneMarketsForList(sport, (marketsAll && typeof marketsAll === 'object') ? marketsAll : {});
+    const rawHome = odds?.home ? Number(odds.home) : Number((e as any).home_odd || 0);
+    const rawDraw = odds?.draw ? Number(odds.draw) : Number((e as any).draw_odd || 0);
+    const rawAway = odds?.away ? Number(odds.away) : Number((e as any).away_odd || 0);
+    const hasRealOdds = rawHome > 1 && rawAway > 1;
+    const baseline = hasRealOdds ? null : getBaselineOdds(sport);
     const base = {
       ...e,
       id,
-      home_odd: odds?.home ? Number(odds.home) : Number((e as any).home_odd || 0),
-      draw_odd: odds?.draw ? Number(odds.draw) : Number((e as any).draw_odd || 0),
-      away_odd: odds?.away ? Number(odds.away) : Number((e as any).away_odd || 0),
+      home_odd: hasRealOdds ? rawHome : baseline!.home,
+      draw_odd: hasRealOdds ? rawDraw : baseline!.draw,
+      away_odd: hasRealOdds ? rawAway : baseline!.away,
       markets,
       markets_count: marketsAll && typeof marketsAll === 'object' ? Object.keys(marketsAll).length : 0,
     };
@@ -559,7 +585,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     };
 
     if (includeLive && sports.length > 0) {
-      const lists = await mapLimit(sports, 5, (s) => fetchLive(s).catch(() => []));
+      // Only fetch live for sports whose /api/live endpoint actually works (football only)
+      const liveSports = sports.filter((s) => LIVE_CAPABLE.has(String(s || '').toLowerCase().trim()));
+      const lists = await mapLimit(liveSports, 2, (s) => fetchLive(s).catch(() => []));
       for (const live of lists) {
         liveAll.push(...(live || []).filter((e: any) => Number(e?.is_live || 0) === 1));
       }
@@ -590,14 +618,30 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const tasks: Array<{ sport: string; date: string }> = [];
       for (const s of sports) {
         const sKey = String(s || '').toLowerCase().trim();
-        const perSportDays = Math.max(days, (sKey === 'soccer' || sKey === 'football') ? 7 : 0);
-        for (let i = 0; i < Math.min(14, perSportDays); i++) {
+        const isFootball = sKey === 'soccer' || sKey === 'football';
+        // Football: max 3 days (cold-start: 3×12s=36s serial; warm: instant). Tennis: max 2 days.
+        const maxDaysForSport = isFootball ? Math.min(days || 3, 3) : Math.min(days || 2, 2);
+        for (let i = 0; i < Math.min(14, maxDaysForSport); i++) {
           const d = new Date();
           d.setDate(d.getDate() + i);
           tasks.push({ sport: s, date: ymd(d) });
         }
       }
-      const lists = await mapLimit(tasks, 6, (t) => fetchSchedule(t.sport, t.date).catch(() => []));
+      // Group tasks by sport (same subdomain) and run with concurrency=2 within each sport;
+      // different sports run fully in parallel.
+      const tasksBySport = new Map<string, typeof tasks>();
+      for (const t of tasks) {
+        const key = String(t.sport || 'football').toLowerCase().trim();
+        if (!tasksBySport.has(key)) tasksBySport.set(key, []);
+        tasksBySport.get(key)!.push(t);
+      }
+      const sportGroups = Array.from(tasksBySport.values());
+      const allScheduleLists = await Promise.all(
+        sportGroups.map((group) =>
+          mapLimit(group, 2, (t) => fetchSchedule(t.sport, t.date).catch(() => [] as AnyEvent[]))
+        ),
+      );
+      const lists = allScheduleLists.flat();
       for (const sched of lists) {
         preAll.push(...(sched || []).filter(isPregameCandidate));
       }
@@ -653,8 +697,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       // UEFA / FIFA international competitions — always allowed (men's only after the block above)
       if (/champions league|europa league|conference league|nations league/.test(l)) return false;
       if (/world cup|copa do mundo|copa mundial/.test(l)) return false;
-      if (/friendly international|international friendly/.test(l)) return false;
-      if (/club friendl/.test(l)) return false;
+      if (/friendly international|international friendly/.test(l)) return true;
+      if (/club friendl/.test(l)) return true;
       if (/olympics|olympic games|jogos ol[íi]mpicos/.test(l)) return false;
       if (/supercopa|super cup|uefa super/.test(l)) return false;
       if (/euro 20\d{2}|euro qualif|world cup qualif/.test(l)) return false;
@@ -880,8 +924,16 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const filterBlocked = (arr: AnyEvent[]) =>
       allowBlocked
         ? arr
-        : arr.filter((e: any) => !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || '')));
-    const live = sortStable(filterBlocked(filterLeague(liveAll))).slice(0, 120);
+        : arr.filter((e: any) => {
+            const sport = String((e as any)?.sport || '').toLowerCase().trim();
+            if (sport && sport !== 'soccer' && sport !== 'football') return true;
+            return !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || ''));
+          });
+    // Live events: never apply league blocking — real matches in progress always show.
+    const live = sortStable(liveAll.filter((e: any) => {
+      if (filterLeague([e]).length === 0) return false;
+      return true;
+    })).slice(0, 120);
     const preSorted = sortStable(filterBlocked(filterLeague(preAll)));
     const preLimit = days > 1 ? 300 : 120;
     const pregame = days > 1 ? spreadAcrossDays(preSorted, days, preLimit) : preSorted.slice(0, preLimit);
@@ -954,12 +1006,11 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
     let preEnriched: AnyEvent[] = pregame;
     if (includePregame && pregame.length > 0) {
-      const eagerCount = Math.min(requireOdds ? 80 : 24, pregame.length);
-      const head = pregame.slice(0, eagerCount);
-      const tail = pregame.slice(eagerCount);
-      const preBudget = { remaining: head.length };
-      const headEnriched = await mapLimit(head, 10, (x) => enrichEventOdds(x, preBudget, fullMarkets));
-      preEnriched = [...headEnriched, ...tail];
+      // Budget limits real API calls; events beyond budget get cached or baseline odds
+      // This ensures ALL events have at least baseline odds — never home_odd: 0
+      const apiBudget = Math.min(requireOdds ? 100 : 40, pregame.length);
+      const preBudget = { remaining: apiBudget };
+      preEnriched = await mapLimit(pregame, 12, (x) => enrichEventOdds(x, preBudget, fullMarkets));
     }
 
     const filteredLive = requireOdds && includeLive ? liveEnriched.filter(hasAnyOddsEvent) : liveEnriched;
@@ -1008,23 +1059,41 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}|fullMarkets:${fullMarkets ? '1' : '0'}|only:${only}|days:${daysAhead}|requireOdds:${requireOdds ? '1' : '0'}|allowBlocked:${allowBlocked ? '1' : '0'}`;
       const cached = bySportCache.get(cacheKey);
       const ttl = realtime ? 2_000 : includeOdds ? 12_000 : 25_000;
+      const staleTtl = realtime ? 5_000 : 5 * 60_000;
+      // ── 1. Fresh cache hit ──────────────────────────────────────────────────
       if (cached && ttlOk(cached.ts, ttl)) {
         sendJson(res, 200, cached.data);
         return true;
       }
       const defaultDays = only === 'live' ? 0 : 7;
-      const data = await buildBySport(
-        sports,
-        includeOdds,
-        league,
-        realtime,
-        fullMarkets,
-        only,
-        daysAhead || defaultDays,
-        requireOdds,
-        allowBlocked,
-      ).catch(() => ({ live: [], pregame: [] }));
-      bySportCache.set(cacheKey, { ts: nowMs(), data });
+      const buildArgs = [sports, includeOdds, league, realtime, fullMarkets, only, daysAhead || defaultDays, requireOdds, allowBlocked] as const;
+
+      // Helper: start a build only if none is in-flight for this key
+      const ensureBuild = (): Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }> => {
+        const existing = bySportInFlight.get(cacheKey);
+        if (existing) return existing;
+        const p = buildBySport(...buildArgs)
+          .then(d => { bySportCache.set(cacheKey, { ts: nowMs(), data: d }); return d; })
+          .catch(() => ({ live: [] as AnyEvent[], pregame: [] as AnyEvent[] }))
+          .finally(() => bySportInFlight.delete(cacheKey));
+        bySportInFlight.set(cacheKey, p);
+        return p;
+      };
+
+      // ── 2. Stale-while-revalidate ───────────────────────────────────────────
+      if (cached && ttlOk(cached.ts, staleTtl)) {
+        sendJson(res, 200, cached.data);
+        ensureBuild(); // background refresh — no await
+        return true;
+      }
+
+      // ── 3. Cold start: wait for the build (deduped) with a hard timeout ─────
+      const inFlight = ensureBuild();
+      const timeoutMs = realtime ? 8_000 : 60_000;
+      const timeoutPromise = new Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }>(resolve =>
+        setTimeout(() => resolve(cached?.data ?? { live: [], pregame: [] }), timeoutMs)
+      );
+      const data = await Promise.race([inFlight, timeoutPromise]);
       sendJson(res, 200, data);
       return true;
     }
