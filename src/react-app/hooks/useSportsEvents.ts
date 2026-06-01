@@ -603,18 +603,18 @@ export function useSportsEvents(
                   const limitPregameAll = (arr: Event[], max: number) => {
                     if (safeCategory !== 'all') return arr.slice(0, max);
                     const caps = new Map<string, number>([
-                      ['soccer', 25],
-                      ['tennis', 10],
-                      ['basketball', 8],
-                      ['ice-hockey', 6],
-                      ['volleyball', 6],
-                      ['handball', 6],
-                      ['american-football', 6],
-                      ['mma', 6],
-                      ['formula1', 4],
-                      ['golf', 4],
-                      ['cricket', 5],
-                      ['baseball', 5],
+                      ['soccer', 300],
+                      ['tennis', 50],
+                      ['basketball', 40],
+                      ['ice-hockey', 30],
+                      ['volleyball', 30],
+                      ['handball', 30],
+                      ['american-football', 30],
+                      ['mma', 20],
+                      ['formula1', 20],
+                      ['golf', 20],
+                      ['cricket', 20],
+                      ['baseball', 20],
                     ]);
                     const used = new Map<string, number>();
                     const sorted = [...arr].sort((a, b) => {
@@ -645,7 +645,7 @@ export function useSportsEvents(
                     return out;
                   };
 
-                  const pregameMax = safeCategory === 'all' ? 45 : 60;
+                  const pregameMax = safeCategory === 'all' ? 500 : 500;
                   const filteredPregame = limitPregameAll(pregameBase, pregameMax);
           const maxLive = safeCategory === 'all' ? 100 : 60;
           const finalLive = preferOdds(filteredLive, maxLive * 2).filter(hasPrimaryOdds).slice(0, maxLive);
@@ -759,18 +759,18 @@ export function useSportsEvents(
             const limitPregameAll = (arr: Event[], max: number) => {
               if (safeCategory !== 'all') return arr.slice(0, max);
               const caps = new Map<string, number>([
-                ['soccer', 25],
-                ['tennis', 10],
-                ['basketball', 8],
-                ['ice-hockey', 6],
-                ['volleyball', 6],
-                ['handball', 6],
-                ['american-football', 6],
-                ['mma', 6],
-                ['formula1', 4],
-                ['golf', 4],
-                ['cricket', 5],
-                ['baseball', 5],
+                ['soccer', 300],
+                ['tennis', 50],
+                ['basketball', 40],
+                ['ice-hockey', 30],
+                ['volleyball', 30],
+                ['handball', 30],
+                ['american-football', 30],
+                ['mma', 20],
+                ['formula1', 20],
+                ['golf', 20],
+                ['cricket', 20],
+                ['baseball', 20],
               ]);
               const used = new Map<string, number>();
               const sorted = [...arr].sort((a, b) => {
@@ -801,7 +801,7 @@ export function useSportsEvents(
               return out;
             };
 
-            const pregameMax = safeCategory === 'all' ? 45 : 60;
+            const pregameMax = 500;
             const finalPregame = limitPregameAll(pregameBase, pregameMax);
 
             updateState(finalLive, finalPregame);

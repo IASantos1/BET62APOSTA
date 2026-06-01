@@ -79,14 +79,14 @@ function Home({ mode = 'home' }: HomeProps) {
 
   // Copa mode: fetch all events (client filters WC leagues); requireOdds=1 is on by default
   const apiCategory = isWorldCupMode ? 'all' : (selectedCategory || 'all');
-  const apiDays = isWorldCupMode ? 30 : (mode === 'home' && isMainSports ? 7 : undefined);
+  const apiDays = isWorldCupMode ? 30 : (mode === 'home' && isMainSports ? 3 : undefined);
 
   const { live: httpLive, pregame, loading: eventsLoading, ready: eventsReady } = useSportsEvents(
     apiCategory,
     {
       only: mode === 'home' ? 'pregame' : mode === 'live' ? 'live' : 'both',
       days: apiDays,
-      requireOdds: mode !== 'home',
+      requireOdds: false,
     },
   );
 
@@ -100,7 +100,7 @@ function Home({ mode = 'home' }: HomeProps) {
 
   const { pregame: pregame7Days, ready: pregame7Ready } = useSportsEvents('all', {
     only: 'pregame',
-    days: 8,
+    days: 3,
     enabled: mode === 'live',
     requireOdds: false,
   });
@@ -481,7 +481,7 @@ function Home({ mode = 'home' }: HomeProps) {
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
   const groupedNext7 = useGroupedEvents(mode === 'live' ? (sortedUpcoming7Days as Event[]) : [], query);
 
-  const MAX_EVENTS = mode === 'live' ? 120 : 60; // live≤120, pregame≤60
+  const MAX_EVENTS = mode === 'live' ? 120 : 500; // live≤120, pregame sem limite prático
 
   const limitedUpcoming = useMemo(() => {
     // League filter overrides everything — use raw groupedUpcoming filtered by league
