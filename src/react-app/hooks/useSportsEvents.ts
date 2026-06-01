@@ -577,7 +577,7 @@ export function useSportsEvents(
           }
 
                   const filteredLive = liveEvents; 
-                  const pregameBase = preferOdds(pregameEvents.filter(isTodayAdjusted), safeCategory === 'all' ? 120 : 60);
+                  const pregameBase = preferOdds(pregameEvents.filter(isTodayAdjusted), 500);
 
                   const sportRank = (s: string) => {
                     const k = s;
@@ -603,18 +603,18 @@ export function useSportsEvents(
                   const limitPregameAll = (arr: Event[], max: number) => {
                     if (safeCategory !== 'all') return arr.slice(0, max);
                     const caps = new Map<string, number>([
-                      ['soccer', 300],
-                      ['tennis', 50],
-                      ['basketball', 40],
-                      ['ice-hockey', 30],
-                      ['volleyball', 30],
-                      ['handball', 30],
-                      ['american-football', 30],
-                      ['mma', 20],
-                      ['formula1', 20],
-                      ['golf', 20],
-                      ['cricket', 20],
-                      ['baseball', 20],
+                      ['soccer', 500],
+                      ['tennis', 500],
+                      ['basketball', 300],
+                      ['ice-hockey', 200],
+                      ['volleyball', 200],
+                      ['handball', 200],
+                      ['american-football', 200],
+                      ['mma', 100],
+                      ['formula1', 100],
+                      ['golf', 100],
+                      ['cricket', 100],
+                      ['baseball', 100],
                     ]);
                     const used = new Map<string, number>();
                     const sorted = [...arr].sort((a, b) => {
@@ -732,7 +732,7 @@ export function useSportsEvents(
 
             const maxLive = safeCategory === 'all' ? 100 : 60;
             const finalLive = preferOdds(activeLive.filter(isAllowedSport), maxLive * 2).filter(hasPrimaryOdds).slice(0, maxLive);
-            const pregameBase = preferOdds(activePregame.filter(isTodayAdjusted), 80);
+            const pregameBase = preferOdds(activePregame.filter(isTodayAdjusted), 500);
 
             const sportRank = (s: string) => {
               const k = s;
@@ -759,18 +759,18 @@ export function useSportsEvents(
             const limitPregameAll = (arr: Event[], max: number) => {
               if (safeCategory !== 'all') return arr.slice(0, max);
               const caps = new Map<string, number>([
-                ['soccer', 300],
-                ['tennis', 50],
-                ['basketball', 40],
-                ['ice-hockey', 30],
-                ['volleyball', 30],
-                ['handball', 30],
-                ['american-football', 30],
-                ['mma', 20],
-                ['formula1', 20],
-                ['golf', 20],
-                ['cricket', 20],
-                ['baseball', 20],
+                ['soccer', 500],
+                ['tennis', 500],
+                ['basketball', 300],
+                ['ice-hockey', 200],
+                ['volleyball', 200],
+                ['handball', 200],
+                ['american-football', 200],
+                ['mma', 100],
+                ['formula1', 100],
+                ['golf', 100],
+                ['cricket', 100],
+                ['baseball', 100],
               ]);
               const used = new Map<string, number>();
               const sorted = [...arr].sort((a, b) => {

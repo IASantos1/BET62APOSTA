@@ -488,11 +488,17 @@ function Home({ mode = 'home' }: HomeProps) {
     if (leagueFilter) {
       return groupedUpcoming.filter(([league]) => league === leagueFilter);
     }
-    if (mode === 'home' && isMainSports && featuredUpcomingGroups.length > 0) {
-      if (sportFilter) {
-        return featuredUpcomingGroups.filter(([label]) => label === sportFilter);
-      }
-      return featuredUpcomingGroups;
+    // Sport filter: group events by sport and return those matching
+    if (sportFilter && mode === 'home') {
+      const sportMap: Record<string, string> = {
+        'Futebol': 'soccer', 'Ténis': 'tennis', 'Basquetebol': 'basketball',
+        'Hóquei': 'ice-hockey', 'Beisebol': 'baseball', 'Voleibol': 'volleyball',
+        'Andebol': 'handball',
+      };
+      const targetSport = sportMap[sportFilter] || sportFilter.toLowerCase();
+      return groupedUpcoming.filter(([, events]) =>
+        events.some((e) => String((e as any)?.sport || '').toLowerCase() === targetSport)
+      );
     }
     let remaining = MAX_EVENTS;
     const result: [string, Event[]][] = [];
