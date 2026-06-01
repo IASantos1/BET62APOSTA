@@ -1141,12 +1141,14 @@ export function SubOddsModel({
           //    Each market type uses its own running stat (goals / corners / cards).
           const _cg = currentGoals;
 
+          // Pick the right running stat — no isSoccerLive guard needed:
+          // if _cg is null (no score data) we return -1, which disables filtering safely.
+          // For 0-0 games _runningTotal=0 and isLineResolved(0.5)=false → no lines hidden.
           const _statForKey = (): number => {
-            if (!isSoccerLive) return -1;
             if (key === 'home_team_totals') return _cg ? Number(_cg.home) : -1;
             if (key === 'away_team_totals') return _cg ? Number(_cg.away) : -1;
-            if (/corners?_total|corners?_2_way/i.test(key)) return currentCorners;
-            if (/cards?_total|cards?_in_match/i.test(key)) return currentCards;
+            if (/corners?_total|corners?_2_way/i.test(key)) return currentCorners >= 0 ? currentCorners : -1;
+            if (/cards?_total|cards?_in_match/i.test(key)) return currentCards >= 0 ? currentCards : -1;
             // Default: total goals (main totals, goals_total, etc.)
             return _cg ? Number(_cg.home) + Number(_cg.away) : -1;
           };
@@ -1164,8 +1166,9 @@ export function SubOddsModel({
           const underMap = new Map<string, MarketItem>(under.map((x: MarketItem) => [String(x.handicap || ''), x] as [string, MarketItem]));
           const allLines = Array.from(new Set([...over.map((x: MarketItem) => String(x.handicap || '')), ...under.map((x: MarketItem) => String(x.handicap || ''))]))
             .sort((a, b) => Number(a) - Number(b));
-          // Hide resolved lines entirely (running total already exceeded the line)
-          const visibleLines = isSoccerLive
+          // Hide resolved lines entirely (running total already exceeded the line).
+          // _runningTotal >= 0 means we have real score data; for 0-0 no lines are resolved.
+          const visibleLines = _runningTotal >= 0
             ? allLines.filter(line => !isLineResolved(line))
             : allLines;
 

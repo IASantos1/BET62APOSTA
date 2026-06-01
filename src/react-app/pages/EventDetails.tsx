@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { useApp } from '@/react-app/contexts/AppContext'
@@ -52,9 +52,16 @@ export default function EventDetails() {
   }, [id, live, pregame, upcomingEvents]);
 
   // Use local event as soon as it's available (instant load, no API call needed)
+  // Never downgrade a live event to non-live (prevents score from disappearing during poll gaps)
   useEffect(() => {
     if (localFoundEvent) {
-      setEvent(localFoundEvent);
+      setEvent(prev => {
+        // If we previously had a live event and the new candidate is not live, keep is_live=1
+        if (prev?.is_live === 1 && !localFoundEvent?.is_live) {
+          return { ...localFoundEvent, is_live: 1 };
+        }
+        return localFoundEvent;
+      });
       setLoading(false);
       setError(null);
     }
@@ -255,6 +262,10 @@ export default function EventDetails() {
     'IN_PROGRESS',
   ]);
   const isLive = displayEvent.is_live === 1 || liveStatuses.has(statusKey);
+  // Latch: once an event is known live, never revert the score display (prevents "VS" flicker)
+  const isLiveRef = useRef(false);
+  if (isLive) isLiveRef.current = true;
+  const hasBeenLive = isLiveRef.current;
   // Status checks take priority: HT/ET/PEN must never show a running minute
   const liveTimer = (() => {
     if (statusKey === 'HT') return 'HT';
@@ -411,7 +422,7 @@ export default function EventDetails() {
                     </div>
                   </div>
                   <div className="flex flex-col items-center">
-                    {isLive ? (
+                    {(isLive || hasBeenLive) ? (
                       isTennis && tennisScore ? (
                         <div className={`rounded-xl overflow-hidden border ${darkMode ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'} w-full max-w-[420px]`}>
                           <div className={`grid items-center ${tennisScore.count === 2 ? 'grid-cols-[1fr_auto_auto]' : tennisScore.count === 3 ? 'grid-cols-[1fr_auto_auto_auto]' : tennisScore.count === 4 ? 'grid-cols-[1fr_auto_auto_auto_auto]' : 'grid-cols-[1fr_auto_auto_auto_auto_auto]'} px-3 py-2 gap-x-2`}>
