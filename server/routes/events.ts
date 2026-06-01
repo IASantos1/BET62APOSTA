@@ -1357,9 +1357,28 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         if (Array.isArray(raw.data?.response)) return raw.data.response;
         return [];
       };
-      const stats = extractStats(statsRaw);
+      const rawStats = extractStats(statsRaw);
       const events = extractMatchEvents(statsRaw);
-      sendJson(res, 200, { stats, events, _debug: statsRaw ? Object.keys(statsRaw) : [], _rawKeys: statsRaw?.data ? Object.keys(statsRaw.data) : [] });
+
+      // Detect SportsApiPro grouped format: [{ period:"ALL", groups:[...] }]
+      // Convert to flat API-Football format for legacy components; keep grouped for rich display.
+      let stats: any[] = rawStats;
+      let groupedStats: any[] | null = null;
+
+      if (Array.isArray(rawStats) && rawStats.length > 0 && rawStats[0]?.groups != null) {
+        groupedStats = rawStats;
+        const allPeriod = rawStats.find((p: any) => String(p.period).toUpperCase() === 'ALL') ?? rawStats[0];
+        const flat: any[] = [];
+        for (const group of (allPeriod?.groups ?? [])) {
+          for (const item of (group?.statisticsItems ?? [])) {
+            flat.push({ type: item.name, value: item.home, team: { name: 'home' } });
+            flat.push({ type: item.name, value: item.away, team: { name: 'away' } });
+          }
+        }
+        stats = flat;
+      }
+
+      sendJson(res, 200, { stats, groupedStats, events, _debug: statsRaw ? Object.keys(statsRaw) : [], _rawKeys: statsRaw?.data ? Object.keys(statsRaw.data) : [] });
       return true;
     }
 

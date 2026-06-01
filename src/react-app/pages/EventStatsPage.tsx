@@ -15,6 +15,148 @@ import { useUpcomingCache } from '@/react-app/hooks/useUpcomingCache'
 import { apiFetch } from '@/react-app/utils/api'
 import type { Event } from '@/shared/types'
 
+// ── Group name translations ────────────────────────────────────────────────
+const GROUP_PT: Record<string, string> = {
+  'Match overview': 'Visão Geral',
+  'Shots': 'Remates',
+  'Attack': 'Ataque',
+  'Passes': 'Passes',
+  'Duels': 'Duelos',
+  'Defending': 'Defesa',
+  'Goalkeeping': 'Guarda-Redes',
+  'Discipline': 'Disciplina',
+  'Other': 'Outros',
+}
+
+// ── Single stat row with visual bar ───────────────────────────────────────
+function StatBarRow({ item, darkMode }: { item: any; darkMode: boolean }) {
+  const hv = Number(item.homeValue ?? 0)
+  const av = Number(item.awayValue ?? 0)
+  const total = hv + av
+  const homePct = total > 0 ? (hv / total) * 100 : 50
+  const homeWins = hv > av
+  const awayWins = av > hv
+
+  // renderType 2 = percentage bar (possession), 1 = numeric, 3 = fraction, 4 = won%
+  const renderType = item.renderType ?? 1
+  const isPositive = item.statisticsType !== 'negative'
+
+  const homeDisplay = item.home ?? String(hv)
+  const awayDisplay = item.away ?? String(av)
+
+  return (
+    <div className="px-4 py-2.5">
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span className={`text-sm font-bold tabular-nums w-20 text-left ${homeWins && isPositive ? (darkMode ? 'text-white' : 'text-gray-900') : (darkMode ? 'text-gray-400' : 'text-gray-500')}`}>
+          {homeDisplay}
+        </span>
+        <span className={`text-[10px] uppercase tracking-wide text-center flex-1 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+          {item.name}
+        </span>
+        <span className={`text-sm font-bold tabular-nums w-20 text-right ${awayWins && isPositive ? (darkMode ? 'text-white' : 'text-gray-900') : (darkMode ? 'text-gray-400' : 'text-gray-500')}`}>
+          {awayDisplay}
+        </span>
+      </div>
+      {(renderType === 2 || renderType === 4 || (total > 0 && renderType === 1)) && (
+        <div className={`flex h-1.5 rounded-full overflow-hidden ${darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
+          <div
+            className="h-full transition-all duration-500"
+            style={{
+              width: `${homePct}%`,
+              background: homeWins && isPositive ? '#3b82f6' : (!awayWins && isPositive ? '#6b7280' : '#6b7280'),
+            }}
+          />
+          <div
+            className="h-full flex-1 transition-all duration-500"
+            style={{
+              background: awayWins && isPositive ? '#ef4444' : '#6b7280',
+            }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Group section ──────────────────────────────────────────────────────────
+function StatGroup({ group, darkMode }: { group: any; darkMode: boolean }) {
+  const label = GROUP_PT[group.groupName] ?? group.groupName
+  const items: any[] = group.statisticsItems ?? []
+  if (!items.length) return null
+
+  return (
+    <div>
+      <div className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest ${darkMode ? 'bg-gray-700/60 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>
+        {label}
+      </div>
+      <div className={`divide-y ${darkMode ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
+        {items.map((item: any, i: number) => (
+          <StatBarRow key={`${item.key ?? item.name}_${i}`} item={item} darkMode={darkMode} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Period selector + rich display ─────────────────────────────────────────
+function RichStatsDisplay({ groupedStats, homeName, awayName, darkMode }: {
+  groupedStats: any[];
+  homeName: string;
+  awayName: string;
+  darkMode: boolean;
+}) {
+  const [activePeriod, setActivePeriod] = useState<string>('ALL')
+  const periods = groupedStats.map((p: any) => p.period ?? 'ALL')
+  const currentPeriodData = groupedStats.find((p: any) => p.period === activePeriod) ?? groupedStats[0]
+  const groups: any[] = currentPeriodData?.groups ?? []
+
+  const PERIOD_LABELS: Record<string, string> = {
+    ALL: 'Total', '1ST': '1ª Parte', '2ND': '2ª Parte', HT: 'Intervalo',
+  }
+
+  return (
+    <div>
+      {/* Team header */}
+      <div className={`grid grid-cols-[1fr_auto_1fr] items-center px-4 py-3 border-b ${darkMode ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-gray-50'}`}>
+        <span className={`text-xs font-black truncate ${darkMode ? 'text-blue-300' : 'text-blue-700'}`}>{homeName}</span>
+        <span className={`text-[10px] uppercase tracking-widest font-bold px-3 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>vs</span>
+        <span className={`text-xs font-black truncate text-right ${darkMode ? 'text-red-300' : 'text-red-700'}`}>{awayName}</span>
+      </div>
+
+      {/* Period tabs (only if more than 1 period) */}
+      {periods.length > 1 && (
+        <div className={`flex border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+          {periods.map((p: string) => (
+            <button
+              key={p}
+              onClick={() => setActivePeriod(p)}
+              className={`flex-1 py-2 text-[11px] font-black uppercase tracking-wide transition-colors ${
+                activePeriod === p
+                  ? 'bg-red-600 text-white'
+                  : darkMode ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              {PERIOD_LABELS[p] ?? p}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Groups */}
+      <div className={`divide-y ${darkMode ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
+        {groups.map((group: any, i: number) => (
+          <StatGroup key={`${group.groupName}_${i}`} group={group} darkMode={darkMode} />
+        ))}
+        {groups.length === 0 && (
+          <div className={`text-center py-10 text-sm ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+            Sem estatísticas para este período.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function EventStatsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -22,7 +164,7 @@ export default function EventStatsPage() {
   const [event, setEvent] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [liveStats, setLiveStats] = useState<{ stats: any; events: any[] }>({ stats: [], events: [] })
+  const [liveStats, setLiveStats] = useState<{ stats: any; groupedStats: any[] | null; events: any[] }>({ stats: [], groupedStats: null, events: [] })
   const [standingsData, setStandingsData] = useState<any[]>([])
   const [activeTab, setActiveTab] = useState<'dominance' | 'stats' | 'standings'>('dominance')
 
@@ -170,7 +312,7 @@ export default function EventStatsPage() {
       try {
         const sportArg = (event as any)?.sport ? `?sport=${encodeURIComponent(String((event as any).sport))}` : '';
         const data = await apiFetch<any>(`/api/events/${id}/stats${sportArg}`)
-        if (data) setLiveStats({ stats: data.stats ?? [], events: data.events ?? [] })
+        if (data) setLiveStats({ stats: data.stats ?? [], groupedStats: data.groupedStats ?? null, events: data.events ?? [] })
       } catch {
         /* empty */
       }
@@ -357,14 +499,27 @@ export default function EventStatsPage() {
 
           {activeTab === 'stats' && (
             <div className={`rounded-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <MatchTracker
-                live={{ ...(ev as any), fixture: { ...((ev as any).fixture || {}), stats: Array.isArray(liveStats.stats) ? liveStats.stats : [], events: liveStats.events } }}
-                homeName={(ev as any).home_team}
-                awayName={(ev as any).away_team}
-                leagueName={(ev as any).league_name}
-                sportName={(ev as any).sport}
-                darkMode={darkMode}
-              />
+              {liveStats.groupedStats ? (
+                <RichStatsDisplay
+                  groupedStats={liveStats.groupedStats}
+                  homeName={homeTeam}
+                  awayName={awayTeam}
+                  darkMode={darkMode}
+                />
+              ) : Array.isArray(liveStats.stats) && liveStats.stats.length > 0 ? (
+                <MatchTracker
+                  live={{ ...(ev as any), fixture: { ...((ev as any).fixture || {}), stats: liveStats.stats, events: liveStats.events } }}
+                  homeName={(ev as any).home_team}
+                  awayName={(ev as any).away_team}
+                  leagueName={(ev as any).league_name}
+                  sportName={(ev as any).sport}
+                  darkMode={darkMode}
+                />
+              ) : (
+                <div className={`text-center py-10 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Estatísticas indisponíveis para este jogo.
+                </div>
+              )}
             </div>
           )}
 
