@@ -19,6 +19,64 @@ const FLAG: Record<string, string> = {
   'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'Croatia': '🇭🇷', 'Ghana': '🇬🇭', 'Panama': '🇵🇦',
 };
 
+const TEAM_BANNER: Record<string, string> = {
+  'belgium': '/teams/belgium.jpeg',
+  'bélgica': '/teams/belgium.jpeg',
+  'egypt': '/teams/egypt.jpeg',
+  'egito': '/teams/egypt.jpeg',
+  'iran': '/teams/iran.jpeg',
+  'irão': '/teams/iran.jpeg',
+  'new zealand': '/teams/new-zealand.jpeg',
+  'nova zelândia': '/teams/new-zealand.jpeg',
+  'all whites': '/teams/new-zealand.jpeg',
+  'cape verde': '/teams/cape-verde.jpeg',
+  'cabo verde': '/teams/cape-verde.jpeg',
+  'saudi arabia': '/teams/saudi-arabia.jpeg',
+  'arábia saudita': '/teams/saudi-arabia.jpeg',
+  'ksa': '/teams/saudi-arabia.jpeg',
+  'uruguay': '/teams/uruguay.jpeg',
+  'uruguai': '/teams/uruguay.jpeg',
+  'france': '/teams/france.jpeg',
+  'frança': '/teams/france.jpeg',
+  'iraq': '/teams/iraq.jpeg',
+  'iraque': '/teams/iraq.jpeg',
+  'norway': '/teams/norway.jpeg',
+  'noruega': '/teams/norway.jpeg',
+  'senegal': '/teams/senegal.jpeg',
+  'turkey': '/teams/turkey.jpeg',
+  'türkiye': '/teams/turkey.jpeg',
+  'turquia': '/teams/turkey.jpeg',
+  'germany': '/teams/germany.jpeg',
+  'alemanha': '/teams/germany.jpeg',
+  "ivory coast": '/teams/ivory-coast.jpeg',
+  "côte d'ivoire": '/teams/ivory-coast.jpeg',
+  "cote d'ivoire": '/teams/ivory-coast.jpeg',
+  'costa do marfim': '/teams/ivory-coast.jpeg',
+  'curaçao': '/teams/curacao.jpeg',
+  'curacao': '/teams/curacao.jpeg',
+  'ecuador': '/teams/ecuador.jpeg',
+  'equador': '/teams/ecuador.jpeg',
+  'japan': '/teams/japan.jpeg',
+  'japão': '/teams/japan.jpeg',
+  'netherlands': '/teams/netherlands.jpeg',
+  'holanda': '/teams/netherlands.jpeg',
+  'países baixos': '/teams/netherlands.jpeg',
+  'sweden': '/teams/sweden.jpeg',
+  'suécia': '/teams/sweden.jpeg',
+  'tunisia': '/teams/tunisia.jpeg',
+  'tunísia': '/teams/tunisia.jpeg',
+};
+
+function getTeamBanner(teamName: string): string | null {
+  if (!teamName) return null;
+  const n = teamName.toLowerCase().trim();
+  if (TEAM_BANNER[n]) return TEAM_BANNER[n];
+  for (const [key, val] of Object.entries(TEAM_BANNER)) {
+    if (n.includes(key) || key.includes(n)) return val;
+  }
+  return null;
+}
+
 function flag(name: string) {
   if (!name) return '🏳️';
   return FLAG[name] || FLAG[name.toLowerCase()] || '🏳️';
@@ -56,6 +114,10 @@ export default function WorldCupMatchCard({ event }: Props) {
   const timeStr = dateObj
     ? dateObj.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
     : '';
+
+  const homeBanner = getTeamBanner(home);
+  const homeFlag = flag(home);
+  const awayFlag = flag(away);
 
   const isActive = (sel: string) =>
     betSlip.some((b) => b.event_id === eventId && b.selection === sel);
@@ -131,6 +193,64 @@ export default function WorldCupMatchCard({ event }: Props) {
         boxShadow: '0 4px 22px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,215,80,0.09)',
       }}
     >
+      {/* ── Home team player banner ── */}
+      {homeBanner && (
+        <div
+          className="relative w-full overflow-hidden"
+          style={{ height: 148, pointerEvents: 'none' }}
+        >
+          <img
+            src={homeBanner}
+            alt={home}
+            draggable={false}
+            className="w-full h-full object-cover object-top select-none"
+            style={{ objectPosition: 'center 20%' }}
+          />
+          {/* gradient fade bottom → transparent so card blends in */}
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                'linear-gradient(to bottom, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.10) 55%, rgba(14,7,0,0.97) 100%)',
+            }}
+          />
+          {/* gold top shimmer line */}
+          <div
+            className="absolute top-0 left-0 right-0"
+            style={{
+              height: 1.5,
+              background:
+                'linear-gradient(90deg, transparent 0%, rgba(255,215,80,0.55) 30%, rgba(255,225,80,0.95) 50%, rgba(255,215,80,0.55) 70%, transparent 100%)',
+              boxShadow: '0 0 10px 3px rgba(255,200,40,0.35)',
+            }}
+          />
+          {/* team name + flag overlay bottom-left */}
+          <div className="absolute bottom-3 left-4 flex items-center gap-2">
+            <span className="text-2xl leading-none drop-shadow-lg">{homeFlag}</span>
+            <span
+              className="text-sm font-black uppercase tracking-wide text-white drop-shadow-lg"
+              style={{ textShadow: '0 1px 8px rgba(0,0,0,0.9)' }}
+            >
+              {home}
+            </span>
+          </div>
+          {/* "CASA" badge top-right */}
+          <div className="absolute top-3 right-3">
+            <span
+              className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full"
+              style={{
+                background: 'rgba(255,215,80,0.18)',
+                border: '1px solid rgba(255,215,80,0.40)',
+                color: '#ffd060',
+                backdropFilter: 'blur(4px)',
+              }}
+            >
+              Casa
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Header row */}
       <div
         className="flex items-center justify-between px-4 py-2"
@@ -166,7 +286,7 @@ export default function WorldCupMatchCard({ event }: Props) {
       {/* Main: teams + odds */}
       <div className="flex items-center px-4 py-4 gap-3">
         <div className="flex-1 flex flex-col items-center gap-1.5">
-          <span className="text-3xl leading-none">{flag(home)}</span>
+          <span className="text-3xl leading-none">{homeFlag}</span>
           <span className="text-xs font-bold text-white/90 text-center leading-tight max-w-[80px]">
             {home}
           </span>
@@ -213,7 +333,7 @@ export default function WorldCupMatchCard({ event }: Props) {
         </div>
 
         <div className="flex-1 flex flex-col items-center gap-1.5">
-          <span className="text-3xl leading-none">{flag(away)}</span>
+          <span className="text-3xl leading-none">{awayFlag}</span>
           <span className="text-xs font-bold text-white/90 text-center leading-tight max-w-[80px]">
             {away}
           </span>
