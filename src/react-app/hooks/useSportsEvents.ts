@@ -381,6 +381,24 @@ export function useSportsEvents(
             rawSport = token;
           }
         } 
+
+        // Shortcuts (top competitions) that are leagues, not sports
+        if (!leagueFilter) {
+          const t = String(rawSport || '').toLowerCase().trim();
+          if (t === 'international-friendlies' || t.includes('international-friendl') || t.includes('amistos') || t.includes('selec')) {
+            rawSport = 'soccer';
+            leagueFilter = 'international friendl';
+          } else if (t === 'uefa-champions') {
+            rawSport = 'soccer';
+            leagueFilter = 'champions league';
+          } else if (t === 'uefa-europa') {
+            rawSport = 'soccer';
+            leagueFilter = 'europa league';
+          } else if (t === 'world-cup') {
+            rawSport = 'soccer';
+            leagueFilter = 'world cup';
+          }
+        }
  
         // Normaliza nomes de esportes para chave API 
         if ( 
@@ -389,7 +407,10 @@ export function useSportsEvents(
           rawSport.includes('liga') || 
           rawSport.includes('serie a') || 
           rawSport.includes('copa') || 
-          rawSport.includes('seleções') 
+          rawSport.includes('seleções') ||
+          rawSport.includes('selecoes') ||
+          rawSport.includes('friendl') ||
+          rawSport.includes('amistos')
         ) { 
           sportParam = 
             rawSport.includes('americano') || rawSport.includes('american') 
@@ -416,7 +437,9 @@ export function useSportsEvents(
         } else if (rawSport.includes('afl')) { 
           sportParam = 'afl'; 
         } else { 
-          sportParam = rawSport === 'soccer-all' || rawSport === 'todos' ? 'all' : rawSport; 
+          sportParam = rawSport === 'todos'
+            ? 'all'
+            : (rawSport === 'soccer-all' ? 'soccer' : rawSport);
         } 
  
         params.set('sports', sportParam); 
