@@ -654,6 +654,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
 
                 const statusShort = String(event?.status ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
                 const statusLong = String(event?.fixture?.status?.long ?? (event as any)?.status_long ?? '').toUpperCase().trim();
+                const statusU = statusShort || statusLong;
                 const setNumFromStatus = (() => {
                   const m1 = statusShort.match(/^S(\d{1,2})$/);
                   if (m1) return Number(m1[1]);
@@ -670,7 +671,11 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                 const setLabel = setNumFromStatus >= 1 ? `${setNumFromStatus}º SET` : '';
                 const timerRaw = String((event as any).timer || (event as any).fixture?.status?.timer || '').trim();
                 // For live soccer, use the advancing clock so the badge never lags behind the API poll.
-                const timer = (sport === 'soccer' && isLiveEvent)
+                const isSoccerForClock = (() => {
+                  const s = String((event as any)?.sport ?? '').toLowerCase();
+                  return s.includes('soccer') || (s.includes('football') && !s.includes('american'));
+                })();
+                const timer = (isSoccerForClock && isLiveEvent)
                   ? computeFootballClock(
                       String((event as any)?.event_date || (event as any)?.fixture?.date || ''),
                       Number((event as any).elapsed ?? (event as any).fixture?.status?.elapsed ?? 0) || 0,

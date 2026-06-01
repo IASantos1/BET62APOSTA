@@ -1690,7 +1690,10 @@ export function SubOddsModel({
   // --- Group logic ---
   const finalGroups = useMemo(() => {
       const s = (event?.sport || '').toLowerCase();
-      const isSoccer = s.includes('soccer') || s.includes('futebol');
+      const isSoccer =
+        s.includes('soccer') ||
+        s.includes('futebol') ||
+        (s.includes('football') && !s.includes('american'));
       if (isSoccer) {
           const blocked = new Set(['main', '1x2', 'match_winner']);
           const allKeys = Object.keys(eventOdds || {}).filter(k => !blocked.has(k));
@@ -1883,7 +1886,10 @@ export function SubOddsModel({
 
   const [activeTab, setActiveTab] = useState(() => {
      const s = (event?.sport || '').toLowerCase();
-     const isSoccer = s.includes('soccer') || s.includes('futebol');
+     const isSoccer =
+       s.includes('soccer') ||
+       s.includes('futebol') ||
+       (s.includes('football') && !s.includes('american'));
      const isBasketball = s.includes('basketball') || s.includes('basquete') || s.includes('nba');
      const isTennis = s.includes('tennis') || s.includes('tênis') || s.includes('atp') || s.includes('wta');
      const isVolleyball = s.includes('volleyball') || s.includes('vôlei') || s.includes('volei');
@@ -1938,7 +1944,10 @@ export function SubOddsModel({
       <div className="flex overflow-x-auto pb-2 mb-4 gap-2 no-scrollbar">
          {(() => {
              const s = (event?.sport || '').toLowerCase();
-             const isSoccer = s.includes('soccer') || s.includes('futebol');
+             const isSoccer =
+               s.includes('soccer') ||
+               s.includes('futebol') ||
+               (s.includes('football') && !s.includes('american'));
              const groups = isSoccer
                  ? finalGroups
                  : finalGroups.filter(group => group.keys.some(k => renderMarketContent(k) !== null));

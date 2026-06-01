@@ -76,7 +76,7 @@ export function useEvents(category?: string) {
           if (parsed.success && Array.isArray(parsed.data) && parsed.data.length > 0) {
             const now = Date.now();
             const finishedStatuses = ['FT', 'AET', 'PEN', 'Finished', 'Match Finished', 'AOT', 'AP', 'Ended', 'Final', 'WO', 'ABD', 'AWD'];
-            const filteredRaw = parsed.data.filter((e) => {
+            const filteredRaw = parsed.data.filter((e: Event) => {
               const status = (e as any).fixture?.status?.short || (e as any).status || '';
               if (finishedStatuses.includes(status)) return false;
 
@@ -431,7 +431,7 @@ export function useEvents(category?: string) {
         const parsed = EventSchema.array().safeParse(JSON.parse(cached));
         if (parsed.success && Array.isArray(parsed.data) && parsed.data.length > 0) {
           const now = Date.now();
-          const filteredRaw = parsed.data.filter((e) => {
+          const filteredRaw = parsed.data.filter((e: Event) => {
             const ds = String(e.event_date || '');
             const t = Date.parse(ds);
             const past = Number.isFinite(t) && t < now;

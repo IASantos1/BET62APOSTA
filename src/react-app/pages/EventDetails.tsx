@@ -55,7 +55,7 @@ export default function EventDetails() {
   // Never downgrade a live event to non-live (prevents score from disappearing during poll gaps)
   useEffect(() => {
     if (localFoundEvent) {
-      setEvent(prev => {
+      setEvent((prev: any) => {
         // If we previously had a live event and the new candidate is not live, keep is_live=1
         if (prev?.is_live === 1 && !localFoundEvent?.is_live) {
           return { ...localFoundEvent, is_live: 1 };

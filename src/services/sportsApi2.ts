@@ -336,9 +336,13 @@ export const fetchLiveOdds = async (): Promise<OddsApiEvent[]> => {
       // ✅ Buscar TODOS os desportos válidos
       for (const sportKey of sportsToFetch) {
         try {
+          const isSoccer = String(sportKey || '').toLowerCase().startsWith('soccer_');
+          const markets = isSoccer
+            ? 'h2h,totals,spreads,btts,draw_no_bet,double_chance'
+            : 'h2h,totals,spreads';
           const events = await oddsApiRequest(`/sports/${sportKey}/odds`, {
             regions: 'eu,uk,us',
-            markets: 'h2h',
+            markets,
             oddsFormat: 'decimal',
           });
 
@@ -503,9 +507,13 @@ export const fetchUpcomingOdds = async (): Promise<OddsApiEvent[]> => {
       // ✅ Buscar TODOS os desportos válidos
       for (const sportKey of sportsToFetch) {
         try {
+          const isSoccer = String(sportKey || '').toLowerCase().startsWith('soccer_');
+          const markets = isSoccer
+            ? 'h2h,totals,spreads,btts,draw_no_bet,double_chance'
+            : 'h2h,totals,spreads';
           const events = await oddsApiRequest(`/sports/${sportKey}/odds`, {
             regions: 'eu,uk,us',
-            markets: 'h2h',
+            markets,
             oddsFormat: 'decimal',
           });
 
