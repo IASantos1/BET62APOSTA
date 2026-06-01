@@ -213,6 +213,41 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     return false;
   };
 
+  const statusKeyOf = (e: any): string => {
+    const status = (e as any)?.status ?? (e as any)?.fixture?.status ?? '';
+    const raw =
+      (typeof status === 'object' && status !== null)
+        ? ((status as any).short ?? (status as any).long ?? (status as any).description ?? (status as any).type)
+        : status;
+    const su = String(raw || '').toUpperCase().trim();
+    if (!su) return '';
+    return su.replace(/[^A-Z0-9_]+/g, '_').replace(/^_+/, '').replace(/_+$/, '');
+  };
+
+  const isLiveLike = (e: any): boolean => {
+    if (Number((e as any)?.is_live || 0) === 1) return true;
+    const s = statusKeyOf(e);
+    if (!s) return false;
+    if (
+      s === 'LIVE' ||
+      s === 'INPLAY' ||
+      s === 'IN_PLAY' ||
+      s === '1H' ||
+      s === '2H' ||
+      s === 'HT' ||
+      s === 'ET' ||
+      s === 'P' ||
+      s === 'Q1' ||
+      s === 'Q2' ||
+      s === 'Q3' ||
+      s === 'Q4' ||
+      s === 'OT' ||
+      s === 'IN'
+    ) return true;
+    if (/(LIVE|INPLAY|IN_PLAY|1H|2H|HT|Q[1-4]|OVERTIME|EXTRA_TIME)/.test(s)) return true;
+    return false;
+  };
+
   const queueOddsRefresh = (sport: string, matchId: string) => {
     const s = String(sport || '').trim();
     const id = normalizeMatchId(s, String(matchId || '').trim());
@@ -498,17 +533,57 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     if (!id || !sport) return e;
 
     const override = await getOverride(id).catch(() => null);
+    const rawHome0 = Number((e as any).home_odd || 0);
+    const rawDraw0 = Number((e as any).draw_odd || 0);
+    const rawAway0 = Number((e as any).away_odd || 0);
+    const existingMkRaw = (e as any)?.markets ?? (e as any)?.odds;
+    const existingMk =
+      existingMkRaw && typeof existingMkRaw === 'object'
+        ? existingMkRaw
+        : parseMarkets(existingMkRaw);
+    const hasExistingMarkets = !!(existingMk && typeof existingMk === 'object' && Object.keys(existingMk).length > 0);
+    const hasExistingOdds = rawHome0 > 1 && rawAway0 > 1;
+
+    if (hasExistingOdds || hasExistingMarkets) {
+      const marketsAll = existingMk && typeof existingMk === 'object' ? existingMk : {};
+      const markets =
+        fullMarkets
+          ? marketsAll
+          : pruneMarketsForList(sport, marketsAll && typeof marketsAll === 'object' ? marketsAll : {});
+      const base = {
+        ...e,
+        id,
+        home_odd: rawHome0,
+        draw_odd: rawDraw0,
+        away_odd: rawAway0,
+        markets,
+        markets_count: marketsAll && typeof marketsAll === 'object' ? Object.keys(marketsAll).length : 0,
+      };
+      if (override) {
+        const ho = override.home_odd != null ? Number(override.home_odd) : null;
+        const doo = override.draw_odd != null ? Number(override.draw_odd) : null;
+        const ao = override.away_odd != null ? Number(override.away_odd) : null;
+        return {
+          ...base,
+          home_odd: ho != null && ho > 0 ? ho : base.home_odd,
+          draw_odd: doo != null && doo > 0 ? doo : base.draw_odd,
+          away_odd: ao != null && ao > 0 ? ao : base.away_odd,
+        };
+      }
+      return base;
+    }
+
     const odds = await fetchOddsBestEffort(
       sport,
       id,
       {
-        isLive: Number(e?.is_live || 0) === 1,
+        isLive: isLiveLike(e),
         homeTeam: String(e?.home_team || ''),
         awayTeam: String(e?.away_team || ''),
       },
       refreshBudget,
     ).catch(() => null);
-    const marketsAll = odds?.markets ? odds.markets : parseMarkets((e as any).markets);
+    const marketsAll = odds?.markets ? odds.markets : (existingMk && typeof existingMk === 'object' ? existingMk : {});
     const markets =
       fullMarkets
         ? marketsAll
@@ -516,14 +591,12 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const rawHome = odds?.home ? Number(odds.home) : Number((e as any).home_odd || 0);
     const rawDraw = odds?.draw ? Number(odds.draw) : Number((e as any).draw_odd || 0);
     const rawAway = odds?.away ? Number(odds.away) : Number((e as any).away_odd || 0);
-    const hasRealOdds = rawHome > 1 && rawAway > 1;
-    const baseline = hasRealOdds ? null : getBaselineOdds(sport);
     const base = {
       ...e,
       id,
-      home_odd: hasRealOdds ? rawHome : baseline!.home,
-      draw_odd: hasRealOdds ? rawDraw : baseline!.draw,
-      away_odd: hasRealOdds ? rawAway : baseline!.away,
+      home_odd: rawHome,
+      draw_odd: rawDraw,
+      away_odd: rawAway,
       markets,
       markets_count: marketsAll && typeof marketsAll === 'object' ? Object.keys(marketsAll).length : 0,
     };
@@ -589,7 +662,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const liveSports = sports.filter((s) => LIVE_CAPABLE.has(String(s || '').toLowerCase().trim()));
       const lists = await mapLimit(liveSports, 2, (s) => fetchLive(s).catch(() => []));
       for (const live of lists) {
-        liveAll.push(...(live || []).filter((e: any) => Number(e?.is_live || 0) === 1));
+        liveAll.push(...(live || []).filter((e: any) => isLiveLike(e)));
       }
     }
 
@@ -608,7 +681,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         return false;
       };
       const isPregameCandidate = (e: any) => {
-        if (Number((e as any)?.is_live || 0) !== 0) return false;
+        if (isLiveLike(e)) return false;
         if (isFinishedLike(e)) return false;
         const t = toStartMs(e);
         if (t && t < now - 2 * 60 * 1000) return false;
@@ -1089,7 +1162,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
 
       // ── 3. Cold start: wait for the build (deduped) with a hard timeout ─────
       const inFlight = ensureBuild();
-      const timeoutMs = realtime ? 8_000 : 60_000;
+      const timeoutMs = realtime ? 8_000 : includeOdds ? 20_000 : 35_000;
       const timeoutPromise = new Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }>(resolve =>
         setTimeout(() => resolve(cached?.data ?? { live: [], pregame: [] }), timeoutMs)
       );

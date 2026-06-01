@@ -247,9 +247,6 @@ const parseLiveEvent = (item: any) => {
       ev.timer = '';
       ev.elapsed = 0;
     }
-    // #region debug-point D:client-merge-odds-clock
-    fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({sessionId:"live-delay-clock",runId:"pre",hypothesisId:"D",location:"src/react-app/hooks/useLiveFeed.ts:parseLiveEvent",msg:"[DEBUG] client parse/merge",data:{id:ev.id,sport:String(ev.sport||""),status:String(ev.fixture?.status?.short||""),elapsed:Number(ev.fixture?.status?.elapsed||0),timer:String(ev.fixture?.status?.timer||""),homeOdd:Number(ev.home_odd||0),drawOdd:Number(ev.draw_odd||0),awayOdd:Number(ev.away_odd||0),src:{rawTimer:String(item.timer||item.fixture?.status?.timer||""),rawElapsed:Number(item.elapsed||item.fixture?.status?.elapsed||0),eventDate:String(item.event_date||item.fixture?.date||""),homeOdd:Number(item.home_odd||0),drawOdd:Number(item.draw_odd||0),awayOdd:Number(item.away_odd||0)}},ts:Date.now()})}).catch(()=>{});
-    // #endregion
     return ev;
 };
 
@@ -282,7 +279,7 @@ export function useLiveFeed(sport?: string) {
   // Poll function
   const fetchLiveEvents = useCallback(async () => {
       try {
-          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&include=odds&markets=full&only=live&days=0`;
+          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&include=odds&only=live&days=0&requireOdds=1`;
           const data = await apiFetch<any>(url, { cache: 'no-store' });
           
           const list = Array.isArray(data) ? data : (data && Array.isArray(data.live) ? data.live : null);
