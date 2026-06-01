@@ -772,8 +772,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       // UEFA / FIFA international competitions — always allowed (men's only after the block above)
       if (/champions league|europa league|conference league|nations league/.test(l)) return false;
       if (/world cup|copa do mundo|copa mundial/.test(l)) return false;
-      if (/friendly international|international friendly/.test(l)) return true;
-      if (/club friendl/.test(l)) return true;
+      if (/friendly international|international friendly|amistoso|amistosos/.test(l)) return false;
+      if (/club friendl|club friendly/.test(l)) return false;
       if (/olympics|olympic games|jogos ol[íi]mpicos/.test(l)) return false;
       if (/supercopa|super cup|uefa super/.test(l)) return false;
       if (/euro 20\d{2}|euro qualif|world cup qualif/.test(l)) return false;

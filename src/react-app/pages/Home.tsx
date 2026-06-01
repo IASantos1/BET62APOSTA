@@ -86,7 +86,7 @@ function Home({ mode = 'home' }: HomeProps) {
     {
       only: mode === 'home' ? 'pregame' : mode === 'live' ? 'live' : 'both',
       days: apiDays,
-      requireOdds: false,
+      requireOdds: !isWorldCupMode,
     },
   );
 
@@ -102,7 +102,7 @@ function Home({ mode = 'home' }: HomeProps) {
     only: 'pregame',
     days: 3,
     enabled: mode === 'live',
-    requireOdds: false,
+    requireOdds: true,
   });
   void eventsLoading;
   const showBanner = mode === 'home';
