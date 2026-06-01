@@ -83,6 +83,8 @@ const liveWs = createLiveWs(sportsApiKey);
 
 const distDir = path.resolve(process.cwd(), 'dist');
 const hasDist = fs.existsSync(distDir) && fs.statSync(distDir).isDirectory();
+const publicDir = path.resolve(process.cwd(), 'public');
+const hasPublic = fs.existsSync(publicDir) && fs.statSync(publicDir).isDirectory();
 
 function contentTypeOf(p: string): string {
   const ext = path.extname(p).toLowerCase();
@@ -102,7 +104,6 @@ function contentTypeOf(p: string): string {
 }
 
 async function tryServeStatic(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<boolean> {
-  if (!hasDist) return false;
   if (req.method !== 'GET' && req.method !== 'HEAD') return false;
   if (url.pathname.startsWith('/api')) return false;
 
@@ -111,28 +112,45 @@ async function tryServeStatic(req: http.IncomingMessage, res: http.ServerRespons
   const normalized = path.posix.normalize(rel);
   if (normalized.includes('..')) return false;
 
-  const filePath = path.join(distDir, normalized);
-  const exists = fs.existsSync(filePath);
-  if (exists) {
-    const st = fs.statSync(filePath);
-    if (st.isFile()) {
+  // 1. Try dist/ first (production build output)
+  if (hasDist) {
+    const filePath = path.join(distDir, normalized);
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       res.statusCode = 200;
       res.setHeader('content-type', contentTypeOf(filePath));
-      res.setHeader('cache-control', normalized.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-store');
+      res.setHeader('cache-control', normalized.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
+      res.setHeader('access-control-allow-origin', '*');
       if (req.method === 'HEAD') return res.end(), true;
       fs.createReadStream(filePath).pipe(res);
       return true;
     }
   }
 
-  const indexPath = path.join(distDir, 'index.html');
-  if (fs.existsSync(indexPath)) {
-    res.statusCode = 200;
-    res.setHeader('content-type', 'text/html; charset=utf-8');
-    res.setHeader('cache-control', 'no-store');
-    if (req.method === 'HEAD') return res.end(), true;
-    fs.createReadStream(indexPath).pipe(res);
-    return true;
+  // 2. Fallback: serve from public/ directly (images, team banners, etc. — works on Railway without build)
+  if (hasPublic) {
+    const pubPath = path.join(publicDir, normalized);
+    if (fs.existsSync(pubPath) && fs.statSync(pubPath).isFile()) {
+      res.statusCode = 200;
+      res.setHeader('content-type', contentTypeOf(pubPath));
+      res.setHeader('cache-control', 'public, max-age=3600');
+      res.setHeader('access-control-allow-origin', '*');
+      if (req.method === 'HEAD') return res.end(), true;
+      fs.createReadStream(pubPath).pipe(res);
+      return true;
+    }
+  }
+
+  // 3. SPA fallback — serve index.html for unknown routes
+  if (hasDist) {
+    const indexPath = path.join(distDir, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      res.setHeader('cache-control', 'no-store');
+      if (req.method === 'HEAD') return res.end(), true;
+      fs.createReadStream(indexPath).pipe(res);
+      return true;
+    }
   }
 
   return false;

@@ -298,13 +298,8 @@ function Home({ mode = 'home' }: HomeProps) {
           }
         }
 
-        // Allow non-soccer sports without odds only if not basketball/baseball
-        if (!isSoccer) {
-          const isBasketball = sportRaw.includes('basketball') || sportRaw.includes('basquete');
-          const isBaseball = sportRaw.includes('baseball') || sportRaw.includes('beisebol');
-          if (isBasketball || isBaseball) return false;
-          return true;
-        }
+        // Allow all non-soccer sports to appear even without odds
+        if (!isSoccer) return true;
         
         return false;
       })
@@ -858,7 +853,7 @@ function Home({ mode = 'home' }: HomeProps) {
                       }}
                       className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider"
                     >
-                      Aporte agora
+                      Aposte Agora
                     </button>
                   </div>
                 </div>
