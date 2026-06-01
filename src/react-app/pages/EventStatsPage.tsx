@@ -166,7 +166,8 @@ export default function EventStatsPage() {
   const [error, setError] = useState<string | null>(null)
   const [liveStats, setLiveStats] = useState<{ stats: any; groupedStats: any[] | null; events: any[] }>({ stats: [], groupedStats: null, events: [] })
   const [standingsData, setStandingsData] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'dominance' | 'stats' | 'standings'>('dominance')
+  const [h2hData, setH2hData] = useState<any[]>([])
+  const [activeTab, setActiveTab] = useState<'dominance' | 'stats' | 'standings' | 'h2h'>('dominance')
 
   const { live, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || null)
   const { upcomingEvents } = useUpcomingCache(pregame)
@@ -331,12 +332,27 @@ export default function EventStatsPage() {
     if (!displayEvent) return
     const leagueId = displayEvent.league_id
     if (!leagueId) return
+    const sport = (displayEvent as any).sport || 'soccer'
     const ac = new AbortController()
-    apiFetch<any>(`/api/leagues/${leagueId}/standings`, { signal: ac.signal })
+    apiFetch<any>(`/api/leagues/${leagueId}/standings?sport=${encodeURIComponent(sport)}`, { signal: ac.signal })
       .then((data) => setStandingsData(data?.standings || []))
       .catch(() => setStandingsData([]))
     return () => ac.abort()
   }, [displayEvent?.league_id])
+
+  useEffect(() => {
+    if (!id || !displayEvent) return
+    const sport = (displayEvent as any).sport || 'soccer'
+    const ac = new AbortController()
+    apiFetch<any>(`/api/events/${id}/h2h?sport=${encodeURIComponent(sport)}`, { signal: ac.signal })
+      .then((data) => {
+        const m = data?.matches ?? []
+        setH2hData(m)
+        if (!isLive && m.length > 0) setActiveTab('h2h')
+      })
+      .catch(() => {})
+    return () => ac.abort()
+  }, [id, displayEvent?.id, isLive])
 
   if (loading) {
     return (
@@ -442,11 +458,18 @@ export default function EventStatsPage() {
           </div>
 
           <div className={`flex rounded-xl overflow-hidden border mb-3 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            {[
-              { key: 'dominance' as const, label: 'Domínio' },
-              { key: 'stats' as const, label: 'Estatísticas' },
-              { key: 'standings' as const, label: 'Classificação' },
-            ].map((tab) => (
+            {(isLive
+              ? [
+                  { key: 'dominance' as const, label: 'Domínio' },
+                  { key: 'stats' as const, label: 'Estatísticas' },
+                  { key: 'standings' as const, label: 'Classificação' },
+                ]
+              : [
+                  { key: 'h2h' as const, label: 'H2H' },
+                  { key: 'stats' as const, label: 'Estatísticas' },
+                  { key: 'standings' as const, label: 'Classificação' },
+                ]
+            ).map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
@@ -462,6 +485,37 @@ export default function EventStatsPage() {
               </button>
             ))}
           </div>
+
+          {activeTab === 'h2h' && (
+            <div className={`rounded-xl border overflow-hidden ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+              <div className={`px-4 py-2.5 border-b text-xs font-bold uppercase tracking-wide ${darkMode ? 'border-gray-700 text-gray-400' : 'border-gray-100 text-gray-500'}`}>
+                Histórico H2H — {homeTeam} vs {awayTeam}
+              </div>
+              {h2hData.length === 0 ? (
+                <p className={`text-center py-8 text-sm ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Histórico indisponível</p>
+              ) : (
+                <div className={`divide-y ${darkMode ? 'divide-gray-700' : 'divide-gray-100'}`}>
+                  {h2hData.map((m: any, i: number) => {
+                    const hWin = m.homeScore > m.awayScore
+                    const aWin = m.awayScore > m.homeScore
+                    const draw = m.homeScore === m.awayScore
+                    const rawDate = m.date || ''
+                    const dateStr = rawDate ? new Date(rawDate).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''
+                    return (
+                      <div key={i} className={`px-4 py-2.5 flex items-center gap-2 text-xs ${i % 2 === 0 ? (darkMode ? 'bg-gray-800/40' : 'bg-gray-50/40') : ''}`}>
+                        {dateStr && <span className={`shrink-0 w-14 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{dateStr}</span>}
+                        <span className={`flex-1 truncate text-right font-medium ${hWin ? (darkMode ? 'text-green-400' : 'text-green-600') : (darkMode ? 'text-gray-300' : 'text-gray-700')}`}>{m.homeTeam}</span>
+                        <span className={`shrink-0 px-2 py-0.5 rounded font-black tabular-nums ${draw ? (darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600') : (darkMode ? 'bg-gray-700 text-white' : 'bg-gray-800 text-white')}`}>
+                          {m.homeScore} - {m.awayScore}
+                        </span>
+                        <span className={`flex-1 truncate font-medium ${aWin ? (darkMode ? 'text-green-400' : 'text-green-600') : (darkMode ? 'text-gray-300' : 'text-gray-700')}`}>{m.awayTeam}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {activeTab === 'dominance' && (
             <div className="space-y-3">

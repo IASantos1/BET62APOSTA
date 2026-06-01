@@ -1274,3 +1274,17 @@ export async function fetchSportsApiProMatchIncidents(apiKey: string, sport: str
   const json = await fetchJson(url, apiKey);
   return json || null;
 }
+
+export async function fetchSportsApiProH2H(apiKey: string, sport: string, matchId: string): Promise<any | null> {
+  const sub = toSubdomain(sport);
+  const url = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/h2h`;
+  const json = await fetchJson(url, apiKey, 9000);
+  return json || null;
+}
+
+export async function fetchSportsApiProStandings(apiKey: string, sport: string, tournamentId: string): Promise<any | null> {
+  const sub = toSubdomain(sport);
+  const url = `https://v2.${sub}.sportsapipro.com/api/tournament/${encodeURIComponent(tournamentId)}/standings`;
+  const json = await fetchJson(url, apiKey, 9000);
+  return json || null;
+}

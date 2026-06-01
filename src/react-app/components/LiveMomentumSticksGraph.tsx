@@ -72,11 +72,22 @@ function deriveRatios(stats: any): { homeRatio: number; awayRatio: number } {
   const arr = Array.isArray(stats) ? stats : null;
   if (arr) {
     const teamStats = (side: 'home' | 'away', regex: RegExp) => {
-      const t = arr.find((s: any) => String(s?.team?.id || '').toLowerCase().includes(side));
+      const teamId = (s: any) => String(s?.team?.id ?? s?.team?.name ?? '').toLowerCase();
+      // SportsApiPro flat format: [{type, value, team:{id,name}}]
+      const flatItems = arr.filter((s: any) =>
+        regex.test(String(s?.type ?? s?.name ?? '')) && teamId(s).includes(side)
+      );
+      if (flatItems.length > 0) {
+        const v = String(flatItems[0]?.value ?? '').replace('%', '').replace(',', '.');
+        const n = parseFloat(v);
+        return Number.isFinite(n) ? n : 0;
+      }
+      // API-Football format: [{team:{id/name}, statistics:[{type,value}]}]
+      const t = arr.find((s: any) => teamId(s).includes(side));
       if (!t?.statistics) return 0;
       const it = t.statistics.find((x: any) => regex.test(String(x?.type || '')));
       if (!it) return 0;
-      const v = String(it.value ?? '').replace('%', '');
+      const v = String(it.value ?? '').replace('%', '').replace(',', '.');
       const n = parseFloat(v);
       return Number.isFinite(n) ? n : 0;
     };

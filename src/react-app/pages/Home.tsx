@@ -64,6 +64,7 @@ const isFinishedEvent = (e: any) => {
 function Home({ mode = 'home' }: HomeProps) {
   const { darkMode, selectedCategory, setSelectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
   const navigate = useNavigate();
+  const [sportFilter, setSportFilter] = useState<string | null>(null);
 
   // Copa do Mundo inline filter mode
   const isWorldCupMode = selectedCategory === 'copa-do-mundo';
@@ -84,6 +85,7 @@ function Home({ mode = 'home' }: HomeProps) {
     {
       only: mode === 'home' ? 'pregame' : mode === 'live' ? 'live' : 'both',
       days: apiDays,
+      requireOdds: mode !== 'home',
     },
   );
 
@@ -272,6 +274,9 @@ function Home({ mode = 'home' }: HomeProps) {
         if (!h || !a || h === 'undefined' || a === 'undefined' || h === 'Home Team' || a === 'Away Team') return false;
         if (e.id === 'undefined' || !e.id) return false;
 
+        const sportRaw = String((e as any)?.sport || '').toLowerCase();
+        const isSoccer = sportRaw.includes('soccer') || sportRaw.includes('football') || sportRaw.includes('futebol');
+
         const homeOdd = Number((e as any)?.home_odd || 0);
         const awayOdd = Number((e as any)?.away_odd || 0);
         if (homeOdd > 1.01 && awayOdd > 1.01) return true;
@@ -291,6 +296,9 @@ function Home({ mode = 'home' }: HomeProps) {
             if (ok >= 2) return true;
           }
         }
+
+        // Allow non-soccer sports even without odds (Statpal only covers soccer live)
+        if (!isSoccer) return true;
         
         return false;
       })
@@ -476,6 +484,9 @@ function Home({ mode = 'home' }: HomeProps) {
 
   const limitedUpcoming = useMemo(() => {
     if (mode === 'home' && isMainSports && featuredUpcomingGroups.length > 0) {
+      if (sportFilter) {
+        return featuredUpcomingGroups.filter(([label]) => label === sportFilter);
+      }
       return featuredUpcomingGroups;
     }
     let remaining = MAX_EVENTS;
@@ -1122,6 +1133,42 @@ function Home({ mode = 'home' }: HomeProps) {
                         <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
                            <h2 className="text-xl font-bold uppercase tracking-wide">Próximos Jogos</h2>
                         </div>
+                     )}
+
+                     {/* Sport filter tabs — only in featured home mode with 2+ sports */}
+                     {upcomingIsFeatured && featuredUpcomingGroups.length > 1 && (
+                       <div className="flex gap-2 flex-wrap pb-1">
+                         <button
+                           onClick={() => setSportFilter(null)}
+                           className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all ${
+                             sportFilter === null
+                               ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                               : darkMode ? 'bg-gray-800 text-gray-400 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                           }`}
+                         >
+                           Todos
+                         </button>
+                         {featuredUpcomingGroups.map(([label]) => {
+                           const sportEmoji: Record<string, string> = {
+                             'Futebol': '⚽', 'Ténis': '🎾', 'Basquetebol': '🏀',
+                             'Hóquei': '🏒', 'Beisebol': '⚾',
+                           };
+                           return (
+                             <button
+                               key={label}
+                               onClick={() => setSportFilter(label === sportFilter ? null : label)}
+                               className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all flex items-center gap-1.5 ${
+                                 sportFilter === label
+                                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                                   : darkMode ? 'bg-gray-800 text-gray-400 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                               }`}
+                             >
+                               <span>{sportEmoji[label] ?? '🏅'}</span>
+                               {label}
+                             </button>
+                           );
+                         })}
+                       </div>
                      )}
                      
                      <div className="space-y-8">

@@ -12,6 +12,8 @@ import {
   fetchSportsApiProWorldCup2026Groups,
   fetchSportsApiProWorldCup2026Info,
   fetchSportsApiProWorldCup2026Matches,
+  fetchSportsApiProH2H,
+  fetchSportsApiProStandings,
 } from '../services/sportsApiPro';
 import { deriveAdditionalMarkets } from '../services/marketDerivation';
 import { sendJson, badRequest } from '../lib/http';
@@ -1371,14 +1373,95 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         const flat: any[] = [];
         for (const group of (allPeriod?.groups ?? [])) {
           for (const item of (group?.statisticsItems ?? [])) {
-            flat.push({ type: item.name, value: item.home, team: { name: 'home' } });
-            flat.push({ type: item.name, value: item.away, team: { name: 'away' } });
+            flat.push({ type: item.name, value: item.home, team: { id: 'home', name: 'home' } });
+            flat.push({ type: item.name, value: item.away, team: { id: 'away', name: 'away' } });
           }
         }
         stats = flat;
       }
 
       sendJson(res, 200, { stats, groupedStats, events, _debug: statsRaw ? Object.keys(statsRaw) : [], _rawKeys: statsRaw?.data ? Object.keys(statsRaw.data) : [] });
+      return true;
+    }
+
+    // ── /api/events/:id/h2h ───────────────────────────────────────────────
+    const h2hMatch = path.match(/^\/api\/events\/([^/]+)\/h2h$/);
+    if (h2hMatch && req.method === 'GET') {
+      const idRaw = decodeURIComponent(h2hMatch[1] || '');
+      const id = normalizeIdLoose(idRaw);
+      const sportParam = String(url.searchParams.get('sport') || '').trim();
+      const sport = sportParam || await resolveSport(id) || 'soccer';
+      const raw = await fetchSportsApiProH2H(apiKey, sport, id).catch(() => null);
+      if (!raw) return sendJson(res, 200, { matches: [] }), true;
+
+      const extractH2H = (r: any): any[] => {
+        if (Array.isArray(r)) return r;
+        if (Array.isArray(r.data?.matches)) return r.data.matches;
+        if (Array.isArray(r.matches)) return r.matches;
+        if (Array.isArray(r.data?.h2h)) return r.data.h2h;
+        if (Array.isArray(r.h2h)) return r.h2h;
+        if (Array.isArray(r.data?.events)) return r.data.events;
+        if (Array.isArray(r.data?.response)) return r.data.response;
+        if (Array.isArray(r.data)) return r.data;
+        return [];
+      };
+
+      const rawMatches = extractH2H(raw);
+      const matches = rawMatches.slice(0, 15).map((m: any) => {
+        const homeScore = Number(m.homeScore ?? m.score?.home ?? m.goals?.home ?? 0);
+        const awayScore = Number(m.awayScore ?? m.score?.away ?? m.goals?.away ?? 0);
+        const homeTeam = String(m.homeTeam?.name ?? m.home_team ?? m.home?.name ?? '');
+        const awayTeam = String(m.awayTeam?.name ?? m.away_team ?? m.away?.name ?? '');
+        const date = String(m.startTimestamp ? new Date(m.startTimestamp * 1000).toISOString() : m.date ?? m.event_date ?? '');
+        return { homeTeam, awayTeam, homeScore, awayScore, date, status: String(m.status?.type ?? m.status ?? 'FT') };
+      }).filter((m: any) => m.homeTeam && m.awayTeam);
+
+      sendJson(res, 200, { matches });
+      return true;
+    }
+
+    // ── /api/leagues/:leagueId/standings ─────────────────────────────────
+    const standingsMatch = path.match(/^\/api\/leagues\/([^/]+)\/standings$/);
+    if (standingsMatch && req.method === 'GET') {
+      const leagueIdRaw = decodeURIComponent(standingsMatch[1] || '');
+      const sportParam = String(url.searchParams.get('sport') || 'soccer').trim();
+      const sport = sportParam || 'soccer';
+      const raw = await fetchSportsApiProStandings(apiKey, sport, leagueIdRaw).catch(() => null);
+      if (!raw) return sendJson(res, 200, { standings: [] }), true;
+
+      const extractRows = (r: any): any[] => {
+        if (Array.isArray(r?.data?.standings)) return r.data.standings;
+        if (Array.isArray(r?.standings)) return r.standings;
+        if (Array.isArray(r?.data?.rows)) return r.data.rows;
+        if (Array.isArray(r?.rows)) return r.rows;
+        // SportsApiPro nested: { data: { groups: [{ rows: [...] }] } }
+        const groups = r?.data?.groups ?? r?.groups ?? r?.data?.standings?.[0]?.rows;
+        if (Array.isArray(groups)) {
+          const out: any[] = [];
+          for (const g of groups) {
+            const rows = g?.rows ?? g?.standings ?? (Array.isArray(g) ? g : []);
+            if (Array.isArray(rows)) out.push(...rows);
+          }
+          if (out.length) return out;
+        }
+        if (Array.isArray(r?.data)) return r.data;
+        return [];
+      };
+
+      const rawRows = extractRows(raw);
+      const standings = rawRows.map((row: any, i: number) => ({
+        position: Number(row.position ?? row.rank ?? row.pos ?? i + 1),
+        team: String(row.team?.name ?? row.teamName ?? row.team ?? ''),
+        played: Number(row.matches ?? row.played ?? row.mp ?? 0),
+        wins: Number(row.wins ?? row.w ?? 0),
+        draws: Number(row.draws ?? row.d ?? 0),
+        losses: Number(row.losses ?? row.l ?? 0),
+        goalsFor: Number(row.scoresFor ?? row.goalsFor ?? row.gf ?? row.scored ?? 0),
+        goalsAgainst: Number(row.scoresAgainst ?? row.goalsAgainst ?? row.ga ?? row.conceded ?? 0),
+        points: Number(row.points ?? row.pts ?? 0),
+      })).filter((r: any) => r.team);
+
+      sendJson(res, 200, { standings });
       return true;
     }
 
