@@ -103,6 +103,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const bySportInFlight = new Map<string, Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }>>();
   const worldCupCache = new Map<string, CacheEntry<any>>();
   const worldCupMatchesCache = new Map<string, CacheEntry<AnyEvent[]>>();
+  const incidentsCache = new Map<string, CacheEntry<any>>();
+  const incidentsInFlight = new Map<string, Promise<any>>();
   const oddsQueue: Array<{ sport: string; matchId: string }> = [];
   const oddsQueued = new Set<string>();
   let oddsQueueInFlight = 0;
@@ -1616,12 +1618,6 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const sport = sportParam || await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
 
-      // Fetch incidents and statistics in parallel
-      const [incidentsRaw, statsRaw] = await Promise.all([
-        fetchSportsApiProMatchIncidents(apiKey, sport, id).catch(() => null),
-        fetchSportsApiProMatchStatistics(apiKey, sport, id).catch(() => null),
-      ]);
-
       // Map SportsApiPro typeId → canonical incident type
       const TYPE_MAP: Record<number, string> = {
         1:  'goal',
@@ -1650,31 +1646,6 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         return [];
       };
 
-      const rawIncidents = extractIncidents(incidentsRaw);
-      const incidents = rawIncidents.map((inc: any, i: number) => {
-        const typeId = Number(inc.typeId ?? inc.type_id ?? inc.incident_type ?? 0);
-        const canonicalType = TYPE_MAP[typeId] || inc.type || 'other';
-        const minute = Number(inc.time ?? inc.minute ?? inc.elapsed ?? 0);
-        const addedTime = Number(inc.addedTime ?? inc.added_time ?? inc.injuryTime ?? 0);
-        const teamSide = String(inc.teamSide ?? inc.team_side ?? inc.team ?? '').toLowerCase();
-        const isHome = teamSide === 'home' || teamSide === '1';
-        const isAway = teamSide === 'away' || teamSide === '2';
-        const player = inc.player?.name ?? inc.playerName ?? inc.player ?? null;
-        const assist = inc.player2?.name ?? inc.assistName ?? inc.assist ?? null;
-        return {
-          id: String(inc.id ?? `${id}-${i}`),
-          typeId,
-          type: canonicalType,
-          minute,
-          addedTime,
-          team: isHome ? 'home' : isAway ? 'away' : null,
-          player,
-          assist,
-          description: inc.description ?? inc.text ?? null,
-          isConfirmed: inc.isConfirmed ?? inc.confirmed ?? inc.is_confirmed ?? true,
-        };
-      });
-
       // Extract Big Chances Created (stat ID 24) from statistics
       const extractBigChances = (raw: any): { home: number; away: number } => {
         const empty = { home: 0, away: 0 };
@@ -1694,13 +1665,80 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         return empty;
       };
 
-      const bigChances = extractBigChances(statsRaw);
+      const buildPayloadFromRaw = (incidentsRaw: any, statsRaw: any) => {
+        const rawIncidents = extractIncidents(incidentsRaw);
+        const incidents = rawIncidents.map((inc: any, i: number) => {
+          const typeId = Number(inc.typeId ?? inc.type_id ?? inc.incident_type ?? 0);
+          const canonicalType = TYPE_MAP[typeId] || inc.type || 'other';
+          const minute = Number(inc.time ?? inc.minute ?? inc.elapsed ?? 0);
+          const addedTime = Number(inc.addedTime ?? inc.added_time ?? inc.injuryTime ?? 0);
+          const teamSide = String(inc.teamSide ?? inc.team_side ?? inc.team ?? '').toLowerCase();
+          const isHome = teamSide === 'home' || teamSide === '1';
+          const isAway = teamSide === 'away' || teamSide === '2';
+          const player = inc.player?.name ?? inc.playerName ?? inc.player ?? null;
+          const assist = inc.player2?.name ?? inc.assistName ?? inc.assist ?? null;
+          return {
+            id: String(inc.id ?? `${id}-${i}`),
+            typeId,
+            type: canonicalType,
+            minute,
+            addedTime,
+            team: isHome ? 'home' : isAway ? 'away' : null,
+            player,
+            assist,
+            description: inc.description ?? inc.text ?? null,
+            isConfirmed: inc.isConfirmed ?? inc.confirmed ?? inc.is_confirmed ?? true,
+          };
+        });
+        const bigChances = extractBigChances(statsRaw);
+        return {
+          incidents,
+          bigChances,
+          _meta: { total: incidents.length, matchId: id, sport },
+        };
+      };
 
-      sendJson(res, 200, {
-        incidents,
-        bigChances,
-        _meta: { total: incidents.length, matchId: id, sport },
-      });
+      const sportKey = String(sport || '').toLowerCase().trim();
+      const cacheKey = `${sportKey}:${id}`;
+      const cached = incidentsCache.get(cacheKey);
+      const ttl = 4_000;
+      const staleTtl = 30_000;
+
+      const ensureBuild = (): Promise<any> => {
+        const existing = incidentsInFlight.get(cacheKey);
+        if (existing) return existing;
+        const needStats = sportKey === 'soccer' || sportKey === 'football';
+        const p = Promise.all([
+          fetchSportsApiProMatchIncidents(apiKey, sport, id).catch(() => null),
+          needStats ? fetchSportsApiProMatchStatistics(apiKey, sport, id).catch(() => null) : Promise.resolve(null),
+        ])
+          .then(([incidentsRaw, statsRaw]) => buildPayloadFromRaw(incidentsRaw, statsRaw))
+          .catch(() => buildPayloadFromRaw(null, null))
+          .then((payload) => {
+            incidentsCache.set(cacheKey, { ts: nowMs(), data: payload });
+            return payload;
+          })
+          .finally(() => incidentsInFlight.delete(cacheKey));
+        incidentsInFlight.set(cacheKey, p);
+        return p;
+      };
+
+      if (cached && ttlOk(cached.ts, ttl)) {
+        sendJson(res, 200, cached.data);
+        return true;
+      }
+      if (cached && ttlOk(cached.ts, staleTtl)) {
+        sendJson(res, 200, cached.data);
+        ensureBuild().catch(() => void 0);
+        return true;
+      }
+
+      const payload = await Promise.race([
+        ensureBuild(),
+        new Promise<any>((resolve) => setTimeout(() => resolve(cached?.data ?? buildPayloadFromRaw(null, null)), 8_000)),
+      ]);
+      incidentsCache.set(cacheKey, { ts: nowMs(), data: payload });
+      sendJson(res, 200, payload);
       return true;
     }
 

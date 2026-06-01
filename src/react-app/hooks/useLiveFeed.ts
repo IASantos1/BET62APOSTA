@@ -361,7 +361,7 @@ export function useLiveFeed(sport?: string) {
     let hiddenAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
     let wakeInFlight = false;
     const log = (hypothesisId: string, msg: string, data: any) => {
-      fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({sessionId:"live-delay-clock",runId:"pre",hypothesisId,location:"src/react-app/hooks/useLiveFeed.ts",msg:`[DEBUG] ${msg}`,data,ts:Date.now()})}).catch(()=>{});
+      __dbg(hypothesisId, msg, data);
     };
 
     const loop = async () => {

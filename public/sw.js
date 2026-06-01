@@ -1,4 +1,4 @@
-const CACHE_STATIC = 'betarena-static-v1'
+const CACHE_STATIC = 'betarena-static-v2'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -14,6 +14,10 @@ self.addEventListener('activate', (event) => {
 
 const isAsset = (url) => {
   return url.pathname.endsWith('.js') || url.pathname.endsWith('.css') || url.pathname.endsWith('.png') || url.pathname.endsWith('.jpg') || url.pathname.endsWith('.jpeg') || url.pathname.endsWith('.svg') || url.pathname.endsWith('.ico') || url.pathname.includes('/assets/')
+}
+
+const isCodeAsset = (url) => {
+  return url.pathname.endsWith('.js') || url.pathname.endsWith('.css') || url.pathname.includes('/assets/')
 }
 
 self.addEventListener('fetch', (event) => {
@@ -38,6 +42,15 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       caches.open(CACHE_STATIC).then(async (cache) => {
         const cached = await cache.match(req)
+        if (isCodeAsset(url)) {
+          try {
+            const res = await fetch(req)
+            if (res && res.status === 200) cache.put(req, res.clone())
+            return res
+          } catch {
+            return cached || Response.error()
+          }
+        }
         const network = fetch(req).then((res) => { if (res && res.status === 200) cache.put(req, res.clone()); return res })
         return cached || network
       })
@@ -50,4 +63,9 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('message', (event) => {
   const d = event.data
   if (d && d.type === 'SKIP_WAITING') self.skipWaiting()
+  if (d && d.type === 'CLEAR_CACHE') {
+    event.waitUntil(
+      caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+    )
+  }
 })
