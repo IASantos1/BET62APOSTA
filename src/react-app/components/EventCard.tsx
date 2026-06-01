@@ -265,28 +265,55 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
 
   // useTrend hook imported from @/react-app/hooks/useTrend
 
-  // Get odds strictly from markets[] (Golden Rule)
-  const h2hMarket = currentMarkets?.find((m: any) => m.key === 'h2h');
-  
-  // Robustly handle 'outcomes' (DB format) vs 'selections' (Frontend format)
-  const selections = h2hMarket?.selections || h2hMarket?.outcomes;
+  const primaryMarket = useMemo(() => {
+    const getKey = (m: any) =>
+      String(m?.key ?? m?.market ?? m?.name ?? '')
+        .toLowerCase()
+        .trim()
+        .replace(/[\s_]+/g, '_');
+
+    const list = Array.isArray(currentMarkets) ? currentMarkets : [];
+    const isTwoWaySport = ['basketball', 'tennis', 'american-football', 'baseball', 'mma', 'volleyball', 'handball', 'ice-hockey', 'hockey', 'cricket'].includes(sport);
+    const minSel = isTwoWaySport ? 2 : 3;
+
+    const candidates =
+      sport === 'tennis'
+        ? ['match_winner', 'main', 'h2h']
+        : sport === 'soccer'
+        ? ['h2h', '1x2', 'main', 'match_winner']
+        : ['h2h', 'main', 'match_winner'];
+
+    for (const c of candidates) {
+      const m = list.find((x: any) => getKey(x) === c);
+      const sels = m?.selections || m?.outcomes;
+      if (m && Array.isArray(sels) && sels.length >= minSel) return { key: c, market: m, selections: sels };
+    }
+
+    for (const m of list) {
+      const sels = m?.selections || m?.outcomes;
+      if (!Array.isArray(sels) || sels.length < minSel) continue;
+      return { key: getKey(m) || 'main', market: m, selections: sels };
+    }
+
+    return { key: 'main', market: null as any, selections: [] as any[] };
+  }, [currentMarkets, sport]);
   
   // const cleanStr = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   // const hRef = cleanStr(homeTeamName);
   // const aRef = cleanStr(awayTeamName);
 
-  const hhSelection = selections?.find((s: any) => {
-    const lbl = handleLabelOutcome('h2h', s.label || s.name || s.outcome || '');
+  const hhSelection = primaryMarket.selections?.find((s: any) => {
+    const lbl = handleLabelOutcome(primaryMarket.key, s.label || s.name || s.outcome || '');
     return lbl === 'Casa';
   });
 
-  const ddSelection = selections?.find((s: any) => {
-    const lbl = handleLabelOutcome('h2h', s.label || s.name || s.outcome || '');
+  const ddSelection = primaryMarket.selections?.find((s: any) => {
+    const lbl = handleLabelOutcome(primaryMarket.key, s.label || s.name || s.outcome || '');
     return lbl === 'Empate';
   });
 
-  const aaSelection = selections?.find((s: any) => {
-    const lbl = handleLabelOutcome('h2h', s.label || s.name || s.outcome || '');
+  const aaSelection = primaryMarket.selections?.find((s: any) => {
+    const lbl = handleLabelOutcome(primaryMarket.key, s.label || s.name || s.outcome || '');
     return lbl === 'Fora';
   });
 
@@ -326,8 +353,8 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
   const awayTrend = useTrend(aa);
 
   // Market suspended check
-  const isH2hSuspended = h2hMarket?.suspended ?? false;
-  const h2hReason = h2hMarket?.suspended_reason;
+  const isH2hSuspended = primaryMarket.market?.suspended ?? false;
+  const h2hReason = primaryMarket.market?.suspended_reason;
   const marketSuspended = isH2hSuspended ? { reason: h2hReason || 'SUSPENSO' } : undefined;
 
   // Add bet handler
