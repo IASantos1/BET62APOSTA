@@ -65,6 +65,7 @@ function Home({ mode = 'home' }: HomeProps) {
   const { darkMode, selectedCategory, setSelectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
   const navigate = useNavigate();
   const [sportFilter, setSportFilter] = useState<string | null>(null);
+  const [leagueFilter, setLeagueFilter] = useState<string | null>(null);
 
   // Copa do Mundo inline filter mode
   const isWorldCupMode = selectedCategory === 'copa-do-mundo';
@@ -297,8 +298,13 @@ function Home({ mode = 'home' }: HomeProps) {
           }
         }
 
-        // Allow non-soccer sports even without odds (Statpal only covers soccer live)
-        if (!isSoccer) return true;
+        // Allow non-soccer sports without odds only if not basketball/baseball
+        if (!isSoccer) {
+          const isBasketball = sportRaw.includes('basketball') || sportRaw.includes('basquete');
+          const isBaseball = sportRaw.includes('baseball') || sportRaw.includes('beisebol');
+          if (isBasketball || isBaseball) return false;
+          return true;
+        }
         
         return false;
       })
@@ -483,6 +489,10 @@ function Home({ mode = 'home' }: HomeProps) {
   const MAX_EVENTS = mode === 'live' ? 120 : 60; // live≤120, pregame≤60
 
   const limitedUpcoming = useMemo(() => {
+    // League filter overrides everything — use raw groupedUpcoming filtered by league
+    if (leagueFilter) {
+      return groupedUpcoming.filter(([league]) => league === leagueFilter);
+    }
     if (mode === 'home' && isMainSports && featuredUpcomingGroups.length > 0) {
       if (sportFilter) {
         return featuredUpcomingGroups.filter(([label]) => label === sportFilter);
@@ -501,7 +511,20 @@ function Home({ mode = 'home' }: HomeProps) {
       }
     }
     return result;
-  }, [groupedUpcoming, MAX_EVENTS, mode, isMainSports, featuredUpcomingGroups]);
+  }, [groupedUpcoming, MAX_EVENTS, mode, isMainSports, featuredUpcomingGroups, sportFilter, leagueFilter]);
+
+  const availableLeagues = useMemo(() => {
+    const out: Array<{ league: string; sport: string; count: number }> = [];
+    const seen = new Set<string>();
+    for (const [league, events] of groupedUpcoming) {
+      if (!seen.has(league) && events.length > 0) {
+        seen.add(league);
+        out.push({ league, sport: String((events[0] as any)?.sport || 'soccer'), count: events.length });
+      }
+      if (out.length >= 50) break;
+    }
+    return out;
+  }, [groupedUpcoming]);
 
   const limitedNext7 = useMemo(() => {
     if (mode !== 'live') return [];
@@ -1135,39 +1158,71 @@ function Home({ mode = 'home' }: HomeProps) {
                         </div>
                      )}
 
-                     {/* Sport filter tabs — only in featured home mode with 2+ sports */}
+                     {/* Sport filter tabs — horizontal scroll carousel */}
                      {upcomingIsFeatured && featuredUpcomingGroups.length > 1 && (
-                       <div className="flex gap-2 flex-wrap pb-1">
+                       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
                          <button
-                           onClick={() => setSportFilter(null)}
-                           className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all ${
-                             sportFilter === null
+                           onClick={() => { setSportFilter(null); setLeagueFilter(null); }}
+                           className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${
+                             sportFilter === null && leagueFilter === null
                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
                                : darkMode ? 'bg-gray-800 text-gray-400 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                            }`}
                          >
                            Todos
                          </button>
-                         {featuredUpcomingGroups.map(([label]) => {
-                           const sportEmoji: Record<string, string> = {
-                             'Futebol': '⚽', 'Ténis': '🎾', 'Basquetebol': '🏀',
-                             'Hóquei': '🏒', 'Beisebol': '⚾',
-                           };
-                           return (
-                             <button
-                               key={label}
-                               onClick={() => setSportFilter(label === sportFilter ? null : label)}
-                               className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all flex items-center gap-1.5 ${
-                                 sportFilter === label
-                                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                                   : darkMode ? 'bg-gray-800 text-gray-400 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                               }`}
-                             >
-                               <span>{sportEmoji[label] ?? '🏅'}</span>
-                               {label}
-                             </button>
-                           );
-                         })}
+                         {([
+                           { key: 'soccer', label: 'Futebol', emoji: '⚽' },
+                           { key: 'tennis', label: 'Ténis', emoji: '🎾' },
+                           { key: 'basketball', label: 'Basquetebol', emoji: '🏀' },
+                           { key: 'ice-hockey', label: 'Hóquei', emoji: '🏒' },
+                           { key: 'baseball', label: 'Beisebol', emoji: '⚾' },
+                         ] as const).filter(({ label }) => featuredUpcomingGroups.some(([l]) => l === label)).map(({ label, emoji }) => (
+                           <button
+                             key={label}
+                             onClick={() => { setSportFilter(label === sportFilter ? null : label); setLeagueFilter(null); }}
+                             className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                               sportFilter === label && !leagueFilter
+                                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                                 : darkMode ? 'bg-gray-800 text-gray-400 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                             }`}
+                           >
+                             <span>{emoji}</span>
+                             {label}
+                           </button>
+                         ))}
+                       </div>
+                     )}
+
+                     {/* League browser — horizontal scroll with sport icons */}
+                     {!isWorldCupMode && availableLeagues.length > 0 && (
+                       <div className="space-y-1.5">
+                         <p className={`text-[10px] font-black uppercase tracking-widest px-1 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                           Explorar Ligas
+                         </p>
+                         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
+                           {availableLeagues.map(({ league, sport }) => {
+                             const isActive = leagueFilter === league;
+                             return (
+                               <button
+                                 key={league}
+                                 onClick={() => { setLeagueFilter(isActive ? null : league); setSportFilter(null); }}
+                                 className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all active:scale-95 ${
+                                   isActive
+                                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                                     : darkMode ? 'bg-gray-800/80 text-gray-300 border border-gray-700 hover:border-blue-500/50' : 'bg-gray-100 text-gray-700 border border-gray-200 hover:border-blue-300'
+                                 }`}
+                               >
+                                 <img
+                                   src={getSportIcon(sport)}
+                                   alt={sport}
+                                   className="w-4 h-4 object-contain shrink-0"
+                                 />
+                                 <span className="max-w-[120px] truncate">{league}</span>
+                               </button>
+                             );
+                           })}
+                         </div>
                        </div>
                      )}
                      
