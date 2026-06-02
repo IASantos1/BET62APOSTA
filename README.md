@@ -1,16 +1,41 @@
 # BET62 APOSTA
 
-Plataforma completa de apostas esportivas.
+**Plataforma completa de apostas esportivas em tempo real.**
 
-## Stack
-- Frontend: React + Vite + TS
-- Backend: Hono
-- DB: PostgreSQL
+## Tecnologias Principais
+- **Frontend**: React  + TypeScript + Vite + Tailwind
+- **Backend**: Hono + Node.js
+- **Banco**: PostgreSQL (Supabase)
+- **Auth**: Lucia
+- **Pagamentos**: Stripe + PayPal
+- **Real-time**: WebSocket
 
-## Como rodar
+## Como Executar
+
 ```bash
-git clone ...
-cp .env.example .env
+# 1. Clone
+git clone https://github.com/IASantos1/BET62APOSTA.git
+cd BET62APOSTA
+
+# 2. Instale
 npm install
+
+# 3. Configure
+cp .env.example .env
+
+# 4. Migrações
+npm run db:migrate
+
+# 5. Rode
 npm run dev
 ```
+
+## Estrutura
+- `/src` - Frontend
+- `/server` - Backend API
+- `/migrations` - Banco
+- `/supabase` - Edge Functions
+- `/docs` - Documentação
+- `/tools` - Utilitários
+
+**Projeto em desenvolvimento ativo.**
