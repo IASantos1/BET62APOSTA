@@ -1,25 +1,26 @@
 # Dependencies
 node_modules/
 
-# Production build
-build/
-dist/
-
 # Environment
 .env
 .env.local
 .env.*.local
+
+# Build outputs
+dist/
+build/
 
 # Debug and temp files
 *.log
 debug_*
 analyze_*
 PAYPAL_*
-*.json.bak
-
-# Large data dumps
 *.large.json
-fixtures/raw_*
+
+# Tools and caches
+.agents/
+.memory/
+tools/debug/
 
 # OS
 .DS_Store
@@ -28,13 +29,3 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
-
-# Tools
-tools/debug/
-tools/old/
-.agents/
-
-# Scripts temp
-*.ps1
-*.bat
-scripts/temp/
