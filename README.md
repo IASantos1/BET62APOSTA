@@ -1,30 +1,9 @@
 # BET62 APOSTA
 
-Plataforma completa de apostas esportivas com odds ao vivo, pagamentos integrados (Stripe + PayPal), autenticação segura e interface moderna.
+Plataforma completa de apostas esportivas.
 
-## Tecnologias
-- **Frontend**: React + TypeScript + Vite + Tailwind + TanStack Query
-- **Backend**: Hono + Node.js
-- **Database**: PostgreSQL (Supabase)
-- **Auth**: Lucia
-- **Real-time**: WebSockets
+## Deploy no Railway
 
-## Como rodar
-
-```bash
-git clone https://github.com/IASantos1/BET62APOSTA.git
-cd BET62APOSTA
-cp .env.example .env
-npm install
-npm run db:migrate
-npm run dev
-```
-
-## Estrutura Recomendada
-- `/src` - Frontend
-- `/server` - Backend API
-- `/migrations` - Database migrations
-- `/docs` - Documentação
-- `/tools` - Utilitários
-
-Projeto em desenvolvimento ativo.
+1. Conecte o repositório
+2. Adicione as variáveis de ambiente (DATABASE_URL, etc.)
+3. Railway detecta automaticamente com railway.json

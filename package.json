@@ -2,14 +2,10 @@
   "name": "bet62aposta",
   "version": "1.0.0",
   "scripts": {
-    "dev": "concurrently \"vite\" \"node server/index.js\"",
-    "build": "vite build",
-    "db:migrate": "node migrations/migrate.js",
-    "clean": "rm -rf node_modules dist .env"
-  },
-  "dependencies": {
-    "hono": "latest",
-    "lucia": "latest",
-    "zod": "latest"
+    "dev": "concurrently \"vite\" \"nodemon server/src/index.ts\"",
+    "build": "tsc -p tsconfig.server.json && vite build",
+    "start": "node server/dist/index.js",
+    "start:server": "node server/dist/index.js",
+    "db:migrate": "supabase migration up"
   }
 }

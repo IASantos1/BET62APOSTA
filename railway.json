@@ -1,0 +1,8 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "buildCommand": "npm run build",
+  "startCommand": "npm start",
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
