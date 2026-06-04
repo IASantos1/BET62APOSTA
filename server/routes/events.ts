@@ -733,17 +733,31 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       }
     }
 
-    const cleanLeague = String(league || '').trim().toLowerCase();
+    const normalizeLeagueText = (v: any): string => {
+      const s = String(v || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return s;
+    };
+    const cleanLeague = normalizeLeagueText(league);
     const filterLeague = (arr: AnyEvent[]) => {
       if (!cleanLeague) return arr;
-      return arr.filter((e: any) => String(e?.league || '').toLowerCase().includes(cleanLeague));
+      return arr.filter((e: any) => normalizeLeagueText((e as any)?.league).includes(cleanLeague));
     };
 
-    const isBlockedLeague = (leagueName: string, country?: string): boolean => {
-      const l = leagueName.toLowerCase().trim();
-      const c = (country || '').toLowerCase().trim();
+    const isBlockedLeague = (leagueName: string, country: string | undefined, strictAllowlist: boolean): boolean => {
+      const l = normalizeLeagueText(leagueName);
+      const c = normalizeLeagueText(country);
 
-      if (!l) return true;
+      if (!l) {
+        if (!strictAllowlist) return false;
+        if (/(international|world|mundo|internacional)/.test(c)) return false;
+        return true;
+      }
 
       // Always block youth / junior / reserve regardless of country
       if (/\bu\d{2}\b/.test(l) || /\bsub-?\d{2}\b/.test(l) ||
@@ -765,6 +779,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       if (/mls next pro/.test(l)) return true;                    // MLS reserve tier
       if (/nations league women|world cup.*women|women.*world cup/.test(l)) return true;
 
+      // In soccer-only views we only apply the hard blocks above (keep friendlies & "other football")
+      if (!strictAllowlist) return false;
+
       // ── ALLOWLIST ── only show leagues from the configured list ─────────────
       // Block non-soccer world cups (3x3 basketball, FIBA, etc.)
       if (/\b3x3\b|fiba|basketball.*world|world.*basketball/.test(l)) return true;
@@ -772,11 +789,15 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       // UEFA / FIFA international competitions — always allowed (men's only after the block above)
       if (/champions league|europa league|conference league|nations league/.test(l)) return false;
       if (/world cup|copa do mundo|copa mundial/.test(l)) return false;
-      if (/international friendl|friendly international|international friendly|amistoso|amistosos/.test(l)) return false;
+      if (/international friendl|friendly international|international friendly|friendlies|friendly|amistoso|amistosos|national team|national teams|selecao|selecoes/.test(l)) return false;
       if (/club friendl|club friendly/.test(l)) return false;
       if (/olympics|olympic games|jogos ol[íi]mpicos/.test(l)) return false;
       if (/supercopa|super cup|uefa super/.test(l)) return false;
-      if (/euro 20\d{2}|euro qualif|world cup qualif/.test(l)) return false;
+      if (/euro 20\d{2}|euro qualif|world cup qualif|qualif|qualification|qualifier|eliminator|eliminatorias/.test(l)) return false;
+      if (/copa america|copa am[ée]rica|conmebol|libertadores|sudamericana|recopa/.test(l)) return false;
+      if (/concacaf|gold cup/.test(l)) return false;
+      if (/africa cup|afcon|\bcaf\b/.test(l)) return false;
+      if (/asian cup|\bafc\b/.test(l)) return false;
 
       // England
       if (/england|inglaterra/.test(c)) {
@@ -784,7 +805,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       }
 
       // Spain
-      if (/spain|espanha|españa/.test(c)) {
+      if (/spain|espanha|espana|españa/.test(c)) {
         if (/la liga|liga 2|segunda divisi|copa del rey/.test(l)) return false;
       }
 
@@ -835,13 +856,13 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       if (/\bmls\b|us open cup/.test(l)) return false;
 
       // Turkey
-      if (/turkey|turquia|türkiye/.test(c)) {
+      if (/turkey|turquia|turkiye|türkiye/.test(c)) {
         if (/s[üu]per lig|turkish cup|1\. lig/.test(l)) return false;
       }
       if (/s[üu]per lig/.test(l)) return false;
 
       // Belgium
-      if (/belgium|belgi[qe]|bélgica/.test(c)) {
+      if (/belgium|belgi[qe]|belgica|bélgica/.test(c)) {
         if (/jupiler|pro league|belgian cup/.test(l)) return false;
       }
       if (/jupiler/.test(l)) return false;
@@ -862,13 +883,13 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       }
 
       // Japan
-      if (/japan|jap[oã]o/.test(c)) {
+      if (/japan|japao|jap[oã]o/.test(c)) {
         if (/j1 league|j2 league|emperor/.test(l)) return false;
       }
       if (/j1 league|j2 league/.test(l)) return false;
 
       // Mexico
-      if (/mexico|méx/.test(c)) {
+      if (/mexico|mex|méx/.test(c)) {
         if (/liga mx|copa mx|expansi[oó]n/.test(l)) return false;
       }
       if (/liga mx/.test(l)) return false;
@@ -1002,7 +1023,10 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         : arr.filter((e: any) => {
             const sport = String((e as any)?.sport || '').toLowerCase().trim();
             if (sport && sport !== 'soccer' && sport !== 'football') return true;
-            return !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || ''));
+            const requestedOnlySoccer =
+              sports.length === 1 && ['soccer', 'football'].includes(String(sports[0] || '').toLowerCase().trim());
+            const strictAllowlist = !requestedOnlySoccer && !cleanLeague;
+            return !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || ''), strictAllowlist);
           });
     // Live events: never apply league blocking — real matches in progress always show.
     const live = sortStable(liveAll.filter((e: any) => {

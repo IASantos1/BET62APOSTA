@@ -346,31 +346,41 @@ export function createLiveWs(apiKey: string) {
   const sendSnapshot = async (sport: string) => {
     const now = Date.now();
     const prev = lastSent.get(sport) || 0;
-    if (now - prev < 2500) return;
+    // Reduzido de 2500ms para 1000ms para maior fluidez
+    const throttleMs = sport === 'all' || sport === 'soccer' ? 1000 : 3000;
+    if (now - prev < throttleMs) return;
     lastSent.set(sport, now);
 
     if (snapshotInflight.has(sport)) {
-      // #region debug-point A:ws-inflight-hit
-      void import('node:fs').then((fs) => { let u = 'http://127.0.0.1:7777/event', s = 'live-delay-clock'; try { const e = fs.readFileSync('.dbg/live-delay-clock.env', 'utf8'); u = /DEBUG_SERVER_URL=(.+)/.exec(e)?.[1] || u; s = /DEBUG_SESSION_ID=(.+)/.exec(e)?.[1] || s; } catch { void 0; } fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: s, runId: 'pre', hypothesisId: 'A', location: 'server/ws/liveWs.ts:sendSnapshot', msg: '[DEBUG] WS snapshot inflight -> sending cached', data: { sport, ageMs: (snapshotCache.get(sport) ? (now - (snapshotCache.get(sport) as any).ts) : null) }, ts: Date.now() }) }).catch(() => null); }).catch(() => null);
-      // #endregion
-      // #region debug-point H1:ws-inflight-hit
-      void import('node:fs').then((fs) => { let u = 'http://127.0.0.1:7777/event', s = 'live-flicker-bug'; try { const e = fs.readFileSync('.dbg/live-flicker-bug.env', 'utf8'); u = /DEBUG_SERVER_URL=(.+)/.exec(e)?.[1] || u; s = /DEBUG_SESSION_ID=(.+)/.exec(e)?.[1] || s; } catch { void 0; } fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: s, runId: 'pre', hypothesisId: 'H1', location: 'server/ws/liveWs.ts:sendSnapshot', msg: 'ws-inflight-hit', data: { sport, ageMs: (snapshotCache.get(sport) ? (now - (snapshotCache.get(sport) as any).ts) : null), clientCount: Array.from(clients).filter((c) => c.sport === sport).length }, ts: Date.now() }) }).catch(() => null); }).catch(() => null);
-      // #endregion
       const cached = snapshotCache.get(sport);
+      // Se já houver um fetch em andamento, servimos o cache IMEDIATAMENTE 
+      // mas aplicando os estados mais recentes do upstream (WebSocket do provedor)
       if (cached && now - cached.ts < 30_000) {
-        const msg = JSON.stringify({ type: 'snapshot', live: cached.live });
+        const livePatched = normalizeAndFilterLive(sport, cached.live);
+        const msg = JSON.stringify({ type: 'snapshot', live: livePatched });
         for (const c of clients) {
           if (c.sport !== sport) continue;
           if (c.ws.readyState !== WebSocket.OPEN) continue;
-          try {
-            c.ws.send(msg);
-          } catch {
-            void 0;
-          }
+          try { c.ws.send(msg); } catch { void 0; }
         }
       }
       return;
     }
+
+    const cached = snapshotCache.get(sport);
+    // OTIMIZAÇÃO: Se temos uma lista de jogos recente (< 15s), não precisamos 
+    // fazer uma nova chamada REST HTTP. Apenas aplicamos os patches do WebSocket.
+    if (cached && now - cached.ts < 15_000) {
+      const livePatched = normalizeAndFilterLive(sport, cached.live);
+      const msg = JSON.stringify({ type: 'snapshot', live: livePatched });
+      for (const c of clients) {
+        if (c.sport !== sport) continue;
+        if (c.ws.readyState !== WebSocket.OPEN) continue;
+        try { c.ws.send(msg); } catch { void 0; }
+      }
+      return;
+    }
+
     snapshotInflight.add(sport);
     const t0 = Date.now();
     // #region debug-point A:ws-snapshot-start
@@ -623,6 +633,19 @@ export function createLiveWs(apiKey: string) {
       sendSnapshot(localSport).catch(() => null);
     });
 
+    const broadcastDelta = (sport: string, delta: any) => {
+      const msg = JSON.stringify({ type: 'update', sport, data: delta });
+      for (const c of clients) {
+        if (c.sport !== 'all' && c.sport !== sport) continue;
+        if (c.ws.readyState !== WebSocket.OPEN) continue;
+        try {
+          c.ws.send(msg);
+        } catch {
+          void 0;
+        }
+      }
+    };
+
     ws.on('message', (raw) => {
       u.lastMessageAt = Date.now();
       try {
@@ -639,7 +662,20 @@ export function createLiveWs(apiKey: string) {
             const statusDesc = String(d['status.description'] ?? d.statusDescription ?? d['statusDescription'] ?? d.statusDescriptionText ?? '').trim();
             const status = String(d['status.type'] ?? d['status.code'] ?? d['statusType'] ?? d.statusType ?? '').trim();
             const m = upstreamState.get(localSport) || (upstreamState.set(localSport, new Map()), upstreamState.get(localSport)!);
-            m.set(id, { ts: Date.now(), status: status || undefined, statusDesc: statusDesc || undefined, home, away });
+            
+            const updateData = { ts: Date.now(), status: status || undefined, statusDesc: statusDesc || undefined, home, away };
+            m.set(id, updateData);
+            
+            // DELTA UPDATE: Envia apenas a mudança de placar/status imediatamente
+            broadcastDelta(localSport, {
+              id,
+              sport: localSport,
+              goals: (home != null || away != null) ? { home, away } : undefined,
+              status_short: status || undefined,
+              status_long: statusDesc || undefined,
+              is_live: 1
+            });
+
             trySubscribeMatchOdds(localSport, id);
           }
         }
@@ -647,11 +683,22 @@ export function createLiveWs(apiKey: string) {
           const mOdds = /^match:(\d+):odds$/i.exec(msg.channel);
           if (mOdds) {
             const matchId = String(mOdds[1] || '').trim();
-            const key = `${localSport}:${normalizeMatchId(localSport, matchId)}`;
+            const normalizedId = normalizeMatchId(localSport, matchId);
+            const key = `${localSport}:${normalizedId}`;
             const meta = matchMeta.get(key);
             const parsed = parseSportsApiProMatchOddsPayload(localSport, msg.data, meta ? { homeTeam: meta.homeTeam, awayTeam: meta.awayTeam } : undefined);
             if (parsed) {
               oddsCache.set(key, { ts: Date.now(), data: parsed });
+              
+              // DELTA UPDATE: Envia apenas a mudança de odds imediatamente
+              broadcastDelta(localSport, {
+                id: normalizedId,
+                sport: localSport,
+                home_odd: parsed.home,
+                draw_odd: parsed.draw,
+                away_odd: parsed.away,
+                markets: parsed.markets
+              });
             } else {
               oddsCache.delete(key);
             }
@@ -718,7 +765,7 @@ export function createLiveWs(apiKey: string) {
     } else {
       connectUpstream(sport);
     }
-    const intervalMs = sport === 'all' || sport === 'soccer' ? 2500 : 8000;
+    const intervalMs = sport === 'all' || sport === 'soccer' ? 1000 : 5000;
     const id = setInterval(() => {
       sendSnapshot(sport).catch(() => null);
     }, intervalMs);

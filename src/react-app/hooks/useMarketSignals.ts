@@ -176,7 +176,8 @@ export function useMarketSignals(params: {
             if (kind !== 'idle' && !varState.active) setTimedCta(kind, kind === 'goal' ? 12000 : kind === 'penalty' ? 15000 : 12000)
           }
         }
-      } catch {
+      } catch (error) {
+        console.error('Error in market signals tick:', error)
       } finally {
         inflight = false
       }

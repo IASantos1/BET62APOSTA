@@ -513,6 +513,49 @@ export function useLiveFeed(sport?: string) {
             setLastUpdatedAt(now);
             return;
           }
+          if (msg?.type === 'update' && msg?.data?.id) {
+            const now = Date.now();
+            const delta = msg.data;
+            setEventsMap((prev) => {
+              const next = new Map<string, any>(prev);
+              const id = String(delta.id);
+              const prevVal = next.get(id);
+              if (!prevVal) return prev; // Se não temos o jogo no snapshot, ignoramos o delta até o próximo snapshot
+
+              const merged = { ...prevVal, __lastSeenAt: now };
+              
+              if (delta.goals) {
+                merged.goals = delta.goals;
+                // Atualizar o score string se necessário
+                if (typeof merged.score === 'string') {
+                  try {
+                    const s = JSON.parse(merged.score);
+                    s.home = delta.goals.home;
+                    s.away = delta.goals.away;
+                    merged.score = JSON.stringify(s);
+                  } catch { void 0; }
+                }
+              }
+              if (delta.status_short) {
+                merged.status_short = delta.status_short;
+                if (merged.fixture?.status) merged.fixture.status.short = delta.status_short;
+              }
+              if (delta.status_long) {
+                merged.status_long = delta.status_long;
+                if (merged.fixture?.status) merged.fixture.status.long = delta.status_long;
+              }
+              if (delta.home_odd != null && delta.home_odd > 0) merged.home_odd = Number(delta.home_odd);
+              if (delta.draw_odd != null && delta.draw_odd > 0) merged.draw_odd = Number(delta.draw_odd);
+              if (delta.away_odd != null && delta.away_odd > 0) merged.away_odd = Number(delta.away_odd);
+              if (delta.markets) merged.markets = { ...(merged.markets || {}), ...delta.markets };
+
+              next.set(id, merged);
+              _liveCache.set(_sportKey, { map: next, ts: now });
+              return next;
+            });
+            setLastUpdatedAt(now);
+            return;
+          }
           if (msg?.type === 'pong') return;
         } catch { void 0; }
       };
