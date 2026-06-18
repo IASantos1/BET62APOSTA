@@ -626,14 +626,16 @@ async function fetchJson(url: string, apiKey: string, timeoutMs: number = 15000)
   const t = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs));
   try {
     const res = await fetch(url, { headers: apiHeaders(apiKey), signal: controller.signal });
-    const text = await res.text().catch(() => '');
     if (!res.ok) return null;
+    const text = await res.text().catch(() => '');
     if (!text) return null;
     try {
       return JSON.parse(text);
     } catch {
       return null;
     }
+  } catch {
+    return null;
   } finally {
     clearTimeout(t);
   }
@@ -643,14 +645,14 @@ const __live_cache = new Map<string, { ts: number; data: NormalizedEvent[] }>();
 
 export async function fetchSportsApiProLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const primarySub = toSubdomain(sport);
-  const primaryUrl = `https://v1.${primarySub}.sportsapipro.com/api/live`;
+  const primaryUrl = `https://v2.${primarySub}.sportsapipro.com/api/live`;
   const jsonPrimary = await fetchJson(primaryUrl, apiKey, 8000);
   const itemsPrimary = extractEvents(jsonPrimary);
   let items = itemsPrimary;
 
   const fallbackSub = normalizeSportKey(sport);
   if (items.length === 0 && fallbackSub && fallbackSub !== primarySub) {
-    const fallbackUrl = `https://v1.${fallbackSub}.sportsapipro.com/api/live`;
+    const fallbackUrl = `https://v2.${fallbackSub}.sportsapipro.com/api/live`;
     const jsonFallback = await fetchJson(fallbackUrl, apiKey, 8000);
     items = extractEvents(jsonFallback);
   }

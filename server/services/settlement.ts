@@ -1569,7 +1569,7 @@ async function fetchMatchResult(
     sub = 'football'; // soccer/football default
   }
   
-  const base = `https://v1.${sub}.sportsapipro.com`;
+  const base = `https://v2.${sub}.sportsapipro.com`;
 
   // Try to fetch by event ID directly
   try {
