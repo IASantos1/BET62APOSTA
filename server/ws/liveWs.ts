@@ -28,7 +28,8 @@ export function createLiveWs(apiKey: string) {
   const lastSent = new Map<string, number>();
   const upstreams = new Map<string, UpstreamInfo>();
   const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball'];
-  const ODDS_FRESH_TTL_MS = 8_000;
+  // V2 mercados: cache fresco por 3.5s → atualiza entre 3-5s automaticamente
+  const ODDS_FRESH_TTL_MS = 3_500;
   const ODDS_STALE_TTL_MS = 15 * 60_000;
   const oddsCache = new Map<string, { ts: number; data: any | null }>();
   const oddsInflight = new Map<string, Promise<any | null>>();
@@ -368,9 +369,9 @@ export function createLiveWs(apiKey: string) {
     }
 
     const cached = snapshotCache.get(sport);
-    // OTIMIZAÇÃO: Se temos uma lista de jogos recente (< 15s), não precisamos 
-    // fazer uma nova chamada REST HTTP. Apenas aplicamos os patches do WebSocket.
-    if (cached && now - cached.ts < 15_000) {
+    // V1 placares: lista de jogos fresca por 4s — o upstream WS já envia deltas
+    // em tempo real (<100ms), por isso o REST só precisa de refrescar a cada 4s.
+    if (cached && now - cached.ts < 4_000) {
       const livePatched = normalizeAndFilterLive(sport, cached.live);
       const msg = JSON.stringify({ type: 'snapshot', live: livePatched });
       for (const c of clients) {

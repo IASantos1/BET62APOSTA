@@ -10,6 +10,7 @@ import { handleFavoriteRoutes } from './routes/favorites';
 import { createEventsService } from './routes/events';
 import { handleUsersRoutes } from './routes/users';
 import { handleAdminRoutes } from './routes/admin';
+import { handleStripeRoutes } from './routes/stripe';
 import { createLiveWs } from './ws/liveWs';
 import { autoSettleFromCache } from './services/settlement';
 
@@ -219,9 +220,17 @@ const server = http.createServer(async (req, res) => {
       if (pool && (await handleAuthRoutes(pool, req, res, url))) return;
       if (pool && (await handleUsersRoutes(pool, req, res, url))) return;
       if (pool && (await handleWalletRoutes(pool, req, res, url))) return;
+      if (pool && (await handleStripeRoutes(pool, req, res, url))) return;
       if (pool && (await handleBetRoutes(pool, req, res, url))) return;
       if (pool && (await handleFavoriteRoutes(pool, req, res, url))) return;
       if (pool && (await handleAdminRoutes(pool, events, req, res, url, sportsApiKey))) return;
+
+      // Stripe webhook needs raw body — handle even without pool fully ready
+      if (!pool && url.pathname === '/api/stripe/webhook' && req.method === 'POST') {
+        res.statusCode = 503;
+        res.end('DB unavailable');
+        return;
+      }
 
       notFound(res);
       return;

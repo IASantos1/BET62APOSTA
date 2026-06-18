@@ -23,6 +23,7 @@ import { BackLink } from './components/BackLink';
 import { SWUpdateBar } from './components/SWUpdateBar';
 import { InstallBar } from './components/InstallBar';
 import HomePage from './pages/Home';
+import DepositPage from "./pages/DepositPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import WithdrawPage from "./pages/WithdrawPage";
 import KycPage from "./pages/KycPage";
@@ -198,7 +199,8 @@ function AppContent() {
             <Route path="/live" element={<HomePage mode="live" />} />
             <Route path="/event/:id/stats" element={<EventStatsPage />} />
             <Route path="/event/:id" element={<EventDetails />} />
-            <Route path="/deposit" element={<PaymentsPage />} />
+            <Route path="/deposit" element={<DepositPage />} />
+            <Route path="/payments" element={<PaymentsPage />} />
             <Route path="/withdraw" element={<WithdrawPage />} />
             <Route path="/kyc" element={<KycPage />} />
             <Route path="/terms" element={<TermsPage />} />
