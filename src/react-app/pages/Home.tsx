@@ -7,7 +7,7 @@ import { useMergedEvents } from '../hooks/useMergedEvents';
 import EventCard from '../components/EventCard';
 import { Sidebar } from '../components/Sidebar';
 import { BannerCarousel } from '../components/BannerCarousel';
-import WorldCupBanner from '../components/WorldCupBanner';
+import WorldCupBanner, { BET62_TROPHY_PNG_URL } from '../components/WorldCupBanner';
 import { BetSlip } from '../components/BetSlip';
 import { useNavigate } from 'react-router-dom';
 import { formatLeagueHeader, getLeagueLogo, getSportIcon } from '../../shared/helpers';
@@ -981,7 +981,16 @@ function Home({ mode = 'home' }: HomeProps) {
               <WorldCupBanner variant="compact" />
               <div className="flex items-center justify-between px-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-2xl">🏆</span>
+                  <img
+                    src={BET62_TROPHY_PNG_URL}
+                    alt="Troféu Bet62"
+                    className="w-11 h-11 object-contain select-none"
+                    style={{
+                      filter: 'drop-shadow(0 0 14px rgba(255,200,40,0.45))',
+                      animation: 'wcInlineTrophyShake 2.8s ease-in-out infinite',
+                    }}
+                    draggable={false}
+                  />
                   <h2
                     className="text-xl font-black uppercase tracking-wide"
                     style={{
@@ -1004,6 +1013,14 @@ function Home({ mode = 'home' }: HomeProps) {
                   Fechar
                 </button>
               </div>
+              <style>{`
+                @keyframes wcInlineTrophyShake {
+                  0%,100% { transform: translate3d(0,0,0) rotate(0deg); }
+                  25% { transform: translate3d(1px,-1px,0) rotate(-1.6deg); }
+                  50% { transform: translate3d(-1px,1px,0) rotate(1.4deg); }
+                  75% { transform: translate3d(1px,0,0) rotate(-0.8deg); }
+                }
+              `}</style>
             </div>
           )}
 
