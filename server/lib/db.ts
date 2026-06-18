@@ -11,7 +11,7 @@ export function createPool(): pg.Pool | null {
   if (!connectionString) return null;
   return new Pool({
     connectionString,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    ssl: false,
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,

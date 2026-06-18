@@ -109,25 +109,42 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
-    const data = await apiFetch('/auth/session', { method: 'GET' });
-    return data?.user || null;
+    const data = await apiFetch('/auth/me', { method: 'GET' });
+    if (!data?.user) return null;
+    const u = data.user;
+    return {
+      id: String(u.userId || u.id || ''),
+      email: String(u.username || u.email || ''),
+      role: u.is_operator ? 'admin' : 'user',
+      name: u.name,
+    } as AuthUser;
   } catch {
     return null;
   }
 }
 
 export async function signIn(email: string, password: string): Promise<AuthUser> {
-  const data = await apiFetch('/auth/login', {
+  const data = await apiFetch('/auth/signin', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ username: email, password }),
   });
 
-  if (!data?.token || !data?.user) {
+  if (data?.requires2fa) {
+    throw Object.assign(new Error('2FA_REQUIRED'), { requires2fa: true, userId: data.userId });
+  }
+
+  if (!data?.token) {
     throw new Error('Resposta inválida do servidor');
   }
 
   setToken(data.token);
-  return data.user as AuthUser;
+  if (data.refreshToken) {
+    if (typeof window !== 'undefined') window.localStorage.setItem('refresh_token', data.refreshToken);
+  }
+
+  const me = await getCurrentUser();
+  if (!me) throw new Error('Não foi possível obter o perfil do utilizador');
+  return me;
 }
 
 export async function signUp(
@@ -138,13 +155,15 @@ export async function signUp(
   const payload: any = {
     email,
     password,
+    firstName: extraData?.firstName || extraData?.first_name || '',
+    lastName: extraData?.lastName || extraData?.last_name || '',
+    dob: extraData?.dob || extraData?.birth_date || null,
   };
 
-  if (extraData?.full_name) {
-    payload.name = extraData.full_name;
-  }
-  if (extraData?.phone) {
-    payload.phone = extraData.phone;
+  if (extraData?.full_name && !payload.firstName) {
+    const parts = String(extraData.full_name).trim().split(' ');
+    payload.firstName = parts[0] || '';
+    payload.lastName = parts.slice(1).join(' ') || '';
   }
 
   const data = await apiFetch('/auth/signup', {
@@ -152,12 +171,17 @@ export async function signUp(
     body: JSON.stringify(payload),
   });
 
-  if (!data?.token || !data?.user) {
+  if (!data?.token) {
     throw new Error('Resposta inválida do servidor');
   }
 
   setToken(data.token);
-  return data.user as AuthUser;
+  if (data.refreshToken) {
+    if (typeof window !== 'undefined') window.localStorage.setItem('refresh_token', data.refreshToken);
+  }
+
+  const me = await getCurrentUser();
+  return me;
 }
 
 export async function signInWithProvider(provider: 'google' | 'facebook'): Promise<void> {
@@ -171,6 +195,7 @@ export async function signOut(): Promise<void> {
     // Ignorar erros de logout para não bloquear o fluxo do utilizador
   }
   setToken(null);
+  if (typeof window !== 'undefined') window.localStorage.removeItem('refresh_token');
 }
 
 export async function requestEmailVerification(email: string): Promise<{ ok: boolean; debugCode?: string }> {

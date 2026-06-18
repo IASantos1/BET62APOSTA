@@ -5,15 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-const API_BASE_URL = 'https://v3.football.api-sports.io';
-const API_KEY = import.meta.env.VITE_API_FOOTBALL_KEY || 'cbef02a7c902f0dfb7260b0b638fffa0';
-const API_HOST = 'v3.football.api-sports.io';
-
-const headers = {
-  'X-RapidAPI-Key': API_KEY,
-  'X-RapidAPI-Host': API_HOST,
-  'Content-Type': 'application/json',
-};
+// All API-Football calls go through the backend proxy — no API keys in the browser
 
 // ═══════════════════════════════════════════════════════════
 // TIPOS
@@ -214,18 +206,19 @@ function setCache<T>(key: string, data: T): void {
 
 async function fetchFromApi<T>(endpoint: string): Promise<T | null> {
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'GET',
-      headers
-    });
-
+    // Route through the backend proxy — no API key in browser
+    const params = new URLSearchParams({ sport: 'football', endpoint: endpoint.replace(/^\//, '').split('?')[0] });
+    const qsPart = endpoint.includes('?') ? endpoint.split('?')[1] : '';
+    if (qsPart) {
+      new URLSearchParams(qsPart).forEach((v, k) => params.append(k, v));
+    }
+    const response = await fetch(`/api/events/proxy?${params.toString()}`, { method: 'GET' });
     if (!response.ok) {
-      console.error(`API-Football error: ${response.status}`);
+      console.error(`API-Football proxy error: ${response.status}`);
       return null;
     }
-
     const data = await response.json();
-    return data.response as T;
+    return (data.response ?? data) as T;
   } catch (error) {
     console.error('Erro ao buscar dados da API-Football:', error);
     return null;
@@ -293,16 +286,9 @@ export async function fetchTeamId(teamName: string): Promise<number | null> {
   if (cached) return cached;
 
   try {
-    const response = await fetch(`${API_BASE_URL}/teams?search=${encodeURIComponent(teamName)}`, {
-      method: 'GET',
-      headers
-    });
-
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    if (data.response && data.response.length > 0) {
-      const teamId = data.response[0].team.id;
+    const data = await fetchFromApi<any[]>(`/teams?search=${encodeURIComponent(teamName)}`);
+    if (data && data.length > 0) {
+      const teamId = data[0].team.id;
       setCache(cacheKey, teamId);
       return teamId;
     }

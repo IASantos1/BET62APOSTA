@@ -1771,6 +1771,43 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       return true;
     }
 
+    // GET /api/events/proxy — server-side proxy for API-Football requests (keeps API key off client)
+    if (req.method === 'GET' && path === '/api/events/proxy') {
+      const sport = url.searchParams.get('sport') || 'football';
+      const endpoint = url.searchParams.get('endpoint');
+      if (!endpoint) {
+        sendJson(res, 400, { error: 'endpoint param required' });
+        return true;
+      }
+      if (!apiKey) {
+        sendJson(res, 200, { response: [], results: 0 });
+        return true;
+      }
+      const API_ENDPOINTS: Record<string, string> = {
+        football: 'https://v3.football.api-sports.io',
+        basketball: 'https://v1.basketball.api-sports.io',
+        baseball: 'https://v1.baseball.api-sports.io',
+        hockey: 'https://v1.hockey.api-sports.io',
+      };
+      const base = API_ENDPOINTS[sport] || API_ENDPOINTS['football'];
+      const apiUrl = new URL(`${base}/${endpoint}`);
+      url.searchParams.forEach((value, key) => {
+        if (key !== 'sport' && key !== 'endpoint') {
+          apiUrl.searchParams.append(key, value);
+        }
+      });
+      try {
+        const resp = await fetch(apiUrl.toString(), {
+          headers: { 'x-apisports-key': apiKey },
+        });
+        const data = await resp.json();
+        sendJson(res, resp.ok ? 200 : resp.status, data);
+      } catch (e: any) {
+        sendJson(res, 500, { error: String(e?.message || e), response: [] });
+      }
+      return true;
+    }
+
     return false;
   };
 
