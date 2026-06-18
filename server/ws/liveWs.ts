@@ -21,6 +21,15 @@ type UpstreamInfo = {
   pingTimer: NodeJS.Timeout | null;
 };
 
+type UpstreamStateEntry = {
+  ts: number;
+  status?: string;
+  statusDesc?: string;
+  home?: number | null;
+  away?: number | null;
+  score?: Record<string, any> | null;
+};
+
 export function createLiveWs(apiKey: string) {
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<ClientInfo>();
@@ -35,7 +44,7 @@ export function createLiveWs(apiKey: string) {
   const oddsInflight = new Map<string, Promise<any | null>>();
   const snapshotCache = new Map<string, { ts: number; live: any[] }>();
   const snapshotInflight = new Set<string>();
-  const upstreamState = new Map<string, Map<string, { ts: number; status?: string; statusDesc?: string; home?: number | null; away?: number | null }>>();
+  const upstreamState = new Map<string, Map<string, UpstreamStateEntry>>();
   const matchMeta = new Map<string, { ts: number; sport: string; homeTeam: string; awayTeam: string }>();
   const oddsSubscribed = new Map<string, number>();
   let allBootstrapAt = 0;
@@ -70,6 +79,79 @@ export function createLiveWs(apiKey: string) {
   };
 
   const ttlOk = (ts: number, ttlMs: number) => ts > 0 && Date.now() - ts < ttlMs;
+
+  const readPath = (obj: any, path: string): any => {
+    if (!obj || typeof obj !== 'object') return undefined;
+    if (path in obj) return obj[path];
+    const parts = path.split('.');
+    let cur: any = obj;
+    for (const part of parts) {
+      if (!cur || typeof cur !== 'object' || !(part in cur)) return undefined;
+      cur = cur[part];
+    }
+    return cur;
+  };
+
+  const pickFirst = (obj: any, paths: string[]): any => {
+    for (const path of paths) {
+      const value = readPath(obj, path);
+      if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+    }
+    return undefined;
+  };
+
+  const toNumOrNull = (v: any): number | null => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const buildTennisScoreFromDelta = (data: any): Record<string, any> | null => {
+    const homeSets = toNumOrNull(pickFirst(data, ['homeScore.current', 'homeScore.display', 'homeScore.sets', 'homeScore.set']));
+    const awaySets = toNumOrNull(pickFirst(data, ['awayScore.current', 'awayScore.display', 'awayScore.sets', 'awayScore.set']));
+
+    const sets: Record<string, { home: number | null; away: number | null }> = {};
+    for (let i = 1; i <= 5; i++) {
+      const home = toNumOrNull(pickFirst(data, [
+        `homeScore.period${i}`,
+        `homeScore.periods.${i - 1}`,
+        `homeScore.scores.${i - 1}`,
+        `homeScore.set${i}`,
+        `homeScore.s${i}`,
+      ]));
+      const away = toNumOrNull(pickFirst(data, [
+        `awayScore.period${i}`,
+        `awayScore.periods.${i - 1}`,
+        `awayScore.scores.${i - 1}`,
+        `awayScore.set${i}`,
+        `awayScore.s${i}`,
+      ]));
+      if (home !== null || away !== null) sets[`s${i}`] = { home, away };
+    }
+
+    const pointHome = pickFirst(data, [
+      'homeScore.point',
+      'homeScore.currentPoint',
+      'homeScore.points',
+      'homeScore.game',
+      'homeScore.currentGamePoint',
+      'homeScore.current',
+    ]);
+    const pointAway = pickFirst(data, [
+      'awayScore.point',
+      'awayScore.currentPoint',
+      'awayScore.points',
+      'awayScore.game',
+      'awayScore.currentGamePoint',
+      'awayScore.current',
+    ]);
+
+    const out: Record<string, any> = {};
+    if (homeSets !== null) out.home = homeSets;
+    if (awaySets !== null) out.away = awaySets;
+    if (Object.keys(sets).length > 0) out.sets = sets;
+    if (pointHome != null || pointAway != null) out.point = { home: pointHome ?? null, away: pointAway ?? null };
+    return Object.keys(out).length > 0 ? out : null;
+  };
 
   const hasOdds = (e: any) => Number(e?.home_odd) > 1 && Number(e?.away_odd) > 1;
 
@@ -319,6 +401,20 @@ export function createLiveWs(apiKey: string) {
             }
           } catch {
             void 0;
+          }
+        }
+        if (st.score && typeof st.score === 'object') {
+          try {
+            const rawScore = (patched as any).score;
+            const base =
+              typeof rawScore === 'string'
+                ? JSON.parse(rawScore)
+                : rawScore && typeof rawScore === 'object'
+                  ? rawScore
+                  : {};
+            patched.score = JSON.stringify({ ...(base || {}), ...st.score });
+          } catch {
+            patched.score = JSON.stringify(st.score);
           }
         }
         const descU = String(st.statusDesc || '').toUpperCase();
@@ -663,9 +759,10 @@ export function createLiveWs(apiKey: string) {
             const away = awayRaw == null ? null : (Number.isFinite(Number(awayRaw)) ? Number(awayRaw) : null);
             const statusDesc = String(d['status.description'] ?? d.statusDescription ?? d['statusDescription'] ?? d.statusDescriptionText ?? '').trim();
             const status = String(d['status.type'] ?? d['status.code'] ?? d['statusType'] ?? d.statusType ?? '').trim();
+            const deltaScore = localSport === 'tennis' ? buildTennisScoreFromDelta(d) : null;
             const m = upstreamState.get(localSport) || (upstreamState.set(localSport, new Map()), upstreamState.get(localSport)!);
             
-            const updateData = { ts: Date.now(), status: status || undefined, statusDesc: statusDesc || undefined, home, away };
+            const updateData = { ts: Date.now(), status: status || undefined, statusDesc: statusDesc || undefined, home, away, score: deltaScore };
             m.set(id, updateData);
             
             // DELTA UPDATE: Envia apenas a mudança de placar/status imediatamente
@@ -673,6 +770,7 @@ export function createLiveWs(apiKey: string) {
               id,
               sport: localSport,
               goals: (home != null || away != null) ? { home, away } : undefined,
+              score: deltaScore || undefined,
               status_short: status || undefined,
               status_long: statusDesc || undefined,
               is_live: 1

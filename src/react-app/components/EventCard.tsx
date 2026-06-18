@@ -87,8 +87,24 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
   const { darkMode, addNotification, addToBetSlip } = useApp(); 
   const [isHovered, setIsHovered] = useState(false);
 
-  // Scroll-vs-tap detection: only navigate if the user didn't scroll
-  const touchScrollRef = useRef<{ y: number; moved: boolean }>({ y: 0, moved: false });
+  // Scroll-vs-tap detection: only navigate if the user didn't scroll/drag.
+  const touchScrollRef = useRef<{ x: number; y: number; moved: boolean }>({ x: 0, y: 0, moved: false });
+
+  const beginTapGesture = (clientX: number, clientY: number) => {
+    touchScrollRef.current = { x: clientX, y: clientY, moved: false };
+  };
+
+  const updateTapGesture = (clientX: number, clientY: number) => {
+    const dx = Math.abs(clientX - touchScrollRef.current.x);
+    const dy = Math.abs(clientY - touchScrollRef.current.y);
+    if (dx > 10 || dy > 10) touchScrollRef.current.moved = true;
+  };
+
+  const consumeTapGesture = () => {
+    const moved = touchScrollRef.current.moved;
+    touchScrollRef.current.moved = false;
+    return !moved;
+  };
 
   // Robustly extract event ID (support both structures)
   const eventId = event.id || event.fixture?.id;
@@ -527,18 +543,13 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
       onMouseEnter={() => setIsHovered(true)} 
       onMouseLeave={() => setIsHovered(false)} 
       onTouchStart={(e) => {
-        touchScrollRef.current = { y: e.touches[0].clientY, moved: false };
+        beginTapGesture(e.touches[0].clientX, e.touches[0].clientY);
       }}
       onTouchMove={(e) => {
-        if (Math.abs(e.touches[0].clientY - touchScrollRef.current.y) > 10) {
-          touchScrollRef.current.moved = true;
-        }
+        updateTapGesture(e.touches[0].clientX, e.touches[0].clientY);
       }}
       onClick={() => {
-        if (touchScrollRef.current.moved) {
-          touchScrollRef.current.moved = false;
-          return;
-        }
+        if (!consumeTapGesture()) return;
         onOpenEvent(event);
       }}
     > 
@@ -578,8 +589,19 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
       
       <div className="flex items-center gap-3 w-full">
         <button 
-          onPointerDown={(e) => { e.stopPropagation(); onOpenEvent(event); }}
-          onClick={(e: ReactMouseEvent<HTMLButtonElement>) => { e.stopPropagation(); onOpenEvent(event); }} 
+          onTouchStart={(e) => {
+            e.stopPropagation();
+            beginTapGesture(e.touches[0].clientX, e.touches[0].clientY);
+          }}
+          onTouchMove={(e) => {
+            e.stopPropagation();
+            updateTapGesture(e.touches[0].clientX, e.touches[0].clientY);
+          }}
+          onClick={(e: ReactMouseEvent<HTMLButtonElement>) => {
+            e.stopPropagation();
+            if (!consumeTapGesture()) return;
+            onOpenEvent(event);
+          }} 
           className={`text-left w-full ${darkMode ? 'text-white hover:text-red-300' : 'text-gray-900 hover:text-red-700'} underline-offset-2 hover:underline overflow-hidden`} 
         > 
           {sport === 'tennis' ? (

@@ -545,6 +545,21 @@ export function useLiveFeed(sport?: string) {
                   } catch { void 0; }
                 }
               }
+              if (delta.score && typeof delta.score === 'object') {
+                const baseScore =
+                  typeof merged.score === 'string'
+                    ? (() => {
+                        try { return JSON.parse(merged.score); } catch { return {}; }
+                      })()
+                    : (merged.score && typeof merged.score === 'object' ? merged.score : {});
+                merged.score = { ...(baseScore || {}), ...delta.score };
+                if (!delta.goals && (delta.score.home != null || delta.score.away != null)) {
+                  merged.goals = {
+                    home: delta.score.home ?? merged.goals?.home ?? null,
+                    away: delta.score.away ?? merged.goals?.away ?? null,
+                  };
+                }
+              }
               if (delta.status_short) {
                 merged.status_short = delta.status_short;
                 if (merged.fixture?.status) merged.fixture.status.short = delta.status_short;
