@@ -6,6 +6,8 @@ interface WorldCupBannerProps {
   disableLink?: boolean;
 }
 
+export const BET62_TROPHY_PNG_URL = "https://coresg-normal.trae.ai/api/ide/v1/text_to_image?prompt=transparent%20background%2C%20premium%203D%20golden%20football%20world%20cup%20style%20trophy%20with%20bold%20metallic%20BET62%20lettering%20integrated%20into%20the%20cup%2C%20luxury%20casino%20sportsbook%20branding%2C%20highly%20detailed%20polished%20gold%2C%20studio%20lighting%2C%20realistic%20reflections%2C%20clean%20cutout%2C%20no%20background%2C%20centered%20composition%2C%20png%20asset&image_size=portrait_4_3";
+
 // ── Stable particle definitions (no random on render) ─────────────────────
 const PARTICLES = Array.from({ length: 36 }, (_, i) => ({
   id: i,
@@ -78,51 +80,25 @@ function CountSep() {
   );
 }
 
-// ── Rotating trophy SVG ───────────────────────────────────────────────────
-function TrophySvg({ size = 56, pulse = false }: { size?: number; pulse?: boolean }) {
+function TrophyImage({ size = 56, pulse = false, className = '' }: { size?: number; pulse?: boolean; className?: string }) {
   return (
-    <svg
-      width={size} height={size}
-      viewBox="0 0 56 56"
+    <img
+      src={BET62_TROPHY_PNG_URL}
+      alt="Troféu Bet62"
+      width={size}
+      height={size}
+      className={className}
       style={{
         filter: pulse
           ? 'drop-shadow(0 0 22px rgba(255,200,40,1)) drop-shadow(0 0 44px rgba(255,160,0,0.7))'
           : 'drop-shadow(0 0 10px rgba(255,185,30,0.6)) drop-shadow(0 0 20px rgba(255,140,0,0.35))',
         transform: pulse ? 'scale(1.18) translateY(-4px)' : 'scale(1) translateY(0)',
         transition: 'transform 0.35s cubic-bezier(0.34,1.56,0.64,1), filter 0.35s',
-        animation: 'wcTrophyFloat 3.8s ease-in-out infinite',
+        animation: 'wcTrophyFloat 3.8s ease-in-out infinite, wcTrophyShake 2.8s ease-in-out infinite',
       }}
-    >
-      {/* Cup body */}
-      <path d="M18 8 L38 8 L36 28 Q28 34 20 28 Z" fill="url(#tg1)" />
-      {/* Handles */}
-      <path d="M18 10 Q8 12 10 22 Q12 28 20 26" fill="none" stroke="url(#tg2)" strokeWidth="2.5" strokeLinecap="round" />
-      <path d="M38 10 Q48 12 46 22 Q44 28 36 26" fill="none" stroke="url(#tg2)" strokeWidth="2.5" strokeLinecap="round" />
-      {/* Stem */}
-      <rect x="25" y="28" width="6" height="10" fill="url(#tg1)" rx="1" />
-      {/* Base */}
-      <rect x="19" y="38" width="18" height="4" fill="url(#tg1)" rx="2" />
-      {/* Base foot */}
-      <rect x="16" y="42" width="24" height="3" fill="url(#tg3)" rx="1.5" />
-      {/* Star */}
-      <path d="M28 13 L29 16 L32 16 L30 18 L31 21 L28 19 L25 21 L26 18 L24 16 L27 16 Z" fill="rgba(255,255,255,0.55)" />
-      <defs>
-        <linearGradient id="tg1" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#fff5a0" />
-          <stop offset="40%" stopColor="#ffd040" />
-          <stop offset="100%" stopColor="#b07010" />
-        </linearGradient>
-        <linearGradient id="tg2" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#ffd060" />
-          <stop offset="100%" stopColor="#c08020" />
-        </linearGradient>
-        <linearGradient id="tg3" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#c08010" />
-          <stop offset="50%" stopColor="#ffd040" />
-          <stop offset="100%" stopColor="#c08010" />
-        </linearGradient>
-      </defs>
-    </svg>
+      loading="eager"
+      draggable={false}
+    />
   );
 }
 
@@ -341,9 +317,9 @@ export default function WorldCupBanner({ variant = 'compact', disableLink = fals
       {isHero && (
         <div
           className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
-          style={{ paddingBottom: 80 }}
+          style={{ paddingBottom: 76 }}
         >
-          <TrophySvg size={96} pulse={trophyPulse} />
+          <TrophyImage size={190} pulse={trophyPulse} className="select-none" />
         </div>
       )}
 
@@ -354,7 +330,7 @@ export default function WorldCupBanner({ variant = 'compact', disableLink = fals
           {/* Trophy — compact */}
           {!isHero && (
             <div className="shrink-0 hidden sm:block">
-              <TrophySvg size={isHero ? 64 : 52} pulse={trophyPulse} />
+              <TrophyImage size={68} pulse={trophyPulse} className="select-none" />
             </div>
           )}
 
@@ -442,7 +418,7 @@ export default function WorldCupBanner({ variant = 'compact', disableLink = fals
                 (e.currentTarget as HTMLElement).style.filter = 'brightness(1)';
               }}
             >
-              <span style={{ fontSize: 20, lineHeight: 1, filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}>🏆</span>
+              <TrophyImage size={34} pulse={trophyPulse} />
               <span>Aposte Agora</span>
             </button>
           )}
@@ -458,6 +434,12 @@ export default function WorldCupBanner({ variant = 'compact', disableLink = fals
         @keyframes wcTrophyFloat {
           0%,100% { transform:translateY(0px); }
           50%      { transform:translateY(-10px); }
+        }
+        @keyframes wcTrophyShake {
+          0%,100% { margin-left: 0; }
+          25% { margin-left: 2px; }
+          50% { margin-left: -2px; }
+          75% { margin-left: 1px; }
         }
         @keyframes wcRay {
           0%   { opacity:0.04; }
