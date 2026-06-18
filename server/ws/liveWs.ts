@@ -7,7 +7,7 @@ import {
   fetchSportsApiProMatchOddsLive,
   fetchSportsApiProMatchOddsPreMatch,
   parseSportsApiProMatchOddsPayload,
-} from '../services/sportsApiPro';
+} from '../services/sportsApiPro.js';
 
 type ClientInfo = { ws: WebSocket; sport: string };
 type UpstreamInfo = {
