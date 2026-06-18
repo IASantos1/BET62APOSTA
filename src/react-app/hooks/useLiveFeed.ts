@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, startTransition } from 'react';
 import { apiFetch } from '../utils/api';
 
 const __DBG_URL = (import.meta.env.DEV && (import.meta as any).env?.VITE_DEBUG_SERVER_URL)
@@ -294,7 +294,7 @@ export function useLiveFeed(sport?: string) {
 
           const now = Date.now();
           const graceMs = 120_000;
-          setEventsMap((prev) => {
+          startTransition(() => setEventsMap((prev) => {
               const next = new Map<string, any>(prev);
               const seen = new Set<string>();
 
@@ -341,7 +341,7 @@ export function useLiveFeed(sport?: string) {
               }
               _liveCache.set(_sportKey, { map: next, ts: now });
               return next;
-          });
+          }));
           setLastUpdatedAt(now);
       } catch (err) {
           console.error('[useLiveFeed] Polling error:', err);
@@ -464,7 +464,7 @@ export function useLiveFeed(sport?: string) {
             }
             __dbg('H1', 'ws-snapshot', { sport: String(sport || 'all'), count: msg.live.length });
             log('A', 'ws snapshot', { sport: String(sport || 'all'), count: msg.live.length });
-            setEventsMap((prev) => {
+            startTransition(() => setEventsMap((prev) => {
               const next = new Map<string, any>(prev);
               const seen = new Set<string>();
               msg.live.forEach((raw: any) => {
@@ -509,7 +509,7 @@ export function useLiveFeed(sport?: string) {
               }
               _liveCache.set(_sportKey, { map: next, ts: now });
               return next;
-            });
+            }));
             setLastUpdatedAt(now);
             return;
           }

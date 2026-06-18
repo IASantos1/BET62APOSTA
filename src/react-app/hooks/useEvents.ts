@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'; 
+import { useState, useEffect, useRef, useCallback, startTransition } from 'react'; 
 import { EventSchema } from '@/shared/types'; 
 import type { Event } from '@/shared/types'; 
 import { apiFetch } from '@/react-app/utils/api';
@@ -111,7 +111,8 @@ export function useEvents(category?: string) {
             console.log('[useEvents] Filtered:', filteredRaw.length, 'Original:', parsed.data.length);
             const filtered = dedupEvents(filteredRaw);
             if (!eq(filtered, lastRef.current)) {
-              setEvents(filtered);
+              const snap = filtered;
+              startTransition(() => setEvents(snap));
               lastRef.current = filtered;
             }
           }
@@ -337,7 +338,8 @@ export function useEvents(category?: string) {
             return out;
           });
           if (!eq(stable, lastRef.current)) {
-            setEvents(stable);
+            const snap2 = stable;
+            startTransition(() => setEvents(snap2));
             lastRef.current = stable;
             try { localStorage.setItem(cacheKey, JSON.stringify(stable)); } catch { void 0 }
           }

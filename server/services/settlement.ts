@@ -600,10 +600,418 @@ export function evaluateSelection(
     return adj > 0 ? 'won' : adj === 0 ? 'void' : 'lost';
   }
 
-  // ── tennis: set winner / match winner ────────────────────────────────────────
-  if (mkKey === 'set_winner' || mkKey === 'set_betting') {
-    // Sets are not tracked in our current data → void
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TENNIS MARKETS
+  // In tennis: homeScore/awayScore = sets won; htHomeScore/htAwayScore = games
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── set_winner / set_betting (Tennis) ────────────────────────────────────────
+  if (mkKey === 'set_winner' || mkKey === 'set_betting' || mkKey === 'set_result') {
+    const homeWins = homeScore > awayScore;
+    const awayWins = awayScore > homeScore;
+    if (sel === 'home' || sel === 'casa' || sel === '1' ||
+      (result.homeName && sel.includes(normSel(result.homeName)))) return homeWins ? 'won' : 'lost';
+    if (sel === 'away' || sel === 'fora' || sel === '2' ||
+      (result.awayName && sel.includes(normSel(result.awayName)))) return awayWins ? 'won' : 'lost';
     return 'void';
+  }
+
+  // ── total_sets (Tennis) ──────────────────────────────────────────────────────
+  if (mkKey === 'total_sets' || mkKey === 'sets_total' || mkKey === 'number_of_sets') {
+    const totalSets = homeScore + awayScore;
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return totalSets > line ? 'won' : 'lost';
+      return totalSets < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return totalSets > line ? 'won' : totalSets === line ? 'void' : 'lost';
+      return totalSets < line ? 'won' : totalSets === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── total_games (Tennis) ──────────────────────────────────────────────────────
+  if (mkKey === 'total_games' || mkKey === 'games_total' || mkKey === 'number_of_games') {
+    // htHomeScore + htAwayScore stores total games when available; fallback to homeScore + awayScore
+    const totalGames = (result.htHomeScore !== null && result.htAwayScore !== null)
+      ? result.htHomeScore + result.htAwayScore
+      : homeScore + awayScore;
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return totalGames > line ? 'won' : 'lost';
+      return totalGames < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return totalGames > line ? 'won' : totalGames === line ? 'void' : 'lost';
+      return totalGames < line ? 'won' : totalGames === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── set_handicap / sets_handicap (Tennis) ────────────────────────────────────
+  if (mkKey === 'set_handicap' || mkKey === 'sets_handicap' || mkKey === 'set_spread') {
+    const lineMatch = selection.match(/([+-]?\d+(?:[.,]\d+)?)\s*$/);
+    if (!lineMatch) return 'void';
+    const handicap = parseFloat(lineMatch[1].replace(',', '.'));
+    const isHome = sel.includes('casa') || sel.includes('home') ||
+      (result.homeName && sel.includes(normSel(result.homeName)));
+    const isAway = sel.includes('fora') || sel.includes('away') ||
+      (result.awayName && sel.includes(normSel(result.awayName)));
+    if (!isHome && !isAway) return 'void';
+    const adj = isHome
+      ? homeScore + handicap - awayScore
+      : awayScore + handicap - homeScore;
+    const isHalfLine = handicap !== Math.floor(handicap);
+    if (isHalfLine) return adj > 0 ? 'won' : 'lost';
+    return adj > 0 ? 'won' : adj === 0 ? 'void' : 'lost';
+  }
+
+  // ── games_handicap (Tennis) ───────────────────────────────────────────────────
+  if (mkKey === 'games_handicap' || mkKey === 'game_spread') {
+    if (result.htHomeScore === null || result.htAwayScore === null) return 'void';
+    const lineMatch = selection.match(/([+-]?\d+(?:[.,]\d+)?)\s*$/);
+    if (!lineMatch) return 'void';
+    const handicap = parseFloat(lineMatch[1].replace(',', '.'));
+    const isHome = sel.includes('casa') || sel.includes('home') ||
+      (result.homeName && sel.includes(normSel(result.homeName)));
+    const isAway = sel.includes('fora') || sel.includes('away') ||
+      (result.awayName && sel.includes(normSel(result.awayName)));
+    if (!isHome && !isAway) return 'void';
+    const adj = isHome
+      ? result.htHomeScore + handicap - result.htAwayScore
+      : result.htAwayScore + handicap - result.htHomeScore;
+    const isHalfLine = handicap !== Math.floor(handicap);
+    if (isHalfLine) return adj > 0 ? 'won' : 'lost';
+    return adj > 0 ? 'won' : adj === 0 ? 'void' : 'lost';
+  }
+
+  // ── match_tiebreak / super_tiebreak (Tennis) ──────────────────────────────────
+  if (mkKey === 'match_tiebreak' || mkKey === 'super_tiebreak' || mkKey === 'championship_tiebreak') {
+    const homeWins = homeScore > awayScore;
+    const awayWins = awayScore > homeScore;
+    if (sel === 'home' || sel === 'casa' || sel === '1' ||
+      (result.homeName && sel.includes(normSel(result.homeName)))) return homeWins ? 'won' : 'lost';
+    if (sel === 'away' || sel === 'fora' || sel === '2' ||
+      (result.awayName && sel.includes(normSel(result.awayName)))) return awayWins ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BASKETBALL MARKETS
+  // homeScore/awayScore = total points; htHomeScore/htAwayScore = 1st-half pts
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── total_points (Basketball) ────────────────────────────────────────────────
+  if (mkKey === 'total_points' || mkKey === 'points_total' || mkKey === 'basketball_totals') {
+    const totalPts = homeScore + awayScore;
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over') || sel.includes('+');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return totalPts > line ? 'won' : 'lost';
+      return totalPts < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return totalPts > line ? 'won' : totalPts === line ? 'void' : 'lost';
+      return totalPts < line ? 'won' : totalPts === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── quarter_result / quarter_winner / period_result (Basketball) ─────────────
+  if (
+    mkKey === 'quarter_result' || mkKey === 'quarter_winner' ||
+    mkKey === 'period_result' || mkKey === 'period_winner'
+  ) {
+    if (result.htHomeScore === null || result.htAwayScore === null) return 'void';
+    const pHome = result.htHomeScore;
+    const pAway = result.htAwayScore;
+    const homeWins = pHome > pAway;
+    const awayWins = pAway > pHome;
+    const draw = pHome === pAway;
+    if (sel === '1' || sel === 'home' || sel === 'casa' ||
+      (result.homeName && sel.includes(normSel(result.homeName)))) return homeWins ? 'won' : 'lost';
+    if (sel === 'x' || sel === 'draw' || sel === 'empate') return draw ? 'won' : 'lost';
+    if (sel === '2' || sel === 'away' || sel === 'fora' ||
+      (result.awayName && sel.includes(normSel(result.awayName)))) return awayWins ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── quarter_totals / period_totals (Basketball / Hockey) ────────────────────
+  if (
+    mkKey === 'quarter_totals' || mkKey === 'period_totals' ||
+    mkKey === 'half_totals_basketball' || mkKey === 'quarter_ou'
+  ) {
+    if (result.htHomeScore === null || result.htAwayScore === null) return 'void';
+    const periodTotal = result.htHomeScore + result.htAwayScore;
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return periodTotal > line ? 'won' : 'lost';
+      return periodTotal < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return periodTotal > line ? 'won' : periodTotal === line ? 'void' : 'lost';
+      return periodTotal < line ? 'won' : periodTotal === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── point_spread / basketball_spread (Basketball) ────────────────────────────
+  if (mkKey === 'point_spread' || mkKey === 'basketball_spread' || mkKey === 'pts_spread') {
+    const lineMatch = selection.match(/([+-]?\d+(?:[.,]\d+)?)\s*$/);
+    if (!lineMatch) return 'void';
+    const handicap = parseFloat(lineMatch[1].replace(',', '.'));
+    const isHome = sel.includes('casa') || sel.includes('home') ||
+      (result.homeName && sel.includes(normSel(result.homeName)));
+    const isAway = sel.includes('fora') || sel.includes('away') ||
+      (result.awayName && sel.includes(normSel(result.awayName)));
+    if (!isHome && !isAway) return 'void';
+    const adj = isHome
+      ? homeScore + handicap - awayScore
+      : awayScore + handicap - homeScore;
+    const isHalfLine = handicap !== Math.floor(handicap);
+    if (isHalfLine) return adj > 0 ? 'won' : 'lost';
+    return adj > 0 ? 'won' : adj === 0 ? 'void' : 'lost';
+  }
+
+  // ── home_team_points / away_team_points (Basketball) ────────────────────────
+  if (mkKey === 'home_team_points' || mkKey === 'team_points_home') {
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return homeScore > line ? 'won' : 'lost';
+      return homeScore < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return homeScore > line ? 'won' : homeScore === line ? 'void' : 'lost';
+      return homeScore < line ? 'won' : homeScore === line ? 'void' : 'lost';
+    }
+  }
+
+  if (mkKey === 'away_team_points' || mkKey === 'team_points_away') {
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return awayScore > line ? 'won' : 'lost';
+      return awayScore < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return awayScore > line ? 'won' : awayScore === line ? 'void' : 'lost';
+      return awayScore < line ? 'won' : awayScore === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── highest_scoring_quarter (Basketball) ────────────────────────────────────
+  if (mkKey === 'highest_scoring_quarter' || mkKey === 'race_to_points') {
+    // Without granular quarter data this cannot be resolved
+    return 'void';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ICE HOCKEY MARKETS
+  // homeScore/awayScore = total goals; htHomeScore/htAwayScore = 1st period
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── overtime_result / shootout_result (Hockey) ───────────────────────────────
+  if (
+    mkKey === 'overtime_result' || mkKey === 'shootout_result' ||
+    mkKey === 'ot_result' || mkKey === 'resultado_prorrogacao' || mkKey === 'resultado_shootout'
+  ) {
+    const homeWins = homeScore > awayScore;
+    const awayWins = awayScore > homeScore;
+    if (sel === 'home' || sel === 'casa' || sel === '1' ||
+      (result.homeName && sel.includes(normSel(result.homeName)))) return homeWins ? 'won' : 'lost';
+    if (sel === 'away' || sel === 'fora' || sel === '2' ||
+      (result.awayName && sel.includes(normSel(result.awayName)))) return awayWins ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── period1_result / period2_result / period3_result (Hockey) ────────────────
+  if (
+    mkKey === 'period1_result' || mkKey === '1st_period' || mkKey === 'period_1_winner' ||
+    mkKey === 'period2_result' || mkKey === '2nd_period' || mkKey === 'period_2_winner' ||
+    mkKey === 'period3_result' || mkKey === '3rd_period' || mkKey === 'period_3_winner'
+  ) {
+    if (result.htHomeScore === null || result.htAwayScore === null) return 'void';
+    const pHome = result.htHomeScore;
+    const pAway = result.htAwayScore;
+    const pDraw = pHome === pAway;
+    if (sel === '1' || sel === 'home' || sel === 'casa' ||
+      (result.homeName && sel.includes(normSel(result.homeName)))) return pHome > pAway ? 'won' : 'lost';
+    if (sel === 'x' || sel === 'draw' || sel === 'empate') return pDraw ? 'won' : 'lost';
+    if (sel === '2' || sel === 'away' || sel === 'fora' ||
+      (result.awayName && sel.includes(normSel(result.awayName)))) return pAway > pHome ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── hockey_60min_result (3-way result after 60 min, before OT) ───────────────
+  if (mkKey === 'hockey_60min' || mkKey === 'result_60min' || mkKey === 'regulation_result') {
+    // 60-minute result: home win, draw (goes to OT), or away win
+    // We use the final result as a proxy (correct if game didn't go to OT)
+    const homeWins = homeScore > awayScore;
+    const awayWins = awayScore > homeScore;
+    const draw = homeScore === awayScore;
+    if (sel === '1' || sel === 'home' || sel === 'casa') return homeWins ? 'won' : 'lost';
+    if (sel === 'x' || sel === 'draw' || sel === 'empate') return draw ? 'won' : 'lost';
+    if (sel === '2' || sel === 'away' || sel === 'fora') return awayWins ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── total_goals_hockey (Hockey) ───────────────────────────────────────────────
+  if (mkKey === 'total_goals_hockey' || mkKey === 'hockey_ou' || mkKey === 'hockey_totals') {
+    const totalGoalsHockey = homeScore + awayScore;
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return totalGoalsHockey > line ? 'won' : 'lost';
+      return totalGoalsHockey < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return totalGoalsHockey > line ? 'won' : totalGoalsHockey === line ? 'void' : 'lost';
+      return totalGoalsHockey < line ? 'won' : totalGoalsHockey === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── game_went_to_ot / game_went_to_shootout (Hockey) ────────────────────────
+  if (mkKey === 'game_went_to_ot' || mkKey === 'overtime_yn' || mkKey === 'will_there_be_ot') {
+    // Cannot determine without OT flag in result data → void
+    return 'void';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BASEBALL MARKETS
+  // homeScore/awayScore = total runs; htHomeScore/htAwayScore = first 5 innings
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── total_runs (Baseball) ────────────────────────────────────────────────────
+  if (mkKey === 'total_runs' || mkKey === 'runs_total' || mkKey === 'baseball_ou') {
+    const totalRuns = homeScore + awayScore;
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return totalRuns > line ? 'won' : 'lost';
+      return totalRuns < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return totalRuns > line ? 'won' : totalRuns === line ? 'void' : 'lost';
+      return totalRuns < line ? 'won' : totalRuns === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── first_5_innings / f5_innings (Baseball) ───────────────────────────────────
+  if (
+    mkKey === 'first_5_innings' || mkKey === 'f5_innings' ||
+    mkKey === '5_innings_result' || mkKey === 'first_5_result'
+  ) {
+    if (result.htHomeScore === null || result.htAwayScore === null) return 'void';
+    const f5Home = result.htHomeScore;
+    const f5Away = result.htAwayScore;
+    const homeWins = f5Home > f5Away;
+    const awayWins = f5Away > f5Home;
+    const draw = f5Home === f5Away;
+    if (sel === '1' || sel === 'home' || sel === 'casa' ||
+      (result.homeName && sel.includes(normSel(result.homeName)))) return homeWins ? 'won' : 'lost';
+    if (sel === 'x' || sel === 'draw' || sel === 'empate') return draw ? 'won' : 'lost';
+    if (sel === '2' || sel === 'away' || sel === 'fora' ||
+      (result.awayName && sel.includes(normSel(result.awayName)))) return awayWins ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── first_5_innings_totals / f5_totals (Baseball) ────────────────────────────
+  if (
+    mkKey === 'first_5_innings_totals' || mkKey === 'f5_totals' ||
+    mkKey === '5_innings_totals' || mkKey === 'f5_ou'
+  ) {
+    if (result.htHomeScore === null || result.htAwayScore === null) return 'void';
+    const f5Total = result.htHomeScore + result.htAwayScore;
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return f5Total > line ? 'won' : 'lost';
+      return f5Total < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return f5Total > line ? 'won' : f5Total === line ? 'void' : 'lost';
+      return f5Total < line ? 'won' : f5Total === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── innings_run_line (Baseball) ───────────────────────────────────────────────
+  if (mkKey === 'innings_run_line' || mkKey === 'f5_run_line') {
+    if (result.htHomeScore === null || result.htAwayScore === null) return 'void';
+    const lineMatch = selection.match(/([+-]?\d+(?:[.,]\d+)?)\s*$/);
+    if (!lineMatch) return 'void';
+    const handicap = parseFloat(lineMatch[1].replace(',', '.'));
+    const isHome = sel.includes('casa') || sel.includes('home') ||
+      (result.homeName && sel.includes(normSel(result.homeName)));
+    const isAway = sel.includes('fora') || sel.includes('away') ||
+      (result.awayName && sel.includes(normSel(result.awayName)));
+    if (!isHome && !isAway) return 'void';
+    const adj = isHome
+      ? result.htHomeScore + handicap - result.htAwayScore
+      : result.htAwayScore + handicap - result.htHomeScore;
+    const isHalfLine = handicap !== Math.floor(handicap);
+    if (isHalfLine) return adj > 0 ? 'won' : 'lost';
+    return adj > 0 ? 'won' : adj === 0 ? 'void' : 'lost';
+  }
+
+  // ── team_runs_home / team_runs_away (Baseball) ────────────────────────────────
+  if (mkKey === 'team_runs_home' || mkKey === 'home_runs_total') {
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return homeScore > line ? 'won' : 'lost';
+      return homeScore < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return homeScore > line ? 'won' : homeScore === line ? 'void' : 'lost';
+      return homeScore < line ? 'won' : homeScore === line ? 'void' : 'lost';
+    }
+  }
+
+  if (mkKey === 'team_runs_away' || mkKey === 'away_runs_total') {
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return awayScore > line ? 'won' : 'lost';
+      return awayScore < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return awayScore > line ? 'won' : awayScore === line ? 'void' : 'lost';
+      return awayScore < line ? 'won' : awayScore === line ? 'void' : 'lost';
+    }
   }
 
   // Unknown market → void (safe default)
