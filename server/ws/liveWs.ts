@@ -347,8 +347,9 @@ export function createLiveWs(apiKey: string) {
   const sendSnapshot = async (sport: string) => {
     const now = Date.now();
     const prev = lastSent.get(sport) || 0;
-    // Reduzido de 2500ms para 1000ms para maior fluidez
-    const throttleMs = sport === 'all' || sport === 'soccer' ? 1000 : 3000;
+    // Mantém snapshots curtos para todos os esportes ao vivo; o upstream WS
+    // já traz os deltas de placar em tempo real e o snapshot serve de bootstrap.
+    const throttleMs = 1000;
     if (now - prev < throttleMs) return;
     lastSent.set(sport, now);
 

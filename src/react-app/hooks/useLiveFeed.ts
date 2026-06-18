@@ -356,6 +356,7 @@ export function useLiveFeed(sport?: string) {
     let ws: WebSocket | null = null;
     let wsOk = false;
     let pingId: ReturnType<typeof setInterval> | null = null;
+    let missingDeltaRefreshAt = 0;
     const idleMs = 60_000;
     let lastInteractionAt = Date.now();
     let hiddenAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
@@ -520,7 +521,15 @@ export function useLiveFeed(sport?: string) {
               const next = new Map<string, any>(prev);
               const id = String(delta.id);
               const prevVal = next.get(id);
-              if (!prevVal) return prev; // Se não temos o jogo no snapshot, ignoramos o delta até o próximo snapshot
+              if (!prevVal) {
+                // Se o delta chega antes do snapshot/bootstrap, força uma
+                // sincronização imediata para evitar ficar preso ao polling.
+                if (now - missingDeltaRefreshAt > 1000) {
+                  missingDeltaRefreshAt = now;
+                  fetchLiveEvents().catch(() => void 0);
+                }
+                return prev;
+              }
 
               const merged = { ...prevVal, __lastSeenAt: now };
               
