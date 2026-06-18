@@ -6,7 +6,54 @@ interface WorldCupBannerProps {
   disableLink?: boolean;
 }
 
-export const BET62_TROPHY_PNG_URL = "https://coresg-normal.trae.ai/api/ide/v1/text_to_image?prompt=transparent%20background%2C%20premium%203D%20golden%20football%20world%20cup%20style%20trophy%20with%20bold%20metallic%20BET62%20lettering%20integrated%20into%20the%20cup%2C%20luxury%20casino%20sportsbook%20branding%2C%20highly%20detailed%20polished%20gold%2C%20studio%20lighting%2C%20realistic%20reflections%2C%20clean%20cutout%2C%20no%20background%2C%20centered%20composition%2C%20png%20asset&image_size=portrait_4_3";
+const BET62_TROPHY_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 520" fill="none">
+  <defs>
+    <linearGradient id="goldMain" x1="60" y1="20" x2="320" y2="410" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFF7C2"/>
+      <stop offset="0.24" stop-color="#FFD76A"/>
+      <stop offset="0.5" stop-color="#F3A81B"/>
+      <stop offset="0.76" stop-color="#B36A08"/>
+      <stop offset="1" stop-color="#FFE289"/>
+    </linearGradient>
+    <linearGradient id="goldDark" x1="78" y1="44" x2="345" y2="404" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6B3B00"/>
+      <stop offset="0.34" stop-color="#B9780E"/>
+      <stop offset="0.68" stop-color="#F8C645"/>
+      <stop offset="1" stop-color="#7A4302"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(210 248) rotate(90) scale(214 170)">
+      <stop stop-color="#FFD54F" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#FFD54F" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="14" y="8" width="392" height="500" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#A05A00" flood-opacity="0.35"/>
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#FFD15B" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <ellipse cx="210" cy="470" rx="150" ry="20" fill="#7A4C08" fill-opacity="0.25"/>
+    <ellipse cx="210" cy="250" rx="150" ry="128" fill="url(#glow)"/>
+    <path d="M121 109C121 88 138 71 159 71H261C282 71 299 88 299 109V189C299 253 257 309 210 330C163 309 121 253 121 189V109Z" fill="url(#goldMain)"/>
+    <path d="M147 76H273C268 143 236 192 174 214C145 183 131 144 147 76Z" fill="url(#goldDark)" fill-opacity="0.22"/>
+    <path d="M121 124C86 128 67 151 67 181C67 219 95 244 139 244" stroke="url(#goldMain)" stroke-width="16" stroke-linecap="round"/>
+    <path d="M299 124C334 128 353 151 353 181C353 219 325 244 281 244" stroke="url(#goldMain)" stroke-width="16" stroke-linecap="round"/>
+    <rect x="184" y="320" width="52" height="60" rx="14" fill="url(#goldMain)"/>
+    <rect x="145" y="374" width="130" height="34" rx="17" fill="url(#goldMain)"/>
+    <rect x="108" y="404" width="204" height="42" rx="21" fill="url(#goldDark)"/>
+    <rect x="86" y="434" width="248" height="30" rx="15" fill="url(#goldMain)"/>
+    <circle cx="210" cy="66" r="42" fill="url(#goldMain)"/>
+    <path d="M180 51H240C233 87 215 105 190 115C176 94 171 75 180 51Z" fill="#5A3100" fill-opacity="0.18"/>
+    <text x="210" y="170" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="900" fill="url(#goldDark)" letter-spacing="3">BET</text>
+    <text x="210" y="264" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="138" font-weight="900" fill="url(#goldDark)" letter-spacing="2">62</text>
+    <g fill="#FFD86B" fill-opacity="0.9">
+      <circle cx="126" cy="448" r="4"/><circle cx="152" cy="448" r="4"/><circle cx="178" cy="448" r="4"/>
+      <circle cx="204" cy="448" r="4"/><circle cx="230" cy="448" r="4"/><circle cx="256" cy="448" r="4"/><circle cx="282" cy="448" r="4"/>
+    </g>
+  </g>
+</svg>`;
+
+export const BET62_TROPHY_PNG_URL = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(BET62_TROPHY_SVG)}`;
 
 // ── Stable particle definitions (no random on render) ─────────────────────
 const PARTICLES = Array.from({ length: 36 }, (_, i) => ({
