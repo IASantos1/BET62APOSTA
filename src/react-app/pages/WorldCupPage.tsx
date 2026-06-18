@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import WorldCupBanner from '../components/WorldCupBanner';
+import WorldCupBanner, { BET62_TROPHY_PNG_URL } from '../components/WorldCupBanner';
 import WorldCupMatchCard from '../components/WorldCupMatchCard';
 
 // ── Module-level cache so navigation back to this page is instant ──────────
@@ -229,7 +229,16 @@ export default function WorldCupPage() {
           </div>
         ) : error || totalGames === 0 ? (
           <div className="text-center py-24">
-            <div className="text-5xl mb-4">🏆</div>
+            <img
+              src={BET62_TROPHY_PNG_URL}
+              alt="Troféu Bet62"
+              className="w-28 h-28 object-contain mx-auto mb-4 select-none"
+              style={{
+                filter: 'drop-shadow(0 0 22px rgba(255,190,40,0.55))',
+                animation: 'wcPageTrophyShake 2.8s ease-in-out infinite',
+              }}
+              draggable={false}
+            />
             <p className="text-amber-100 font-bold mb-1">Jogos indisponíveis de momento</p>
             <p className="text-amber-200/60 text-sm">
               Os jogos da Copa do Mundo 2026 começam a 11 de junho. Volte em breve.
@@ -265,6 +274,14 @@ export default function WorldCupPage() {
           </div>
         )}
       </div>
+      <style>{`
+        @keyframes wcPageTrophyShake {
+          0%,100% { transform: translate3d(0,0,0) rotate(0deg); }
+          25% { transform: translate3d(1px,-1px,0) rotate(-1.3deg); }
+          50% { transform: translate3d(-1px,1px,0) rotate(1.2deg); }
+          75% { transform: translate3d(1px,0,0) rotate(-0.8deg); }
+        }
+      `}</style>
     </div>
   );
 }

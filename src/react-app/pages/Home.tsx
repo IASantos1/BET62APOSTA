@@ -7,10 +7,10 @@ import { useMergedEvents } from '../hooks/useMergedEvents';
 import EventCard from '../components/EventCard';
 import { Sidebar } from '../components/Sidebar';
 import { BannerCarousel } from '../components/BannerCarousel';
-import WorldCupBanner from '../components/WorldCupBanner';
+import WorldCupBanner, { BET62_TROPHY_PNG_URL } from '../components/WorldCupBanner';
 import { BetSlip } from '../components/BetSlip';
 import { useNavigate } from 'react-router-dom';
-import { getSportIcon } from '../../shared/helpers';
+import { formatLeagueHeader, getLeagueLogo, getSportIcon } from '../../shared/helpers';
 import { useEventSearch } from '../hooks/useEventSearch';
 import { useUpcomingCache } from '../hooks/useUpcomingCache';
 import { useGroupedEvents } from '../hooks/useGroupedEvents';
@@ -59,6 +59,42 @@ const isFinishedEvent = (e: any) => {
   if (done.has(k)) return true;
   if (/MATCHFINISHED|FULLTIME|GAMEOVER|ENCERRAD|TERMINAD/.test(k)) return true;
   return false;
+};
+
+const SPORT_FILTER_DEFS = [
+  { key: 'soccer', label: 'Futebol', emoji: '⚽' },
+  { key: 'tennis', label: 'Ténis', emoji: '🎾' },
+  { key: 'basketball', label: 'Basquetebol', emoji: '🏀' },
+  { key: 'ice-hockey', label: 'Hóquei', emoji: '🏒' },
+  { key: 'baseball', label: 'Beisebol', emoji: '⚾' },
+] as const;
+
+const normalizeSportKey = (sport: any): string => {
+  const s = String(sport || '').toLowerCase().trim();
+  if (!s) return '';
+  if (s.includes('football') && !s.includes('american')) return 'soccer';
+  if (s.includes('futebol') || s.includes('soccer')) return 'soccer';
+  if (s.includes('tennis') || s.includes('ténis') || s.includes('tenis')) return 'tennis';
+  if (s.includes('basketball') || s.includes('basquete') || s.includes('basquet')) return 'basketball';
+  if ((s.includes('ice') && s.includes('hockey')) || s.includes('hóquei') || s === 'hockey') return 'ice-hockey';
+  if (s.includes('baseball') || s.includes('beisebol')) return 'baseball';
+  return s.replace(/\s+/g, '-');
+};
+
+const getEventLeagueName = (event: any) => {
+  const formatted = formatLeagueHeader({ league: event?.league, country: event?.country });
+  const rawLeague = typeof event?.league === 'string' ? event.league : event?.league?.name;
+  return formatted.league || String(rawLeague || event?.league_name || '').trim() || 'Liga';
+};
+
+const getEventLeagueMeta = (event: any) => {
+  const sport = normalizeSportKey(event?.sport || 'soccer');
+  const league = getEventLeagueName(event);
+  return {
+    league,
+    sport,
+    logo: getLeagueLogo({ league, country: event?.country }, sport),
+  };
 };
 
 function Home({ mode = 'home' }: HomeProps) {
@@ -341,134 +377,6 @@ function Home({ mode = 'home' }: HomeProps) {
       });
   }, [mode, processedLive, pregame7Days, todayKey]);
 
-  const featuredUpcomingGroups = useMemo(() => {
-    if (mode !== 'home') return [];
-    if (!isMainSports) return [];
-    const normalizeSport = (raw: any) => {
-      const s = String(raw || '').toLowerCase().trim();
-      if (s.includes('soccer') || (s.includes('football') && !s.includes('american')) || s.includes('futebol')) return 'soccer';
-      if (s.includes('tennis') || s.includes('tenis') || s.includes('ténis')) return 'tennis';
-      if (s.includes('basketball') || s.includes('basquete')) return 'basketball';
-      if (s.includes('ice-hockey') || s.includes('ice hockey') || s.includes('hockey') || s.includes('hóquei')) return 'ice-hockey';
-      if (s.includes('baseball') || s.includes('beisebol')) return 'baseball';
-      return s || 'other';
-    };
-    const leagueNameOf = (e: any) => {
-      const l = e?.league;
-      const raw = typeof l === 'string' ? l : l?.name;
-      return String(raw || e?.league_name || '').toLowerCase().trim();
-    };
-    const countryOf = (e: any) => String(e?.country || '').toLowerCase().trim();
-    const importanceScore = (sport: string, e: any) => {
-      const league = leagueNameOf(e);
-      const country = countryOf(e);
-      const name = `${country} ${league}`;
-      if (sport === 'soccer') {
-        if (/champions|uefa\s*champions|ucl/.test(name)) return 120;
-        if (/premier\s*league|epl/.test(name)) return 115;
-        if (/la\s*liga|laliga|primera/.test(name)) return 110;
-        if (/serie\s*a\b/.test(name) && /ital/i.test(name)) return 110;
-        if (/bundesliga/.test(name)) return 105;
-        if (/ligue\s*1/.test(name)) return 100;
-        if (/brasil|brazil|brasileir|campeonato\s*brasileiro|serie\s*a\b/.test(name)) return 108;
-        if (/copa\s*do\s*brasil/.test(name)) return 95;
-        if (/libertadores|sudamericana/.test(name)) return 92;
-        return 10;
-      }
-      if (sport === 'tennis') {
-        if (/grand\s*slam|wimbledon|roland|australian|us\s*open/.test(name)) return 110;
-        if (/atp\b/.test(name)) return 100;
-        if (/wta\b/.test(name)) return 95;
-        if (/challenger/.test(name)) return 70;
-        return 10;
-      }
-      if (sport === 'basketball') {
-        if (/\bnba\b/.test(name)) return 110;
-        if (/euroleague/.test(name)) return 95;
-        if (/ncaa/.test(name)) return 80;
-        return 10;
-      }
-      if (sport === 'ice-hockey') {
-        if (/\bnhl\b/.test(name)) return 110;
-        if (/\bshl\b/.test(name)) return 85;
-        if (/\bkhl\b/.test(name)) return 80;
-        return 10;
-      }
-      if (sport === 'baseball') {
-        if (/\bmlb\b/.test(name)) return 110;
-        return 10;
-      }
-      return 0;
-    };
-    const bySport = (events: Event[]) => {
-      const out = new Map<string, Event[]>();
-      for (const e of events) {
-        const sport = normalizeSport((e as any)?.sport);
-        if (!out.has(sport)) out.set(sport, []);
-        out.get(sport)!.push(e);
-      }
-      return out;
-    };
-    const pickQuota = (events: Event[], sport: string, limit: number) => {
-      const minScoreBySport: Record<string, number> = {
-        'soccer': 90,
-        'tennis': 70,
-        'basketball': 70,
-        'ice-hockey': 80,
-        'baseball': 90,
-      };
-      const minScore = minScoreBySport[sport] ?? 0;
-      const items = [...events]
-        .map((e) => {
-          const start = new Date((e as any).event_date || (e as any).start_time || (e as any).fixture?.date || 0).getTime();
-          return { e, start, score: importanceScore(sport, e) };
-        })
-        .sort((a, b) => (b.score - a.score) || (a.start - b.start));
-      const picked: Event[] = [];
-      const preferred = items.filter((x) => x.score >= minScore);
-      for (const it of preferred) {
-        if (picked.length >= limit) break;
-        picked.push(it.e);
-      }
-      if (picked.length < limit) {
-        const pickedSet = new Set(picked.map((e) => mergeKeyOf(e)));
-        const fallback = items
-          .filter((x) => !pickedSet.has(mergeKeyOf(x.e)))
-          .sort((a, b) => (b.score - a.score) || (a.start - b.start));
-        // Cap small leagues (score < minScore) at 2 events each so the home feed
-        // stays clean when only minor competitions are available.
-        const smallLeagueCap = new Map<string, number>();
-        for (const it of fallback) {
-          if (picked.length >= limit) break;
-          if (it.score < minScore) {
-            const lg = leagueNameOf(it.e);
-            const cnt = smallLeagueCap.get(lg) ?? 0;
-            if (cnt >= 2) continue;
-            smallLeagueCap.set(lg, cnt + 1);
-          }
-          picked.push(it.e);
-        }
-      }
-      return picked;
-    };
-    const source = sortedUpcoming as Event[];
-    const m = bySport(source);
-    const quotas: Array<{ sport: string; label: string; limit: number }> = [
-      { sport: 'soccer', label: 'Futebol', limit: 15 },
-      { sport: 'tennis', label: 'Ténis', limit: 10 },
-      { sport: 'basketball', label: 'Basquetebol', limit: 10 },
-      { sport: 'ice-hockey', label: 'Hóquei', limit: 5 },
-      { sport: 'baseball', label: 'Beisebol', limit: 5 },
-    ];
-    const groups: Array<[string, Event[]]> = [];
-    for (const q of quotas) {
-      const list = m.get(q.sport) || [];
-      const picked = pickQuota(list, q.sport, q.limit);
-      if (picked.length) groups.push([q.label, picked]);
-    }
-    return groups;
-  }, [isMainSports, mode, sortedUpcoming]);
-
   // Strict separation: Desporto = pregame only | AO VIVO = live only
   const displayedLive    = mode === 'live' ? processedLive : [];
   const displayedUpcoming = useMemo(() => {
@@ -483,77 +391,166 @@ function Home({ mode = 'home' }: HomeProps) {
 
   const MAX_EVENTS = mode === 'live' ? 120 : 500; // live≤120, pregame sem limite prático
 
-  const limitedUpcoming = useMemo(() => {
-    // League filter overrides everything — use raw groupedUpcoming filtered by league
-    if (leagueFilter) {
-      return groupedUpcoming.filter(([league]) => league === leagueFilter);
-    }
-    // Sport filter: group events by sport and return those matching
-    if (sportFilter && mode === 'home') {
-      const sportMap: Record<string, string> = {
-        'Futebol': 'soccer', 'Ténis': 'tennis', 'Basquetebol': 'basketball',
-        'Hóquei': 'ice-hockey', 'Beisebol': 'baseball', 'Voleibol': 'volleyball',
-        'Andebol': 'handball',
-      };
-      const targetSport = sportMap[sportFilter] || sportFilter.toLowerCase();
-      return groupedUpcoming.filter(([, events]) =>
-        events.some((e) => String((e as any)?.sport || '').toLowerCase() === targetSport)
-      );
-    }
-    let remaining = MAX_EVENTS;
-    const result: [string, Event[]][] = [];
+  const flatLiveEvents = useMemo(() => groupedLive.flatMap(([, events]) => events), [groupedLive]);
+  const flatUpcomingEvents = useMemo(() => groupedUpcoming.flatMap(([, events]) => events), [groupedUpcoming]);
+  const flatNext7Events = useMemo(() => groupedNext7.flatMap(([, events]) => events), [groupedNext7]);
 
-    for (const [league, events] of groupedUpcoming) {
-      if (remaining <= 0) break;
-      const take = Math.min(events.length, remaining);
-      if (take > 0) {
-        result.push([league, events.slice(0, take)]);
-        remaining -= take;
-      }
-    }
-    return result;
-  }, [groupedUpcoming, MAX_EVENTS, mode, isMainSports, featuredUpcomingGroups, sportFilter, leagueFilter]);
+  const filterEventsByControls = (events: Event[]) => {
+    return events.filter((ev: any) => {
+      const sportOk = !sportFilter || normalizeSportKey(ev?.sport) === sportFilter;
+      const leagueName = getEventLeagueName(ev);
+      const leagueOk = !leagueFilter || leagueName === leagueFilter;
+      return sportOk && leagueOk;
+    });
+  };
 
-  const availableLeagues = useMemo(() => {
-    const out: Array<{ league: string; sport: string; count: number }> = [];
+  const limitEvents = (events: Event[], limit: number) => (limit > 0 ? events.slice(0, limit) : events);
+
+  const limitedUpcoming = useMemo(
+    () => limitEvents(filterEventsByControls(flatUpcomingEvents), MAX_EVENTS),
+    [flatUpcomingEvents, sportFilter, leagueFilter, MAX_EVENTS],
+  );
+
+  const limitedLive = useMemo(
+    () => limitEvents(filterEventsByControls(flatLiveEvents), 120),
+    [flatLiveEvents, sportFilter, leagueFilter],
+  );
+
+  const limitedNext7 = useMemo(
+    () => (mode === 'live' ? limitEvents(filterEventsByControls(flatNext7Events), 300) : []),
+    [flatNext7Events, sportFilter, leagueFilter, mode],
+  );
+
+  const buildLeagueOptions = (events: Event[]) => {
+    const out: Array<{ league: string; sport: string; count: number; logo: string }> = [];
     const seen = new Set<string>();
-    for (const [league, events] of groupedUpcoming) {
-      if (!seen.has(league) && events.length > 0) {
-        seen.add(league);
-        out.push({ league, sport: String((events[0] as any)?.sport || 'soccer'), count: events.length });
-      }
+    for (const ev of events as any[]) {
+      const meta = getEventLeagueMeta(ev);
+      if (!meta.league || seen.has(meta.league)) continue;
+      seen.add(meta.league);
+      out.push({
+        league: meta.league,
+        sport: meta.sport,
+        count: (events as any[]).filter((x) => getEventLeagueName(x) === meta.league).length,
+        logo: meta.logo,
+      });
       if (out.length >= 50) break;
     }
     return out;
-  }, [groupedUpcoming]);
+  };
 
-  const limitedNext7 = useMemo(() => {
-    if (mode !== 'live') return [];
-    let remaining = 300;
-    const result: [string, Event[]][] = [];
-    for (const [league, events] of groupedNext7) {
-      if (remaining <= 0) break;
-      const take = Math.min(events.length, remaining);
-      if (take > 0) {
-        result.push([league, events.slice(0, take)]);
-        remaining -= take;
-      }
-    }
-    return result;
-  }, [groupedNext7, mode]);
+  const homeBaseEvents = useMemo(
+    () => flatUpcomingEvents.filter((ev: any) => !sportFilter || normalizeSportKey(ev?.sport) === sportFilter),
+    [flatUpcomingEvents, sportFilter],
+  );
+  const liveBaseEvents = useMemo(
+    () => flatLiveEvents.filter((ev: any) => !sportFilter || normalizeSportKey(ev?.sport) === sportFilter),
+    [flatLiveEvents, sportFilter],
+  );
+
+  const availableLeagues = useMemo(
+    () => buildLeagueOptions(mode === 'live' ? liveBaseEvents : homeBaseEvents),
+    [homeBaseEvents, liveBaseEvents, mode],
+  );
+
+  const availableSportFilters = useMemo(() => {
+    const base = mode === 'live' ? flatLiveEvents : flatUpcomingEvents;
+    const keys = new Set(base.map((ev: any) => normalizeSportKey(ev?.sport)));
+    return SPORT_FILTER_DEFS.filter(({ key }) => keys.has(key));
+  }, [flatLiveEvents, flatUpcomingEvents, mode]);
 
   const noSearchResults = useMemo(() => {
     if (!query.trim()) return false;
-    const liveCount = groupedLive.reduce((acc, [, ev]) => acc + ev.length, 0);
-    const upCount = limitedUpcoming.reduce((acc, [, ev]) => acc + ev.length, 0);
-    const next7Count = limitedNext7.reduce((acc, [, ev]) => acc + ev.length, 0);
-    return liveCount + upCount + next7Count === 0;
-  }, [groupedLive, limitedUpcoming, limitedNext7, query]);
-
-  const upcomingIsFeatured = mode === 'home' && isMainSports && featuredUpcomingGroups.length > 0;
+    return limitedLive.length + limitedUpcoming.length + limitedNext7.length === 0;
+  }, [limitedLive, limitedUpcoming, limitedNext7, query]);
 
   const handleOpenEvent = (event: Event) => {
     navigate(`/event/${event.id}`);
+  };
+
+  const renderSportFilterBar = () => {
+    if (availableSportFilters.length === 0) return null;
+    return (
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
+        <button
+          onClick={() => { setSportFilter(null); setLeagueFilter(null); }}
+          className={`shrink-0 px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${
+            sportFilter === null && leagueFilter === null
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+              : darkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          }`}
+        >
+          Todos
+        </button>
+        {availableSportFilters.map(({ key, label, emoji }) => (
+          <button
+            key={key}
+            onClick={() => { setSportFilter(sportFilter === key ? null : key); setLeagueFilter(null); }}
+            className={`shrink-0 px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wide transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              sportFilter === key && !leagueFilter
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                : darkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <span>{emoji}</span>
+            {label}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  const renderLeagueFilterBar = () => {
+    if (isWorldCupMode || availableLeagues.length === 0) return null;
+    return (
+      <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
+        <button
+          onClick={() => setLeagueFilter(null)}
+          className={`shrink-0 min-w-[132px] h-[84px] px-4 rounded-[22px] border transition-all text-left ${
+            !leagueFilter
+              ? 'border-amber-400 bg-amber-50 text-gray-900 shadow-sm'
+              : darkMode ? 'border-gray-700 bg-gray-800/80 text-gray-200' : 'border-gray-200 bg-white text-gray-800'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center bg-white/80 border border-black/5">
+              <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+              </svg>
+            </div>
+            <span className="text-base font-semibold">Todas</span>
+          </div>
+        </button>
+        {availableLeagues.map(({ league, sport, logo }) => {
+          const isActive = leagueFilter === league;
+          return (
+            <button
+              key={`${sport}-${league}`}
+              onClick={() => setLeagueFilter(isActive ? null : league)}
+              className={`shrink-0 min-w-[176px] h-[84px] px-4 rounded-[22px] border transition-all text-left ${
+                isActive
+                  ? 'border-amber-400 bg-amber-50 shadow-sm'
+                  : darkMode ? 'border-gray-700 bg-gray-800/80 text-gray-100' : 'border-gray-200 bg-white text-gray-800'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center overflow-hidden ${darkMode ? 'bg-white/95' : 'bg-gray-50'}`}>
+                  <img
+                    src={logo || getSportIcon(sport)}
+                    alt={league}
+                    className="w-10 h-10 object-contain"
+                    loading="lazy"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[15px] font-semibold truncate">{league}</div>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
   };
 
   const multiplesSource = displayedUpcoming;
@@ -984,7 +981,16 @@ function Home({ mode = 'home' }: HomeProps) {
               <WorldCupBanner variant="compact" />
               <div className="flex items-center justify-between px-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-2xl">🏆</span>
+                  <img
+                    src={BET62_TROPHY_PNG_URL}
+                    alt="Troféu Bet62"
+                    className="w-11 h-11 object-contain select-none"
+                    style={{
+                      filter: 'drop-shadow(0 0 14px rgba(255,200,40,0.45))',
+                      animation: 'wcInlineTrophyShake 2.8s ease-in-out infinite',
+                    }}
+                    draggable={false}
+                  />
                   <h2
                     className="text-xl font-black uppercase tracking-wide"
                     style={{
@@ -1007,6 +1013,14 @@ function Home({ mode = 'home' }: HomeProps) {
                   Fechar
                 </button>
               </div>
+              <style>{`
+                @keyframes wcInlineTrophyShake {
+                  0%,100% { transform: translate3d(0,0,0) rotate(0deg); }
+                  25% { transform: translate3d(1px,-1px,0) rotate(-1.6deg); }
+                  50% { transform: translate3d(-1px,1px,0) rotate(1.4deg); }
+                  75% { transform: translate3d(1px,0,0) rotate(-0.8deg); }
+                }
+              `}</style>
             </div>
           )}
 
@@ -1040,112 +1054,44 @@ function Home({ mode = 'home' }: HomeProps) {
                 <div className="animate-spin h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
                 <p className="text-gray-500">Carregando eventos...</p>
               </div>
-            ) : (groupedLive.length > 0 || limitedUpcoming.length > 0 || limitedNext7.length > 0) ? (
+            ) : (limitedLive.length > 0 || limitedUpcoming.length > 0 || limitedNext7.length > 0) ? (
               <div className="space-y-12 events-reveal">
                 {/* LIVE SECTION — shown only in mode='live' */}
-                {groupedLive.length > 0 && (
+                {limitedLive.length > 0 && (
                   <div className="space-y-6">
-                     <div className="space-y-8">
-                        {(() => {
-                          let globalIdx = 0;
-                          return groupedLive.map(([league, events]) => (
-                            <div key={`live-${league}`} className="space-y-4">
-                            <div className={`px-5 py-3 rounded-xl font-bold text-sm uppercase tracking-wider flex items-center gap-4 ${darkMode ? 'bg-red-900/20 border border-red-900/50 text-red-100' : 'bg-red-50 border border-red-100 text-red-800'}`}>
-                              {(() => {
-                                const firstEvent = events[0] || {};
-                                const leagueObj = firstEvent.league as any;
-                                const leagueNameRaw = (typeof leagueObj === 'string' ? leagueObj : leagueObj?.name) || league;
-                                const countryRaw = firstEvent.country || '';
-                                const sport = firstEvent.sport || 'soccer';
-                                const icon = getSportIcon(sport);
-                                
-                                const displayText = (countryRaw && leagueNameRaw && countryRaw !== leagueNameRaw) 
-                                  ? `${countryRaw} - ${leagueNameRaw}` 
-                                  : (leagueNameRaw || countryRaw || 'Unknown League');
-
-                                return (
-                                  <>
-                                    <img src={icon} alt={sport} className="w-7 h-7 object-contain" />
-                                    <span>{displayText}</span>
-                                  </>
-                                );
-                              })()}
-                            </div>
-                            <div className="flex flex-col gap-4">
-                              {(() => {
-                                const out: any[] = [];
-                                for (const ev of events) {
-                                  const evId = String(ev?.id ?? ev?.fixture?.id ?? ev?.external_event_id ?? '').trim();
-                                  out.push(
-                                    <EventCard
-                                      key={mergeKeyOf(ev)}
-                                      event={ev}
-                                      onOpenEvent={() => handleOpenEvent(ev)}
-                                      signals={liveSignals[evId]}
-                                    />,
-                                  );
-                                  globalIdx++;
-                                }
-                                return out;
-                              })()}
-                            </div>
-                            </div>
-                          ));
-                        })()}
-                     </div>
+                    {renderSportFilterBar()}
+                    {renderLeagueFilterBar()}
+                    <div className="flex flex-col gap-4">
+                      {limitedLive.map((ev) => {
+                        const evId = String((ev as any)?.id ?? (ev as any)?.fixture?.id ?? (ev as any)?.external_event_id ?? '').trim();
+                        return (
+                          <EventCard
+                            key={mergeKeyOf(ev)}
+                            event={ev}
+                            onOpenEvent={() => handleOpenEvent(ev)}
+                            signals={liveSignals[evId]}
+                          />
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
 
                 {limitedNext7.length > 0 && (
                   <div className="space-y-6">
-                     {groupedLive.length > 0 && (
+                     {limitedLive.length > 0 && (
                         <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
                            <h2 className="text-xl font-bold uppercase tracking-wide">Próximos 7 dias</h2>
                         </div>
                      )}
-                     <div className="space-y-8">
-                        {(() => {
-                          return limitedNext7.map(([league, events]) => (
-                            <div key={`next7-${league}`} className="space-y-4">
-                            <div className={`px-5 py-3 rounded-xl font-bold text-sm uppercase tracking-wider flex items-center gap-4 ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>
-                              {(() => {
-                                const firstEvent = events[0] || {};
-                                const leagueObj = (firstEvent as any).league as any;
-                                const leagueNameRaw = (typeof leagueObj === 'string' ? leagueObj : leagueObj?.name) || league;
-                                const countryRaw = (firstEvent as any).country || '';
-                                const sport = (firstEvent as any).sport || 'soccer';
-                                const icon = getSportIcon(sport);
-                                
-                                const displayText = (countryRaw && leagueNameRaw && countryRaw !== leagueNameRaw) 
-                                  ? `${countryRaw} - ${leagueNameRaw}` 
-                                  : (leagueNameRaw || countryRaw || 'Unknown League');
-
-                                return (
-                                  <>
-                                    <img src={icon} alt={sport} className="w-7 h-7 object-contain" />
-                                    <span>{displayText}</span>
-                                  </>
-                                );
-                              })()}
-                            </div>
-                            <div className="flex flex-col gap-4">
-                              {(() => {
-                                const out: any[] = [];
-                                for (const ev of events) {
-                                  out.push(
-                                    <EventCard
-                                      key={`next7_${mergeKeyOf(ev)}`}
-                                      event={ev}
-                                      onOpenEvent={() => handleOpenEvent(ev)}
-                                    />,
-                                  );
-                                }
-                                return out;
-                              })()}
-                            </div>
-                            </div>
-                          ));
-                        })()}
+                     <div className="flex flex-col gap-4">
+                      {limitedNext7.map((ev) => (
+                        <EventCard
+                          key={`next7_${mergeKeyOf(ev)}`}
+                          event={ev}
+                          onOpenEvent={() => handleOpenEvent(ev)}
+                        />
+                      ))}
                      </div>
                   </div>
                 )}
@@ -1153,137 +1099,35 @@ function Home({ mode = 'home' }: HomeProps) {
                 {/* UPCOMING SECTION */}
                 {limitedUpcoming.length > 0 && (
                   <div className="space-y-6">
-                     {groupedLive.length > 0 && (
+                     {limitedLive.length > 0 && (
                         <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
                            <h2 className="text-xl font-bold uppercase tracking-wide">Próximos Jogos</h2>
                         </div>
                      )}
 
-                     {/* Sport filter tabs — horizontal scroll carousel */}
-                     {upcomingIsFeatured && featuredUpcomingGroups.length > 1 && (
-                       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
-                         <button
-                           onClick={() => { setSportFilter(null); setLeagueFilter(null); }}
-                           className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${
-                             sportFilter === null && leagueFilter === null
-                               ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                               : darkMode ? 'bg-gray-800 text-gray-400 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                           }`}
-                         >
-                           Todos
-                         </button>
-                         {([
-                           { key: 'soccer', label: 'Futebol', emoji: '⚽' },
-                           { key: 'tennis', label: 'Ténis', emoji: '🎾' },
-                           { key: 'basketball', label: 'Basquetebol', emoji: '🏀' },
-                           { key: 'ice-hockey', label: 'Hóquei', emoji: '🏒' },
-                           { key: 'baseball', label: 'Beisebol', emoji: '⚾' },
-                         ] as const).filter(({ label }) => featuredUpcomingGroups.some(([l]) => l === label)).map(({ label, emoji }) => (
-                           <button
-                             key={label}
-                             onClick={() => { setSportFilter(label === sportFilter ? null : label); setLeagueFilter(null); }}
-                             className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                               sportFilter === label && !leagueFilter
-                                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                                 : darkMode ? 'bg-gray-800 text-gray-400 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                             }`}
-                           >
-                             <span>{emoji}</span>
-                             {label}
-                           </button>
-                         ))}
-                       </div>
-                     )}
-
-                     {/* League browser — horizontal scroll with sport icons */}
-                     {!isWorldCupMode && availableLeagues.length > 0 && (
-                       <div className="space-y-1.5">
-                         <p className={`text-[10px] font-black uppercase tracking-widest px-1 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                           Explorar Ligas
-                         </p>
-                         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
-                           {availableLeagues.map(({ league, sport }) => {
-                             const isActive = leagueFilter === league;
-                             return (
-                               <button
-                                 key={league}
-                                 onClick={() => { setLeagueFilter(isActive ? null : league); setSportFilter(null); }}
-                                 className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all active:scale-95 ${
-                                   isActive
-                                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                                     : darkMode ? 'bg-gray-800/80 text-gray-300 border border-gray-700 hover:border-blue-500/50' : 'bg-gray-100 text-gray-700 border border-gray-200 hover:border-blue-300'
-                                 }`}
-                               >
-                                 <img
-                                   src={getSportIcon(sport)}
-                                   alt={sport}
-                                   className="w-4 h-4 object-contain shrink-0"
-                                 />
-                                 <span className="max-w-[120px] truncate">{league}</span>
-                               </button>
-                             );
-                           })}
-                         </div>
-                       </div>
-                     )}
+                     {renderSportFilterBar()}
+                     {renderLeagueFilterBar()}
                      
-                     <div className="space-y-8">
+                     <div className="flex flex-col gap-4">
                         {(() => {
                           let globalIdx = 0;
                           let inserted = false;
-                          return limitedUpcoming.map(([league, events]) => (
-                            <div key={`pre-${league}`} className="space-y-4">
-                            <div className={`px-5 py-3 rounded-xl font-bold text-sm uppercase tracking-wider flex items-center gap-4 ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`}>
-                              {(() => {
-                                const firstEvent = events[0] || {};
-                                const sport = firstEvent.sport || 'soccer';
-                                const icon = getSportIcon(sport);
-                                if (upcomingIsFeatured) {
-                                  return (
-                                    <>
-                                      <img src={icon} alt={sport} className="w-7 h-7 object-contain" />
-                                      <span>{league}</span>
-                                    </>
-                                  );
-                                }
-
-                                const leagueObj = firstEvent.league as any;
-                                const leagueNameRaw = (typeof leagueObj === 'string' ? leagueObj : leagueObj?.name) || league;
-                                const countryRaw = firstEvent.country || '';
-                                const displayText = (countryRaw && leagueNameRaw && countryRaw !== leagueNameRaw) 
-                                  ? `${countryRaw} - ${leagueNameRaw}` 
-                                  : (leagueNameRaw || countryRaw || 'Unknown League');
-
-                                return (
-                                  <>
-                                    <img src={icon} alt={sport} className="w-7 h-7 object-contain" />
-                                    <span>{displayText}</span>
-                                  </>
-                                );
-                              })()}
-                            </div>
-                            <div className="flex flex-col gap-4">
-                              {(() => {
-                                const out: any[] = [];
-                                for (const ev of events) {
-                                  out.push(
-                                    <EventCard
-                                      key={mergeKeyOf(ev)}
-                                      event={ev}
-                                      onOpenEvent={() => handleOpenEvent(ev)}
-                                    />,
-                                  );
-                                  globalIdx++;
-                                  if (mode === 'home' && !inserted && globalIdx === 2) {
-                                    inserted = true;
-                                    out.push(<MultipleCarousel key="pre_multi_once" instanceKey="pre_once" />);
-                                  }
-                                }
-                                return out;
-                              })()}
-                            </div>
-                            </div>
-                          ));
+                          return limitedUpcoming.map((ev) => {
+                            const out: any[] = [];
+                            out.push(
+                              <EventCard
+                                key={mergeKeyOf(ev)}
+                                event={ev}
+                                onOpenEvent={() => handleOpenEvent(ev)}
+                              />,
+                            );
+                            globalIdx++;
+                            if (mode === 'home' && !inserted && globalIdx === 2) {
+                              inserted = true;
+                              out.push(<MultipleCarousel key="pre_multi_once" instanceKey="pre_once" />);
+                            }
+                            return <div key={`pre_${mergeKeyOf(ev)}`}>{out}</div>;
+                          });
                         })()}
                      </div>
                   </div>

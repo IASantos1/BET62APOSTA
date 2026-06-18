@@ -466,9 +466,10 @@ export function createLiveWs(apiKey: string) {
     }
 
     const cached = snapshotCache.get(sport);
-    // V1 placares: lista de jogos fresca por 4s — o upstream WS já envia deltas
-    // em tempo real (<100ms), por isso o REST só precisa de refrescar a cada 4s.
-    if (cached && now - cached.ts < 4_000) {
+    // O snapshot serve só de bootstrap/recovery; para tênis mantemos cache bem
+    // curto para o cliente recuperar score/sets quase em tempo real.
+    const snapshotTtlMs = sport === 'tennis' ? 1_000 : 2_000;
+    if (cached && now - cached.ts < snapshotTtlMs) {
       const livePatched = normalizeAndFilterLive(sport, cached.live);
       const msg = JSON.stringify({ type: 'snapshot', live: livePatched });
       for (const c of clients) {
@@ -865,7 +866,10 @@ export function createLiveWs(apiKey: string) {
     } else {
       connectUpstream(sport);
     }
-    const intervalMs = sport === 'all' || sport === 'soccer' ? 1000 : 5000;
+    const intervalMs =
+      sport === 'all' || sport === 'soccer' || sport === 'tennis'
+        ? 1000
+        : 2500;
     const id = setInterval(() => {
       sendSnapshot(sport).catch(() => null);
     }, intervalMs);

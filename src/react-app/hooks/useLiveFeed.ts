@@ -368,8 +368,9 @@ export function useLiveFeed(sport?: string) {
     const loop = async () => {
       if (cancelled) return;
       if (wsOk) return;
+      const fallbackMs = String(sport || 'all').toLowerCase() === 'tennis' ? 1200 : 2500;
       if (inflight) {
-        timeoutId = setTimeout(loop, 1500);
+        timeoutId = setTimeout(loop, fallbackMs);
         return;
       }
       inflight = true;
@@ -378,7 +379,7 @@ export function useLiveFeed(sport?: string) {
         await fetchLiveEvents();
       } finally {
         inflight = false;
-        timeoutId = setTimeout(loop, 10_000);
+        timeoutId = setTimeout(loop, fallbackMs);
       }
     };
 
