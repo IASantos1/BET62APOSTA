@@ -1734,9 +1734,9 @@ export function SubOddsModel({
 
           const buckets: Record<string, string[]> = {
               Todos: [],
-              Resultados: [],
-              'Dupla Chance': [],
-              Gols: [],
+              'Tempo Regular': [],
+              Populares: [],
+              'Acima/Abaixo': [],
               Especiais: [],
               Handicap: [],
               '1º Tempo': [],
@@ -1768,16 +1768,16 @@ export function SubOddsModel({
               else if (lk === 'spreads' || /asian|asi[aá]tico|ah_?/.test(lk)) add('Asiático', k);
               else if (/handicap/.test(lk)) add('Handicap', k);
               else if (/player_|scorer|goal_scorer|jogador/.test(lk)) add('Jogadores', k);
-              else if (/double_chance|dnb|draw_no_bet/.test(lk)) add('Dupla Chance', k);
-              else if (/totals|btts|goal|goals|team_totals|minute_goals|exact_goals|goals_range|odd_even|next_goal|first_goal|last_goal|first_team_to_score|team_to_score_last|clean_sheet|win_to_nil|highest_scoring_half|score_both_halves|penalty_scored/.test(lk)) add('Gols', k);
-              else if (/h2h|result|winner|winning_margin|winning|margin|match_winner/.test(lk)) add('Resultados', k);
+              else if (/^(h2h|1x2|main|match_winner)$/.test(lk)) add('Tempo Regular', k);
+              else if (/double_chance|dnb|draw_no_bet|btts|next_goal|first_goal|last_goal|first_team_to_score|team_to_score_last|clean_sheet|win_to_nil|highest_scoring_half|score_both_halves|penalty_scored|winning_margin|winning|margin/.test(lk)) add('Populares', k);
+              else if (/totals|team_totals|minute_goals|exact_goals|goals_range|odd_even|over|under/.test(lk)) add('Acima/Abaixo', k);
               else add('Especiais', k);
           }
 
           const allOrdered = [
-            ...buckets['Resultados'],
-            ...buckets['Dupla Chance'],
-            ...buckets['Gols'],
+            ...buckets['Tempo Regular'],
+            ...buckets['Populares'],
+            ...buckets['Acima/Abaixo'],
             ...buckets['Especiais'],
             ...buckets['Handicap'],
             ...buckets['1º Tempo'],
@@ -1798,9 +1798,9 @@ export function SubOddsModel({
 
           const FIXED_TABS: Array<{ title: string; keys: string[] }> = [
               { title: 'Todos', keys: buckets['Todos'] },
-              { title: 'Resultados', keys: buckets['Resultados'] },
-              { title: 'Dupla Chance', keys: buckets['Dupla Chance'] },
-              { title: 'Gols', keys: buckets['Gols'] },
+              { title: 'Tempo Regular', keys: buckets['Tempo Regular'] },
+              { title: 'Populares', keys: buckets['Populares'] },
+              { title: 'Acima/Abaixo', keys: buckets['Acima/Abaixo'] },
               { title: 'Especiais', keys: buckets['Especiais'] },
               { title: 'Handicap', keys: buckets['Handicap'] },
               { title: '1º Tempo', keys: buckets['1º Tempo'] },
@@ -1948,9 +1948,7 @@ export function SubOddsModel({
                s.includes('soccer') ||
                s.includes('futebol') ||
                (s.includes('football') && !s.includes('american'));
-             const groups = isSoccer
-                 ? finalGroups
-                 : finalGroups.filter(group => group.keys.some(k => renderMarketContent(k) !== null));
+             const groups = finalGroups.filter(group => group.keys.some(k => renderMarketContent(k) !== null));
              return groups.map((group) => (
                  <button
                      key={group.title}
