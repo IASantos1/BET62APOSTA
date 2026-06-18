@@ -59,6 +59,8 @@ function toSubdomain(sport: string): string {
 
 function extractEvents(payload: any): any[] {
   if (!payload) return [];
+  if (Array.isArray(payload.games)) return payload.games;
+  if (Array.isArray(payload.data?.games)) return payload.data.games;
   if (Array.isArray(payload.events)) return payload.events;
   if (Array.isArray(payload.data?.events)) return payload.data.events;
   if (Array.isArray(payload.response)) return payload.response;
