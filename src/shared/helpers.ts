@@ -1,6 +1,13 @@
 import { ALL_COUNTRIES } from './countries';
 import { ALLOWED_LEAGUES } from './leagues';
 
+const getStableAssetUrl = (url?: string) => {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  if (/^(data:|blob:|\/(?!\/))/.test(value)) return value;
+  return '';
+};
+
 export const formatLeagueHeader = (rawInput: any) => {
   if (!rawInput) return { flag: '', country: '', league: '', flagUrl: '' };
   
@@ -84,12 +91,12 @@ export const formatLeagueHeader = (rawInput: any) => {
          if (lowerRaw.includes('paulista')) league = 'Campeonato Paulista';
          if (lowerRaw.includes('carioca')) league = 'Campeonato Carioca';
          
-         return {
-             flag: '🇧🇷',
-             country: 'Brasil',
-             league: league,
-             flagUrl: 'https://flagcdn.com/br.svg'
-         };
+        return {
+            flag: '🇧🇷',
+            country: 'Brasil',
+            league: league,
+            flagUrl: ''
+        };
     }
 
     // Populate from ALL_COUNTRIES
@@ -491,15 +498,15 @@ export const formatLeagueHeader = (rawInput: any) => {
   if (isSlug) {
       // "champions-league" -> "Champions League"
       // "premier-league" -> "Premier League"
-      return { 
-          flag, 
-          country, 
-          league: finalName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '), 
-          flagUrl 
+      return {
+          flag,
+          country,
+          league: finalName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+          flagUrl: getStableAssetUrl(flagUrl)
       };
   }
 
-  return { flag, country, league: finalName, flagUrl };
+  return { flag, country, league: finalName, flagUrl: getStableAssetUrl(flagUrl) };
 };
 
 export const abbreviateTeamName = (name: string) => {
@@ -951,7 +958,10 @@ export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
   ];
 
   const direct = mapped.find((entry) => entry.test.test(key));
-  if (direct) return direct.url;
+  if (direct) {
+    const stableUrl = getStableAssetUrl(direct.url);
+    if (stableUrl) return stableUrl;
+  }
   return getSportIcon(sport || 'soccer');
 };
 
