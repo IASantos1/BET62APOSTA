@@ -21,8 +21,10 @@ type CacheEntry<T> = { ts: number; data: T };
 type AnyEvent = any;
 
 const SPORTS_DEFAULT = ['soccer', 'tennis'];
-// Sports with a working /api/live endpoint on SportsApiPro
-const LIVE_CAPABLE = new Set(['soccer', 'football', 'futebol', 'tennis']);
+const LIVE_SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'baseball', 'ice-hockey'];
+const RESOLVABLE_SPORTS = Array.from(new Set([...SPORTS_DEFAULT, ...LIVE_SPORTS_DEFAULT]));
+// Sports with a working /api/live endpoint on SportsApiPro / WS bootstrap
+const LIVE_CAPABLE = new Set(['soccer', 'football', 'futebol', 'tennis', 'basketball', 'baseball', 'ice-hockey', 'hockey']);
 const ODDS_FRESH_TTL_MS = 90_000;
 const LIVE_ODDS_FRESH_TTL_MS = 8_000;
 const ODDS_STALE_TTL_MS = 15 * 60_000;
@@ -149,11 +151,11 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     return normalizeMatchId(sport, idRaw);
   };
 
-  const getSports = (sportsParam: string | null): string[] => {
+  const getSports = (sportsParam: string | null, mode: 'default' | 'live' = 'default'): string[] => {
     const raw = String(sportsParam || '').trim();
-    if (!raw || raw === 'all') return SPORTS_DEFAULT.slice();
+    if (!raw || raw === 'all') return (mode === 'live' ? LIVE_SPORTS_DEFAULT : SPORTS_DEFAULT).slice();
     const parts = raw.split(',').map((x) => x.trim()).filter(Boolean);
-    if (parts.length === 0) return SPORTS_DEFAULT.slice();
+    if (parts.length === 0) return (mode === 'live' ? LIVE_SPORTS_DEFAULT : SPORTS_DEFAULT).slice();
     return parts;
   };
 
@@ -165,7 +167,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const resolveSport = async (matchId: string): Promise<string | null> => {
     const c = idToSport.get(matchId);
     if (c && ttlOk(c.ts, 6 * 60 * 60 * 1000)) return c.data;
-    for (const s of SPORTS_DEFAULT) {
+    for (const s of RESOLVABLE_SPORTS) {
       const live = await fetchLive(s).catch(() => []);
       if (live.some((e: any) => String(e.id) === String(matchId))) {
         rememberSport(matchId, s);
@@ -285,7 +287,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const fetchLive = async (sport: string): Promise<AnyEvent[]> => {
     const key = sport;
     const cached = liveCache.get(key);
-    if (cached && ttlOk(cached.ts, 7_000)) return cached.data;
+    if (cached && ttlOk(cached.ts, 2_000)) return cached.data;
     if (cached && ttlOk(cached.ts, 2 * 60_000)) {
       fetchSportsApiProLive(apiKey, sport)
         .then((list) => {
@@ -645,6 +647,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   ): Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }> => {
     startOddsQueue();
     const sports = getSports(sportsParam);
+    const liveSportsRequested = getSports(sportsParam, 'live');
     const liveAll: AnyEvent[] = [];
     const preAll: AnyEvent[] = [];
 
@@ -662,7 +665,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
 
     if (includeLive && sports.length > 0) {
       // Only fetch live for sports whose /api/live endpoint actually works (football only)
-      const liveSports = sports.filter((s) => LIVE_CAPABLE.has(String(s || '').toLowerCase().trim()));
+      const liveSports = liveSportsRequested.filter((s) => LIVE_CAPABLE.has(String(s || '').toLowerCase().trim()));
       const lists = await mapLimit(liveSports, 2, (s) => fetchLive(s).catch(() => []));
       for (const live of lists) {
         liveAll.push(...(live || []).filter((e: any) => isLiveLike(e)));
@@ -1137,7 +1140,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     }
 
     if (req.method === 'GET' && path === '/api/sports') {
-      sendJson(res, 200, SPORTS_DEFAULT.slice());
+      sendJson(res, 200, RESOLVABLE_SPORTS.slice());
       return true;
     }
 
