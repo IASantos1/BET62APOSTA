@@ -1143,7 +1143,16 @@ function Home({ mode = 'home' }: HomeProps) {
                   Limpar busca
                 </button>
               </div>
-            ) : null}
+            ) : (
+              <div className={`text-center py-12 rounded-xl border ${darkMode ? 'border-gray-800 bg-gray-900/30' : 'border-gray-200 bg-white/80'}`}>
+                <p className={`${darkMode ? 'text-gray-300' : 'text-gray-700'} font-semibold`}>
+                  Nenhum evento carregado no momento.
+                </p>
+                <p className={`mt-2 text-sm ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                  Atualize a página em alguns segundos. Se continuar vazio, o feed do deploy ainda não terminou de responder.
+                </p>
+              </div>
+            )}
           </section>
         </main>
 
