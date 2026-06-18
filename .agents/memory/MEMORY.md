@@ -1,1 +1,2 @@
 - [Events cold-start empty list bug](events-cold-start-bug.md) — realtime+requireOdds path drops all events on cold cache; never apply requireOdds in the realtime branch.
+- [Settlement system architecture](settlement-architecture.md) — full settlement engine in server/services/settlement.ts; auto-runs every 90s; admin routes at /api/admin/settlement/*; market key stored in selections JSONB.

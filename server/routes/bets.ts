@@ -8,7 +8,14 @@ type PlaceBetBody = {
   type?: 'single' | 'multi';
   stake?: number;
   use_freebet?: boolean;
-  bets?: Array<{ event_id: string | number; selection: string; odd: number; stake?: number }>;
+  bets?: Array<{
+    event_id: string | number;
+    selection: string;
+    odd: number;
+    stake?: number;
+    market?: string;
+    market_key?: string;
+  }>;
 };
 
 function toNumber(v: any): number {
@@ -101,6 +108,7 @@ export async function handleBetRoutes(
       selection: String(b.selection || ''),
       odd: toNumber(b.odd),
       stake: b.stake != null ? toNumber(b.stake) : undefined,
+      market: String(b.market || b.market_key || ''),
       team_match: String((b as any).team_match || ''),
       league: String((b as any).league || ''),
       home_team: (b as any).home_team ? String((b as any).home_team) : undefined,

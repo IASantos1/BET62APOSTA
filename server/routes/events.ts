@@ -78,6 +78,7 @@ export type EventsService = {
   ) => Promise<boolean>;
   getAdminOddsEvents: () => Promise<any[]>;
   setOddsOverride: (eventId: string, odds: { home_odd?: number; draw_odd?: number; away_odd?: number }) => Promise<void>;
+  getEventsCache: () => Map<string, any>;
 };
 
 function getBaselineOdds(sport: string): { home: number; draw: number; away: number } {
@@ -1844,5 +1845,17 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     overridesCache.delete(eventId);
   };
 
-  return { handleEventsRoutes, getAdminOddsEvents, setOddsOverride };
+  const getEventsCache = (): Map<string, any> => {
+    const combined = new Map<string, any>();
+    for (const [, entry] of lastEventById) {
+      if (entry?.data) {
+        const ev = entry.data;
+        const id = String((ev as any)?.id ?? (ev as any)?.external_event_id ?? '');
+        if (id) combined.set(id, ev);
+      }
+    }
+    return combined;
+  };
+
+  return { handleEventsRoutes, getAdminOddsEvents, setOddsOverride, getEventsCache };
 }

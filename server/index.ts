@@ -11,6 +11,7 @@ import { createEventsService } from './routes/events';
 import { handleUsersRoutes } from './routes/users';
 import { handleAdminRoutes } from './routes/admin';
 import { createLiveWs } from './ws/liveWs';
+import { autoSettleFromCache } from './services/settlement';
 
 const loadEnvFile = (filePath: string) => {
   try {
@@ -220,7 +221,7 @@ const server = http.createServer(async (req, res) => {
       if (pool && (await handleWalletRoutes(pool, req, res, url))) return;
       if (pool && (await handleBetRoutes(pool, req, res, url))) return;
       if (pool && (await handleFavoriteRoutes(pool, req, res, url))) return;
-      if (pool && (await handleAdminRoutes(pool, events, req, res, url))) return;
+      if (pool && (await handleAdminRoutes(pool, events, req, res, url, sportsApiKey))) return;
 
       notFound(res);
       return;
@@ -265,3 +266,37 @@ server.on('upgrade', (req, socket, head) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[server] listening on :${PORT}`);
 });
+
+// ── Auto-Settlement Scheduler ─────────────────────────────────────────────────
+// Runs every 90 seconds. Scans finished events in cache and settles pending bets.
+if (pool && dbReady) {
+  const SETTLE_INTERVAL_MS = 90_000;
+
+  const runAutoSettle = async () => {
+    try {
+      const eventsCache = events.getEventsCache();
+      if (eventsCache.size === 0) return;
+      const report = await autoSettleFromCache(pool!, sportsApiKey, eventsCache);
+      if (report.totalSettled > 0 || report.errors.length > 0) {
+        console.log(
+          `[settlement] auto: checked=${report.totalChecked} settled=${report.totalSettled}` +
+          ` credited=€${report.totalCredited.toFixed(2)}` +
+          (report.errors.length ? ` errors=${report.errors.length}` : ''),
+        );
+        if (report.errors.length) {
+          console.warn('[settlement] errors:', report.errors.slice(0, 5));
+        }
+      }
+    } catch (e: any) {
+      console.error('[settlement] auto-settle error:', String(e?.message || e));
+    }
+  };
+
+  // First run after 30s (let events cache warm up), then every 90s
+  setTimeout(() => {
+    runAutoSettle().catch(() => null);
+    setInterval(() => runAutoSettle().catch(() => null), SETTLE_INTERVAL_MS);
+  }, 30_000);
+
+  console.log('[settlement] auto-settlement scheduler started (every 90s)');
+}
