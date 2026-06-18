@@ -55,7 +55,7 @@ export function createLiveWs(apiKey: string) {
   const toWsSport = (localSport: string): string => {
     const s = String(localSport || '').trim().toLowerCase();
     if (s === 'soccer') return 'football';
-    if (s === 'ice-hockey') return 'ice-hockey';
+    if (s === 'ice-hockey') return 'hockey';
     return s;
   };
 
@@ -705,7 +705,7 @@ export function createLiveWs(apiKey: string) {
     u.stopped = false;
     upstreams.set(localSport, u);
 
-    const url = `wss://v2.${wsSport}.sportsapipro.com/ws?x-api-key=${encodeURIComponent(apiKey)}`;
+    const url = `wss://v1.${wsSport}.sportsapipro.com/ws?x-api-key=${encodeURIComponent(apiKey)}`;
     const ws = new WebSocket(url, { headers: { 'x-sport': wsSport } as any });
     u.ws = ws;
 

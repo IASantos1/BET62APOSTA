@@ -641,14 +641,14 @@ const __live_cache = new Map<string, { ts: number; data: NormalizedEvent[] }>();
 
 export async function fetchSportsApiProLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const primarySub = toSubdomain(sport);
-  const primaryUrl = `https://v2.${primarySub}.sportsapipro.com/api/live`;
+  const primaryUrl = `https://v1.${primarySub}.sportsapipro.com/api/live`;
   const jsonPrimary = await fetchJson(primaryUrl, apiKey, 8000);
   const itemsPrimary = extractEvents(jsonPrimary);
   let items = itemsPrimary;
 
   const fallbackSub = normalizeSportKey(sport);
   if (items.length === 0 && fallbackSub && fallbackSub !== primarySub) {
-    const fallbackUrl = `https://v2.${fallbackSub}.sportsapipro.com/api/live`;
+    const fallbackUrl = `https://v1.${fallbackSub}.sportsapipro.com/api/live`;
     const jsonFallback = await fetchJson(fallbackUrl, apiKey, 8000);
     items = extractEvents(jsonFallback);
   }
