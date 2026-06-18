@@ -544,6 +544,11 @@ function Home({ mode = 'home' }: HomeProps) {
                     alt={league}
                     className="w-10 h-10 object-contain"
                     loading="lazy"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.onerror = null;
+                      target.src = getSportIcon(sport);
+                    }}
                   />
                 </div>
                 <div className="min-w-0">
