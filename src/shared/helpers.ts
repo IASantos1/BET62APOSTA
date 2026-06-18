@@ -933,36 +933,6 @@ const normalizeLeagueLogoKey = (input: any) =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
-const buildLeagueBadgeDataUrl = (leagueName: string, sport: string) => {
-  const key = normalizeLeagueLogoKey(leagueName);
-  const palette =
-    key.includes('nba') ? { bg: '#ffffff', fg: '#1d428a', accent: '#c8102e' } :
-    key.includes('mls') ? { bg: '#ffffff', fg: '#0f172a', accent: '#e11d48' } :
-    key.includes('la liga') ? { bg: '#ffffff', fg: '#111827', accent: '#ef4444' } :
-    key.includes('brasileir') ? { bg: '#ffffff', fg: '#0f172a', accent: '#16a34a' } :
-    key.includes('super lig') ? { bg: '#ffffff', fg: '#111827', accent: '#dc2626' } :
-    sport === 'basketball' ? { bg: '#ffffff', fg: '#b45309', accent: '#ea580c' } :
-    sport === 'tennis' ? { bg: '#ffffff', fg: '#166534', accent: '#65a30d' } :
-    sport === 'baseball' ? { bg: '#ffffff', fg: '#1d4ed8', accent: '#dc2626' } :
-    sport === 'ice-hockey' ? { bg: '#ffffff', fg: '#1e3a8a', accent: '#0f172a' } :
-    { bg: '#ffffff', fg: '#111827', accent: '#2563eb' };
-
-  const words = String(leagueName || 'Liga').split(/\s+/).filter(Boolean);
-  const label =
-    words.length === 1
-      ? words[0].slice(0, 3).toUpperCase()
-      : words.slice(0, 2).map((w) => w[0]).join('').slice(0, 3).toUpperCase();
-
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
-      <rect x="3" y="3" width="90" height="90" rx="22" fill="${palette.bg}" stroke="${palette.accent}" stroke-width="6"/>
-      <circle cx="48" cy="48" r="26" fill="${palette.accent}" opacity="0.12"/>
-      <text x="48" y="57" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="${palette.fg}">${label}</text>
-    </svg>
-  `;
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
-};
-
 export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
   const formatted = formatLeagueHeader(rawInput);
   const leagueName =
@@ -982,7 +952,7 @@ export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
 
   const direct = mapped.find((entry) => entry.test.test(key));
   if (direct) return direct.url;
-  return buildLeagueBadgeDataUrl(leagueName || 'Liga', sport);
+  return getSportIcon(sport || 'soccer');
 };
 
 export const translateSelection = (selection: string) => {
