@@ -1,71 +1,34 @@
-const CACHE_STATIC = 'betarena-static-v2'
+const clearAllCaches = async () => {
+  const keys = await caches.keys()
+  await Promise.all(keys.map((key) => caches.delete(key)))
+}
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_STATIC).then((c) => c.addAll(['/offline.html'])).then(() => self.skipWaiting())
-  )
+  event.waitUntil(self.skipWaiting())
 })
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE_STATIC).map((k) => caches.delete(k)))).then(() => self.clients.claim())
+    (async () => {
+      await clearAllCaches()
+      await self.registration.unregister()
+      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      await Promise.all(clients.map((client) => client.navigate(client.url).catch(() => null)))
+    })()
   )
 })
 
-const isAsset = (url) => {
-  return url.pathname.endsWith('.js') || url.pathname.endsWith('.css') || url.pathname.endsWith('.png') || url.pathname.endsWith('.jpg') || url.pathname.endsWith('.jpeg') || url.pathname.endsWith('.svg') || url.pathname.endsWith('.ico') || url.pathname.includes('/assets/')
-}
-
-const isCodeAsset = (url) => {
-  return url.pathname.endsWith('.js') || url.pathname.endsWith('.css') || url.pathname.includes('/assets/')
-}
-
 self.addEventListener('fetch', (event) => {
-  const req = event.request
-  const url = new URL(req.url)
-  if (req.method !== 'GET') return
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(fetch(req))
-    return
-  }
-  if (req.mode === 'navigate') {
-    event.respondWith(
-      fetch(req).catch(async () => {
-        const cache = await caches.open(CACHE_STATIC)
-        const offline = await cache.match('/offline.html')
-        return offline || Response.error()
-      })
-    )
-    return
-  }
-  if (url.origin === self.location.origin && isAsset(url)) {
-    event.respondWith(
-      caches.open(CACHE_STATIC).then(async (cache) => {
-        const cached = await cache.match(req)
-        if (isCodeAsset(url)) {
-          try {
-            const res = await fetch(req)
-            if (res && res.status === 200) cache.put(req, res.clone())
-            return res
-          } catch {
-            return cached || Response.error()
-          }
-        }
-        const network = fetch(req).then((res) => { if (res && res.status === 200) cache.put(req, res.clone()); return res })
-        return cached || network
-      })
-    )
-    return
-  }
-  event.respondWith(fetch(req))
+  if (event.request.method !== 'GET') return
+  event.respondWith(fetch(event.request))
 })
 
 self.addEventListener('message', (event) => {
-  const d = event.data
-  if (d && d.type === 'SKIP_WAITING') self.skipWaiting()
-  if (d && d.type === 'CLEAR_CACHE') {
-    event.waitUntil(
-      caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
-    )
+  const data = event.data
+  if (data && data.type === 'SKIP_WAITING') {
+    event.waitUntil(self.skipWaiting())
+  }
+  if (data && data.type === 'CLEAR_CACHE') {
+    event.waitUntil(clearAllCaches())
   }
 })

@@ -28,20 +28,22 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 try {
   const sw = 'serviceWorker' in navigator ? navigator.serviceWorker : undefined;
   if (sw) {
-    if (import.meta.env.PROD) {
-      sw
-        .register('/sw.js')
-        .then((reg) => {
-          (window as any).swRegistration = reg
-        })
-        .catch(() => null)
-    } else {
-      sw
-        .getRegistration()
-        .then((reg) => {
-          if (reg) reg.unregister()
-        })
-        .catch(() => null)
+    const clearLegacyPwa = async () => {
+      const registrations = await sw.getRegistrations().catch(() => [] as ServiceWorkerRegistration[])
+      await Promise.all(registrations.map((reg) => reg.unregister().catch(() => false)))
+
+      if ('caches' in window) {
+        const cacheKeys = await caches.keys().catch(() => [] as string[])
+        await Promise.all(
+          cacheKeys
+            .filter((key) => key.startsWith('betarena-') || key.startsWith('workbox-'))
+            .map((key) => caches.delete(key).catch(() => false)),
+        )
+      }
+
+      ;(window as any).swRegistration = null
     }
+
+    void clearLegacyPwa()
   }
 } catch { /* do nothing */ }
