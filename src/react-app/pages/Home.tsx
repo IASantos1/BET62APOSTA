@@ -422,21 +422,25 @@ function Home({ mode = 'home' }: HomeProps) {
   );
 
   const buildLeagueOptions = (events: Event[]) => {
-    const out: Array<{ league: string; sport: string; count: number; logo: string }> = [];
-    const seen = new Set<string>();
+    const grouped = new Map<string, { league: string; sport: string; count: number; logo: string }>();
     for (const ev of events as any[]) {
       const meta = getEventLeagueMeta(ev);
-      if (!meta.league || seen.has(meta.league)) continue;
-      seen.add(meta.league);
-      out.push({
-        league: meta.league,
-        sport: meta.sport,
-        count: (events as any[]).filter((x) => getEventLeagueName(x) === meta.league).length,
-        logo: meta.logo,
-      });
-      if (out.length >= 50) break;
+      if (!meta.league) continue;
+      const prev = grouped.get(meta.league);
+      if (prev) {
+        prev.count += 1;
+      } else {
+        grouped.set(meta.league, {
+          league: meta.league,
+          sport: meta.sport,
+          count: 1,
+          logo: meta.logo,
+        });
+      }
     }
-    return out;
+    return Array.from(grouped.values())
+      .sort((a, b) => b.count - a.count || a.league.localeCompare(b.league))
+      .slice(0, 18);
   };
 
   const homeBaseEvents = useMemo(
