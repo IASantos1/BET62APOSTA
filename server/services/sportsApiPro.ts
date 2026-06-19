@@ -59,7 +59,9 @@ function toSubdomain(sport: string): string {
 
 function extractEvents(payload: any): any[] {
   if (!payload) return [];
+  if (Array.isArray(payload.games)) return payload.games;
   if (Array.isArray(payload.events)) return payload.events;
+  if (Array.isArray(payload.data?.games)) return payload.data.games;
   if (Array.isArray(payload.data?.events)) return payload.data.events;
   if (Array.isArray(payload.response)) return payload.response;
   if (Array.isArray(payload.data?.response)) return payload.data.response;
@@ -77,6 +79,11 @@ function extractEvents(payload: any): any[] {
     return out;
   }
   return [];
+}
+
+function supportsV1AllScoresLive(sport: string): boolean {
+  const s = normalizeSportKey(sport);
+  return new Set(['football', 'soccer', 'tennis', 'basketball', 'hockey', 'ice-hockey', 'baseball']).has(s);
 }
 
 function num(v: any): number {
@@ -641,16 +648,35 @@ const __live_cache = new Map<string, { ts: number; data: NormalizedEvent[] }>();
 
 export async function fetchSportsApiProLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const primarySub = toSubdomain(sport);
-  const primaryUrl = `https://v2.${primarySub}.sportsapipro.com/api/live`;
-  const jsonPrimary = await fetchJson(primaryUrl, apiKey, 8000);
-  const itemsPrimary = extractEvents(jsonPrimary);
-  let items = itemsPrimary;
+  const liveSport = primarySub === 'soccer' ? 'football' : primarySub;
+  let jsonPrimary: any | null = null;
+  let items: any[] = [];
+
+  if (supportsV1AllScoresLive(liveSport)) {
+    const v1Url = `https://v1.${liveSport}.sportsapipro.com/games/allscores?onlyLiveGames=true`;
+    jsonPrimary = await fetchJson(v1Url, apiKey, 8000);
+    items = extractEvents(jsonPrimary);
+  }
+
+  if (items.length === 0) {
+    const primaryUrl = `https://v2.${primarySub}.sportsapipro.com/api/live`;
+    jsonPrimary = await fetchJson(primaryUrl, apiKey, 8000);
+    items = extractEvents(jsonPrimary);
+  }
 
   const fallbackSub = normalizeSportKey(sport);
   if (items.length === 0 && fallbackSub && fallbackSub !== primarySub) {
-    const fallbackUrl = `https://v2.${fallbackSub}.sportsapipro.com/api/live`;
-    const jsonFallback = await fetchJson(fallbackUrl, apiKey, 8000);
-    items = extractEvents(jsonFallback);
+    const liveFallbackSub = fallbackSub === 'soccer' ? 'football' : fallbackSub;
+    if (supportsV1AllScoresLive(liveFallbackSub)) {
+      const fallbackV1Url = `https://v1.${liveFallbackSub}.sportsapipro.com/games/allscores?onlyLiveGames=true`;
+      const jsonFallbackV1 = await fetchJson(fallbackV1Url, apiKey, 8000);
+      items = extractEvents(jsonFallbackV1);
+    }
+    if (items.length === 0) {
+      const fallbackUrl = `https://v2.${fallbackSub}.sportsapipro.com/api/live`;
+      const jsonFallback = await fetchJson(fallbackUrl, apiKey, 8000);
+      items = extractEvents(jsonFallback);
+    }
   }
   if (!jsonPrimary && items.length === 0) {
     const cached = __live_cache.get(sport);
