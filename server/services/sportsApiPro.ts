@@ -631,14 +631,16 @@ async function fetchJson(url: string, apiKey: string, timeoutMs: number = 15000)
   const t = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs));
   try {
     const res = await fetch(url, { headers: apiHeaders(apiKey), signal: controller.signal });
-    const text = await res.text().catch(() => '');
     if (!res.ok) return null;
+    const text = await res.text().catch(() => '');
     if (!text) return null;
     try {
       return JSON.parse(text);
     } catch {
       return null;
     }
+  } catch {
+    return null;
   } finally {
     clearTimeout(t);
   }

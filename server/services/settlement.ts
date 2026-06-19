@@ -3,7 +3,7 @@
 // Uses SportsApiPro V1 (1s latency) for schedule/results + events cache.
 
 import type pg from 'pg';
-import { randomId } from '../lib/crypto';
+import { randomId } from '../lib/crypto.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -23,6 +23,16 @@ export interface MatchResult {
   awayCards: number | null;
   homeName: string;
   awayName: string;
+  score?: {
+    sets?: {
+      s1?: { home: number | null; away: number | null };
+      s2?: { home: number | null; away: number | null };
+      s3?: { home: number | null; away: number | null };
+      s4?: { home: number | null; away: number | null };
+      s5?: { home: number | null; away: number | null };
+    };
+    point?: { home?: any; away?: any };
+  };
 }
 
 export type SelectionOutcome = 'won' | 'lost' | 'void';
@@ -367,12 +377,498 @@ export function evaluateSelection(
     return 'void';
   }
 
-  // ── 1st_half_goal_odd_even ───────────────────────────────────────────────────
-  if (mkKey === '1st_half_goal_odd_even') {
-    if (htTotal === null) return 'void';
-    const isOdd = htTotal % 2 !== 0;
+  // ── Tennis: Set 1 Winner ─────────────────────────────────────────────────────
+  if (mkKey === 'set_1_h2h' || mkKey === '1st_set_winner') {
+    const s1 = result.score?.sets?.s1;
+    if (!s1 || s1.home === null || s1.away === null) return 'void';
+    if (s1.home > s1.away) return sel.includes('home') || sel === '1' ? 'won' : 'lost';
+    if (s1.away > s1.home) return sel.includes('away') || sel === '2' ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── Tennis: Set 2 Winner ─────────────────────────────────────────────────────
+  if (mkKey === 'set_2_h2h' || mkKey === '2nd_set_winner') {
+    const s2 = result.score?.sets?.s2;
+    if (!s2 || s2.home === null || s2.away === null) return 'void';
+    if (s2.home > s2.away) return sel.includes('home') || sel === '1' ? 'won' : 'lost';
+    if (s2.away > s2.home) return sel.includes('away') || sel === '2' ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── Tennis: Set 3 Winner ─────────────────────────────────────────────────────
+  if (mkKey === 'set_3_h2h' || mkKey === '3rd_set_winner') {
+    const s3 = result.score?.sets?.s3;
+    if (!s3 || s3.home === null || s3.away === null) return 'void';
+    if (s3.home > s3.away) return sel.includes('home') || sel === '1' ? 'won' : 'lost';
+    if (s3.away > s3.home) return sel.includes('away') || sel === '2' ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── Tennis: Set 1 Total Games ────────────────────────────────────────────────
+  if (mkKey === 'set_1_totals' || mkKey === '1st_set_total_games') {
+    const s1 = result.score?.sets?.s1;
+    if (!s1 || s1.home === null || s1.away === null) return 'void';
+    const total = s1.home + s1.away;
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('over') || sel.includes('acima');
+    const isUnder = sel.includes('under') || sel.includes('abaixo');
+    if (!isOver && !isUnder) return 'void';
+    const isHalf = line !== Math.floor(line);
+    if (isHalf) {
+      if (isOver) return total > line ? 'won' : 'lost';
+      return total < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return total > line ? 'won' : total === line ? 'void' : 'lost';
+      return total < line ? 'won' : total === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── Tennis: Set 2 Total Games ────────────────────────────────────────────────
+  if (mkKey === 'set_2_totals' || mkKey === '2nd_set_total_games') {
+    const s2 = result.score?.sets?.s2;
+    if (!s2 || s2.home === null || s2.away === null) return 'void';
+    const total = s2.home + s2.away;
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('over') || sel.includes('acima');
+    const isUnder = sel.includes('under') || sel.includes('abaixo');
+    if (!isOver && !isUnder) return 'void';
+    const isHalf = line !== Math.floor(line);
+    if (isHalf) {
+      if (isOver) return total > line ? 'won' : 'lost';
+      return total < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return total > line ? 'won' : total === line ? 'void' : 'lost';
+      return total < line ? 'won' : total === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── Tennis: Set 3 Total Games ────────────────────────────────────────────────
+  if (mkKey === 'set_3_totals' || mkKey === '3rd_set_total_games') {
+    const s3 = result.score?.sets?.s3;
+    if (!s3 || s3.home === null || s3.away === null) return 'void';
+    const total = s3.home + s3.away;
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('over') || sel.includes('acima');
+    const isUnder = sel.includes('under') || sel.includes('abaixo');
+    if (!isOver && !isUnder) return 'void';
+    const isHalf = line !== Math.floor(line);
+    if (isHalf) {
+      if (isOver) return total > line ? 'won' : 'lost';
+      return total < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return total > line ? 'won' : total === line ? 'void' : 'lost';
+      return total < line ? 'won' : total === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── Tennis: Total Sets ───────────────────────────────────────────────────────
+  if (mkKey === 'total_sets') {
+    const sets = result.score?.sets;
+    if (!sets) return 'void';
+    let total = 0;
+    for (let i = 1; i <= 5; i++) {
+      const s = sets[`s${i}`];
+      if (s && s.home !== null && s.away !== null && (s.home > 0 || s.away > 0)) total++;
+    }
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('over') || sel.includes('acima');
+    const isUnder = sel.includes('under') || sel.includes('abaixo');
+    if (!isOver && !isUnder) return 'void';
+    const isHalf = line !== Math.floor(line);
+    if (isHalf) {
+      if (isOver) return total > line ? 'won' : 'lost';
+      return total < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return total > line ? 'won' : total === line ? 'void' : 'lost';
+      return total < line ? 'won' : total === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── Tennis: Sets Handicap ─────────────────────────────────────────────────────
+  if (mkKey === 'sets_handicap' || mkKey === 'handicap_sets') {
+    const sets = result.score?.sets;
+    if (!sets) return 'void';
+    let hSets = 0, aSets = 0;
+    for (let i = 1; i <= 5; i++) {
+      const s = sets[`s${i}`];
+      if (!s || s.home === null || s.away === null) continue;
+      if (s.home > s.away) hSets++;
+      if (s.away > s.home) aSets++;
+    }
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    let adjustedHome = hSets, adjustedAway = aSets;
+    if (sel.includes('home') || sel === '1') adjustedHome += line;
+    else if (sel.includes('away') || sel === '2') adjustedAway += line;
+    if (adjustedHome > adjustedAway) return sel.includes('home') || sel === '1' ? 'won' : 'lost';
+    if (adjustedAway > adjustedHome) return sel.includes('away') || sel === '2' ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── Tennis: Total Games in Match ──────────────────────────────────────────────
+  if (mkKey === 'match_total_games' || mkKey === 'total_games') {
+    const sets = result.score?.sets;
+    if (!sets) return 'void';
+    let total = 0;
+    for (let i = 1; i <= 5; i++) {
+      const s = sets[`s${i}`];
+      if (s && s.home !== null && s.away !== null) total += s.home + s.away;
+    }
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('over') || sel.includes('acima');
+    const isUnder = sel.includes('under') || sel.includes('abaixo');
+    if (!isOver && !isUnder) return 'void';
+    const isHalf = line !== Math.floor(line);
+    if (isHalf) {
+      if (isOver) return total > line ? 'won' : 'lost';
+      return total < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return total > line ? 'won' : total === line ? 'void' : 'lost';
+      return total < line ? 'won' : total === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── Tennis: Exact Set Score (Correct Score) ───────────────────────────────────
+  if (mkKey === 'tennis_correct_score' || mkKey === 'tennis_exact_sets') {
+    const sets = result.score?.sets;
+    if (!sets) return 'void';
+    let hSets = 0, aSets = 0;
+    for (let i = 1; i <= 5; i++) {
+      const s = sets[`s${i}`];
+      if (!s || s.home === null || s.away === null) continue;
+      if (s.home > s.away) hSets++;
+      if (s.away > s.home) aSets++;
+    }
+    const normalized = sel.toLowerCase();
+    const mHome = normalized.match(/(\d+)\s*-\s*(\d+)/);
+    if (mHome) {
+      const expectedH = parseInt(mHome[1], 10);
+      const expectedA = parseInt(mHome[2], 10);
+      return expectedH === hSets && expectedA === aSets ? 'won' : 'lost';
+    }
+    return 'void';
+  }
+
+  // ── Tennis: Tie-Break in Match ───────────────────────────────────────────────
+  if (mkKey === 'tiebreak' || mkKey === 'tie_break') {
+    // Note: We don't have tie-break data from the API, return void for now
+    return 'void';
+  }
+
+  // ── Tennis: Player Wins a Set ─────────────────────────────────────────────────
+  if (mkKey === 'player_wins_set' || mkKey === 'player_set_win') {
+    const sets = result.score?.sets;
+    if (!sets) return 'void';
+    let hWonSet = false, aWonSet = false;
+    for (let i = 1; i <= 5; i++) {
+      const s = sets[`s${i}`];
+      if (!s || s.home === null || s.away === null) continue;
+      if (s.home > s.away) hWonSet = true;
+      if (s.away > s.home) aWonSet = true;
+    }
+    if (sel.includes('home') || sel === '1') return hWonSet ? 'won' : 'lost';
+    if (sel.includes('away') || sel === '2') return aWonSet ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── Tennis: Games Odd/Even ───────────────────────────────────────────────────
+  if (mkKey === 'tennis_games_odd_even' || mkKey === 'games_par_impar') {
+    const sets = result.score?.sets;
+    if (!sets) return 'void';
+    let total = 0;
+    for (let i = 1; i <= 5; i++) {
+      const s = sets[`s${i}`];
+      if (s && s.home !== null && s.away !== null) total += s.home + s.away;
+    }
+    const isOdd = total % 2 !== 0;
     if (sel === 'impar' || sel === 'odd') return isOdd ? 'won' : 'lost';
     if (sel === 'par' || sel === 'even') return isOdd ? 'lost' : 'won';
+    return 'void';
+  }
+
+  // ── period_with_more_goals / tempo_com_mais_gols ───────────────────────────────
+  if (
+    mkKey === 'period_with_more_goals' || mkKey === 'tempo_com_mais_gols' || mkKey === 'half_with_more_goals'
+  ) {
+    if (htTotal === null) return 'void';
+    const shTotal = totalGoals - htTotal;
+    if (sel === '1' || sel.includes('1st') || sel.includes('primeiro')) return htTotal > shTotal ? 'won' : 'lost';
+    if (sel === '2' || sel.includes('2nd') || sel.includes('segundo')) return shTotal > htTotal ? 'won' : 'lost';
+    if (sel.includes('igual') || sel.includes('equal') || sel === 'x' || sel.includes('draw')) return htTotal === shTotal ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── comeback / remontada ─────────────────────────────────────────────────────
+  if (mkKey === 'comeback' || mkKey === 'remontada') {
+    if (htHomeScore === null || htAwayScore === null) return 'void';
+    const homeComeback = htHomeScore < htAwayScore && homeScore > awayScore;
+    const awayComeback = htAwayScore < htHomeScore && awayScore > homeScore;
+    const noComeback = !homeComeback && !awayComeback;
+    if (sel.includes('casa') || sel.includes('home')) return homeComeback ? 'won' : 'lost';
+    if (sel.includes('fora') || sel.includes('away')) return awayComeback ? 'won' : 'lost';
+    if (sel.includes('nao') || sel.includes('no')) return noComeback ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── win_both_halves / vence_os_dois_tempos ───────────────────────────────────
+  if (mkKey === 'win_both_halves' || mkKey === 'vence_os_dois_tempos') {
+    if (htHomeScore === null || htAwayScore === null) return 'void';
+    const shHome = homeScore - htHomeScore;
+    const shAway = awayScore - htAwayScore;
+    const homeBothHalves = htHomeScore > htAwayScore && shHome > shAway;
+    const awayBothHalves = htAwayScore > htHomeScore && shAway > shHome;
+    const homeNo = !homeBothHalves;
+    const awayNo = !awayBothHalves;
+    if ((sel.includes('casa') || sel.includes('home')) && sel.includes('sim') || sel.includes('yes')) return homeBothHalves ? 'won' : 'lost';
+    if ((sel.includes('casa') || sel.includes('home')) && (sel.includes('nao') || sel.includes('no'))) return homeNo ? 'won' : 'lost';
+    if ((sel.includes('fora') || sel.includes('away')) && (sel.includes('sim') || sel.includes('yes'))) return awayBothHalves ? 'won' : 'lost';
+    if ((sel.includes('fora') || sel.includes('away')) && (sel.includes('nao') || sel.includes('no'))) return awayNo ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── goal_in_each_half / gol_em_cada_tempo ───────────────────────────────────
+  if (mkKey === 'goal_in_each_half' || mkKey === 'gol_em_cada_tempo') {
+    if (htHomeScore === null || htAwayScore === null) return 'void';
+    const shHome = homeScore - htHomeScore;
+    const shAway = awayScore - htAwayScore;
+    const firstHasGoal = (htHomeScore > 0 || htAwayScore > 0);
+    const secondHasGoal = (shHome > 0 || shAway > 0);
+    const yes = firstHasGoal && secondHasGoal;
+    const no = !yes;
+    if (sel.includes('sim') || sel.includes('yes')) return yes ? 'won' : 'lost';
+    if (sel.includes('nao') || sel.includes('no')) return no ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── european_handicap / handicap_europeu ──────────────────────────────────────
+  if (mkKey === 'european_handicap' || mkKey === 'handicap_europeu') {
+    const lineMatch = selection.match(/([+-]?\d+(?:[.,]\d+)?)\s*$/);
+    if (!lineMatch) return 'void';
+    const handicap = parseFloat(lineMatch[1].replace(',', '.'));
+    const isHome = sel.includes('casa') || sel.includes('home') || sel.startsWith('1') ||
+      (result.homeName && sel.includes(normSel(result.homeName)));
+    const isAway = sel.includes('fora') || sel.includes('away') || sel.startsWith('2') ||
+      (result.awayName && sel.includes(normSel(result.awayName)));
+    const isDraw = sel === 'x' || sel.includes('draw') || sel.includes('empate');
+    if (!isHome && !isAway && !isDraw) return 'void';
+
+    const adjustedHome = homeScore + (isHome ? handicap : 0);
+    const adjustedAway = awayScore + (isAway ? handicap : 0);
+    if (isHome) return adjustedHome > adjustedAway ? 'won' : 'lost';
+    if (isAway) return adjustedAway > adjustedHome ? 'won' : 'lost';
+    if (isDraw) return adjustedHome === adjustedAway ? 'won' : 'lost';
+    return 'void';
+  }
+
+  // ── 1st_half_goals_range / intervalo_gols_1t ───────────────────────────────
+  if (mkKey === '1st_half_goals_range' || mkKey === 'intervalo_gols_1t') {
+    if (htTotal === null) return 'void';
+    if (sel.includes('ou mais') || sel.includes('or more') || sel.includes('+')) {
+      const line = parseLineFromLabel(selection);
+      if (line === null) return 'void';
+      return htTotal >= line ? 'won' : 'lost';
+    }
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    if (sel.includes('0') && sel.includes('gol')) return htTotal === 0 ? 'won' : 'lost';
+    return htTotal === line ? 'won' : 'lost';
+  }
+
+  // ── 2nd_half_goals_range / intervalo_gols_2t ───────────────────────────────
+  if (mkKey === '2nd_half_goals_range' || mkKey === 'intervalo_gols_2t') {
+    if (htTotal === null) return 'void';
+    const shTotal = totalGoals - htTotal;
+    if (sel.includes('ou mais') || sel.includes('or more') || sel.includes('+')) {
+      const line = parseLineFromLabel(selection);
+      if (line === null) return 'void';
+      return shTotal >= line ? 'won' : 'lost';
+    }
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    if (sel.includes('0') && sel.includes('gol')) return shTotal === 0 ? 'won' : 'lost';
+    return shTotal === line ? 'won' : 'lost';
+  }
+
+  // ── 2nd_half_correct_score / placar_correto_2t ───────────────────────────
+  if (mkKey === '2nd_half_correct_score' || mkKey === 'placar_correto_2t') {
+    if (htHomeScore === null || htAwayScore === null) return 'void';
+    const shHome = homeScore - htHomeScore;
+    const shAway = awayScore - htAwayScore;
+    if (sel === 'outro' || sel === 'other') {
+      const listed = ['0-0','1-0','0-1','1-1','2-0','0-2','2-1','1-2'];
+      const actualStr = `${shHome}-${shAway}`;
+      return !listed.includes(actualStr) ? 'won' : 'lost';
+    }
+    const parsed = parseScore(selection);
+    if (!parsed) return 'void';
+    return parsed.home === shHome && parsed.away === shAway ? 'won' : 'lost';
+  }
+
+  // ── home_corners / cantos_casa ───────────────────────────────────────────────
+  if (mkKey === 'home_corners' || mkKey === 'cantos_casa') {
+    if (result.homeCorners === null) return 'void';
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return result.homeCorners > line ? 'won' : 'lost';
+      return result.homeCorners < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return result.homeCorners > line ? 'won' : result.homeCorners === line ? 'void' : 'lost';
+      return result.homeCorners < line ? 'won' : result.homeCorners === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── away_corners / cantos_fora ─────────────────────────────────────────────
+  if (mkKey === 'away_corners' || mkKey === 'cantos_fora') {
+    if (result.awayCorners === null) return 'void';
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return result.awayCorners > line ? 'won' : 'lost';
+      return result.awayCorners < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return result.awayCorners > line ? 'won' : result.awayCorners === line ? 'void' : 'lost';
+      return result.awayCorners < line ? 'won' : result.awayCorners === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── 1st_half_corners / cantos_1t ───────────────────────────────────────────
+  if (mkKey === '1st_half_corners' || mkKey === 'cantos_1t') {
+    if (htTotal === null) return 'void'; // Using htTotal as a proxy if we don't have first‑half corners specifically
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    // We don't have specific first‑half corners data in our result, so void for now
+    return 'void';
+  }
+
+  // ── 2nd_half_corners / cantos_2t ─────────────────────────────────────────
+  if (mkKey === '2nd_half_corners' || mkKey === 'cantos_2t') {
+    if (htTotal === null) return 'void';
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    return 'void';
+  }
+
+  // ── home_corners_1st_half / cantos_casa_1t ──────────────────────────────
+  if (mkKey === 'home_corners_1st_half' || mkKey === 'cantos_casa_1t') {
+    return 'void';
+  }
+
+  // ── home_corners_2nd_half / cantos_casa_2t ──────────────────────────────
+  if (mkKey === 'home_corners_2nd_half' || mkKey === 'cantos_casa_2t') {
+    return 'void';
+  }
+
+  // ── away_corners_1st_half / cantos_fora_1t ──────────────────────────────
+  if (mkKey === 'away_corners_1st_half' || mkKey === 'cantos_fora_1t') {
+    return 'void';
+  }
+
+  // ── away_corners_2nd_half / cantos_fora_2t ──────────────────────────────
+  if (mkKey === 'away_corners_2nd_half' || mkKey === 'cantos_fora_2t') {
+    return 'void';
+  }
+
+  // ── penalty_scored / penalti_marcado ───────────────────────────────────────────
+  if (mkKey === 'penalty_scored' || mkKey === 'penalti_marcado') {
+    // We don't have penalty data, so void
+    return 'void';
+  }
+
+  // ── 1st_half_cards / cartoes_1t ───────────────────────────────────────────
+  if (mkKey === '1st_half_cards' || mkKey === 'cartoes_1t') {
+    if (result.totalCards === null) return 'void';
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    return 'void';
+  }
+
+  // ── 2nd_half_cards / cartoes_2t ───────────────────────────────────────────
+  if (mkKey === '2nd_half_cards' || mkKey === 'cartoes_2t') {
+    if (result.totalCards === null) return 'void';
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    return 'void';
+  }
+
+  // ── home_cards / cartoes_casa ───────────────────────────────────────────────
+  if (mkKey === 'home_cards' || mkKey === 'cartoes_casa') {
+    if (result.homeCards === null) return 'void';
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return result.homeCards > line ? 'won' : 'lost';
+      return result.homeCards < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return result.homeCards > line ? 'won' : result.homeCards === line ? 'void' : 'lost';
+      return result.homeCards < line ? 'won' : result.homeCards === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── away_cards / cartoes_fora ─────────────────────────────────────────────
+  if (mkKey === 'away_cards' || mkKey === 'cartoes_fora') {
+    if (result.awayCards === null) return 'void';
+    const line = parseLineFromLabel(selection);
+    if (line === null) return 'void';
+    const isOver = sel.includes('mais') || sel.includes('over');
+    const isUnder = sel.includes('menos') || sel.includes('under');
+    if (!isOver && !isUnder) return 'void';
+    const isHalfLine = line !== Math.floor(line);
+    if (isHalfLine) {
+      if (isOver) return result.awayCards > line ? 'won' : 'lost';
+      return result.awayCards < line ? 'won' : 'lost';
+    } else {
+      if (isOver) return result.awayCards > line ? 'won' : result.awayCards === line ? 'void' : 'lost';
+      return result.awayCards < line ? 'won' : result.awayCards === line ? 'void' : 'lost';
+    }
+  }
+
+  // ── home_cards_1st_half / cartoes_casa_1t ───────────────────────────────
+  if (mkKey === 'home_cards_1st_half' || mkKey === 'cartoes_casa_1t') {
+    return 'void';
+  }
+
+  // ── home_cards_2nd_half / cartoes_casa_2t ───────────────────────────────
+  if (mkKey === 'home_cards_2nd_half' || mkKey === 'cartoes_casa_2t') {
+    return 'void';
+  }
+
+  // ── away_cards_1st_half / cartoes_fora_1t ───────────────────────────────
+  if (mkKey === 'away_cards_1st_half' || mkKey === 'cartoes_fora_1t') {
+    return 'void';
+  }
+
+  // ── away_cards_2nd_half / cartoes_fora_2t ───────────────────────────────
+  if (mkKey === 'away_cards_2nd_half' || mkKey === 'cartoes_fora_2t') {
     return 'void';
   }
 
@@ -1057,8 +1553,23 @@ async function fetchMatchResult(
   sport: string,
 ): Promise<MatchResult | null> {
   if (!apiKey) return null;
-  const sub = sport === 'tennis' ? 'tennis' : 'football';
-  const base = `https://v1.${sub}.sportsapipro.com`;
+  
+  // Map sport to the correct SportsAPI Pro subdomain
+  const sportLower = String(sport || '').toLowerCase().trim();
+  let sub: string;
+  if (sportLower === 'tennis') {
+    sub = 'tennis';
+  } else if (sportLower === 'basketball') {
+    sub = 'basketball';
+  } else if (sportLower === 'ice-hockey' || sportLower === 'hockey') {
+    sub = 'hockey';
+  } else if (sportLower === 'baseball') {
+    sub = 'baseball';
+  } else {
+    sub = 'football'; // soccer/football default
+  }
+  
+  const base = `https://v2.${sub}.sportsapipro.com`;
 
   // Try to fetch by event ID directly
   try {
@@ -1068,8 +1579,8 @@ async function fetchMatchResult(
       signal: AbortSignal.timeout(6000),
     });
     if (r.ok) {
-      const data = await r.json();
-      const ev = data?.event ?? data?.match ?? data?.data?.event ?? data?.data?.match ?? data;
+      const data: any = await r.json();
+      const ev: any = data?.event ?? data?.match ?? data?.data?.event ?? data?.data?.match ?? data;
       const result = extractResultFromEvent(ev, eventId, sport);
       if (result) return result;
     }
@@ -1113,6 +1624,29 @@ function extractEventsArray(payload: any): any[] {
   return [];
 }
 
+function extractTennisSetsFromEvent(ev: any): MatchResult['score']['sets'] | undefined {
+  const sets: MatchResult['score']['sets'] = {};
+  for (let i = 1; i <= 5; i++) {
+    const home = pickNumOrNull(
+      ev?.homeScore?.[`period${i}`] ?? ev?.score?.periods?.[i - 1]?.home ??
+      ev?.periodScores?.[i - 1]?.home ?? ev?.score?.[`set${i}`]?.home ??
+      ev?.[`homeSet${i}`]
+    );
+    const away = pickNumOrNull(
+      ev?.awayScore?.[`period${i}`] ?? ev?.score?.periods?.[i - 1]?.away ??
+      ev?.periodScores?.[i - 1]?.away ?? ev?.score?.[`set${i}`]?.away ??
+      ev?.[`awaySet${i}`]
+    );
+    if (home !== null || away !== null) {
+      sets[`s${i}`] = { home, away };
+    }
+  }
+  if (Object.keys(sets).length > 0) {
+    return sets;
+  }
+  return undefined;
+}
+
 function extractResultFromEvent(ev: any, eventId: string, sport: string): MatchResult | null {
   if (!ev) return null;
   const statusRaw = String(
@@ -1153,6 +1687,17 @@ function extractResultFromEvent(ev: any, eventId: string, sport: string): MatchR
   const homeName = String(ev?.teams?.home?.name ?? ev?.home_team ?? ev?.homeName ?? '');
   const awayName = String(ev?.teams?.away?.name ?? ev?.away_team ?? ev?.awayName ?? '');
 
+  const scoreObj: MatchResult['score'] = {};
+  if (sport.toLowerCase().includes('tennis')) {
+    scoreObj.sets = extractTennisSetsFromEvent(ev);
+    const pointHome = ev?.homeScore?.point ?? ev?.homeScore?.currentPoint ?? ev?.point?.home ?? null;
+    const pointAway = ev?.awayScore?.point ?? ev?.awayScore?.currentPoint ?? ev?.point?.away ?? null;
+    if (pointHome !== null || pointAway !== null) {
+      scoreObj.point = { home: pointHome, away: pointAway };
+    }
+  }
+  // For other sports, you could add other score properties here (quarters, innings, etc.)
+
   return {
     eventId,
     sport,
@@ -1169,6 +1714,7 @@ function extractResultFromEvent(ev: any, eventId: string, sport: string): MatchR
     awayCards,
     homeName,
     awayName,
+    score: Object.keys(scoreObj).length > 0 ? scoreObj : undefined,
   };
 }
 

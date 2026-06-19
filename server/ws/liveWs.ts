@@ -7,7 +7,7 @@ import {
   fetchSportsApiProMatchOddsLive,
   fetchSportsApiProMatchOddsPreMatch,
   parseSportsApiProMatchOddsPayload,
-} from '../services/sportsApiPro';
+} from '../services/sportsApiPro.js';
 
 type ClientInfo = { ws: WebSocket; sport: string };
 type UpstreamInfo = {
@@ -55,7 +55,7 @@ export function createLiveWs(apiKey: string) {
   const toWsSport = (localSport: string): string => {
     const s = String(localSport || '').trim().toLowerCase();
     if (s === 'soccer') return 'football';
-    if (s === 'ice-hockey') return 'ice-hockey';
+    if (s === 'ice-hockey') return 'hockey';
     return s;
   };
 

@@ -786,11 +786,15 @@ export function SubOddsModel({
     return elapsed || 0;
   }, [isLive, liveTimer, event]);
 
-  // ── Market liquidation: progressive hiding as game approaches 90' ──
-  // Soccer only. Tiers:
-  //   < 85 min  → todos os mercados visíveis (sem remoção)
-  //   85–90 min → apenas H2H + Totals + Chance Dupla
-  //   90+       → apenas H2H
+  const liveStatusShort = useMemo(() => {
+    return String(
+      (event as any)?.status?.short ??
+      (event as any)?.fixture?.status?.short ??
+      (event as any)?.status ??
+      ''
+    ).toUpperCase().trim();
+  }, [event]);
+
   const isSoccerLive = useMemo(() => {
     if (!isLive) return false;
     const s = String((event as any)?.sport || (event as any)?.sport_key || '').toLowerCase();
@@ -833,13 +837,35 @@ export function SubOddsModel({
 
     if (min < 85) return false;
 
-    const ALWAYS_KEEP = new Set([
-      'h2h', 'h2h_3_way', '1x2', 'main', 'match_winner', 'moneyline',
-    ]);
-    if (ALWAYS_KEEP.has(key)) return false;
+  const isFirstHalfOnlyMarket = (key: string) => {
+    const lk = key.toLowerCase();
+    return (
+      /^1st_half\b/.test(lk) ||
+      /^first_half\b/.test(lk) ||
+      /^1st_/.test(lk) ||
+      /^first_half_/.test(lk) ||
+      /_1st_half\b/.test(lk) ||
+      /_first_half\b/.test(lk) ||
+      lk === 'half_time_result' ||
+      lk === 'first_half_result' ||
+      lk === 'totals_ht' ||
+      lk === 'ht_totals'
+    );
+  };
 
-    // 90+ min: apenas H2H
-    if (min >= 90) return true;
+  const isSecondHalfOnlyMarket = (key: string) => {
+    const lk = key.toLowerCase();
+    return (
+      /^2nd_half\b/.test(lk) ||
+      /^second_half\b/.test(lk) ||
+      /^2nd_/.test(lk) ||
+      /^second_half_/.test(lk) ||
+      /_2nd_half\b/.test(lk) ||
+      /_second_half\b/.test(lk) ||
+      lk === 'totals_sh' ||
+      lk === 'sh_totals'
+    );
+  };
 
     // 85–90 min: H2H + Totals + Chance Dupla
     const keep85 = new Set(['totals', 'match_goals', 'goals_total', 'total_goals', 'double_chance']);
@@ -848,11 +874,8 @@ export function SubOddsModel({
 
   // Liquidation tier label for display badge
   const liquidationTier = useMemo((): string | null => {
-    if (!isSoccerLive || liveElapsedMinute < 85) return null;
-    const min = liveElapsedMinute;
-    if (min >= 90) return '90+\'';
-    return `${min}' — mercados em liquidação`;
-  }, [isSoccerLive, liveElapsedMinute]);
+    return null;
+  }, []);
 
   // --- Render each market as a card ---
   const renderMarketContent = (key: string) => {
@@ -1257,8 +1280,7 @@ export function SubOddsModel({
 
           return (
             <MarketCard title={title} darkMode={darkMode} noPad>
-              <div className={`grid grid-cols-[1fr_auto_auto] items-center`}>
-                <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Linha</div>
+              <div className={`grid grid-cols-2 items-center`}>
                 <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Acima</div>
                 <div className={`text-[11px] font-bold uppercase tracking-wider px-3 py-2 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Abaixo</div>
                 {visibleLines.map((line, i) => {
@@ -1272,7 +1294,7 @@ export function SubOddsModel({
                     ? (darkMode ? 'bg-gray-800/30' : 'bg-gray-50/80')
                     : '';
                   const renderBtn = (item: MarketItem | undefined, side: 'a' | 'b') => {
-                    if (!item) return <div className="w-24" />;
+                    if (!item) return <div className="h-12 w-full" />;
                     const f = fair ? fair[side] : null;
                     const isBlocked = !!susp;
                     const sideLabel = side === 'a' ? 'Acima de' : 'Abaixo de';
@@ -1282,7 +1304,7 @@ export function SubOddsModel({
                         onClick={isBlocked ? undefined : () => onSelect(String(item.selection || item.label), item.odd)}
                         disabled={isBlocked}
                         title={f ? `Odd justa: ${formatFairOdd(f.fair)}${f.isValue ? ` · valor +${(f.edge * 100).toFixed(1)}%` : ''}` : undefined}
-                        className={`w-24 h-12 rounded-lg font-bold tabular-nums transition-all duration-200 relative
+                        className={`w-full h-12 rounded-lg font-bold tabular-nums transition-all duration-200 relative
                           ${susp
                               ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
                               : f?.isValue
@@ -1305,15 +1327,6 @@ export function SubOddsModel({
                   };
                   return (
                     <div key={line} className={`contents`}>
-                      <div className={`px-3 py-2 text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-700'} ${rowBg} flex flex-col`}>
-                        <span>{line}</span>
-                        {fair && (
-                          <span className={`text-[9px] font-normal mt-0.5 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                            justo: {formatFairOdd(fair.a.fair)}/{formatFairOdd(fair.b.fair)}
-                            {fair.margin > 0 && <span className="ml-1 opacity-70">· vig {(fair.margin * 100).toFixed(1)}%</span>}
-                          </span>
-                        )}
-                      </div>
                       <div className={`px-2 py-2 flex justify-center ${rowBg}`}>{renderBtn(o, 'a')}</div>
                       <div className={`px-2 py-2 flex justify-center ${rowBg}`}>{renderBtn(u, 'b')}</div>
                     </div>
@@ -1785,6 +1798,19 @@ export function SubOddsModel({
               return !!items && items.length > 0;
           };
           const rawKeys = allKeys.filter(hasContent);
+          const syntheticKeys = [...rawKeys];
+          if (
+            !syntheticKeys.includes('totals') &&
+            rawKeys.some((k) =>
+              /^totals_[\d_]+$/.test(k) ||
+              k === 'match_goals' ||
+              k === 'goals_total' ||
+              k === 'over_under' ||
+              k === 'overunder'
+            )
+          ) {
+            syntheticKeys.unshift('totals');
+          }
           const keyPriority = (k: string) => {
             const lk = k.toLowerCase();
             const pref = [
@@ -1804,7 +1830,7 @@ export function SubOddsModel({
             return idx >= 0 ? idx : 999;
           };
           const dedupe = new Map<string, { key: string; pr: number; len: number }>();
-          for (const k of rawKeys) {
+          for (const k of syntheticKeys) {
             const titleKey = getMarketTitle(k, event?.sport).toLowerCase().trim();
             const pr = keyPriority(k);
             const len = String(k).length;
