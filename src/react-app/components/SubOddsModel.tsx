@@ -31,6 +31,40 @@ export interface Markets {
   [key: string]: MarketItem[]
 }
 
+const parseLiveMinuteValue = (rawTimer?: string | null, fallbackElapsed?: number | null): number => {
+  const timer = String(rawTimer || '').trim();
+  const stoppage = timer.match(/^(\d{1,3})\s*\+\s*(\d{1,2})$/);
+  if (stoppage) return Number(stoppage[1]) + Number(stoppage[2]);
+  const mmss = timer.match(/^(\d{1,3}):(\d{2})$/);
+  if (mmss) return Number(mmss[1]);
+  const minute = timer.match(/^(\d{1,3})'?$/);
+  if (minute) return Number(minute[1]);
+  const fallback = Number(fallbackElapsed ?? 0);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+};
+
+const detectSoccerPhase = (
+  statusShort?: string | null,
+  statusLong?: string | null,
+  rawTimer?: string | null,
+  elapsedOrMinute?: number | null,
+): 'first_half' | 'halftime' | 'second_half' | 'extra_time' | 'other' => {
+  const short = String(statusShort || '').trim().toUpperCase();
+  const long = String(statusLong || '').trim().toUpperCase();
+  const timer = String(rawTimer || '').trim();
+  const minute = parseLiveMinuteValue(timer, elapsedOrMinute);
+
+  if (short === 'HT' || /HALF\s*TIME|INTERVAL/.test(long)) return 'halftime';
+  if (short === 'ET' || short === 'AET' || short === 'ET1' || short === 'ET2' || /EXTRA\s*TIME|OVERTIME/.test(long)) return 'extra_time';
+  if (short === '2H' || /SECOND\s*HALF|2ND\s*HALF/.test(long)) return 'second_half';
+  if (short === '1H' || /FIRST\s*HALF|1ST\s*HALF/.test(long)) return 'first_half';
+  if (/^45\s*\+\s*\d{1,2}$/.test(timer)) return 'first_half';
+  if (/^90\s*\+\s*\d{1,2}$/.test(timer)) return 'second_half';
+  if (minute >= 46) return 'second_half';
+  if (minute > 0) return 'first_half';
+  return 'other';
+};
+
 // Single odd row: label outside (left), red button (right)
 const OddRow = memo(({ item, onSelect, suspended, compact }: {
   item: MarketItem
