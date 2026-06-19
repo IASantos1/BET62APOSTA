@@ -140,7 +140,7 @@ export function BannerCarousel() {
     const load = async () => {
       try {
         const data = await apiFetch<any>(
-          '/api/events/by-sport?sports=all&include=odds&realtime=1&only=live&days=0&requireOdds=1',
+          '/api/events/by-sport?sports=all&include=odds&realtime=1&only=live&days=0',
           { cache: 'no-store', timeout: 12000 },
         );
         const live    = Array.isArray(data?.live)    ? data.live    : [];
