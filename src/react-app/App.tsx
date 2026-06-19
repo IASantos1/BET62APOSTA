@@ -130,7 +130,7 @@ const InnerApp = memo(function InnerApp() {
 });
 
 function AppContent() {
-  const { showAdminPanel, authModalOpen, authModalMode, authModalUserId, closeAuthModal, openAuthModal } = useApp();
+  const { authModalOpen, authModalMode, authModalUserId, closeAuthModal, openAuthModal } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -153,10 +153,6 @@ function AppContent() {
       }
     }
   };
-
-  if (showAdminPanel) {
-    return <AdminPanel />;
-  }
 
   const isEventPage = location.pathname.startsWith('/event/');
   const vars = isEventPage ? eventVariants : pageVariants;
@@ -210,6 +206,12 @@ function AppContent() {
             <Route path="/my-bets" element={<MyBetsPage />} />
             <Route path="/register" element={<HomePage mode="home" />} />
             <Route path="/login" element={<HomePage mode="home" />} />
+            <Route path="/admin" element={
+              <AdminRoute><AdminPanel /></AdminRoute>
+            } />
+            <Route path="/administrador" element={
+              <AdminRoute><AdminPanel /></AdminRoute>
+            } />
             <Route path="/deposit-success" element={<DepositSuccess />} />
             <Route path="/promotions" element={<Promotions />} />
             <Route path="/copa-do-mundo" element={<WorldCupPage />} />

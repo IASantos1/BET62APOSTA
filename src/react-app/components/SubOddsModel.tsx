@@ -31,27 +31,38 @@ export interface Markets {
   [key: string]: MarketItem[]
 }
 
-const parseLiveMinuteValue = (rawTimer: string | undefined | null): number => {
+const parseLiveMinuteValue = (rawTimer?: string | null, fallbackElapsed?: number | null): number => {
   const timer = String(rawTimer || '').trim();
-  if (!timer) return 0;
-
   const stoppage = timer.match(/^(\d{1,3})\s*\+\s*(\d{1,2})$/);
-  if (stoppage) {
-    return Number(stoppage[1]) + Number(stoppage[2]);
-  }
+  if (stoppage) return Number(stoppage[1]) + Number(stoppage[2]);
+  const mmss = timer.match(/^(\d{1,3}):(\d{2})$/);
+  if (mmss) return Number(mmss[1]);
+  const minute = timer.match(/^(\d{1,3})'?$/);
+  if (minute) return Number(minute[1]);
+  const fallback = Number(fallbackElapsed ?? 0);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+};
 
-  const regular = timer.match(/^(\d{1,3})(?:['’])?$/);
-  if (regular) {
-    return Number(regular[1]);
-  }
+const detectSoccerPhase = (
+  statusShort?: string | null,
+  statusLong?: string | null,
+  rawTimer?: string | null,
+  elapsedOrMinute?: number | null,
+): 'first_half' | 'halftime' | 'second_half' | 'extra_time' | 'other' => {
+  const short = String(statusShort || '').trim().toUpperCase();
+  const long = String(statusLong || '').trim().toUpperCase();
+  const timer = String(rawTimer || '').trim();
+  const minute = parseLiveMinuteValue(timer, elapsedOrMinute);
 
-  const clock = timer.match(/^(\d{1,3}):(\d{2})$/);
-  if (clock) {
-    return Number(clock[1]);
-  }
-
-  const fallback = parseInt(timer.replace(/[^\d]/g, ''), 10);
-  return Number.isFinite(fallback) ? fallback : 0;
+  if (short === 'HT' || /HALF\s*TIME|INTERVAL/.test(long)) return 'halftime';
+  if (short === 'ET' || short === 'AET' || short === 'ET1' || short === 'ET2' || /EXTRA\s*TIME|OVERTIME/.test(long)) return 'extra_time';
+  if (short === '2H' || /SECOND\s*HALF|2ND\s*HALF/.test(long)) return 'second_half';
+  if (short === '1H' || /FIRST\s*HALF|1ST\s*HALF/.test(long)) return 'first_half';
+  if (/^45\s*\+\s*\d{1,2}$/.test(timer)) return 'first_half';
+  if (/^90\s*\+\s*\d{1,2}$/.test(timer)) return 'second_half';
+  if (minute >= 46) return 'second_half';
+  if (minute > 0) return 'first_half';
+  return 'other';
 };
 
 // Single odd row: label outside (left), red button (right)
@@ -517,28 +528,31 @@ export function SubOddsModel({
   }, [markets]);
 
   const getMarketItems = (key: string, labelKey?: string) => {
+      const aliasKeys = (() => {
+        if (key === 'totals') return ['totals', 'match_goals', 'goals_total', 'total_goals'];
+        if (key === '1st_half_totals') return ['1st_half_totals', 'first_half_totals', 'first_half_goals_total'];
+        if (key === '2nd_half_totals') return ['2nd_half_totals', 'second_half_totals', 'second_half_goals_total'];
+        if (key === 'first_half_h2h') return ['first_half_h2h', '1st_half', 'half_time_result', 'first_half_result'];
+        if (key === 'second_half_h2h') return ['second_half_h2h', '2nd_half', 'second_half_result'];
+        return [key];
+      })();
+
       if (normalizedMarkets) {
-        if ((normalizedMarkets as any)[key] && (normalizedMarkets as any)[key]!.length > 0) return (normalizedMarkets as any)[key]!;
+        for (const alias of aliasKeys) {
+          if ((normalizedMarkets as any)[alias] && (normalizedMarkets as any)[alias]!.length > 0) return (normalizedMarkets as any)[alias]!;
+        }
         if (key === 'spreads' && (normalizedMarkets as any)['handicap'] && (normalizedMarkets as any)['handicap']!.length > 0) {
           return (normalizedMarkets as any)['handicap']!;
         }
       }
 
-      let raw = (eventOdds && (eventOdds as any)[key]);
-      if ((!raw || (Array.isArray(raw) && raw.length === 0)) && key === 'totals') {
-        raw =
-          (eventOdds && ((eventOdds as any)['match_goals'] || (eventOdds as any)['goals_total'] || (eventOdds as any)['over_under'] || (eventOdds as any)['overunder']));
-      }
-      if ((!raw || (Array.isArray(raw) && raw.length === 0)) && key === 'match_goals') {
-        raw = (eventOdds && (eventOdds as any)['totals']);
-      }
-      if ((!raw || (Array.isArray(raw) && raw.length === 0)) && key === '1st_half_totals') {
-        raw =
-          (eventOdds && ((eventOdds as any)['first_half_totals'] || (eventOdds as any)['totals_ht'] || (eventOdds as any)['ht_totals']));
-      }
-      if ((!raw || (Array.isArray(raw) && raw.length === 0)) && key === '2nd_half_totals') {
-        raw =
-          (eventOdds && ((eventOdds as any)['second_half_totals'] || (eventOdds as any)['totals_sh'] || (eventOdds as any)['sh_totals']));
+      let raw: any = null;
+      for (const alias of aliasKeys) {
+        const candidate = eventOdds && (eventOdds as any)[alias];
+        if (candidate && (!Array.isArray(candidate) || candidate.length > 0)) {
+          raw = candidate;
+          break;
+        }
       }
       if ((!raw || (Array.isArray(raw) && raw.length === 0)) && key === 'spreads') {
         raw = (eventOdds && (eventOdds as any)['handicap']);
@@ -599,6 +613,16 @@ export function SubOddsModel({
           if (s.includes('tennis') || s.includes('tênis')) return 'Total de Games na Partida';
           if (s.includes('basketball') || s.includes('basquete')) return 'Total de Pontos';
           if (s.includes('ice-hockey') || s.includes('hockey') || s.includes('hóquei')) return 'Total de Golos';
+          return 'Total de Golos - Tempo Regular';
+      }
+      if (key === 'match_goals' || key === 'goals_total' || key === 'total_goals') {
+          return 'Total de Golos - Tempo Regular';
+      }
+      if (key === '1st_half_totals' || key === 'first_half_totals' || key === 'first_half_goals_total') {
+          return 'Total de Golos - 1º Tempo';
+      }
+      if (key === '2nd_half_totals' || key === 'second_half_totals' || key === 'second_half_goals_total') {
+          return 'Total de Golos - 2º Tempo';
       }
       if (key === 'spreads') {
           const s = (sport || '').toLowerCase();
@@ -736,7 +760,10 @@ export function SubOddsModel({
     const h = Number(currentGoals?.home ?? 0);
     const a = Number(currentGoals?.away ?? 0);
     const diff = Math.abs(h - a);
-    const minute = parseLiveMinuteValue(liveTimer);
+    const minute = parseLiveMinuteValue(
+      liveTimer,
+      Number((event as any)?.elapsed ?? (event as any)?.fixture?.status?.elapsed ?? 0),
+    );
     const fav = resultadoRegulamentar
       .map((x) => Number(x.odd))
       .filter((x) => Number.isFinite(x) && x > 1)
@@ -750,7 +777,10 @@ export function SubOddsModel({
   // ── Live elapsed minute (for progressive market liquidation) ──────────
   const liveElapsedMinute = useMemo(() => {
     if (!isLive) return 0;
-    const fromTimer = parseLiveMinuteValue(liveTimer);
+    const fromTimer = parseLiveMinuteValue(
+      liveTimer,
+      Number((event as any)?.elapsed ?? (event as any)?.fixture?.status?.elapsed ?? 0),
+    );
     if (fromTimer > 0) return fromTimer;
     const elapsed = Number((event as any)?.elapsed ?? (event as any)?.fixture?.status?.elapsed ?? 0);
     return elapsed || 0;
@@ -776,13 +806,36 @@ export function SubOddsModel({
     );
   }, [isLive, event]);
 
-  const liveSoccerPhase = useMemo<'first_half' | 'second_half' | 'other'>(() => {
-    if (!isSoccerLive) return 'other';
-    if (/^(HT|INT|BREAK|HALFTIME)$/.test(liveStatusShort)) return 'second_half';
-    if (/^(2H|SH|ET|AET|PEN|FT)$/.test(liveStatusShort)) return 'second_half';
-    if (/^(1H)$/.test(liveStatusShort)) return 'first_half';
-    return liveElapsedMinute > 45 ? 'second_half' : 'first_half';
-  }, [isSoccerLive, liveStatusShort, liveElapsedMinute]);
+  const liveSoccerPhase = useMemo(() => {
+    if (!isSoccerLive) return 'other' as const;
+    return detectSoccerPhase(
+      String((event as any)?.status_short ?? (event as any)?.fixture?.status?.short ?? ''),
+      String((event as any)?.status_long ?? (event as any)?.fixture?.status?.long ?? ''),
+      String(liveTimer ?? (event as any)?.timer ?? (event as any)?.fixture?.status?.timer ?? ''),
+      Number((event as any)?.elapsed ?? (event as any)?.fixture?.status?.elapsed ?? liveElapsedMinute ?? 0),
+    );
+  }, [isSoccerLive, event, liveTimer, liveElapsedMinute]);
+
+  const isMarketLiquidated = (key: string): boolean => {
+    if (!isSoccerLive) return false;
+    const min = liveElapsedMinute;
+
+    const FIRST_HALF_ONLY = new Set([
+      '1st_half', 'first_half_h2h', 'half_time_result', 'first_half_result',
+      '1st_half_totals', 'first_half_totals', 'first_half_goals_total',
+      '1st_half_goal_odd_even', '1st_half_correct_score',
+      'double_chance_1st_half', 'draw_no_bet_1st_half', 'btts_first_half',
+    ]);
+    const SECOND_HALF_ONLY = new Set([
+      '2nd_half', 'second_half_h2h', 'second_half_result',
+      '2nd_half_totals', 'second_half_totals', 'second_half_goals_total',
+      '2nd_half_correct_score', 'btts_second_half',
+    ]);
+
+    if (FIRST_HALF_ONLY.has(key) && liveSoccerPhase !== 'first_half') return true;
+    if (SECOND_HALF_ONLY.has(key) && liveSoccerPhase === 'first_half') return true;
+
+    if (min < 85) return false;
 
   const isFirstHalfOnlyMarket = (key: string) => {
     const lk = key.toLowerCase();
@@ -814,11 +867,9 @@ export function SubOddsModel({
     );
   };
 
-  const isMarketLiquidated = (key: string): boolean => {
-    if (!isSoccerLive) return false;
-    if (isFirstHalfOnlyMarket(key) && liveSoccerPhase !== 'first_half') return true;
-    if (isSecondHalfOnlyMarket(key) && liveSoccerPhase === 'first_half') return true;
-    return false;
+    // 85–90 min: H2H + Totals + Chance Dupla
+    const keep85 = new Set(['totals', 'match_goals', 'goals_total', 'total_goals', 'double_chance']);
+    return !keep85.has(key);
   };
 
   // Liquidation tier label for display badge

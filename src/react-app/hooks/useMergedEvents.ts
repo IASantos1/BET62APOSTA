@@ -159,9 +159,6 @@ export function useMergedEvents(
         if (!h || !a || h === 'undefined' || a === 'undefined' || h === 'Home Team' || a === 'Away Team') return false;
         if (e.id === 'undefined' || !e.id) return false;
 
-        const st = statusKeyOf(e);
-        const isLive = Number((e as any).is_live) === 1 || st === 'LIVE' || ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN'].includes(st);
-        if (isLive && !hasAnyOdds(e)) return false;
         return true;
     }).sort((a, b) => {
       const aStatus = statusKeyOf(a);

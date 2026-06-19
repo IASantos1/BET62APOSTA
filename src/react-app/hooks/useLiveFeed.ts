@@ -279,7 +279,7 @@ export function useLiveFeed(sport?: string) {
   // Poll function
   const fetchLiveEvents = useCallback(async () => {
       try {
-          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&include=odds&only=live&days=0&requireOdds=1`;
+          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&include=odds&only=live&days=0`;
           const data = await apiFetch<any>(url, { cache: 'no-store' });
           
           const list = Array.isArray(data) ? data : (data && Array.isArray(data.live) ? data.live : null);
@@ -523,13 +523,25 @@ export function useLiveFeed(sport?: string) {
               const id = String(delta.id);
               const prevVal = next.get(id);
               if (!prevVal) {
-                // Se o delta chega antes do snapshot/bootstrap, força uma
-                // sincronização imediata para evitar ficar preso ao polling.
+                const seeded = {
+                  id,
+                  external_event_id: id,
+                  is_live: 1,
+                  goals: delta.goals || { home: delta.score?.home ?? null, away: delta.score?.away ?? null },
+                  score: delta.score && typeof delta.score === 'object' ? { ...delta.score } : undefined,
+                  status_short: delta.status_short || '',
+                  status_long: delta.status_long || '',
+                  fixture: { status: { short: delta.status_short || '', long: delta.status_long || '', elapsed: 0, timer: '' } },
+                  markets: delta.markets || {},
+                  __lastSeenAt: now,
+                } as any;
+                next.set(id, seeded);
                 if (now - missingDeltaRefreshAt > 1000) {
                   missingDeltaRefreshAt = now;
                   fetchLiveEvents().catch(() => void 0);
                 }
-                return prev;
+                _liveCache.set(_sportKey, { map: next, ts: now });
+                return next;
               }
 
               const merged = { ...prevVal, __lastSeenAt: now };
