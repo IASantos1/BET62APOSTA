@@ -45,9 +45,20 @@ function computeFootballClock(
   const msSinceUpdate = lastSeenAt && lastSeenAt > 0 ? Math.max(0, Date.now() - lastSeenAt) : 0;
   const tickAdj = Math.floor(msSinceUpdate / 60_000);
 
+  const parseLiveMinuteValue = (rawTimer: string, fallbackElapsed: number): number => {
+    const timer = String(rawTimer || '').trim();
+    const stoppage = timer.match(/^(\d{1,3})\s*\+\s*(\d{1,2})$/);
+    if (stoppage) return Number(stoppage[1]) + Number(stoppage[2]);
+    const mmss = timer.match(/^(\d{1,3}):(\d{2})$/);
+    if (mmss) return Number(mmss[1]);
+    const minute = timer.match(/^(\d{1,3})'?$/);
+    if (minute) return Number(minute[1]);
+    return fallbackElapsed > 0 ? fallbackElapsed : 0;
+  };
+
   const baseMin = apiElapsed > 0
     ? apiElapsed
-    : (apiTimer ? (parseInt(apiTimer.replace(/[^0-9]/g, ''), 10) || 0) : 0);
+    : parseLiveMinuteValue(apiTimer, 0);
 
   if (baseMin > 0) {
     // Advance by time-since-last-update so the clock ticks between API polls.
@@ -73,6 +84,18 @@ const normalizeSport = (s: string) => {
   if (v.includes('american') && v.includes('football')) return 'american-football';
   if (v.includes('ice') && v.includes('hockey')) return 'ice-hockey';
   return v.replace(/\s+/g, '-');
+};
+
+const parseLiveMinuteValue = (rawTimer?: string | null, fallbackElapsed?: number | null): number => {
+  const timer = String(rawTimer || '').trim();
+  const stoppage = timer.match(/^(\d{1,3})\s*\+\s*(\d{1,2})$/);
+  if (stoppage) return Number(stoppage[1]) + Number(stoppage[2]);
+  const mmss = timer.match(/^(\d{1,3}):(\d{2})$/);
+  if (mmss) return Number(mmss[1]);
+  const minute = timer.match(/^(\d{1,3})'?$/);
+  if (minute) return Number(minute[1]);
+  const fallback = Number(fallbackElapsed ?? 0);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
 };
 
 interface EventCardProps { 
@@ -349,7 +372,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     if (!(v > 0)) return v;
     const elapsed = Number((event as any).elapsed ?? (event as any).fixture?.status?.elapsed ?? 0) || 0;
     const timerStr = String((event as any).timer || (event as any).fixture?.status?.timer || '');
-    const minute = parseInt(timerStr.replace(/[^\d]/g, ''), 10) || elapsed;
+    const minute = parseLiveMinuteValue(timerStr, elapsed);
     let cap = 40;
     if (isLiveEvent) {
       if (minute < 70) cap = 20;

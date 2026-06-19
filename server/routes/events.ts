@@ -287,7 +287,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const fetchLive = async (sport: string): Promise<AnyEvent[]> => {
     const key = sport;
     const cached = liveCache.get(key);
-    if (cached && ttlOk(cached.ts, 2_000)) return cached.data;
+    const liveFreshTtl = String(sport || '').toLowerCase() === 'tennis' ? 1_000 : 2_000;
+    if (cached && ttlOk(cached.ts, liveFreshTtl)) return cached.data;
     if (cached && ttlOk(cached.ts, 2 * 60_000)) {
       fetchSportsApiProLive(apiKey, sport)
         .then((list) => {
@@ -1159,10 +1160,12 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const fullMarkets =
         String(url.searchParams.get('markets') || '').toLowerCase() === 'full' ||
         String(url.searchParams.get('markets') || '').toLowerCase() === 'all';
+      const sportsKey = String(sports || 'all').toLowerCase().trim();
+      const isTennisOnlyRealtime = realtime && (sportsKey === 'tennis' || sportsKey === 'sport=tennis');
       const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}|fullMarkets:${fullMarkets ? '1' : '0'}|only:${only}|days:${daysAhead}|requireOdds:${requireOdds ? '1' : '0'}|allowBlocked:${allowBlocked ? '1' : '0'}`;
       const cached = bySportCache.get(cacheKey);
-      const ttl = realtime ? 2_000 : includeOdds ? 12_000 : 25_000;
-      const staleTtl = realtime ? 5_000 : 5 * 60_000;
+      const ttl = realtime ? (isTennisOnlyRealtime ? 1_000 : 2_000) : includeOdds ? 12_000 : 25_000;
+      const staleTtl = realtime ? (isTennisOnlyRealtime ? 2_000 : 5_000) : 5 * 60_000;
       // ── 1. Fresh cache hit ──────────────────────────────────────────────────
       if (cached && ttlOk(cached.ts, ttl)) {
         sendJson(res, 200, cached.data);

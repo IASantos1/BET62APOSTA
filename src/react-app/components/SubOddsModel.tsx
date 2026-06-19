@@ -528,14 +528,32 @@ export function SubOddsModel({
   }, [markets]);
 
   const getMarketItems = (key: string, labelKey?: string) => {
+      const aliasKeys = (() => {
+        if (key === 'totals') return ['totals', 'match_goals', 'goals_total', 'total_goals'];
+        if (key === '1st_half_totals') return ['1st_half_totals', 'first_half_totals', 'first_half_goals_total'];
+        if (key === '2nd_half_totals') return ['2nd_half_totals', 'second_half_totals', 'second_half_goals_total'];
+        if (key === 'first_half_h2h') return ['first_half_h2h', '1st_half', 'half_time_result', 'first_half_result'];
+        if (key === 'second_half_h2h') return ['second_half_h2h', '2nd_half', 'second_half_result'];
+        return [key];
+      })();
+
       if (normalizedMarkets) {
-        if ((normalizedMarkets as any)[key] && (normalizedMarkets as any)[key]!.length > 0) return (normalizedMarkets as any)[key]!;
+        for (const alias of aliasKeys) {
+          if ((normalizedMarkets as any)[alias] && (normalizedMarkets as any)[alias]!.length > 0) return (normalizedMarkets as any)[alias]!;
+        }
         if (key === 'spreads' && (normalizedMarkets as any)['handicap'] && (normalizedMarkets as any)['handicap']!.length > 0) {
           return (normalizedMarkets as any)['handicap']!;
         }
       }
 
-      let raw = (eventOdds && (eventOdds as any)[key]);
+      let raw: any = null;
+      for (const alias of aliasKeys) {
+        const candidate = eventOdds && (eventOdds as any)[alias];
+        if (candidate && (!Array.isArray(candidate) || candidate.length > 0)) {
+          raw = candidate;
+          break;
+        }
+      }
       if ((!raw || (Array.isArray(raw) && raw.length === 0)) && key === 'spreads') {
         raw = (eventOdds && (eventOdds as any)['handicap']);
       }
@@ -595,6 +613,16 @@ export function SubOddsModel({
           if (s.includes('tennis') || s.includes('tênis')) return 'Total de Games na Partida';
           if (s.includes('basketball') || s.includes('basquete')) return 'Total de Pontos';
           if (s.includes('ice-hockey') || s.includes('hockey') || s.includes('hóquei')) return 'Total de Golos';
+          return 'Total de Golos - Tempo Regular';
+      }
+      if (key === 'match_goals' || key === 'goals_total' || key === 'total_goals') {
+          return 'Total de Golos - Tempo Regular';
+      }
+      if (key === '1st_half_totals' || key === 'first_half_totals' || key === 'first_half_goals_total') {
+          return 'Total de Golos - 1º Tempo';
+      }
+      if (key === '2nd_half_totals' || key === 'second_half_totals' || key === 'second_half_goals_total') {
+          return 'Total de Golos - 2º Tempo';
       }
       if (key === 'spreads') {
           const s = (sport || '').toLowerCase();
@@ -732,7 +760,10 @@ export function SubOddsModel({
     const h = Number(currentGoals?.home ?? 0);
     const a = Number(currentGoals?.away ?? 0);
     const diff = Math.abs(h - a);
-    const minute = parseInt(String(liveTimer || '').replace(/[^\d]/g, ''), 10) || 0;
+    const minute = parseLiveMinuteValue(
+      liveTimer,
+      Number((event as any)?.elapsed ?? (event as any)?.fixture?.status?.elapsed ?? 0),
+    );
     const fav = resultadoRegulamentar
       .map((x) => Number(x.odd))
       .filter((x) => Number.isFinite(x) && x > 1)
@@ -746,7 +777,10 @@ export function SubOddsModel({
   // ── Live elapsed minute (for progressive market liquidation) ──────────
   const liveElapsedMinute = useMemo(() => {
     if (!isLive) return 0;
-    const fromTimer = parseInt(String(liveTimer || '').replace(/[^\d]/g, ''), 10);
+    const fromTimer = parseLiveMinuteValue(
+      liveTimer,
+      Number((event as any)?.elapsed ?? (event as any)?.fixture?.status?.elapsed ?? 0),
+    );
     if (fromTimer > 0) return fromTimer;
     const elapsed = Number((event as any)?.elapsed ?? (event as any)?.fixture?.status?.elapsed ?? 0);
     return elapsed || 0;
@@ -768,19 +802,34 @@ export function SubOddsModel({
     );
   }, [isLive, event]);
 
+  const liveSoccerPhase = useMemo(() => {
+    if (!isSoccerLive) return 'other' as const;
+    return detectSoccerPhase(
+      String((event as any)?.status_short ?? (event as any)?.fixture?.status?.short ?? ''),
+      String((event as any)?.status_long ?? (event as any)?.fixture?.status?.long ?? ''),
+      String(liveTimer ?? (event as any)?.timer ?? (event as any)?.fixture?.status?.timer ?? ''),
+      Number((event as any)?.elapsed ?? (event as any)?.fixture?.status?.elapsed ?? liveElapsedMinute ?? 0),
+    );
+  }, [isSoccerLive, event, liveTimer, liveElapsedMinute]);
+
   const isMarketLiquidated = (key: string): boolean => {
     if (!isSoccerLive) return false;
     const min = liveElapsedMinute;
 
-    // 1st half markets are liquidated when we enter the 2nd half (46'+)
-    if (min > 45) {
-      const FIRST_HALF_ONLY = new Set([
-        '1st_half', 'first_half_h2h', 'half_time_result', 'first_half_result',
-        '1st_half_totals', '1st_half_goal_odd_even', '1st_half_correct_score',
-        'double_chance_1st_half', 'draw_no_bet_1st_half', 'btts_first_half',
-      ]);
-      if (FIRST_HALF_ONLY.has(key)) return true;
-    }
+    const FIRST_HALF_ONLY = new Set([
+      '1st_half', 'first_half_h2h', 'half_time_result', 'first_half_result',
+      '1st_half_totals', 'first_half_totals', 'first_half_goals_total',
+      '1st_half_goal_odd_even', '1st_half_correct_score',
+      'double_chance_1st_half', 'draw_no_bet_1st_half', 'btts_first_half',
+    ]);
+    const SECOND_HALF_ONLY = new Set([
+      '2nd_half', 'second_half_h2h', 'second_half_result',
+      '2nd_half_totals', 'second_half_totals', 'second_half_goals_total',
+      '2nd_half_correct_score', 'btts_second_half',
+    ]);
+
+    if (FIRST_HALF_ONLY.has(key) && liveSoccerPhase !== 'first_half') return true;
+    if (SECOND_HALF_ONLY.has(key) && liveSoccerPhase === 'first_half') return true;
 
     if (min < 85) return false;
 
@@ -793,7 +842,7 @@ export function SubOddsModel({
     if (min >= 90) return true;
 
     // 85–90 min: H2H + Totals + Chance Dupla
-    const keep85 = new Set(['totals', 'double_chance']);
+    const keep85 = new Set(['totals', 'match_goals', 'goals_total', 'total_goals', 'double_chance']);
     return !keep85.has(key);
   };
 
