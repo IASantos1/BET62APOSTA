@@ -505,44 +505,46 @@ function Home({ mode = 'home' }: HomeProps) {
   };
 
   const renderLeagueFilterBar = () => {
-    if (isWorldCupMode || availableLeagues.length === 0) return null;
+    if (mode === 'live' || isWorldCupMode || availableLeagues.length === 0) return null;
     return (
       <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
         <button
           onClick={() => setLeagueFilter(null)}
-          className={`shrink-0 min-w-[132px] h-[84px] px-4 rounded-[22px] border transition-all text-left ${
+          className={`shrink-0 min-w-[120px] h-[64px] px-3 rounded-[18px] border transition-all text-left ${
             !leagueFilter
               ? 'border-amber-400 bg-amber-50 text-gray-900 shadow-sm'
               : darkMode ? 'border-gray-700 bg-gray-800/80 text-gray-200' : 'border-gray-200 bg-white text-gray-800'
           }`}
         >
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl flex items-center justify-center bg-white/80 border border-black/5">
-              <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2">
+            <div className="w-9 h-9 rounded-2xl flex items-center justify-center bg-white/80 border border-black/5">
+              <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
               </svg>
             </div>
-            <span className="text-base font-semibold">Todas</span>
+            <span className="text-sm font-semibold">Todas</span>
           </div>
         </button>
         {availableLeagues.map(({ league, sport, logo }) => {
           const isActive = leagueFilter === league;
+          const formatted = formatLeagueHeader({ league });
+          const flagBadge = String(formatted.flag || '').trim();
           return (
             <button
               key={`${sport}-${league}`}
               onClick={() => setLeagueFilter(isActive ? null : league)}
-              className={`shrink-0 min-w-[176px] h-[84px] px-4 rounded-[22px] border transition-all text-left ${
+              className={`shrink-0 min-w-[154px] h-[64px] px-3 rounded-[18px] border transition-all text-left ${
                 isActive
                   ? 'border-amber-400 bg-amber-50 shadow-sm'
                   : darkMode ? 'border-gray-700 bg-gray-800/80 text-gray-100' : 'border-gray-200 bg-white text-gray-800'
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center overflow-hidden ${darkMode ? 'bg-white/95' : 'bg-gray-50'}`}>
+                <div className={`relative w-10 h-10 rounded-2xl flex items-center justify-center overflow-hidden ${darkMode ? 'bg-white/95' : 'bg-gray-50'}`}>
                   <img
                     src={logo || getSportIcon(sport)}
                     alt={league}
-                    className="w-10 h-10 object-contain"
+                    className="w-8 h-8 object-contain"
                     loading="lazy"
                     onError={(e) => {
                       const target = e.currentTarget;
@@ -550,9 +552,14 @@ function Home({ mode = 'home' }: HomeProps) {
                       target.src = getSportIcon(sport);
                     }}
                   />
+                  {flagBadge ? (
+                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-white text-[10px] flex items-center justify-center shadow">
+                      {flagBadge}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[15px] font-semibold truncate">{league}</div>
+                  <div className="text-[13px] font-semibold truncate">{league}</div>
                 </div>
               </div>
             </button>

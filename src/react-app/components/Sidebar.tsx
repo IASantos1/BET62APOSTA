@@ -5,6 +5,7 @@ import { formatLeagueHeader, getSportFromLeague, getSportIcon } from '@/shared/h
 import { ALL_COUNTRIES } from '@/shared/countries';
 import type { Event } from '@/shared/types';
 import { Download, Smartphone } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface SidebarSection { 
   title: string; 
@@ -48,6 +49,7 @@ const sports: SidebarSection = {
 }; 
 
 export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event)[] }) {
+  const navigate = useNavigate();
   const { darkMode, selectedCategory, setSelectedCategory, isOperator, showAdminPanel, setShowAdminPanel } = useApp();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['Top Competições', 'Desportos'])
@@ -623,7 +625,10 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
         {isOperator && (
           <div className="mt-5 space-y-2">
             <button
-              onClick={() => setShowAdminPanel(!showAdminPanel)}
+              onClick={() => {
+                setShowAdminPanel(false);
+                navigate('/admin');
+              }}
               className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors ${
                 darkMode
                   ? 'bg-gray-800 hover:bg-gray-750 text-white'
@@ -634,11 +639,7 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
                 <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/2699.svg" alt="" aria-hidden={true} width={20} height={20} style={{ display: 'inline-block', verticalAlign: 'middle' }} />
                 Admin
               </span>
-              {showAdminPanel ? (
-                <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f53d.svg" alt="" aria-hidden={true} width={20} height={20} style={{ display: 'inline-block', verticalAlign: 'middle' }} />
-              ) : (
-                <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/25b6.svg" alt="" aria-hidden={true} width={20} height={20} style={{ display: 'inline-block', verticalAlign: 'middle' }} />
-              )}
+              <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/25b6.svg" alt="" aria-hidden={true} width={20} height={20} style={{ display: 'inline-block', verticalAlign: 'middle' }} />
             </button>
           </div>
         )}
