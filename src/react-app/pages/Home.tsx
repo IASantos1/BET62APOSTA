@@ -93,6 +93,7 @@ const getEventLeagueMeta = (event: any) => {
   return {
     league,
     sport,
+    country: String(event?.country || event?.league?.country || '').trim(),
     logo: getLeagueLogo({ league, country: event?.country }, sport),
   };
 };
@@ -422,7 +423,7 @@ function Home({ mode = 'home' }: HomeProps) {
   );
 
   const buildLeagueOptions = (events: Event[]) => {
-    const grouped = new Map<string, { league: string; sport: string; count: number; logo: string }>();
+    const grouped = new Map<string, { league: string; sport: string; country: string; count: number; logo: string }>();
     for (const ev of events as any[]) {
       const meta = getEventLeagueMeta(ev);
       if (!meta.league) continue;
@@ -433,6 +434,7 @@ function Home({ mode = 'home' }: HomeProps) {
         grouped.set(meta.league, {
           league: meta.league,
           sport: meta.sport,
+          country: meta.country,
           count: 1,
           logo: meta.logo,
         });
@@ -525,9 +527,9 @@ function Home({ mode = 'home' }: HomeProps) {
             <span className="text-sm font-semibold">Todas</span>
           </div>
         </button>
-        {availableLeagues.map(({ league, sport, logo }) => {
+        {availableLeagues.map(({ league, sport, logo, country }) => {
           const isActive = leagueFilter === league;
-          const formatted = formatLeagueHeader({ league });
+          const formatted = formatLeagueHeader({ league, country });
           const flagBadge = String(formatted.flag || '').trim();
           return (
             <button

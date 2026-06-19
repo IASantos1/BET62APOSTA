@@ -940,6 +940,17 @@ const normalizeLeagueLogoKey = (input: any) =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
+const svgDataUrl = (svg: string) => `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+
+const leagueBadgeSvg = (label: string, accent: string, textColor: string = '#ffffff') => svgDataUrl(`
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+    <rect width="96" height="96" rx="24" fill="#0f172a"/>
+    <rect x="8" y="8" width="80" height="80" rx="20" fill="${accent}" opacity="0.92"/>
+    <circle cx="48" cy="48" r="28" fill="rgba(255,255,255,0.18)"/>
+    <text x="48" y="56" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="${textColor}">${label}</text>
+  </svg>
+`);
+
 export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
   const formatted = formatLeagueHeader(rawInput);
   const leagueName =
@@ -949,6 +960,15 @@ export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
       : rawInput?.league_name || rawInput?.league?.name || rawInput?.league || rawInput?.name || '');
   const key = normalizeLeagueLogoKey(leagueName);
 
+  const inlineMapped: Array<{ test: RegExp; url: string }> = [
+    { test: /brasileirao serie a|brasileirao a|serie a\b/, url: leagueBadgeSvg('SA', '#15803d') },
+    { test: /brasileirao serie b|brasileirao b|serie b\b/, url: leagueBadgeSvg('SB', '#16a34a') },
+    { test: /\bnba\b/, url: leagueBadgeSvg('NBA', '#1d4ed8') },
+    { test: /\batp\b/, url: leagueBadgeSvg('ATP', '#65a30d') },
+    { test: /\bwta\b/, url: leagueBadgeSvg('WTA', '#db2777') },
+    { test: /\bitf\b/, url: leagueBadgeSvg('ITF', '#84cc16', '#0f172a') },
+  ];
+
   const mapped: Array<{ test: RegExp; url: string }> = [
     { test: /\bnba\b/, url: 'https://upload.wikimedia.org/wikipedia/en/0/03/National_Basketball_Association_logo.svg' },
     { test: /\bmls\b|major league soccer/, url: 'https://upload.wikimedia.org/wikipedia/en/7/76/MLS_crest_logo_RGB_gradient.svg' },
@@ -956,6 +976,9 @@ export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
     { test: /\bla liga\b|laliga(?!\s*2)/, url: 'https://upload.wikimedia.org/wikipedia/commons/0/03/LaLiga_logo.svg' },
     { test: /super lig|superlig/, url: 'https://upload.wikimedia.org/wikipedia/en/f/f2/S%C3%BCper_Lig_logo.svg' },
   ];
+
+  const inlineDirect = inlineMapped.find((entry) => entry.test.test(key));
+  if (inlineDirect) return inlineDirect.url;
 
   const direct = mapped.find((entry) => entry.test.test(key));
   if (direct) {
