@@ -50,7 +50,7 @@ const sports: SidebarSection = {
 
 export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event)[] }) {
   const navigate = useNavigate();
-  const { darkMode, selectedCategory, setSelectedCategory, isOperator, showAdminPanel, setShowAdminPanel } = useApp();
+  const { darkMode, selectedCategory, setSelectedCategory, isOperator, setShowAdminPanel } = useApp();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['Top Competições', 'Desportos'])
   );
@@ -627,7 +627,7 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
             <button
               onClick={() => {
                 setShowAdminPanel(false);
-                navigate('/admin');
+                navigate('/administrador');
               }}
               className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors ${
                 darkMode

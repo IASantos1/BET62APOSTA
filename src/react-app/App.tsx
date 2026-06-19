@@ -130,7 +130,7 @@ const InnerApp = memo(function InnerApp() {
 });
 
 function AppContent() {
-  const { showAdminPanel, authModalOpen, authModalMode, authModalUserId, closeAuthModal, openAuthModal } = useApp();
+  const { authModalOpen, authModalMode, authModalUserId, closeAuthModal, openAuthModal } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -207,6 +207,9 @@ function AppContent() {
             <Route path="/register" element={<HomePage mode="home" />} />
             <Route path="/login" element={<HomePage mode="home" />} />
             <Route path="/admin" element={
+              <AdminRoute><AdminPanel /></AdminRoute>
+            } />
+            <Route path="/administrador" element={
               <AdminRoute><AdminPanel /></AdminRoute>
             } />
             <Route path="/deposit-success" element={<DepositSuccess />} />
