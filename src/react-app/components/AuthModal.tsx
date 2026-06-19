@@ -14,6 +14,7 @@ interface AuthModalProps {
   onLoginSuccess: () => void;
   onRequire2FA: (userId: string) => void;
   onSwitchMode: (mode: AuthMode) => void;
+  allowRegister?: boolean;
 }
 
 export function AuthModal(props: AuthModalProps) {
@@ -24,6 +25,7 @@ export function AuthModal(props: AuthModalProps) {
     onLoginSuccess,
     onRequire2FA,
     onSwitchMode,
+    allowRegister = true,
   } = props;
 
   const { darkMode, addNotification } = useApp();
@@ -165,11 +167,13 @@ export function AuthModal(props: AuthModalProps) {
                   {loading ? 'A entrar...' : 'Entrar'}
                 </button>
 
-                <div className="flex justify-start text-sm mt-4 pt-4 border-t border-gray-700/50">
-                  <button type="button" onClick={() => onSwitchMode('register')} className="text-green-500 font-semibold hover:underline">
-                    Criar conta
-                  </button>
-                </div>
+                {allowRegister ? (
+                  <div className="flex justify-start text-sm mt-4 pt-4 border-t border-gray-700/50">
+                    <button type="button" onClick={() => onSwitchMode('register')} className="text-green-500 font-semibold hover:underline">
+                      Criar conta
+                    </button>
+                  </div>
+                ) : null}
               </form>
             ) : (
               <form onSubmit={handleSignUp} className="space-y-3">
