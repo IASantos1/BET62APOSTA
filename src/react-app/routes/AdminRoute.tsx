@@ -23,7 +23,7 @@ export function AdminRoute({ children }: Props) {
      NÃO LOGADO
   ================================= */
   if (!user) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/administrador/login" replace />;
   }
 
   /* ================================

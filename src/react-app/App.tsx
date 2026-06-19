@@ -133,18 +133,26 @@ function AppContent() {
   const { authModalOpen, authModalMode, authModalUserId, closeAuthModal, openAuthModal } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
+  const isAdminAuthPath = location.pathname === '/administrador/login' || location.pathname === '/admin/login';
+  const isPublicAuthPath = location.pathname === '/login' || location.pathname === '/register';
 
   useEffect(() => {
     if (location.pathname === '/login') {
       openAuthModal('login');
+    } else if (isAdminAuthPath) {
+      openAuthModal('login');
     } else if (location.pathname === '/register') {
       openAuthModal('register');
     }
-  }, [location.pathname]);
+  }, [location.pathname, isAdminAuthPath]);
 
   const handleCloseAuth = () => {
     closeAuthModal();
-    if (location.pathname === '/login' || location.pathname === '/register') {
+    if (isAdminAuthPath) {
+      navigate('/');
+      return;
+    }
+    if (isPublicAuthPath) {
       try {
         if (window.history.length > 2) navigate(-1);
         else navigate('/');
@@ -168,10 +176,15 @@ function AppContent() {
         <AuthModal
           mode={authModalMode}
           tempUserId={authModalUserId}
+          allowRegister={!isAdminAuthPath}
           onClose={handleCloseAuth}
           onLoginSuccess={() => {
             closeAuthModal();
-            if (location.pathname === '/login' || location.pathname === '/register') {
+            if (isAdminAuthPath) {
+              navigate('/administrador');
+              return;
+            }
+            if (isPublicAuthPath) {
               navigate('/');
             }
           }}
@@ -206,6 +219,8 @@ function AppContent() {
             <Route path="/my-bets" element={<MyBetsPage />} />
             <Route path="/register" element={<HomePage mode="home" />} />
             <Route path="/login" element={<HomePage mode="home" />} />
+            <Route path="/admin/login" element={<HomePage mode="home" />} />
+            <Route path="/administrador/login" element={<HomePage mode="home" />} />
             <Route path="/admin" element={
               <AdminRoute><AdminPanel /></AdminRoute>
             } />
