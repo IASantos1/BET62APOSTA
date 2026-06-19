@@ -985,7 +985,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
       </div>
           
          </div> 
-        <div className="text-left sm:text-right mt-2 sm:mt-0 w-full sm:w-auto">
+        <div className={`text-left sm:text-right ${sport === 'tennis' ? 'mt-1 sm:mt-0' : 'mt-2 sm:mt-0'} w-full sm:w-auto`}>
           {(() => {
           const hasPrimary = (hh > 0) || (dd > 0) || (aa > 0);
           const isTwoWaySport = ['basketball', 'tennis', 'american-football', 'baseball', 'mma', 'volleyball', 'handball', 'ice-hockey', 'hockey', 'cricket'].includes(sport);
