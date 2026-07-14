@@ -121,6 +121,11 @@ export function BetSlip() {
     return Array.from(counts.entries()).filter(([_, count]) => count > 1).map(([id]) => id);
   }, [betSlip]);
 
+  const updatedSelectionsCount = useMemo(
+    () => betSlip.filter((bet) => bet.changed).length,
+    [betSlip],
+  );
+
   const formatBetApiError = (error: any): { message: string; details?: string[] } => {
     const payload = error?.data || {};
     const selectionErrors = Array.isArray(payload?.selectionErrors) ? payload.selectionErrors : [];
@@ -315,6 +320,25 @@ export function BetSlip() {
             >
                 Múltiplas
             </button>
+        </div>
+      )}
+
+      {updatedSelectionsCount > 0 && (
+        <div
+          className={`mb-3 rounded-lg border px-3 py-2 ${
+            darkMode
+              ? 'border-amber-500/60 bg-amber-900/20 text-amber-100'
+              : 'border-amber-400 bg-amber-50 text-amber-900'
+          }`}
+        >
+          <p className="text-sm font-semibold">
+            {updatedSelectionsCount === 1
+              ? '1 seleção foi ajustada automaticamente.'
+              : `${updatedSelectionsCount} seleções foram ajustadas automaticamente.`}
+          </p>
+          <p className={`text-xs ${darkMode ? 'text-amber-200/90' : 'text-amber-800'}`}>
+            Revise as linhas destacadas e confirme a aposta novamente com os valores atualizados.
+          </p>
         </div>
       )}
 
