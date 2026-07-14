@@ -70,6 +70,131 @@ function colType(cols: ColInfo[], col: string): string {
   return String(hit?.dataType || '').toLowerCase();
 }
 
+function firstExistingCol(cols: ColInfo[], ...names: string[]): string {
+  for (const name of names) {
+    if (hasCol(cols, name)) return name;
+  }
+  return '';
+}
+
+function verifyLegacyPassword(password: string, storedValue: string): boolean {
+  const raw = String(storedValue || '').trim();
+  if (!raw) return false;
+  if (raw === password) return true;
+  if (/^[a-f0-9]{64}$/i.test(raw)) return sha256Hex(password) === raw.toLowerCase();
+  const parts = raw.split(':');
+  if (parts.length === 2 && /^[a-f0-9]+$/i.test(parts[0]) && /^[a-f0-9]+$/i.test(parts[1])) {
+    return verifyPassword(password, parts[1], parts[0]);
+  }
+  return false;
+}
+
+async function createUserRecord(
+  pool: pg.Pool,
+  email: string,
+  password: string,
+  name: string | null,
+): Promise<string> {
+  const userCols = await getTableCols(pool, 'users').catch(() => []);
+  const userId = randomId(12);
+  const pw = hashPassword(password);
+  const hashCombined = `${pw.saltHex}:${pw.hashHex}`;
+  const cols: string[] = [];
+  const values: any[] = [];
+
+  const pushCol = (col: string, value: any) => {
+    cols.push(col);
+    values.push(value);
+  };
+
+  pushCol(firstExistingCol(userCols, 'id') || 'id', userId);
+  pushCol(firstExistingCol(userCols, 'email') || 'email', email);
+
+  if (hasCol(userCols, 'password_hash') && hasCol(userCols, 'password_salt')) {
+    pushCol('password_hash', pw.hashHex);
+    pushCol('password_salt', pw.saltHex);
+  } else {
+    const singlePasswordCol = firstExistingCol(userCols, 'password_hash', 'hashed_password', 'password');
+    if (!singlePasswordCol) throw new Error('No supported password column found in users table');
+    pushCol(singlePasswordCol, hashCombined);
+  }
+
+  if (hasCol(userCols, 'role')) pushCol('role', 'user');
+  if (hasCol(userCols, 'name')) pushCol('name', name);
+  if (hasCol(userCols, 'username')) pushCol('username', email);
+
+  const placeholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
+  await pool.query(
+    `INSERT INTO users (${cols.join(', ')})
+     VALUES (${placeholders})`,
+    values,
+  );
+
+  return userId;
+}
+
+async function createProfileRecord(
+  pool: pg.Pool,
+  userId: string,
+  email: string,
+  name: string | null,
+  dob: string | null,
+): Promise<void> {
+  const profileCols = await getTableCols(pool, 'profiles').catch(() => []);
+  if (profileCols.length === 0) return;
+
+  const cols: string[] = [];
+  const values: any[] = [];
+  const pushCol = (col: string, value: any) => {
+    cols.push(col);
+    values.push(value);
+  };
+
+  if (hasCol(profileCols, 'id')) pushCol('id', randomId(12));
+  if (hasCol(profileCols, 'user_id')) pushCol('user_id', userId);
+  if (hasCol(profileCols, 'email')) pushCol('email', email);
+  if (hasCol(profileCols, 'full_name')) pushCol('full_name', name);
+  if (hasCol(profileCols, 'name')) pushCol('name', name);
+  if (hasCol(profileCols, 'birth_date')) pushCol('birth_date', dob);
+  if (hasCol(profileCols, 'created_at')) pushCol('created_at', new Date().toISOString());
+  if (hasCol(profileCols, 'updated_at')) pushCol('updated_at', new Date().toISOString());
+
+  if (cols.length === 0) return;
+  const placeholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
+  await pool.query(
+    `INSERT INTO profiles (${cols.join(', ')})
+     VALUES (${placeholders})
+     ON CONFLICT DO NOTHING`,
+    values,
+  );
+}
+
+async function loadUserForSignin(pool: pg.Pool, email: string): Promise<any | null> {
+  const userCols = await getTableCols(pool, 'users').catch(() => []);
+  const passwordCols = ['id', 'email'];
+  if (hasCol(userCols, 'password_hash')) passwordCols.push('password_hash');
+  if (hasCol(userCols, 'password_salt')) passwordCols.push('password_salt');
+  if (hasCol(userCols, 'hashed_password')) passwordCols.push('hashed_password');
+  if (hasCol(userCols, 'password')) passwordCols.push('password');
+  const emailCol = firstExistingCol(userCols, 'email', 'username');
+  if (!emailCol) throw new Error('No supported login column found in users table');
+  const r = await pool.query(
+    `SELECT ${passwordCols.join(', ')} FROM users WHERE ${emailCol} = $1 LIMIT 1`,
+    [email],
+  );
+  return r.rows?.[0] || null;
+}
+
+function verifyUserPassword(password: string, row: any): boolean {
+  const hash = String(row?.password_hash || '').trim();
+  const salt = String(row?.password_salt || '').trim();
+  if (hash && salt) return verifyPassword(password, hash, salt);
+  return verifyLegacyPassword(
+    password,
+    String(row?.password_hash || row?.hashed_password || row?.password || ''),
+  );
+}
+
 async function issueTokens(pool: pg.Pool, userId: string, req: http.IncomingMessage): Promise<{ token: string; refreshToken: string }> {
   const token = randomId(24);
   const refreshToken = randomId(32);
@@ -160,14 +285,22 @@ async function issueTokens(pool: pg.Pool, userId: string, req: http.IncomingMess
 }
 
 async function isTwoFactorEnabled(pool: pg.Pool, userId: string): Promise<boolean> {
-  const r = await pool.query(`SELECT enabled FROM user_two_factor WHERE user_id = $1 LIMIT 1`, [userId]);
-  return Boolean(r.rows?.[0]?.enabled);
+  try {
+    const r = await pool.query(`SELECT enabled FROM user_two_factor WHERE user_id = $1 LIMIT 1`, [userId]);
+    return Boolean(r.rows?.[0]?.enabled);
+  } catch {
+    return false;
+  }
 }
 
 async function getTwoFactorSecret(pool: pg.Pool, userId: string): Promise<string | null> {
-  const r = await pool.query(`SELECT secret FROM user_two_factor WHERE user_id = $1 LIMIT 1`, [userId]);
-  const s = r.rows?.[0]?.secret;
-  return s ? String(s) : null;
+  try {
+    const r = await pool.query(`SELECT secret FROM user_two_factor WHERE user_id = $1 LIMIT 1`, [userId]);
+    const s = r.rows?.[0]?.secret;
+    return s ? String(s) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function handleAuthRoutes(
@@ -189,21 +322,9 @@ export async function handleAuthRoutes(
       const exists = await pool.query(`SELECT 1 FROM users WHERE email = $1 LIMIT 1`, [email]);
       if (exists.rows.length > 0) return sendJson(res, 409, { error: 'Email already exists' }), true;
 
-      const userId = randomId(12);
-      const pw = hashPassword(password);
       const name = `${String(body.firstName || '').trim()} ${String(body.lastName || '').trim()}`.trim();
-
-      await pool.query(
-        `INSERT INTO users (id, email, password_hash, password_salt, role, name)
-         VALUES ($1, $2, $3, $4, 'user', $5)`,
-        [userId, email, pw.hashHex, pw.saltHex, name || null],
-      );
-      await pool.query(
-        `INSERT INTO profiles (id, user_id, email, full_name, birth_date, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-         ON CONFLICT (id) DO NOTHING`,
-        [randomId(12), userId, email, name || null, body.dob || null],
-      );
+      const userId = await createUserRecord(pool, email, password, name || null);
+      await createProfileRecord(pool, userId, email, name || null, body.dob || null);
 
       const tokens = await issueTokens(pool, userId, req);
       sendJson(res, 200, { token: tokens.token, refreshToken: tokens.refreshToken });
@@ -222,13 +343,9 @@ export async function handleAuthRoutes(
       const password = String(body.password || '');
       if (!email || !password) return badRequest(res, 'Invalid credentials'), true;
 
-      const r = await pool.query(
-        `SELECT id, email, password_hash, password_salt FROM users WHERE email = $1 LIMIT 1`,
-        [email],
-      );
-      const u = r.rows?.[0];
+      const u = await loadUserForSignin(pool, email);
       if (!u) return unauthorized(res), true;
-      if (!verifyPassword(password, String(u.password_hash), String(u.password_salt))) return unauthorized(res), true;
+      if (!verifyUserPassword(password, u)) return unauthorized(res), true;
 
       const enabled = await isTwoFactorEnabled(pool, String(u.id));
       if (enabled) {
