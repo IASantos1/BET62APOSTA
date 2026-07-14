@@ -39,6 +39,16 @@ const bannerStyles = [
   { gradient: "from-rose-600 via-rose-700 to-red-800", accent: "text-rose-400" },
 ];
 
+const isWorldCupLeague = (league: string) => {
+  const value = String(league || "").toLowerCase();
+  return (
+    value.includes("world cup") ||
+    value.includes("copa do mundo") ||
+    value.includes("fifa world cup") ||
+    value.includes("world-cup")
+  );
+};
+
 /* -------------------------------------------------
    Skeleton components (used while lazy components load)
    ------------------------------------------------- */
@@ -236,6 +246,7 @@ export default function HomePage() {
 
     const isBigFootballLeagueLocal = (league: string) => {
       const l = String(league || "").toLowerCase();
+      if (isWorldCupLeague(l)) return true;
       const neg =
         l.includes("serie b") ||
         l.includes("segunda") ||
@@ -274,6 +285,7 @@ export default function HomePage() {
       const t = startTimeMsLocal(m);
       if (!t) return false;
       if (t <= maxFuture) return true;
+      if (isWorldCupLeague(m?.league)) return true;
       const sk = normalizeSportKeyLocal(m?.sport);
       if (sk !== "soccer") return false;
       return isBigFootballLeagueLocal(m?.league);
@@ -336,6 +348,7 @@ export default function HomePage() {
 
   const isBigFootballLeague = useCallback((league: string) => {
     const l = String(league || "").toLowerCase();
+    if (isWorldCupLeague(l)) return true;
     const neg =
       l.includes("serie b") ||
       l.includes("segunda") ||
@@ -458,6 +471,7 @@ export default function HomePage() {
       const t = startTimeMs(m);
       if (!t) return false;
       if (t <= maxFuture) return true;
+      if (isWorldCupLeague(m?.league)) return true;
       const sk = normalizeSportKey(m?.sport);
       if (sk !== "soccer") return false;
       return isBigFootballLeague(m?.league);
@@ -910,7 +924,7 @@ export default function HomePage() {
           <div className="px-2 lg:px-3 py-2">
             <div className="flex items-center gap-1.5 mb-2">
               <i className="ri-star-fill text-red-500 text-xs"></i>
-              <h2 className={`text-xs font-bold ${theme === "dark" ? "text-white" : "text-gray-900"}`}>Destaques</h2>
+              <h2 className={`text-xs font-bold ${theme === "dark" ? "text-white" : "text-gray-900"}`}>Múltiplas Populares</h2>
             </div>
             <Suspense
               fallback={

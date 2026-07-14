@@ -536,6 +536,8 @@ export default function MatchCard({
         animate-card-entrance`}
       style={{ animationDelay }}
     >
+      <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-red-500"></div>
+
       {/* Desktop */}
       <div className="hidden sm:block">
         <div className="flex items-stretch">
@@ -578,30 +580,34 @@ export default function MatchCard({
           <div className="flex-1 py-2.5 px-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center mb-2">
-                  <span className={`text-[9px] font-semibold truncate ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                <div className="flex items-center mb-3">
+                  <span className={`text-[10px] font-black uppercase tracking-[0.18em] truncate ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                     {match.league}
                   </span>
                 </div>
 
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2.5">
                     <TeamBadge
                       teamName={match.homeTeam}
                       teamLogo={match.homeTeamLogo}
                       size="sm"
                       showLogo={shouldShowLogos}
                     />
-                    <span className={`text-[11px] font-bold truncate ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>{match.homeTeam}</span>
+                    <div className="min-w-0">
+                      <span className={`block text-sm font-black truncate ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>{match.homeTeam}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2.5">
                     <TeamBadge
                       teamName={match.awayTeam}
                       teamLogo={match.awayTeamLogo}
                       size="sm"
                       showLogo={shouldShowLogos}
                     />
-                    <span className={`text-[11px] font-semibold truncate ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>{match.awayTeam}</span>
+                    <div className="min-w-0">
+                      <span className={`block text-sm font-bold truncate ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>{match.awayTeam}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -678,7 +684,7 @@ export default function MatchCard({
 
       {/* ✅ MOBILE */}
       <div className="sm:hidden p-2.5">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5">
             <div className={`w-5 h-5 rounded-md ${theme === 'dark' ? 'bg-black/30' : 'bg-gray-100'} flex items-center justify-center`}>
               <i className={`${sportIcons[match.sport] || 'ri-football-line'} text-[10px] ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}></i>
@@ -733,24 +739,32 @@ export default function MatchCard({
           )}
         </div>
 
-        <div className="space-y-1.5 mb-2.5">
-          <div className="flex items-center gap-2">
+        <div className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">
+          {match.league}
+        </div>
+
+        <div className="space-y-3 mb-3">
+          <div className="flex items-center gap-2.5">
             <TeamBadge
               teamName={match.homeTeam}
               teamLogo={match.homeTeamLogo}
               size="sm"
               showLogo={shouldShowLogos}
             />
-            <span className={`text-[11px] font-bold truncate ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>{match.homeTeam}</span>
+            <div className="min-w-0">
+              <span className={`block text-[13px] font-black truncate ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>{match.homeTeam}</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <TeamBadge
               teamName={match.awayTeam}
               teamLogo={match.awayTeamLogo}
               size="sm"
               showLogo={shouldShowLogos}
             />
-            <span className={`text-[11px] font-semibold truncate ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>{match.awayTeam}</span>
+            <div className="min-w-0">
+              <span className={`block text-[13px] font-bold truncate ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>{match.awayTeam}</span>
+            </div>
           </div>
         </div>
 
