@@ -30,18 +30,28 @@ try {
   if (sw) {
     const clearLegacyPwa = async () => {
       const registrations = await sw.getRegistrations().catch(() => [] as ServiceWorkerRegistration[])
+      const hadRegistrations = registrations.length > 0
       await Promise.all(registrations.map((reg) => reg.unregister().catch(() => false)))
 
       if ('caches' in window) {
         const cacheKeys = await caches.keys().catch(() => [] as string[])
-        await Promise.all(
-          cacheKeys
-            .filter((key) => key.startsWith('betarena-') || key.startsWith('workbox-'))
-            .map((key) => caches.delete(key).catch(() => false)),
-        )
+        await Promise.all(cacheKeys.map((key) => caches.delete(key).catch(() => false)))
       }
 
-      ;(window as any).swRegistration = null
+      (window as any).swRegistration = null
+
+      try {
+        const reloadFlag = 'bet62_pwa_cache_cleared_v2'
+        const shouldReload = hadRegistrations && sessionStorage.getItem(reloadFlag) !== '1'
+        if (shouldReload) {
+          sessionStorage.setItem(reloadFlag, '1')
+          window.location.replace(window.location.href)
+          return
+        }
+        sessionStorage.removeItem(reloadFlag)
+      } catch {
+        /* no-op */
+      }
     }
 
     void clearLegacyPwa()

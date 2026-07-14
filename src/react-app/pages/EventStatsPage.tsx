@@ -153,9 +153,9 @@ function CircularProbabilityCard({
   const dashOffset = circumference - (value / 100) * circumference
 
   return (
-    <div className="flex flex-col items-center">
-      <div className="relative h-24 w-24">
-        <svg viewBox="0 0 100 100" className="h-24 w-24 -rotate-90">
+    <div className="flex flex-col items-center justify-start text-center">
+      <div className="relative h-20 w-20 sm:h-24 sm:w-24">
+        <svg viewBox="0 0 100 100" className="h-20 w-20 -rotate-90 sm:h-24 sm:w-24">
           <circle cx="50" cy="50" r="34" fill="none" stroke={darkMode ? '#202432' : '#d1d5db'} strokeWidth="10" />
           <circle
             cx="50"
@@ -169,12 +169,12 @@ function CircularProbabilityCard({
             strokeDashoffset={dashOffset}
           />
         </svg>
-        <div className="absolute inset-0 flex items-center justify-center text-2xl font-black">
+        <div className="absolute inset-0 flex items-center justify-center text-xl font-black sm:text-2xl">
           {formatPercent(value)}
         </div>
       </div>
-      <div className={`mt-3 text-lg font-black text-center ${darkMode ? 'text-white' : 'text-gray-900'}`}>{label}</div>
-      <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>odd {odd}</div>
+      <div className={`mt-3 text-sm font-black leading-tight sm:text-lg ${darkMode ? 'text-white' : 'text-gray-900'}`}>{label}</div>
+      <div className={`mt-1 text-xs sm:text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>odd {odd}</div>
     </div>
   )
 }
@@ -625,7 +625,7 @@ export default function EventStatsPage() {
                 <div className={`text-sm font-black uppercase tracking-[0.2em] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                   Probabilidade de Resultado
                 </div>
-                <div className="mt-5 grid grid-cols-1 gap-6 sm:grid-cols-3">
+                <div className="mt-5 grid grid-cols-3 gap-3 sm:gap-6">
                   <CircularProbabilityCard
                     label={homeTeam}
                     percentage={probabilities.home}
