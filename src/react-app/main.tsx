@@ -41,8 +41,8 @@ try {
       (window as any).swRegistration = null
 
       try {
-        const reloadFlag = 'bet62_pwa_cache_cleared_v2'
-        const shouldReload = hadRegistrations && sessionStorage.getItem(reloadFlag) !== '1'
+        const reloadFlag = 'bet62_pwa_cache_cleared_v3'
+        const shouldReload = sessionStorage.getItem(reloadFlag) !== '1'
         if (shouldReload) {
           sessionStorage.setItem(reloadFlag, '1')
           window.location.replace(window.location.href)
