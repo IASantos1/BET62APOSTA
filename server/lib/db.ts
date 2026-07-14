@@ -6,12 +6,49 @@ export type Db = {
   pool: pg.Pool;
 };
 
+function firstEnv(...keys: string[]): string {
+  for (const key of keys) {
+    const value = String(process.env[key] || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function resolveSsl(connectionString: string): false | { rejectUnauthorized: false } {
+  const explicit = firstEnv('PGSSLMODE', 'DB_SSL', 'DATABASE_SSL');
+  const normalized = explicit.toLowerCase();
+  if (['disable', 'false', '0', 'off', 'no'].includes(normalized)) return false;
+  if (['require', 'true', '1', 'on', 'yes', 'verify-ca', 'verify-full'].includes(normalized)) {
+    return { rejectUnauthorized: false };
+  }
+
+  if (process.env.NODE_ENV === 'production') return { rejectUnauthorized: false };
+  if (/sslmode=require/i.test(connectionString)) return { rejectUnauthorized: false };
+  if (/railway|rlwy|proxy\.rlwy\.net|render\.com|supabase\.co|neon\.tech/i.test(connectionString)) {
+    return { rejectUnauthorized: false };
+  }
+
+  return false;
+}
+
 export function createPool(): pg.Pool | null {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) return null;
+  const connectionString = firstEnv('DATABASE_URL', 'POSTGRES_URL', 'POSTGRESQL_URL', 'DATABASE_PUBLIC_URL');
+  const host = firstEnv('PGHOST', 'POSTGRES_HOST');
+  const user = firstEnv('PGUSER', 'POSTGRES_USER');
+  const password = firstEnv('PGPASSWORD', 'POSTGRES_PASSWORD');
+  const database = firstEnv('PGDATABASE', 'POSTGRES_DB');
+  const port = Number(firstEnv('PGPORT', 'POSTGRES_PORT') || 0) || undefined;
+
+  if (!connectionString && !(host && user && database)) return null;
+
   return new Pool({
-    connectionString,
-    ssl: false,
+    connectionString: connectionString || undefined,
+    host: host || undefined,
+    port,
+    user: user || undefined,
+    password: password || undefined,
+    database: database || undefined,
+    ssl: resolveSsl(connectionString),
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
