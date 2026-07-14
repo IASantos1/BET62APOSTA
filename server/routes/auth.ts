@@ -77,6 +77,11 @@ function firstExistingCol(cols: ColInfo[], ...names: string[]): string {
   return '';
 }
 
+function isNumericType(dataType: string): boolean {
+  const t = String(dataType || '').toLowerCase();
+  return t.includes('integer') || t.includes('bigint') || t.includes('smallint') || t.includes('numeric') || t.includes('decimal');
+}
+
 function verifyLegacyPassword(password: string, storedValue: string): boolean {
   const raw = String(storedValue || '').trim();
   if (!raw) return false;
@@ -96,18 +101,21 @@ async function createUserRecord(
   name: string | null,
 ): Promise<string> {
   const userCols = await getTableCols(pool, 'users').catch(() => []);
-  const userId = randomId(12);
   const pw = hashPassword(password);
   const hashCombined = `${pw.saltHex}:${pw.hashHex}`;
   const cols: string[] = [];
   const values: any[] = [];
+  const idCol = firstExistingCol(userCols, 'id');
+  const idType = colType(userCols, idCol || 'id');
 
   const pushCol = (col: string, value: any) => {
     cols.push(col);
     values.push(value);
   };
 
-  pushCol(firstExistingCol(userCols, 'id') || 'id', userId);
+  if (idCol && !isNumericType(idType)) {
+    pushCol(idCol, randomId(12));
+  }
   pushCol(firstExistingCol(userCols, 'email') || 'email', email);
 
   if (hasCol(userCols, 'password_hash') && hasCol(userCols, 'password_salt')) {
@@ -124,13 +132,18 @@ async function createUserRecord(
   if (hasCol(userCols, 'username')) pushCol('username', email);
 
   const placeholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
-  await pool.query(
+  const inserted = await pool.query(
     `INSERT INTO users (${cols.join(', ')})
-     VALUES (${placeholders})`,
+     VALUES (${placeholders})
+     RETURNING ${idCol || 'id'} AS id`,
     values,
   );
 
-  return userId;
+  const returnedId = inserted.rows?.[0]?.id;
+  if (returnedId == null) {
+    throw new Error('Unable to determine inserted user id');
+  }
+  return String(returnedId);
 }
 
 async function createProfileRecord(
@@ -150,7 +163,8 @@ async function createProfileRecord(
     values.push(value);
   };
 
-  if (hasCol(profileCols, 'id')) pushCol('id', randomId(12));
+  const profileIdType = colType(profileCols, 'id');
+  if (hasCol(profileCols, 'id') && !isNumericType(profileIdType)) pushCol('id', randomId(12));
   if (hasCol(profileCols, 'user_id')) pushCol('user_id', userId);
   if (hasCol(profileCols, 'email')) pushCol('email', email);
   if (hasCol(profileCols, 'full_name')) pushCol('full_name', name);
@@ -161,12 +175,16 @@ async function createProfileRecord(
 
   if (cols.length === 0) return;
   const placeholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
-  await pool.query(
-    `INSERT INTO profiles (${cols.join(', ')})
-     VALUES (${placeholders})
-     ON CONFLICT DO NOTHING`,
-    values,
-  );
+  try {
+    await pool.query(
+      `INSERT INTO profiles (${cols.join(', ')})
+       VALUES (${placeholders})
+       ON CONFLICT DO NOTHING`,
+      values,
+    );
+  } catch (e: any) {
+    console.warn('[auth] profile insert skipped:', String(e?.message || e));
+  }
 }
 
 async function loadUserForSignin(pool: pg.Pool, email: string): Promise<any | null> {
