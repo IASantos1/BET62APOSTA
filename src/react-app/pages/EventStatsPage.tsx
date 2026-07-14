@@ -3,9 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/react-app/contexts/AppContext'
 import { BetSlip } from '@/react-app/components/BetSlip'
-import FootballPitchAnimation from '@/react-app/components/FootballPitchAnimation'
 import LiveMomentumSticksGraph from '@/react-app/components/LiveMomentumSticksGraph'
-import MatchTracker from '@/react-app/components/MatchTracker'
 import { Sidebar } from '@/react-app/components/Sidebar'
 import { useLiveFeed } from '@/react-app/hooks/useLiveFeed'
 import { useMergedEvents } from '@/react-app/hooks/useMergedEvents'
@@ -15,143 +13,247 @@ import { useUpcomingCache } from '@/react-app/hooks/useUpcomingCache'
 import { apiFetch } from '@/react-app/utils/api'
 import type { Event } from '@/shared/types'
 
-// ── Group name translations ────────────────────────────────────────────────
-const GROUP_PT: Record<string, string> = {
-  'Match overview': 'Visão Geral',
-  'Shots': 'Remates',
-  'Attack': 'Ataque',
-  'Passes': 'Passes',
-  'Duels': 'Duelos',
-  'Defending': 'Defesa',
-  'Goalkeeping': 'Guarda-Redes',
-  'Discipline': 'Disciplina',
-  'Other': 'Outros',
+const toNum = (value: any): number | null => {
+  if (value === null || value === undefined || value === '') return null
+  const normalized = String(value).replace('%', '').replace(',', '.').trim()
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
-// ── Single stat row with visual bar ───────────────────────────────────────
-function StatBarRow({ item, darkMode }: { item: any; darkMode: boolean }) {
-  const hv = Number(item.homeValue ?? 0)
-  const av = Number(item.awayValue ?? 0)
-  const total = hv + av
-  const homePct = total > 0 ? (hv / total) * 100 : 50
-  const homeWins = hv > av
-  const awayWins = av > hv
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
-  // renderType 2 = percentage bar (possession), 1 = numeric, 3 = fraction, 4 = won%
-  const renderType = item.renderType ?? 1
-  const isPositive = item.statisticsType !== 'negative'
-
-  const homeDisplay = item.home ?? String(hv)
-  const awayDisplay = item.away ?? String(av)
-
-  return (
-    <div className="px-4 py-2.5">
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <span className={`text-sm font-bold tabular-nums w-20 text-left ${homeWins && isPositive ? (darkMode ? 'text-white' : 'text-gray-900') : (darkMode ? 'text-gray-400' : 'text-gray-500')}`}>
-          {homeDisplay}
-        </span>
-        <span className={`text-[10px] uppercase tracking-wide text-center flex-1 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-          {item.name}
-        </span>
-        <span className={`text-sm font-bold tabular-nums w-20 text-right ${awayWins && isPositive ? (darkMode ? 'text-white' : 'text-gray-900') : (darkMode ? 'text-gray-400' : 'text-gray-500')}`}>
-          {awayDisplay}
-        </span>
-      </div>
-      {(renderType === 2 || renderType === 4 || (total > 0 && renderType === 1)) && (
-        <div className={`flex h-1.5 rounded-full overflow-hidden ${darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
-          <div
-            className="h-full transition-all duration-500"
-            style={{
-              width: `${homePct}%`,
-              background: homeWins && isPositive ? '#3b82f6' : (!awayWins && isPositive ? '#6b7280' : '#6b7280'),
-            }}
-          />
-          <div
-            className="h-full flex-1 transition-all duration-500"
-            style={{
-              background: awayWins && isPositive ? '#ef4444' : '#6b7280',
-            }}
-          />
-        </div>
-      )}
-    </div>
-  )
+function formatPercent(value: number) {
+  return `${Math.round(clamp(value, 0, 100))}%`
 }
 
-// ── Group section ──────────────────────────────────────────────────────────
-function StatGroup({ group, darkMode }: { group: any; darkMode: boolean }) {
-  const label = GROUP_PT[group.groupName] ?? group.groupName
-  const items: any[] = group.statisticsItems ?? []
-  if (!items.length) return null
-
-  return (
-    <div>
-      <div className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest ${darkMode ? 'bg-gray-700/60 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>
-        {label}
-      </div>
-      <div className={`divide-y ${darkMode ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
-        {items.map((item: any, i: number) => (
-          <StatBarRow key={`${item.key ?? item.name}_${i}`} item={item} darkMode={darkMode} />
-        ))}
-      </div>
-    </div>
-  )
+function formatOdd(probability: number | null) {
+  if (probability == null || probability <= 0) return '--'
+  return (100 / probability).toFixed(2)
 }
 
-// ── Period selector + rich display ─────────────────────────────────────────
-function RichStatsDisplay({ groupedStats, homeName, awayName, darkMode }: {
-  groupedStats: any[];
-  homeName: string;
-  awayName: string;
-  darkMode: boolean;
-}) {
-  const [activePeriod, setActivePeriod] = useState<string>('ALL')
-  const periods = groupedStats.map((p: any) => p.period ?? 'ALL')
-  const currentPeriodData = groupedStats.find((p: any) => p.period === activePeriod) ?? groupedStats[0]
-  const groups: any[] = currentPeriodData?.groups ?? []
-
-  const PERIOD_LABELS: Record<string, string> = {
-    ALL: 'Total', '1ST': '1ª Parte', '2ND': '2ª Parte', HT: 'Intervalo',
+function extractStatPair(rawStats: any, groupedStats: any[] | null, matchers: RegExp[]): { home: number; away: number } | null {
+  if (Array.isArray(groupedStats)) {
+    for (const period of groupedStats) {
+      const groups = Array.isArray(period?.groups) ? period.groups : []
+      for (const group of groups) {
+        const items = Array.isArray(group?.statisticsItems) ? group.statisticsItems : []
+        for (const item of items) {
+          const label = String(item?.name || item?.key || item?.type || '').toLowerCase()
+          if (!matchers.some((regex) => regex.test(label))) continue
+          const home = toNum(item?.homeValue ?? item?.home ?? item?.local)
+          const away = toNum(item?.awayValue ?? item?.away ?? item?.visitor)
+          if (home != null && away != null) return { home, away }
+        }
+      }
+    }
   }
 
+  if (Array.isArray(rawStats)) {
+    if (
+      rawStats.length >= 2 &&
+      rawStats.some((entry: any) => Array.isArray(entry?.statistics)) &&
+      rawStats[0]?.team &&
+      rawStats[1]?.team
+    ) {
+      const homeStats = rawStats[0]?.statistics || []
+      const awayStats = rawStats[1]?.statistics || []
+      for (const matcher of matchers) {
+        const homeItem = homeStats.find((item: any) => matcher.test(String(item?.type || item?.name || '').toLowerCase()))
+        const awayItem = awayStats.find((item: any) => matcher.test(String(item?.type || item?.name || '').toLowerCase()))
+        const home = toNum(homeItem?.value)
+        const away = toNum(awayItem?.value)
+        if (home != null && away != null) return { home, away }
+      }
+    }
+
+    for (const matcher of matchers) {
+      const homeItem = rawStats.find((item: any) => matcher.test(String(item?.type || item?.name || '').toLowerCase()) && String(item?.team?.name || item?.team?.id || '').toLowerCase().includes('home'))
+      const awayItem = rawStats.find((item: any) => matcher.test(String(item?.type || item?.name || '').toLowerCase()) && String(item?.team?.name || item?.team?.id || '').toLowerCase().includes('away'))
+      const home = toNum(homeItem?.value)
+      const away = toNum(awayItem?.value)
+      if (home != null && away != null) return { home, away }
+    }
+  }
+
+  return null
+}
+
+function computeH2HSummary(h2hData: any[], homeTeam: string, awayTeam: string) {
+  return h2hData.reduce(
+    (acc, match) => {
+      const rawHome = String(match?.homeTeam || match?.home_team || '').toLowerCase()
+      const rawAway = String(match?.awayTeam || match?.away_team || '').toLowerCase()
+      const homeScore = Number(match?.homeScore ?? String(match?.score || '0-0').split('-')[0] ?? 0)
+      const awayScore = Number(match?.awayScore ?? String(match?.score || '0-0').split('-')[1] ?? 0)
+
+      const isSameOrientation =
+        rawHome.includes(homeTeam.toLowerCase()) && rawAway.includes(awayTeam.toLowerCase())
+      const isInvertedOrientation =
+        rawHome.includes(awayTeam.toLowerCase()) && rawAway.includes(homeTeam.toLowerCase())
+
+      if (homeScore === awayScore) {
+        acc.draws += 1
+      } else if ((isSameOrientation && homeScore > awayScore) || (isInvertedOrientation && awayScore > homeScore)) {
+        acc.homeWins += 1
+      } else if ((isSameOrientation && awayScore > homeScore) || (isInvertedOrientation && homeScore > awayScore)) {
+        acc.awayWins += 1
+      }
+
+      const totalGoals = homeScore + awayScore
+      if (totalGoals > 1.5) acc.over15 += 1
+      if (totalGoals > 2.5) acc.over25 += 1
+      if (homeScore > 0 && awayScore > 0) acc.btts += 1
+      acc.totalGoals += totalGoals
+      acc.matches += 1
+      return acc
+    },
+    { homeWins: 0, awayWins: 0, draws: 0, over15: 0, over25: 0, btts: 0, totalGoals: 0, matches: 0 }
+  )
+}
+
+function computeProbabilitiesFromOdds(homeOdd: number, drawOdd: number, awayOdd: number) {
+  const raw = [
+    homeOdd > 1.01 ? 1 / homeOdd : 0,
+    drawOdd > 1.01 ? 1 / drawOdd : 0,
+    awayOdd > 1.01 ? 1 / awayOdd : 0,
+  ]
+  const total = raw.reduce((sum, value) => sum + value, 0)
+  if (total <= 0) return null
+  return {
+    home: (raw[0] / total) * 100,
+    draw: (raw[1] / total) * 100,
+    away: (raw[2] / total) * 100,
+  }
+}
+
+function computeProbabilitiesFromH2H(summary: ReturnType<typeof computeH2HSummary>) {
+  if (!summary.matches) return { home: 34, draw: 33, away: 33 }
+  return {
+    home: (summary.homeWins / summary.matches) * 100,
+    draw: (summary.draws / summary.matches) * 100,
+    away: (summary.awayWins / summary.matches) * 100,
+  }
+}
+
+function CircularProbabilityCard({
+  label,
+  percentage,
+  odd,
+  color,
+  darkMode,
+}: {
+  label: string
+  percentage: number
+  odd: string
+  color: string
+  darkMode: boolean
+}) {
+  const value = clamp(percentage, 0, 100)
+  const circumference = 2 * Math.PI * 34
+  const dashOffset = circumference - (value / 100) * circumference
+
   return (
-    <div>
-      {/* Team header */}
-      <div className={`grid grid-cols-[1fr_auto_1fr] items-center px-4 py-3 border-b ${darkMode ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-gray-50'}`}>
-        <span className={`text-xs font-black truncate ${darkMode ? 'text-blue-300' : 'text-blue-700'}`}>{homeName}</span>
-        <span className={`text-[10px] uppercase tracking-widest font-bold px-3 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>vs</span>
-        <span className={`text-xs font-black truncate text-right ${darkMode ? 'text-red-300' : 'text-red-700'}`}>{awayName}</span>
-      </div>
-
-      {/* Period tabs (only if more than 1 period) */}
-      {periods.length > 1 && (
-        <div className={`flex border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-          {periods.map((p: string) => (
-            <button
-              key={p}
-              onClick={() => setActivePeriod(p)}
-              className={`flex-1 py-2 text-[11px] font-black uppercase tracking-wide transition-colors ${
-                activePeriod === p
-                  ? 'bg-red-600 text-white'
-                  : darkMode ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-50'
-              }`}
-            >
-              {PERIOD_LABELS[p] ?? p}
-            </button>
-          ))}
+    <div className="flex flex-col items-center">
+      <div className="relative h-24 w-24">
+        <svg viewBox="0 0 100 100" className="h-24 w-24 -rotate-90">
+          <circle cx="50" cy="50" r="34" fill="none" stroke={darkMode ? '#202432' : '#d1d5db'} strokeWidth="10" />
+          <circle
+            cx="50"
+            cy="50"
+            r="34"
+            fill="none"
+            stroke={color}
+            strokeWidth="10"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={dashOffset}
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center text-2xl font-black">
+          {formatPercent(value)}
         </div>
-      )}
+      </div>
+      <div className={`mt-3 text-lg font-black text-center ${darkMode ? 'text-white' : 'text-gray-900'}`}>{label}</div>
+      <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>odd {odd}</div>
+    </div>
+  )
+}
 
-      {/* Groups */}
-      <div className={`divide-y ${darkMode ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
-        {groups.map((group: any, i: number) => (
-          <StatGroup key={`${group.groupName}_${i}`} group={group} darkMode={darkMode} />
-        ))}
-        {groups.length === 0 && (
-          <div className={`text-center py-10 text-sm ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-            Sem estatísticas para este período.
-          </div>
-        )}
+function MarketRow({
+  label,
+  percent,
+  trailing,
+  fillColor,
+  darkMode,
+}: {
+  label: string
+  percent: number
+  trailing: string
+  fillColor: string
+  darkMode: boolean
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className={`text-lg ${darkMode ? 'text-gray-100' : 'text-gray-800'}`}>{label}</span>
+        <div className="flex items-center gap-3">
+          <span className={`text-xl font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>{formatPercent(percent)}</span>
+          <span className={`rounded-2xl px-3 py-1 text-base font-bold ${darkMode ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>{trailing}</span>
+        </div>
+      </div>
+      <div className={`h-3 overflow-hidden rounded-full ${darkMode ? 'bg-[#202432]' : 'bg-gray-200'}`}>
+        <div className="h-full rounded-full" style={{ width: `${clamp(percent, 0, 100)}%`, background: fillColor }} />
+      </div>
+    </div>
+  )
+}
+
+function SnapshotCard({
+  value,
+  label,
+  subLabel,
+  darkMode,
+}: {
+  value: string
+  label: string
+  subLabel: string
+  darkMode: boolean
+}) {
+  return (
+    <div className={`rounded-3xl border px-4 py-6 text-center ${darkMode ? 'border-gray-800 bg-[#11131d]' : 'border-gray-200 bg-white'}`}>
+      <div className="text-5xl font-black text-[#ff5b6b]">{value}</div>
+      <div className={`mt-2 text-2xl font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>{label}</div>
+      <div className={`mt-1 text-lg ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>{subLabel}</div>
+    </div>
+  )
+}
+
+function DetailedStatRow({
+  label,
+  homeValue,
+  awayValue,
+  isPercent,
+  darkMode,
+}: {
+  label: string
+  homeValue: number
+  awayValue: number
+  isPercent?: boolean
+  darkMode: boolean
+}) {
+  const total = homeValue + awayValue
+  const homeWidth = total > 0 ? (homeValue / total) * 100 : 50
+
+  return (
+    <div className={`rounded-3xl border px-4 py-4 ${darkMode ? 'border-gray-800 bg-[#11131d]' : 'border-gray-200 bg-white'}`}>
+      <div className="mb-2 flex items-center justify-between gap-4">
+        <span className="text-2xl font-black text-blue-500">{isPercent ? `${homeValue}%` : homeValue}</span>
+        <span className={`text-center text-[11px] font-black uppercase tracking-[0.2em] ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{label}</span>
+        <span className="text-2xl font-black text-red-500">{isPercent ? `${awayValue}%` : awayValue}</span>
+      </div>
+      <div className={`flex h-2 overflow-hidden rounded-full ${darkMode ? 'bg-[#202432]' : 'bg-gray-200'}`}>
+        <div className="bg-blue-500" style={{ width: `${homeWidth}%` }} />
+        <div className="bg-red-500" style={{ width: `${100 - homeWidth}%` }} />
       </div>
     </div>
   )
@@ -165,9 +267,8 @@ export default function EventStatsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [liveStats, setLiveStats] = useState<{ stats: any; groupedStats: any[] | null; events: any[] }>({ stats: [], groupedStats: null, events: [] })
-  const [standingsData, setStandingsData] = useState<any[]>([])
   const [h2hData, setH2hData] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'dominance' | 'stats' | 'standings' | 'h2h'>('dominance')
+  const [activeTab, setActiveTab] = useState<'probability' | 'stats' | 'h2h'>('probability')
 
   const { live, pregame, loading: eventsLoading } = useSportsEvents(selectedCategory || null)
   const { upcomingEvents } = useUpcomingCache(pregame)
@@ -329,18 +430,6 @@ export default function EventStatsPage() {
   }, [id, isLive, (displayEvent as any)?.sport])
 
   useEffect(() => {
-    if (!displayEvent) return
-    const leagueId = displayEvent.league_id
-    if (!leagueId) return
-    const sport = (displayEvent as any).sport || 'soccer'
-    const ac = new AbortController()
-    apiFetch<any>(`/api/leagues/${leagueId}/standings?sport=${encodeURIComponent(sport)}`, { signal: ac.signal })
-      .then((data) => setStandingsData(data?.standings || []))
-      .catch(() => setStandingsData([]))
-    return () => ac.abort()
-  }, [displayEvent?.league_id])
-
-  useEffect(() => {
     if (!id || !displayEvent) return
     const sport = (displayEvent as any).sport || 'soccer'
     const ac = new AbortController()
@@ -348,11 +437,67 @@ export default function EventStatsPage() {
       .then((data) => {
         const m = data?.matches ?? []
         setH2hData(m)
-        if (!isLive && m.length > 0) setActiveTab('h2h')
       })
       .catch(() => {})
     return () => ac.abort()
   }, [id, displayEvent?.id, isLive])
+
+  const ev = (displayEvent || null) as Event | null
+  const g = parseGoals((ev as any)?.goals)
+  const homeTeam = cleanTeam((ev as any)?.home_team || '')
+  const awayTeam = cleanTeam((ev as any)?.away_team || '')
+  const homeOdd = Number((ev as any)?.home_odd || 0)
+  const drawOdd = Number((ev as any)?.draw_odd || 0)
+  const awayOdd = Number((ev as any)?.away_odd || 0)
+
+  const h2hSummary = useMemo(() => computeH2HSummary(h2hData, homeTeam, awayTeam), [h2hData, homeTeam, awayTeam])
+  const probabilities = useMemo(
+    () => computeProbabilitiesFromOdds(homeOdd, drawOdd, awayOdd) ?? computeProbabilitiesFromH2H(h2hSummary),
+    [homeOdd, drawOdd, awayOdd, h2hSummary]
+  )
+
+  const statPairs = useMemo(() => {
+    const rawStats = liveStats.stats
+    const groupedStats = liveStats.groupedStats
+    return {
+      possession: extractStatPair(rawStats, groupedStats, [/possession/i]),
+      corners: extractStatPair(rawStats, groupedStats, [/corner/i]),
+      yellowCards: extractStatPair(rawStats, groupedStats, [/yellow.*card/i]),
+      redCards: extractStatPair(rawStats, groupedStats, [/red.*card/i]),
+      shotsOnTarget: extractStatPair(rawStats, groupedStats, [/shots?\s*on\s*target/i, /on target/i]),
+      dangerousAttacks: extractStatPair(rawStats, groupedStats, [/dangerous.*attack/i]),
+      freeKicks: extractStatPair(rawStats, groupedStats, [/free.*kick/i]),
+    }
+  }, [liveStats])
+
+  const probabilityMarkets = useMemo(() => {
+    const matches = Math.max(h2hSummary.matches, 1)
+    const avgGoals = h2hSummary.matches > 0 ? h2hSummary.totalGoals / h2hSummary.matches : 0
+    const over15 = h2hSummary.matches > 0 ? (h2hSummary.over15 / matches) * 100 : 50
+    const over25 = h2hSummary.matches > 0 ? (h2hSummary.over25 / matches) * 100 : 40
+    const btts = h2hSummary.matches > 0 ? (h2hSummary.btts / matches) * 100 : 35
+    const avgGoalsBar = clamp(avgGoals * 35, 0, 100)
+
+    return [
+      { label: 'Mais de 1.5 Golos', percent: over15, trailing: formatOdd(over15), fillColor: '#10d292' },
+      { label: 'Mais de 2.5 Golos', percent: over25, trailing: formatOdd(over25), fillColor: '#10d292' },
+      { label: 'Ambas Marcam', percent: btts, trailing: formatOdd(btts), fillColor: '#3b82f6' },
+      { label: 'Média golos H2H', percent: avgGoalsBar, trailing: `${avgGoals.toFixed(2)} gls`, fillColor: '#f4b400' },
+    ]
+  }, [h2hSummary])
+
+  const detailedStats = useMemo(() => {
+    const rows = [
+      statPairs.possession ? { label: 'Posse de Bola', home: Math.round(statPairs.possession.home), away: Math.round(statPairs.possession.away), isPercent: true } : null,
+      statPairs.corners ? { label: 'Cantos', home: Math.round(statPairs.corners.home), away: Math.round(statPairs.corners.away) } : null,
+      statPairs.yellowCards ? { label: 'Cartões Amarelos', home: Math.round(statPairs.yellowCards.home), away: Math.round(statPairs.yellowCards.away) } : null,
+      statPairs.redCards ? { label: 'Cartões Vermelhos', home: Math.round(statPairs.redCards.home), away: Math.round(statPairs.redCards.away) } : null,
+      statPairs.shotsOnTarget ? { label: 'Remates à Baliza', home: Math.round(statPairs.shotsOnTarget.home), away: Math.round(statPairs.shotsOnTarget.away) } : null,
+      statPairs.dangerousAttacks ? { label: 'Ataques Perigosos', home: Math.round(statPairs.dangerousAttacks.home), away: Math.round(statPairs.dangerousAttacks.away) } : null,
+      statPairs.freeKicks ? { label: 'Livres', home: Math.round(statPairs.freeKicks.home), away: Math.round(statPairs.freeKicks.away) } : null,
+    ]
+    return rows.filter(Boolean) as Array<{ label: string; home: number; away: number; isPercent?: boolean }>
+  }, [statPairs])
 
   if (loading) {
     return (
@@ -362,12 +507,7 @@ export default function EventStatsPage() {
     )
   }
 
-  if (error || !displayEvent) return <div className="p-8 text-center text-red-600">{error || 'Evento não encontrado'}</div>
-
-  const ev = displayEvent as Event
-  const g = parseGoals((ev as any).goals)
-  const homeTeam = cleanTeam((ev as any).home_team)
-  const awayTeam = cleanTeam((ev as any).away_team)
+  if (error || !displayEvent || !ev) return <div className="p-8 text-center text-red-600">{error || 'Evento não encontrado'}</div>
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'}`}>
@@ -457,28 +597,21 @@ export default function EventStatsPage() {
             </div>
           </div>
 
-          <div className={`flex rounded-xl overflow-hidden border mb-3 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            {(isLive
-              ? [
-                  { key: 'dominance' as const, label: 'Domínio' },
-                  { key: 'stats' as const, label: 'Estatísticas' },
-                  { key: 'standings' as const, label: 'Classificação' },
-                ]
-              : [
-                  { key: 'h2h' as const, label: 'H2H' },
-                  { key: 'stats' as const, label: 'Estatísticas' },
-                  { key: 'standings' as const, label: 'Classificação' },
-                ]
-            ).map((tab) => (
+          <div className="mb-5 flex border-b border-gray-800/80">
+            {[
+              { key: 'probability' as const, label: 'Probabilidade' },
+              { key: 'stats' as const, label: 'Estatísticas' },
+              { key: 'h2h' as const, label: 'H2H' },
+            ].map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wide transition-colors ${
+                className={`flex-1 py-3 text-sm font-black transition-colors ${
                   activeTab === tab.key
-                    ? 'bg-red-600 text-white'
+                    ? 'border-b-4 border-red-500 bg-red-500/10 text-red-400'
                     : darkMode
-                      ? 'text-gray-400 hover:bg-gray-700'
-                      : 'text-gray-500 hover:bg-gray-50'
+                      ? 'text-gray-400 hover:text-gray-200'
+                      : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
                 {tab.label}
@@ -486,38 +619,112 @@ export default function EventStatsPage() {
             ))}
           </div>
 
-          {activeTab === 'h2h' && (
-            <div className={`rounded-xl border overflow-hidden ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <div className={`px-4 py-2.5 border-b text-xs font-bold uppercase tracking-wide ${darkMode ? 'border-gray-700 text-gray-400' : 'border-gray-100 text-gray-500'}`}>
-                Histórico H2H — {homeTeam} vs {awayTeam}
-              </div>
-              {h2hData.length === 0 ? (
-                <p className={`text-center py-8 text-sm ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Histórico indisponível</p>
-              ) : (
-                <div className={`divide-y ${darkMode ? 'divide-gray-700' : 'divide-gray-100'}`}>
-                  {h2hData.map((m: any, i: number) => {
-                    const hWin = m.homeScore > m.awayScore
-                    const aWin = m.awayScore > m.homeScore
-                    const draw = m.homeScore === m.awayScore
-                    const rawDate = m.date || ''
-                    const dateStr = rawDate ? new Date(rawDate).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''
-                    return (
-                      <div key={i} className={`px-4 py-2.5 flex items-center gap-2 text-xs ${i % 2 === 0 ? (darkMode ? 'bg-gray-800/40' : 'bg-gray-50/40') : ''}`}>
-                        {dateStr && <span className={`shrink-0 w-14 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{dateStr}</span>}
-                        <span className={`flex-1 truncate text-right font-medium ${hWin ? (darkMode ? 'text-green-400' : 'text-green-600') : (darkMode ? 'text-gray-300' : 'text-gray-700')}`}>{m.homeTeam}</span>
-                        <span className={`shrink-0 px-2 py-0.5 rounded font-black tabular-nums ${draw ? (darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600') : (darkMode ? 'bg-gray-700 text-white' : 'bg-gray-800 text-white')}`}>
-                          {m.homeScore} - {m.awayScore}
-                        </span>
-                        <span className={`flex-1 truncate font-medium ${aWin ? (darkMode ? 'text-green-400' : 'text-green-600') : (darkMode ? 'text-gray-300' : 'text-gray-700')}`}>{m.awayTeam}</span>
-                      </div>
-                    )
-                  })}
+          {activeTab === 'probability' && (
+            <div className="space-y-4">
+              <div className={`rounded-[28px] border p-5 ${darkMode ? 'border-gray-800 bg-[#11131d]' : 'border-gray-200 bg-white'}`}>
+                <div className={`text-sm font-black uppercase tracking-[0.2em] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Probabilidade de Resultado
                 </div>
-              )}
+                <div className="mt-5 grid grid-cols-1 gap-6 sm:grid-cols-3">
+                  <CircularProbabilityCard
+                    label={homeTeam}
+                    percentage={probabilities.home}
+                    odd={homeOdd > 1.01 ? homeOdd.toFixed(2) : formatOdd(probabilities.home)}
+                    color="#3b82f6"
+                    darkMode={darkMode}
+                  />
+                  <CircularProbabilityCard
+                    label="Empate"
+                    percentage={probabilities.draw}
+                    odd={drawOdd > 1.01 ? drawOdd.toFixed(2) : formatOdd(probabilities.draw)}
+                    color="#f4b400"
+                    darkMode={darkMode}
+                  />
+                  <CircularProbabilityCard
+                    label={awayTeam}
+                    percentage={probabilities.away}
+                    odd={awayOdd > 1.01 ? awayOdd.toFixed(2) : formatOdd(probabilities.away)}
+                    color="#ff4d5e"
+                    darkMode={darkMode}
+                  />
+                </div>
+              </div>
+              <div className={`rounded-[28px] border p-5 ${darkMode ? 'border-gray-800 bg-[#11131d]' : 'border-gray-200 bg-white'}`}>
+                <div className={`text-sm font-black uppercase tracking-[0.2em] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Mercados Principais
+                </div>
+                <div className="mt-5 space-y-5">
+                  {probabilityMarkets.map((market) => (
+                    <MarketRow key={market.label} {...market} darkMode={darkMode} />
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <SnapshotCard
+                  value={h2hSummary.matches > 0 ? (h2hSummary.totalGoals / h2hSummary.matches).toFixed(1) : '--'}
+                  label="Golos/Jogo"
+                  subLabel={`Liga: ${h2hSummary.matches > 0 ? (h2hSummary.totalGoals / h2hSummary.matches).toFixed(1) : '--'}`}
+                  darkMode={darkMode}
+                />
+                <SnapshotCard
+                  value={h2hSummary.matches > 0 ? formatPercent((h2hSummary.btts / h2hSummary.matches) * 100) : '--'}
+                  label="AEM"
+                  subLabel={`Liga: ${h2hSummary.matches > 0 ? formatPercent((h2hSummary.btts / h2hSummary.matches) * 100) : '--'}`}
+                  darkMode={darkMode}
+                />
+                <SnapshotCard
+                  value={
+                    statPairs.corners
+                      ? ((statPairs.corners.home + statPairs.corners.away) / 2).toFixed(1)
+                      : '--'
+                  }
+                  label="Cantos/Jogo"
+                  subLabel={String((ev as any).league || (ev as any).league_name || 'Partida')}
+                  darkMode={darkMode}
+                />
+              </div>
+
+              <div className={`rounded-[28px] border p-5 ${darkMode ? 'border-gray-800 bg-[#11131d]' : 'border-gray-200 bg-white'}`}>
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div className={`text-sm font-black uppercase tracking-[0.2em] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    H2H Resumo
+                  </div>
+                  <span className="text-sm font-bold text-blue-400">Ver detalhes</span>
+                </div>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <div className="text-5xl font-black text-blue-500">{h2hSummary.homeWins}</div>
+                    <div className={`mt-2 text-lg ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{homeTeam}</div>
+                  </div>
+                  <div>
+                    <div className={`text-5xl font-black ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{h2hSummary.draws}</div>
+                    <div className={`mt-2 text-lg ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Empates</div>
+                  </div>
+                  <div>
+                    <div className="text-5xl font-black text-red-500">{h2hSummary.awayWins}</div>
+                    <div className={`mt-2 text-lg ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{awayTeam}</div>
+                  </div>
+                </div>
+                <div className={`mt-5 flex h-4 overflow-hidden rounded-full ${darkMode ? 'bg-[#202432]' : 'bg-gray-200'}`}>
+                  <div
+                    className="bg-blue-500"
+                    style={{ width: `${h2hSummary.matches ? (h2hSummary.homeWins / h2hSummary.matches) * 100 : 33.33}%` }}
+                  />
+                  <div
+                    className={`${darkMode ? 'bg-gray-500' : 'bg-gray-400'}`}
+                    style={{ width: `${h2hSummary.matches ? (h2hSummary.draws / h2hSummary.matches) * 100 : 33.33}%` }}
+                  />
+                  <div
+                    className="bg-red-500"
+                    style={{ width: `${h2hSummary.matches ? (h2hSummary.awayWins / h2hSummary.matches) * 100 : 33.33}%` }}
+                  />
+                </div>
+              </div>
             </div>
           )}
 
-          {activeTab === 'dominance' && (
+          {activeTab === 'stats' && (
             <div className="space-y-3">
               <LiveMomentumSticksGraph
                 darkMode={darkMode}
@@ -529,130 +736,80 @@ export default function EventStatsPage() {
                 statusKey={statusKey}
               />
 
-              <div className={`rounded-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`} style={{ height: 220 }}>
-                <FootballPitchAnimation
-                  homeName={homeTeam}
-                  awayName={awayTeam}
-                  isLive={isLive}
-                  score={`${g.home} - ${g.away}`}
-                  statusLabel={String(statusShort || '')}
-                  timer={liveTimer || (liveElapsed > 0 ? `${liveElapsed}'` : isLive ? 'AO VIVO' : '')}
-                  sport={(ev as any).sport || 'soccer'}
-                  matchEvents={liveStats.events}
-                  liveStats={Array.isArray(liveStats.stats) ? liveStats.stats : []}
-                />
-              </div>
-
-              {!isLive && Array.isArray(liveStats.stats) && liveStats.stats.length === 0 && (
-                <div className={`text-center py-6 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Sem dados de domínio disponíveis.
+              {detailedStats.length > 0 ? (
+                <div className="space-y-3">
+                  {detailedStats.map((row) => (
+                    <DetailedStatRow
+                      key={row.label}
+                      label={row.label}
+                      homeValue={row.home}
+                      awayValue={row.away}
+                      isPercent={row.isPercent}
+                      darkMode={darkMode}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className={`rounded-[28px] border px-4 py-10 text-center text-sm ${darkMode ? 'border-gray-800 bg-[#11131d] text-gray-400' : 'border-gray-200 bg-white text-gray-500'}`}>
+                  Estatísticas detalhadas não disponíveis.
                 </div>
               )}
             </div>
           )}
 
-          {activeTab === 'stats' && (
-            <div className={`rounded-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              {liveStats.groupedStats ? (
-                <RichStatsDisplay
-                  groupedStats={liveStats.groupedStats}
-                  homeName={homeTeam}
-                  awayName={awayTeam}
-                  darkMode={darkMode}
-                />
-              ) : Array.isArray(liveStats.stats) && liveStats.stats.length > 0 ? (
-                <MatchTracker
-                  live={{ ...(ev as any), fixture: { ...((ev as any).fixture || {}), stats: liveStats.stats, events: liveStats.events } }}
-                  homeName={(ev as any).home_team}
-                  awayName={(ev as any).away_team}
-                  leagueName={(ev as any).league_name}
-                  sportName={(ev as any).sport}
-                  darkMode={darkMode}
-                />
-              ) : (
-                <div className={`text-center py-10 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Estatísticas indisponíveis para este jogo.
+          {activeTab === 'h2h' && (
+            <div className="space-y-4">
+              <div className={`rounded-[28px] border p-5 ${darkMode ? 'border-gray-800 bg-[#11131d]' : 'border-gray-200 bg-white'}`}>
+                <div className={`mb-5 text-sm font-black uppercase tracking-[0.2em] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Últimos Confrontos
                 </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'standings' && (
-            <div className={`rounded-xl border overflow-hidden ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <div className={`px-4 py-2.5 border-b text-xs font-bold uppercase tracking-wide ${darkMode ? 'border-gray-700 text-gray-400' : 'border-gray-100 text-gray-500'}`}>
-                Classificação — {(ev as any).league_name || (ev as any).league}
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <div className="text-5xl font-black text-blue-500">{h2hSummary.homeWins}</div>
+                    <div className={`mt-2 text-lg ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{homeTeam}</div>
+                  </div>
+                  <div>
+                    <div className={`text-5xl font-black ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{h2hSummary.draws}</div>
+                    <div className={`mt-2 text-lg ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Empates</div>
+                  </div>
+                  <div>
+                    <div className="text-5xl font-black text-red-500">{h2hSummary.awayWins}</div>
+                    <div className={`mt-2 text-lg ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{awayTeam}</div>
+                  </div>
+                </div>
               </div>
-              {standingsData.length === 0 ? (
-                <p className={`text-center py-6 text-sm ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Classificação indisponível</p>
+
+              {h2hData.length === 0 ? (
+                <div className={`rounded-[28px] border px-4 py-10 text-center text-sm ${darkMode ? 'border-gray-800 bg-[#11131d] text-gray-400' : 'border-gray-200 bg-white text-gray-500'}`}>
+                  Histórico indisponível.
+                </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className={`${darkMode ? 'bg-gray-700/50 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>
-                        <th className="px-2 py-2 text-center w-8">#</th>
-                        <th className="px-3 py-2 text-left">Equipa</th>
-                        <th className="px-2 py-2 text-center">J</th>
-                        <th className="px-2 py-2 text-center">V</th>
-                        <th className="px-2 py-2 text-center">E</th>
-                        <th className="px-2 py-2 text-center">D</th>
-                        <th className="px-2 py-2 text-center">GM</th>
-                        <th className="px-2 py-2 text-center">GS</th>
-                        <th className="px-2 py-2 text-center font-bold">Pts</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {standingsData.map((row: any, i: number) => {
-                        const isHome = homeTeam.toLowerCase() === String(row.team).toLowerCase()
-                        const isAway = awayTeam.toLowerCase() === String(row.team).toLowerCase()
-                        return (
-                          <tr
-                            key={i}
-                            className={`border-t ${darkMode ? 'border-gray-700' : 'border-gray-100'} ${
-                              isHome
-                                ? darkMode
-                                  ? 'bg-blue-900/30'
-                                  : 'bg-blue-50'
-                                : isAway
-                                  ? darkMode
-                                    ? 'bg-red-900/30'
-                                    : 'bg-red-50'
-                                  : i % 2 === 0
-                                    ? darkMode
-                                      ? 'bg-gray-800/30'
-                                      : 'bg-gray-50/60'
-                                    : ''
-                            }`}
-                          >
-                            <td className={`px-2 py-1.5 text-center font-bold ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{row.position}</td>
-                            <td
-                              className={`px-3 py-1.5 font-medium truncate max-w-[120px] ${
-                                isHome
-                                  ? darkMode
-                                    ? 'text-blue-300'
-                                    : 'text-blue-700'
-                                  : isAway
-                                    ? darkMode
-                                      ? 'text-red-300'
-                                      : 'text-red-700'
-                                    : darkMode
-                                      ? 'text-gray-200'
-                                      : 'text-gray-800'
-                              }`}
-                            >
-                              {row.team}
-                            </td>
-                            <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{row.played}</td>
-                            <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-green-400' : 'text-green-600'}`}>{row.wins}</td>
-                            <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{row.draws}</td>
-                            <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-red-400' : 'text-red-500'}`}>{row.losses}</td>
-                            <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{row.goalsFor}</td>
-                            <td className={`px-2 py-1.5 text-center ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{row.goalsAgainst}</td>
-                            <td className={`px-2 py-1.5 text-center font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{row.points}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                <div className="space-y-3">
+                  {h2hData.map((match: any, index: number) => {
+                    const rawDate = match?.date || ''
+                    const dateStr = rawDate
+                      ? new Date(rawDate).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                      : ''
+                    const homeName = match?.homeTeam || match?.home_team || 'Casa'
+                    const awayName = match?.awayTeam || match?.away_team || 'Fora'
+                    const homeScore = Number(match?.homeScore ?? String(match?.score || '0-0').split('-')[0] ?? 0)
+                    const awayScore = Number(match?.awayScore ?? String(match?.score || '0-0').split('-')[1] ?? 0)
+
+                    return (
+                      <div key={`${homeName}-${awayName}-${index}`} className={`rounded-[24px] border p-4 ${darkMode ? 'border-gray-800 bg-[#11131d]' : 'border-gray-200 bg-white'}`}>
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <span className={`text-xs font-black uppercase tracking-[0.18em] ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{dateStr || 'H2H'}</span>
+                          <span className={`rounded-xl px-3 py-1 text-sm font-black ${darkMode ? 'bg-gray-800 text-white' : 'bg-gray-900 text-white'}`}>
+                            {homeScore} - {awayScore}
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          <div className={`text-lg font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>{homeName}</div>
+                          <div className={`text-lg font-bold ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{awayName}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
