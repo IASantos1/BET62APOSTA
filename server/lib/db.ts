@@ -32,7 +32,16 @@ function resolveSsl(connectionString: string): false | { rejectUnauthorized: fal
 }
 
 export function createPool(): pg.Pool | null {
-  const connectionString = firstEnv('DATABASE_URL', 'POSTGRES_URL', 'POSTGRESQL_URL', 'DATABASE_PUBLIC_URL');
+  const connectionString = firstEnv(
+    'DATABASE_URL',
+    'DATABASE_PRIVATE_URL',
+    'DATABASE_URL_INTERNAL',
+    'DATABASE_URL_UNPOOLED',
+    'POSTGRES_URL',
+    'POSTGRESQL_URL',
+    'DATABASE_PUBLIC_URL',
+    'POSTGRES_PRIVATE_URL',
+  );
   const host = firstEnv('PGHOST', 'POSTGRES_HOST');
   const user = firstEnv('PGUSER', 'POSTGRES_USER');
   const password = firstEnv('PGPASSWORD', 'POSTGRES_PASSWORD');

@@ -41,19 +41,28 @@ const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.
 
 let pool: ReturnType<typeof createPool> | null = null;
 let dbReady = false;
+let dbInitError: string | null = null;
 try {
   pool = createPool();
   if (!pool) {
     dbReady = false;
     console.warn('[server] WARNING: DATABASE_URL is not set. Auth/bets/wallet/admin routes are disabled.');
   } else {
-    await ensureSchema(pool);
+    await pool.query('SELECT 1');
     dbReady = true;
+    try {
+      await ensureSchema(pool);
+      dbInitError = null;
+    } catch (e: any) {
+      dbInitError = String(e?.message || e);
+      console.error('[server] DB schema ensure failed:', dbInitError);
+    }
   }
 } catch (e: any) {
   console.error('[server] DB init failed:', String(e?.message || e));
   pool = null;
   dbReady = false;
+  dbInitError = String(e?.message || e);
 }
 
 const safePool: any =
@@ -178,7 +187,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/health') {
-      sendJson(res, 200, { ok: true, db: dbReady });
+      sendJson(res, 200, {
+        ok: true,
+        db: dbReady,
+        dbConfigured: Boolean(pool),
+        dbInitError,
+      });
       return;
     }
 
