@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import './i18n';
-import { serviceWorkerManager } from './services/serviceWorkerManager';
 import { initializePreloader } from './services/assetPreloader';
 import { initializeLazyLoading } from './services/lazyLoadManager';
 import { performanceMonitor } from './services/performanceMonitor';
@@ -22,13 +21,25 @@ const schedule = (cb: () => void) => {
   }
 };
 
-if (import.meta.env.PROD) {
-  schedule(() => {
-    serviceWorkerManager.register().catch((error) => {
-      console.error('❌ Erro ao registrar Service Worker:', error);
-    });
-  });
-}
+schedule(() => {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+
+  const clearLegacyCaches = async () => {
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations().catch(() => [] as ServiceWorkerRegistration[]);
+      await Promise.all(registrations.map((registration) => registration.unregister().catch(() => false)));
+
+      if ('caches' in window) {
+        const cacheKeys = await caches.keys().catch(() => [] as string[]);
+        await Promise.all(cacheKeys.map((key) => caches.delete(key).catch(() => false)));
+      }
+    } catch (error) {
+      console.warn('⚠️ Falha ao limpar cache antigo:', error);
+    }
+  };
+
+  void clearLegacyCaches();
+});
 
 schedule(() => {
   initializePreloader();

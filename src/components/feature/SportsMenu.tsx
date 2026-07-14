@@ -180,7 +180,7 @@ const FOOTBALL_COUNTRIES = [
   },
   { 
     country: 'Internacional', 
-    leagues: ['Copa do Mundo', 'Copa América', 'Euro', 'Nations League', 'Amigáveis', 'Copa Libertadores', 'Copa Sudamericana'] 
+    leagues: ['Copa América', 'Euro', 'Nations League', 'Amigáveis', 'Copa Libertadores', 'Copa Sudamericana'] 
   },
 ];
 

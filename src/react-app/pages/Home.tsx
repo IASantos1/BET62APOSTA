@@ -6,7 +6,6 @@ import { useLiveFeed } from '../hooks/useLiveFeed';
 import { useMergedEvents } from '../hooks/useMergedEvents';
 import EventCard from '../components/EventCard';
 import { Sidebar } from '../components/Sidebar';
-import { BannerCarousel } from '../components/BannerCarousel';
 import { BetSlip } from '../components/BetSlip';
 import { useNavigate } from 'react-router-dom';
 import { formatLeagueHeader, getLeagueLogo, getSportIcon } from '../../shared/helpers';
@@ -899,8 +898,6 @@ function Home({ mode = 'home' }: HomeProps) {
 
         {/* Conteúdo principal */}
         <main className="flex-1 min-w-0 space-y-8">
-          {showBanner && <BannerCarousel />}
-
           {/* Eventos */}
           <section id="events">
             <div className="flex items-center gap-3 mb-5">
