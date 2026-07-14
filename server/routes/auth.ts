@@ -33,9 +33,39 @@ type TwoFactorConfirmBody = {
   token?: string;
 };
 
+const APP_SESSIONS_TABLE = 'bet62_sessions';
+const APP_REFRESH_TOKENS_TABLE = 'bet62_refresh_tokens';
+let __app_auth_tables_ready = false;
+
 function ipOf(req: http.IncomingMessage): string {
   const raw = String(req.headers['x-forwarded-for'] || '').split(',')[0]?.trim();
   return raw || String(req.socket.remoteAddress || '');
+}
+
+async function ensureAppAuthTables(pool: pg.Pool): Promise<void> {
+  if (__app_auth_tables_ready) return;
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS ${APP_SESSIONS_TABLE} (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      issued_at BIGINT NOT NULL,
+      expires_at BIGINT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+  );
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS ${APP_REFRESH_TOKENS_TABLE} (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked BOOLEAN NOT NULL DEFAULT FALSE,
+      user_agent TEXT,
+      ip TEXT
+    )`,
+  );
+  __app_auth_tables_ready = true;
 }
 
 type ColInfo = { name: string; dataType: string };
@@ -107,6 +137,7 @@ async function createUserRecord(
   const values: any[] = [];
   const idCol = firstExistingCol(userCols, 'id');
   const idType = colType(userCols, idCol || 'id');
+  const loginCol = firstExistingCol(userCols, 'email', 'username');
 
   const pushCol = (col: string, value: any) => {
     cols.push(col);
@@ -116,7 +147,8 @@ async function createUserRecord(
   if (idCol && !isNumericType(idType)) {
     pushCol(idCol, randomId(12));
   }
-  pushCol(firstExistingCol(userCols, 'email') || 'email', email);
+  if (!loginCol) throw new Error('No supported login column found in users table');
+  pushCol(loginCol, email);
 
   if (hasCol(userCols, 'password_hash') && hasCol(userCols, 'password_salt')) {
     pushCol('password_hash', pw.hashHex);
@@ -129,7 +161,7 @@ async function createUserRecord(
 
   if (hasCol(userCols, 'role')) pushCol('role', 'user');
   if (hasCol(userCols, 'name')) pushCol('name', name);
-  if (hasCol(userCols, 'username')) pushCol('username', email);
+  if (hasCol(userCols, 'username') && loginCol !== 'username') pushCol('username', email);
 
   const placeholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
   const inserted = await pool.query(
@@ -189,13 +221,14 @@ async function createProfileRecord(
 
 async function loadUserForSignin(pool: pg.Pool, email: string): Promise<any | null> {
   const userCols = await getTableCols(pool, 'users').catch(() => []);
-  const passwordCols = ['id', 'email'];
+  const passwordCols = ['id'];
   if (hasCol(userCols, 'password_hash')) passwordCols.push('password_hash');
   if (hasCol(userCols, 'password_salt')) passwordCols.push('password_salt');
   if (hasCol(userCols, 'hashed_password')) passwordCols.push('hashed_password');
   if (hasCol(userCols, 'password')) passwordCols.push('password');
   const emailCol = firstExistingCol(userCols, 'email', 'username');
   if (!emailCol) throw new Error('No supported login column found in users table');
+  passwordCols.push(`${emailCol} AS email`);
   const r = await pool.query(
     `SELECT ${passwordCols.join(', ')} FROM users WHERE ${emailCol} = $1 LIMIT 1`,
     [email],
@@ -214,90 +247,25 @@ function verifyUserPassword(password: string, row: any): boolean {
 }
 
 async function issueTokens(pool: pg.Pool, userId: string, req: http.IncomingMessage): Promise<{ token: string; refreshToken: string }> {
+  await ensureAppAuthTables(pool);
   const token = randomId(24);
   const refreshToken = randomId(32);
   const now = Date.now();
   const expiresAtMs = now + 24 * 60 * 60 * 1000;
   const refreshExpiresAtMs = now + 30 * 24 * 60 * 60 * 1000;
-
-  const sessionsCols = await getTableCols(pool, 'sessions').catch(() => []);
-  const sessionsHasIssuedAt = hasCol(sessionsCols, 'issued_at');
-  const sessionsExpiresType = colType(sessionsCols, 'expires_at');
-  const sessionsExpiresIsTs = sessionsExpiresType.includes('timestamp') || sessionsExpiresType.includes('date');
-  const sessionsIssuedType = colType(sessionsCols, 'issued_at');
-  const sessionsIssuedIsTs = sessionsIssuedType.includes('timestamp') || sessionsIssuedType.includes('date');
-
-  if (sessionsHasIssuedAt) {
-    if (sessionsExpiresIsTs || sessionsIssuedIsTs) {
-      await pool.query(
-        `INSERT INTO sessions (token, user_id, issued_at, expires_at)
-         VALUES ($1, $2, to_timestamp($3 / 1000.0), to_timestamp($4 / 1000.0))
-         ON CONFLICT (token) DO NOTHING`,
-        [token, userId, now, expiresAtMs],
-      );
-    } else {
-      await pool.query(
-        `INSERT INTO sessions (token, user_id, issued_at, expires_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (token) DO NOTHING`,
-        [token, userId, now, expiresAtMs],
-      );
-    }
-  } else {
-    if (sessionsExpiresIsTs) {
-      await pool.query(
-        `INSERT INTO sessions (token, user_id, expires_at)
-         VALUES ($1, $2, to_timestamp($3 / 1000.0))
-         ON CONFLICT (token) DO NOTHING`,
-        [token, userId, expiresAtMs],
-      );
-    } else {
-      await pool.query(
-        `INSERT INTO sessions (token, user_id, expires_at)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (token) DO NOTHING`,
-        [token, userId, expiresAtMs],
-      );
-    }
-  }
-
-  const refreshCols = await getTableCols(pool, 'refresh_tokens').catch(() => []);
-  const hasTokenHash = hasCol(refreshCols, 'token_hash');
-  const hasToken = hasCol(refreshCols, 'token');
-  const expiresType = colType(refreshCols, 'expires_at');
-  const expiresIsTs = expiresType.includes('timestamp') || expiresType.includes('date');
   const tokenHash = sha256Hex(refreshToken);
-  const refreshExpiresAt = expiresIsTs ? new Date(refreshExpiresAtMs).toISOString() : new Date(refreshExpiresAtMs);
-
-  if (hasTokenHash) {
-    await pool.query(
-      `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, revoked, user_agent, ip)
-       VALUES ($1, $2, $3, $4, FALSE, $5, $6)`,
-      [randomId(16), userId, tokenHash, refreshExpiresAt, String(req.headers['user-agent'] || ''), ipOf(req)],
-    );
-  } else if (hasToken) {
-    const revokedCol = hasCol(refreshCols, 'revoked');
-    const revokedVal = revokedCol ? false : undefined;
-    if (revokedCol) {
-      await pool.query(
-        `INSERT INTO refresh_tokens (id, user_id, token, expires_at, revoked, user_agent, ip)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [randomId(16), userId, tokenHash, refreshExpiresAt, revokedVal, String(req.headers['user-agent'] || ''), ipOf(req)],
-      );
-    } else {
-      await pool.query(
-        `INSERT INTO refresh_tokens (id, user_id, token, expires_at, user_agent, ip)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [randomId(16), userId, tokenHash, refreshExpiresAt, String(req.headers['user-agent'] || ''), ipOf(req)],
-      );
-    }
-  } else {
-    await pool.query(
-      `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, revoked, user_agent, ip)
-       VALUES ($1, $2, $3, $4, FALSE, $5, $6)`,
-      [randomId(16), userId, tokenHash, refreshExpiresAt, String(req.headers['user-agent'] || ''), ipOf(req)],
-    );
-  }
+  await pool.query(
+    `INSERT INTO ${APP_SESSIONS_TABLE} (token, user_id, issued_at, expires_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (token) DO UPDATE
+     SET user_id = EXCLUDED.user_id, issued_at = EXCLUDED.issued_at, expires_at = EXCLUDED.expires_at`,
+    [token, userId, now, expiresAtMs],
+  );
+  await pool.query(
+    `INSERT INTO ${APP_REFRESH_TOKENS_TABLE} (id, user_id, token_hash, expires_at, revoked, user_agent, ip)
+     VALUES ($1, $2, $3, $4, FALSE, $5, $6)`,
+    [randomId(16), userId, tokenHash, new Date(refreshExpiresAtMs).toISOString(), String(req.headers['user-agent'] || ''), ipOf(req)],
+  );
 
   return { token, refreshToken };
 }
@@ -337,7 +305,10 @@ export async function handleAuthRoutes(
       const password = String(body.password || '');
       if (!email || password.length < 6) return badRequest(res, 'Invalid credentials'), true;
 
-      const exists = await pool.query(`SELECT 1 FROM users WHERE email = $1 LIMIT 1`, [email]);
+      const userCols = await getTableCols(pool, 'users').catch(() => []);
+      const loginCol = firstExistingCol(userCols, 'email', 'username');
+      if (!loginCol) throw new Error('No supported login column found in users table');
+      const exists = await pool.query(`SELECT 1 FROM users WHERE ${loginCol} = $1 LIMIT 1`, [email]);
       if (exists.rows.length > 0) return sendJson(res, 409, { error: 'Email already exists' }), true;
 
       const name = `${String(body.firstName || '').trim()} ${String(body.lastName || '').trim()}`.trim();
@@ -387,20 +358,22 @@ export async function handleAuthRoutes(
     if (!refreshToken) return unauthorized(res), true;
 
     try {
+      await ensureAppAuthTables(pool);
       const tokenHash = sha256Hex(refreshToken);
-      const refreshCols = await getTableCols(pool, 'refresh_tokens').catch(() => []);
-      const useTokenHash = hasCol(refreshCols, 'token_hash');
-      const tokenCol = useTokenHash ? 'token_hash' : (hasCol(refreshCols, 'token') ? 'token' : 'token_hash');
-      const revokedCol = hasCol(refreshCols, 'revoked');
-      const sql = `SELECT id, user_id, expires_at${revokedCol ? ', revoked' : ''} FROM refresh_tokens WHERE ${tokenCol} = $1 LIMIT 1`;
-      const r = await pool.query(sql, [tokenHash]);
+      const r = await pool.query(
+        `SELECT id, user_id, expires_at, revoked
+         FROM ${APP_REFRESH_TOKENS_TABLE}
+         WHERE token_hash = $1
+         LIMIT 1`,
+        [tokenHash],
+      );
       const row = r.rows?.[0];
       if (!row) return unauthorized(res), true;
-      if (revokedCol && Boolean(row.revoked)) return unauthorized(res), true;
+      if (row.revoked) return unauthorized(res), true;
       const exp = new Date(row.expires_at).getTime();
       if (!Number.isFinite(exp) || exp < Date.now()) return unauthorized(res), true;
 
-      if (revokedCol) await pool.query(`UPDATE refresh_tokens SET revoked = TRUE WHERE id = $1`, [String(row.id)]);
+      await pool.query(`UPDATE ${APP_REFRESH_TOKENS_TABLE} SET revoked = TRUE WHERE id = $1`, [String(row.id)]);
       const tokens = await issueTokens(pool, String(row.user_id), req);
       sendJson(res, 200, { token: tokens.token, refreshToken: tokens.refreshToken });
       return true;
@@ -412,7 +385,10 @@ export async function handleAuthRoutes(
 
   if (req.method === 'POST' && path === '/api/auth/logout') {
     const token = getBearerToken(req);
-    if (token) await pool.query(`DELETE FROM sessions WHERE token = $1`, [token]).catch(() => null);
+    if (token) {
+      await ensureAppAuthTables(pool).catch(() => null);
+      await pool.query(`DELETE FROM ${APP_SESSIONS_TABLE} WHERE token = $1`, [token]).catch(() => null);
+    }
     sendJson(res, 200, { success: true });
     return true;
   }
