@@ -29,6 +29,7 @@ type BetSelectionError = {
   reason: string;
   currentOdd?: number;
   currentSelectionLabel?: string;
+  currentMarket?: string;
 };
 
 function toNumber(v: any): number {
@@ -73,6 +74,26 @@ function canonicalMarketAliases(market: string): string[] {
     return ['totals', 'team_totals', 'match_total_games', 'total_sets', 'corners_total', 'cards_total'];
   }
   return [m.replace(/\s+/g, '_')];
+}
+
+function formatMarketLabel(market: string): string {
+  const key = String(market || '').trim().toLowerCase();
+  if (!key || key === 'h2h' || key === '1x2' || key === 'main' || key === 'match_winner' || key === 'winner') {
+    return 'Resultado Final';
+  }
+  if (key === 'btts') return 'Ambas Marcam';
+  if (key === 'totals') return 'Total de Golos';
+  if (key === 'team_totals') return 'Total da Equipa';
+  if (key === 'spreads' || key === 'handicap' || key === 'asian_handicap') return 'Handicap';
+  if (key === 'corners_total') return 'Total de Escanteios';
+  if (key === 'corners_h2h') return 'Escanteios 1X2';
+  if (key === 'cards_total') return 'Total de Cartões';
+  if (key === 'cards_h2h') return 'Cartões 1X2';
+  return String(market || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function pickMarketEntries(markets: Record<string, any>, requestedMarket: string): { key: string; entries: any[] } | null {
@@ -355,6 +376,7 @@ export async function handleBetRoutes(
           reason: `Odd atualizada para ${currentOdd.toFixed(2)}`,
           currentOdd,
           currentSelectionLabel: matched.label,
+          currentMarket: formatMarketLabel(pickedMarket.key),
         });
         return true;
       }

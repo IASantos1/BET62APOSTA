@@ -130,8 +130,10 @@ export function BetSlip() {
         const selection = String(item?.selection || '').trim();
         const reason = String(item?.reason || item?.message || '').trim();
         const currentOdd = Number(item?.currentOdd || 0);
+        const market = String(item?.currentMarket || item?.market || '').trim();
         const oddText = currentOdd > 1 ? ` | odd atual ${currentOdd.toFixed(2)}` : '';
-        return `${eventId} - ${selection}: ${reason}${oddText}`;
+        const marketText = market ? ` [${market}]` : '';
+        return `${eventId}${marketText} - ${selection}: ${reason}${oddText}`;
       });
       return {
         message: String(payload?.error || 'Não foi possível validar a aposta.'),
@@ -157,6 +159,7 @@ export function BetSlip() {
         market: item?.market,
         odd: currentOdd,
         selectionLabel: item?.currentSelectionLabel,
+        marketLabel: item?.currentMarket,
       });
       if (changed) hasOddChange = true;
     }
@@ -329,11 +332,14 @@ export function BetSlip() {
                return ( 
                <div 
                  key={bet.id} 
-                className={`p-2 rounded-lg border transition-colors duration-300 ${ 
+               className={`p-2 rounded-lg border transition-colors duration-300 ${ 
                   isConflicting
                     ? (darkMode ? 'bg-yellow-900/20 border-yellow-500' : 'bg-yellow-50 border-yellow-500')
-                    : (darkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200')
+                    : bet.changed
+                      ? (darkMode ? 'bg-amber-900/20 border-amber-500 text-amber-100' : 'bg-amber-50 border-amber-400')
+                      : (darkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200')
                 }`} 
+               style={bet.changedAt ? { animation: 'pulse-glow 1.1s ease-out 2' } : undefined}
                > 
                  {isConflicting && (
                     <div className="text-[10px] text-yellow-600 font-bold mb-1 uppercase tracking-wide flex items-center gap-1">
@@ -346,6 +352,11 @@ export function BetSlip() {
                       {bet.match} 
                     </p> 
                     <p className="text-xs text-red-600 font-medium">{translateSelection(bet.selection)}</p> 
+                    {bet.market && (
+                      <p className={`text-[11px] font-medium ${bet.changed ? 'text-amber-500' : (darkMode ? 'text-gray-300' : 'text-gray-600')}`}>
+                        {bet.market}
+                      </p>
+                    )}
                     <div className="mt-0.5 text-[10px] inline-flex items-center gap-1">
                       {(() => {
                         const { flag, country, league, flagUrl } = formatLeagueHeader(bet.league || '');

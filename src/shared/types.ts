@@ -143,6 +143,7 @@ export interface BetSlipItem {
   odd: number;
   currentOdd?: number;
   changed?: boolean;
+  changedAt?: number;
   stake: number;
   league?: string;
   sport?: string;
