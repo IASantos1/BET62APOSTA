@@ -28,7 +28,7 @@ const LIVE_CAPABLE = new Set(['soccer', 'football', 'futebol', 'tennis', 'basket
 const ODDS_FRESH_TTL_MS = 90_000;
 const LIVE_ODDS_FRESH_TTL_MS = 8_000;
 const ODDS_STALE_TTL_MS = 15 * 60_000;
-const LIVE_HOLD_MS = 6 * 60_000;
+const LIVE_HOLD_MS = 75_000;
 
 function nowMs(): number {
   return Date.now();
@@ -932,10 +932,12 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         if (ids.has(id)) continue;
         if (!sportSet.has(entry.data.sport)) continue;
         // Use freshest event data available (lastEventById is always up-to-date)
-        const freshEvent = lastEventById.get(id)?.data ?? entry.data.event;
+        const freshEntry = lastEventById.get(id);
+        const freshEvent = freshEntry?.data ?? entry.data.event;
+        if (!freshEntry || !ttlOk(freshEntry.ts, LIVE_HOLD_MS)) continue;
         // Drop if the freshest data shows it's finished or no longer live
         if (isFinishedLike(freshEvent)) continue;
-        if (Number((freshEvent as any)?.is_live || 0) === 0 && lastEventById.has(id)) continue;
+        if (!isLiveLike(freshEvent)) continue;
         liveAll.push({ ...(freshEvent as any), id, is_live: 1 });
       }
     }
