@@ -888,6 +888,16 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                 scoreStr = String(displayScore);
               }
 
+              if (isLiveEvent) {
+                const finalHomeScore = homeScore !== undefined ? homeScore : 0;
+                const finalAwayScore = awayScore !== undefined ? awayScore : 0;
+                const normalizedScore = String(scoreStr || '').trim();
+                const hasVisibleScore = /\d+\s*[-:]\s*\d+/.test(normalizedScore);
+                if (!hasVisibleScore) {
+                  scoreStr = `${finalHomeScore}-${finalAwayScore}`;
+                }
+              }
+
               const elapsed = Number((event as any).elapsed ?? (event as any).fixture?.status?.elapsed ?? (event as any).status?.elapsed ?? 0) || 0;
               const timer = String((event as any).timer || (event as any).fixture?.status?.timer || '').trim();
               const statusShort = (() => {
@@ -971,7 +981,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
               if (isLiveEvent) {
                 return (
                   <span className="flex flex-col items-center shrink-0 px-1 gap-0.5">
-                    <span className="text-xs font-bold text-red-600">{scoreStr || 'AO VIVO'}</span>
+                    <span className="text-xs font-bold text-red-600">{scoreStr}</span>
                     {displayTimer && (
                       <span
                         className="text-[10px] font-bold rounded px-1 leading-tight"
