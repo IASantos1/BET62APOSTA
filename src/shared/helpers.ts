@@ -961,6 +961,14 @@ export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
   const key = normalizeLeagueLogoKey(leagueName);
 
   const inlineMapped: Array<{ test: RegExp; url: string }> = [
+    { test: /premier league/, url: leagueBadgeSvg('PL', '#4c1d95') },
+    { test: /bundesliga/, url: leagueBadgeSvg('BL', '#dc2626') },
+    { test: /ligue 1/, url: leagueBadgeSvg('L1', '#111827') },
+    { test: /(^serie a$|italian serie a|serie a tim)/, url: leagueBadgeSvg('SA', '#2563eb') },
+    { test: /\bnhl\b|national hockey league/, url: leagueBadgeSvg('NHL', '#111827') },
+    { test: /uefa conference league/, url: leagueBadgeSvg('UECL', '#0f766e') },
+    { test: /uefa europa league/, url: leagueBadgeSvg('UEL', '#ea580c') },
+    { test: /uefa champions league/, url: leagueBadgeSvg('UCL', '#1d4ed8') },
     { test: /brasileirao serie a|brasileirao a|serie a\b/, url: leagueBadgeSvg('SA', '#15803d') },
     { test: /brasileirao serie b|brasileirao b|serie b\b/, url: leagueBadgeSvg('SB', '#16a34a') },
     { test: /\bnba\b/, url: leagueBadgeSvg('NBA', '#1d4ed8') },
@@ -970,6 +978,14 @@ export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
   ];
 
   const mapped: Array<{ test: RegExp; url: string }> = [
+    { test: /premier league/, url: 'https://upload.wikimedia.org/wikipedia/en/f/f2/Premier_League_Logo.svg' },
+    { test: /bundesliga/, url: 'https://upload.wikimedia.org/wikipedia/en/d/df/Bundesliga_logo_%282017%29.svg' },
+    { test: /ligue 1/, url: 'https://upload.wikimedia.org/wikipedia/en/c/c7/Ligue1.svg' },
+    { test: /(^serie a$|italian serie a|serie a tim)/, url: 'https://upload.wikimedia.org/wikipedia/en/e/e1/Serie_A_logo_%282019%29.svg' },
+    { test: /\bnhl\b|national hockey league/, url: 'https://upload.wikimedia.org/wikipedia/en/3/3a/05_NHL_Shield.svg' },
+    { test: /uefa conference league/, url: 'https://upload.wikimedia.org/wikipedia/commons/7/76/UEFA_Europa_Conference_League_logo.svg' },
+    { test: /uefa europa league/, url: 'https://upload.wikimedia.org/wikipedia/en/8/8b/UEFA_Europa_League_logo_%282024%29.svg' },
+    { test: /uefa champions league/, url: 'https://upload.wikimedia.org/wikipedia/en/b/bf/UEFA_Champions_League_logo_2.svg' },
     { test: /\bnba\b/, url: 'https://upload.wikimedia.org/wikipedia/en/0/03/National_Basketball_Association_logo.svg' },
     { test: /\bmls\b|major league soccer/, url: 'https://upload.wikimedia.org/wikipedia/en/7/76/MLS_crest_logo_RGB_gradient.svg' },
     { test: /la liga 2|laliga 2|segunda division|hypermotion/, url: 'https://upload.wikimedia.org/wikipedia/commons/1/13/LaLiga_Hypermotion.svg' },
