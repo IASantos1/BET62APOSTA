@@ -114,8 +114,10 @@ export async function apiFetch<T = any>(
                     if (token) window.dispatchEvent(new Event('auth:unauthorized'));
                 }
                 let errorMessage = response.statusText;
+                let errorPayload: any = null;
                 try {
                     const errorData = await response.json() as { error?: string, details?: string, stack?: string };
+                    errorPayload = errorData;
                     console.error('[API] Error Detail:', errorData);
                     if (errorData && errorData.error) {
                         errorMessage = errorData.error;
@@ -125,7 +127,10 @@ export async function apiFetch<T = any>(
                 
                 // CRITICAL FIX: Don't just throw, but maybe retry if it's 5xx? 
                 // For now, throw to trigger catch block
-                throw new Error(`Request failed: ${response.status} ${errorMessage}`);
+                const err: any = new Error(`Request failed: ${response.status} ${errorMessage}`);
+                err.status = response.status;
+                err.data = errorPayload;
+                throw err;
             }
             if (response.status === 204) return {} as T;
             return response.json() as Promise<T>;
@@ -153,15 +158,20 @@ export async function apiFetch<T = any>(
         if (token) window.dispatchEvent(new Event('auth:unauthorized'));
       }
       let errorMessage = response.statusText;
+      let errorPayload: any = null;
       try {
         const errorData = await response.json() as { error?: string, details?: string, stack?: string };
+        errorPayload = errorData;
         console.error('[API] Error Detail:', errorData);
         if (errorData && errorData.error) {
           errorMessage = errorData.error;
           if (errorData.details) errorMessage += ` (${errorData.details})`;
         }
       } catch { /* ignore */ }
-      throw new Error(`Request failed: ${response.status} ${errorMessage}`);
+      const err: any = new Error(`Request failed: ${response.status} ${errorMessage}`);
+      err.status = response.status;
+      err.data = errorPayload;
+      throw err;
     }
     if (response.status === 204) {
       return {} as T;

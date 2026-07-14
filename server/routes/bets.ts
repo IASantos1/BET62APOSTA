@@ -20,6 +20,17 @@ type PlaceBetBody = {
   }>;
 };
 
+type BetSelectionError = {
+  index: number;
+  event_id: string;
+  selection: string;
+  market: string;
+  code: string;
+  reason: string;
+  currentOdd?: number;
+  currentSelectionLabel?: string;
+};
+
 function toNumber(v: any): number {
   const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -163,6 +174,19 @@ async function updateProfile(pool: pg.Pool, userId: string, balance: number, fre
   );
 }
 
+function sendBetSelectionError(
+  res: http.ServerResponse,
+  message: string,
+  selectionError: BetSelectionError,
+  status = 409,
+): void {
+  sendJson(res, status, {
+    error: message,
+    code: selectionError.code,
+    selectionErrors: [selectionError],
+  });
+}
+
 export async function handleBetRoutes(
   pool: pg.Pool,
   events: EventsService,
@@ -231,21 +255,62 @@ export async function handleBetRoutes(
     if (validationErrors.length > 0) return badRequest(res, validationErrors[0]), true;
     const payloadSelections = [];
 
-    for (const bet of bets) {
+    for (let index = 0; index < bets.length; index += 1) {
+      const bet = bets[index];
       const eventId = String(bet.event_id || '').trim();
       const requestedSelection = String(bet.selection || '').trim();
       const requestedMarket = String(bet.market || bet.market_key || 'Resultado Final').trim();
       const ctx = await events.getBetValidationContext(eventId);
 
-      if (!ctx.event || !ctx.sport) return badRequest(res, `Evento ${eventId} não encontrado`), true;
-      if (isFinishedLike(ctx.event)) return badRequest(res, `Evento ${eventId} já está encerrado`), true;
-      if (ctx.suspended) return badRequest(res, ctx.suspendedReason ? `Mercado suspenso: ${ctx.suspendedReason}` : 'Mercado suspenso'), true;
+      if (!ctx.event || !ctx.sport) {
+        sendBetSelectionError(res, `Evento ${eventId} não encontrado`, {
+          index,
+          event_id: eventId,
+          selection: requestedSelection,
+          market: requestedMarket,
+          code: 'EVENT_NOT_FOUND',
+          reason: 'Evento não encontrado no feed atual',
+        });
+        return true;
+      }
+      if (isFinishedLike(ctx.event)) {
+        sendBetSelectionError(res, `Evento ${eventId} já está encerrado`, {
+          index,
+          event_id: eventId,
+          selection: requestedSelection,
+          market: requestedMarket,
+          code: 'EVENT_FINISHED',
+          reason: 'Evento já encerrado',
+        });
+        return true;
+      }
+      if (ctx.suspended) {
+        sendBetSelectionError(res, ctx.suspendedReason ? `Mercado suspenso: ${ctx.suspendedReason}` : 'Mercado suspenso', {
+          index,
+          event_id: eventId,
+          selection: requestedSelection,
+          market: requestedMarket,
+          code: 'MARKET_SUSPENDED',
+          reason: ctx.suspendedReason || 'Mercado suspenso no feed atual',
+        });
+        return true;
+      }
 
       const markets = ctx.odds?.markets && typeof ctx.odds.markets === 'object'
         ? ctx.odds.markets
         : ((ctx.event as any)?.markets && typeof (ctx.event as any).markets === 'object' ? (ctx.event as any).markets : {});
       const pickedMarket = pickMarketEntries(markets, requestedMarket) || pickMarketEntries(markets, 'Resultado Final');
-      if (!pickedMarket) return badRequest(res, `Mercado indisponível para o evento ${eventId}`), true;
+      if (!pickedMarket) {
+        sendBetSelectionError(res, `Mercado indisponível para o evento ${eventId}`, {
+          index,
+          event_id: eventId,
+          selection: requestedSelection,
+          market: requestedMarket,
+          code: 'MARKET_UNAVAILABLE',
+          reason: 'Mercado não encontrado nas odds atuais',
+        });
+        return true;
+      }
 
       const matched = matchSelectionToOdd({
         selection: requestedSelection,
@@ -254,14 +319,44 @@ export async function handleBetRoutes(
         event: ctx.event,
         topLevelOdds: { home: ctx.odds?.home, draw: ctx.odds?.draw, away: ctx.odds?.away },
       });
-      if (!matched) return badRequest(res, `Seleção inválida para o evento ${eventId}`), true;
+      if (!matched) {
+        sendBetSelectionError(res, `Seleção inválida para o evento ${eventId}`, {
+          index,
+          event_id: eventId,
+          selection: requestedSelection,
+          market: requestedMarket,
+          code: 'SELECTION_INVALID',
+          reason: 'Seleção não corresponde às opções atuais do mercado',
+        });
+        return true;
+      }
 
       const submittedOdd = toNumber(bet.odd);
       const currentOdd = toNumber(matched.odd);
       const tolerance = Math.max(0.02, currentOdd * 0.01);
-      if (!(currentOdd > 1)) return badRequest(res, `Odd indisponível para o evento ${eventId}`), true;
+      if (!(currentOdd > 1)) {
+        sendBetSelectionError(res, `Odd indisponível para o evento ${eventId}`, {
+          index,
+          event_id: eventId,
+          selection: requestedSelection,
+          market: requestedMarket,
+          code: 'ODD_UNAVAILABLE',
+          reason: 'Odd atual indisponível',
+        });
+        return true;
+      }
       if (submittedOdd > 1 && Math.abs(submittedOdd - currentOdd) > tolerance) {
-        return badRequest(res, `Odd alterada para ${currentOdd.toFixed(2)} no evento ${eventId}`), true;
+        sendBetSelectionError(res, `Odd alterada para ${currentOdd.toFixed(2)} no evento ${eventId}`, {
+          index,
+          event_id: eventId,
+          selection: requestedSelection,
+          market: requestedMarket,
+          code: 'ODD_CHANGED',
+          reason: `Odd atualizada para ${currentOdd.toFixed(2)}`,
+          currentOdd,
+          currentSelectionLabel: matched.label,
+        });
+        return true;
       }
 
       payloadSelections.push({

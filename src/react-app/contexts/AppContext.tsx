@@ -7,6 +7,7 @@ interface Notification {
   id: string; 
   type: 'success' | 'error' | 'info' | 'warning'; 
   message: string; 
+  details?: string[];
   timestamp: Date; 
 } 
 

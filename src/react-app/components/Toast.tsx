@@ -7,9 +7,10 @@ import { Check, X, Bell, AlertCircle } from 'lucide-react';
    id: string; 
    type: 'success' | 'error' | 'info' | 'warning'; 
    message: string; 
+  details?: string[];
  } 
  
- export function Toast({ id, type, message }: ToastProps) { 
+export function Toast({ id, type, message, details }: ToastProps) { 
    const { removeNotification } = useApp(); 
  
    const icons = { 
@@ -35,7 +36,14 @@ import { Check, X, Bell, AlertCircle } from 'lucide-react';
      <div className={`${bgColors[type]} border rounded-lg p-4 shadow-lg flex items-start gap-3 animate-slide-in`}> 
        {icons[type]} 
        <div className="flex-1"> 
-         <p className="text-sm font-medium text-gray-900">{message}</p> 
+        <p className="text-sm font-medium text-gray-900 whitespace-pre-line">{message}</p>
+        {Array.isArray(details) && details.length > 0 && (
+          <ul className="mt-2 space-y-1 text-xs text-gray-700 list-disc list-inside">
+            {details.slice(0, 5).map((detail, idx) => (
+              <li key={`${id}-${idx}`}>{detail}</li>
+            ))}
+          </ul>
+        )}
        </div> 
        <button onClick={() => removeNotification(id)} className="text-gray-400 hover:text-gray-600"> 
          <X size={16} /> 

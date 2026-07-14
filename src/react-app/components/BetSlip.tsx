@@ -121,6 +121,28 @@ export function BetSlip() {
     return Array.from(counts.entries()).filter(([_, count]) => count > 1).map(([id]) => id);
   }, [betSlip]);
 
+  const formatBetApiError = (error: any): { message: string; details?: string[] } => {
+    const payload = error?.data || {};
+    const selectionErrors = Array.isArray(payload?.selectionErrors) ? payload.selectionErrors : [];
+    if (selectionErrors.length > 0) {
+      const details = selectionErrors.map((item: any) => {
+        const eventId = String(item?.event_id || '').trim();
+        const selection = String(item?.selection || '').trim();
+        const reason = String(item?.reason || item?.message || '').trim();
+        const currentOdd = Number(item?.currentOdd || 0);
+        const oddText = currentOdd > 1 ? ` | odd atual ${currentOdd.toFixed(2)}` : '';
+        return `${eventId} - ${selection}: ${reason}${oddText}`;
+      });
+      return {
+        message: String(payload?.error || 'Não foi possível validar a aposta.'),
+        details,
+      };
+    }
+    return {
+      message: error?.message || 'Erro ao colocar aposta. Tente novamente.',
+    };
+  };
+
   useEffect(() => {
     // 1. Not enough bets for multi -> Force Single
     if (betSlip.length < 2) {
@@ -210,10 +232,12 @@ export function BetSlip() {
        }); 
       window.dispatchEvent(new CustomEvent('bets:refresh'));
       clearBetSlip(); 
-     } catch (error: any) { 
+     } catch (error: any) {
+       const formatted = formatBetApiError(error);
        addNotification({ 
          type: 'error', 
-         message: error.message || 'Erro ao colocar aposta. Tente novamente.', 
+         message: formatted.message,
+         details: formatted.details,
        }); 
      } finally { 
        setIsPlacingBet(false); 
