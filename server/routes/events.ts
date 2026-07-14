@@ -81,6 +81,13 @@ export type EventsService = {
   getAdminOddsEvents: () => Promise<any[]>;
   setOddsOverride: (eventId: string, odds: { home_odd?: number; draw_odd?: number; away_odd?: number }) => Promise<void>;
   getEventsCache: () => Map<string, any>;
+  getBetValidationContext: (eventId: string) => Promise<{
+    event: any | null;
+    sport: string | null;
+    odds: any | null;
+    suspended: boolean;
+    suspendedReason: string;
+  }>;
 };
 
 function getBaselineOdds(sport: string): { home: number; draw: number; away: number } {
@@ -1865,5 +1872,66 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     return combined;
   };
 
-  return { handleEventsRoutes, getAdminOddsEvents, setOddsOverride, getEventsCache };
+  const findEventById = async (sport: string, id: string): Promise<any | null> => {
+    const live = await fetchLive(sport).catch(() => []);
+    const foundLive = live.find((e: any) => String(e.id) === String(id));
+    if (foundLive) return foundLive;
+
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      const date = ymd(d);
+      const sched = await fetchSchedule(sport, date).catch(() => []);
+      const found = sched.find((e: any) => String(e.id) === String(id));
+      if (found) return found;
+    }
+
+    return null;
+  };
+
+  const getBetValidationContext = async (eventId: string) => {
+    const id = normalizeIdLoose(eventId);
+    if (!id) {
+      return { event: null, sport: null, odds: null, suspended: false, suspendedReason: '' };
+    }
+
+    let event = lastEventById.get(id)?.data || null;
+    let sport = event?.sport ? String(event.sport) : null;
+
+    if (!sport) {
+      sport = await resolveSport(id);
+    }
+    if (!sport) {
+      return { event: null, sport: null, odds: null, suspended: false, suspendedReason: '' };
+    }
+
+    if (!event) {
+      event = await findEventById(sport, id);
+    }
+
+    const odds = await fetchOddsStrict(sport, id, {
+      forceAll: true,
+      isLive: Number(event?.is_live || 0) === 1,
+      homeTeam: String(event?.home_team || ''),
+      awayTeam: String(event?.away_team || ''),
+    }).catch(() => null);
+
+    const suspended = !!(
+      event?.suspended ||
+      odds?.suspended ||
+      event?.status?.blocked === '1' ||
+      event?.status?.stopped === '1' ||
+      String(event?.status?.short || event?.status || '').toUpperCase() === 'SUSPENDED'
+    );
+    const suspendedReason = String(
+      odds?.suspended_reason ||
+      event?.suspended_reason ||
+      event?.status?.reason ||
+      ''
+    );
+
+    return { event, sport, odds, suspended, suspendedReason };
+  };
+
+  return { handleEventsRoutes, getAdminOddsEvents, setOddsOverride, getEventsCache, getBetValidationContext };
 }

@@ -4,6 +4,7 @@ import { randomId } from '../lib/crypto';
 import { readJsonBody, sendJson, badRequest, unauthorized } from '../lib/http';
 import { requireUser } from '../lib/auth';
 import { validateBetSelections } from '../services/dataPipeline';
+import type { EventsService } from './events';
 
 type PlaceBetBody = {
   type?: 'single' | 'multi';
@@ -24,6 +25,129 @@ function toNumber(v: any): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function normalizeText(v: any): string {
+  return String(v || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function isFinishedLike(event: any): boolean {
+  const raw = String(event?.status?.short || event?.status || '').toUpperCase().trim();
+  const normalized = raw.replace(/[^A-Z0-9_]+/g, '_');
+  return (
+    normalized === 'FT' ||
+    normalized === 'FINAL' ||
+    normalized === 'FINISHED' ||
+    normalized === 'ENDED' ||
+    normalized === 'AET' ||
+    normalized === 'PEN' ||
+    normalized === 'MATCH_FINISHED'
+  );
+}
+
+function canonicalMarketAliases(market: string): string[] {
+  const m = normalizeText(market);
+  if (!m || m === '1x2' || m === 'resultado final' || m === 'resultado' || m === 'match winner' || m === 'moneyline') {
+    return ['h2h', 'main', '1x2', 'match_winner', 'match_result', 'full_time_result', 'moneyline', 'winner'];
+  }
+  if (m.includes('ambas marcam') || m === 'btts') return ['btts'];
+  if (m.includes('escante')) return ['corners_total', 'corners_h2h'];
+  if (m.includes('cart')) return ['cards_total', 'cards_h2h'];
+  if (m.includes('handicap asiat')) return ['spreads', 'asian_handicap', 'handicap'];
+  if (m.includes('handicap')) return ['spreads', 'handicap', 'asian_handicap', 'puck_line', 'run_line', 'sets_handicap'];
+  if (m.includes('total') || m.includes('golos') || m.includes('gols') || m.includes('acima') || m.includes('abaixo') || m.includes('over') || m.includes('under')) {
+    return ['totals', 'team_totals', 'match_total_games', 'total_sets', 'corners_total', 'cards_total'];
+  }
+  return [m.replace(/\s+/g, '_')];
+}
+
+function pickMarketEntries(markets: Record<string, any>, requestedMarket: string): { key: string; entries: any[] } | null {
+  if (!markets || typeof markets !== 'object') return null;
+  const aliases = canonicalMarketAliases(requestedMarket);
+  for (const alias of aliases) {
+    const entries = (markets as any)[alias];
+    if (Array.isArray(entries) && entries.length > 0) return { key: alias, entries };
+  }
+  const requested = normalizeText(requestedMarket).replace(/\s+/g, '_');
+  const keys = Object.keys(markets || {});
+  const fuzzy = keys.find((key) => normalizeText(key).replace(/\s+/g, '_') === requested);
+  if (fuzzy) {
+    const entries = (markets as any)[fuzzy];
+    if (Array.isArray(entries) && entries.length > 0) return { key: fuzzy, entries };
+  }
+  return null;
+}
+
+function selectionCandidates(selection: string, event: any): string[] {
+  const raw = String(selection || '').trim();
+  const list = new Set<string>([normalizeText(raw)]);
+  const home = String(event?.home_team || '').trim();
+  const away = String(event?.away_team || '').trim();
+  const s = normalizeText(raw);
+  if (['1', 'casa', 'home', normalizeText(home)].includes(s)) {
+    list.add('1');
+    list.add('home');
+    list.add('casa');
+    if (home) list.add(normalizeText(home));
+  }
+  if (['2', 'fora', 'away', normalizeText(away)].includes(s)) {
+    list.add('2');
+    list.add('away');
+    list.add('fora');
+    if (away) list.add(normalizeText(away));
+  }
+  if (['x', 'draw', 'empate', 'tie'].includes(s)) {
+    list.add('x');
+    list.add('draw');
+    list.add('empate');
+  }
+  return Array.from(list).filter(Boolean);
+}
+
+function matchSelectionToOdd(input: {
+  selection: string;
+  marketKey: string;
+  marketEntries: any[];
+  event: any;
+  topLevelOdds?: { home?: number; draw?: number; away?: number };
+}): { odd: number; label: string } | null {
+  const candidates = selectionCandidates(input.selection, input.event);
+
+  if (input.marketKey === 'h2h') {
+    const home = String(input.event?.home_team || '').trim();
+    const away = String(input.event?.away_team || '').trim();
+    const sel = normalizeText(input.selection);
+    if (candidates.includes('1') || candidates.includes('home') || candidates.includes('casa') || (home && sel === normalizeText(home))) {
+      const odd = toNumber(input.topLevelOdds?.home);
+      if (odd > 1) return { odd, label: home || 'Casa' };
+    }
+    if (candidates.includes('x') || candidates.includes('draw') || candidates.includes('empate')) {
+      const odd = toNumber(input.topLevelOdds?.draw);
+      if (odd > 1) return { odd, label: 'Empate' };
+    }
+    if (candidates.includes('2') || candidates.includes('away') || candidates.includes('fora') || (away && sel === normalizeText(away))) {
+      const odd = toNumber(input.topLevelOdds?.away);
+      if (odd > 1) return { odd, label: away || 'Fora' };
+    }
+  }
+
+  for (const entry of input.marketEntries) {
+    const label = String(entry?.label ?? entry?.value ?? entry?.name ?? '').trim();
+    const point = String(entry?.point || '').trim();
+    const normalizedLabel = normalizeText(label);
+    const combined = normalizeText(`${label} ${point}`.trim());
+    if (candidates.includes(normalizedLabel) || candidates.includes(combined) || normalizeText(input.selection) === combined) {
+      const odd = toNumber(entry?.odd ?? entry?.price ?? entry?.value);
+      if (odd > 1) return { odd, label: point ? `${label} ${point}`.trim() : label };
+    }
+  }
+
+  return null;
+}
+
 async function getProfile(pool: pg.Pool, userId: string): Promise<{ balance: number; free_bet_balance: number }> {
   const r = await pool.query(`SELECT balance, free_bet_balance FROM profiles WHERE user_id = $1 LIMIT 1`, [userId]);
   const row = r.rows?.[0] || {};
@@ -41,6 +165,7 @@ async function updateProfile(pool: pg.Pool, userId: string, balance: number, fre
 
 export async function handleBetRoutes(
   pool: pg.Pool,
+  events: EventsService,
   req: http.IncomingMessage,
   res: http.ServerResponse,
   url: URL,
@@ -104,19 +229,57 @@ export async function handleBetRoutes(
     if (bets.length === 0) return badRequest(res, 'No selections'), true;
     const validationErrors = validateBetSelections(bets);
     if (validationErrors.length > 0) return badRequest(res, validationErrors[0]), true;
+    const payloadSelections = [];
 
-    const totalOdds = bets.reduce((p, b) => p * Math.max(1, toNumber(b.odd)), 1);
-    const payloadSelections = bets.map((b) => ({
-      event_id: b.event_id,
-      selection: String(b.selection || ''),
-      odd: toNumber(b.odd),
-      stake: b.stake != null ? toNumber(b.stake) : undefined,
-      market: String(b.market || b.market_key || ''),
-      team_match: String((b as any).team_match || ''),
-      league: String((b as any).league || ''),
-      home_team: (b as any).home_team ? String((b as any).home_team) : undefined,
-      away_team: (b as any).away_team ? String((b as any).away_team) : undefined,
-    }));
+    for (const bet of bets) {
+      const eventId = String(bet.event_id || '').trim();
+      const requestedSelection = String(bet.selection || '').trim();
+      const requestedMarket = String(bet.market || bet.market_key || 'Resultado Final').trim();
+      const ctx = await events.getBetValidationContext(eventId);
+
+      if (!ctx.event || !ctx.sport) return badRequest(res, `Evento ${eventId} não encontrado`), true;
+      if (isFinishedLike(ctx.event)) return badRequest(res, `Evento ${eventId} já está encerrado`), true;
+      if (ctx.suspended) return badRequest(res, ctx.suspendedReason ? `Mercado suspenso: ${ctx.suspendedReason}` : 'Mercado suspenso'), true;
+
+      const markets = ctx.odds?.markets && typeof ctx.odds.markets === 'object'
+        ? ctx.odds.markets
+        : ((ctx.event as any)?.markets && typeof (ctx.event as any).markets === 'object' ? (ctx.event as any).markets : {});
+      const pickedMarket = pickMarketEntries(markets, requestedMarket) || pickMarketEntries(markets, 'Resultado Final');
+      if (!pickedMarket) return badRequest(res, `Mercado indisponível para o evento ${eventId}`), true;
+
+      const matched = matchSelectionToOdd({
+        selection: requestedSelection,
+        marketKey: pickedMarket.key,
+        marketEntries: pickedMarket.entries,
+        event: ctx.event,
+        topLevelOdds: { home: ctx.odds?.home, draw: ctx.odds?.draw, away: ctx.odds?.away },
+      });
+      if (!matched) return badRequest(res, `Seleção inválida para o evento ${eventId}`), true;
+
+      const submittedOdd = toNumber(bet.odd);
+      const currentOdd = toNumber(matched.odd);
+      const tolerance = Math.max(0.02, currentOdd * 0.01);
+      if (!(currentOdd > 1)) return badRequest(res, `Odd indisponível para o evento ${eventId}`), true;
+      if (submittedOdd > 1 && Math.abs(submittedOdd - currentOdd) > tolerance) {
+        return badRequest(res, `Odd alterada para ${currentOdd.toFixed(2)} no evento ${eventId}`), true;
+      }
+
+      payloadSelections.push({
+        event_id: eventId,
+        selection: requestedSelection,
+        odd: currentOdd,
+        stake: bet.stake != null ? toNumber(bet.stake) : undefined,
+        market: pickedMarket.key,
+        team_match: String((bet as any).team_match || `${ctx.event?.home_team || ''} vs ${ctx.event?.away_team || ''}`.trim()),
+        league: String((bet as any).league || ctx.event?.league || ''),
+        home_team: String((bet as any).home_team || ctx.event?.home_team || ''),
+        away_team: String((bet as any).away_team || ctx.event?.away_team || ''),
+        sport: String(ctx.sport || ''),
+        selection_label: matched.label,
+      });
+    }
+
+    const totalOdds = payloadSelections.reduce((p, b) => p * Math.max(1, toNumber(b.odd)), 1);
 
     const stake =
       type === 'single'
