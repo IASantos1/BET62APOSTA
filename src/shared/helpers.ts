@@ -5,6 +5,7 @@ const getStableAssetUrl = (url?: string) => {
   const value = String(url || '').trim();
   if (!value) return '';
   if (/^(data:|blob:|\/(?!\/))/.test(value)) return value;
+  if (/^https:\/\/(?:upload\.wikimedia\.org|flagcdn\.com|cdnjs\.cloudflare\.com)\//i.test(value)) return value;
   return '';
 };
 

@@ -387,40 +387,38 @@ function Home({ mode = 'home' }: HomeProps) {
   const renderLeagueFilterBar = () => {
     if (availableLeagues.length === 0) return null;
     return (
-      <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
+      <div className="-mx-2 flex gap-3 overflow-x-auto px-2 pb-2 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
         <button
           onClick={() => setLeagueFilter(null)}
-          className={`shrink-0 min-w-[136px] h-[86px] px-4 rounded-[22px] border transition-all text-left ${
+          className={`shrink-0 min-w-[148px] h-[86px] px-5 rounded-[24px] border transition-all text-left ${
             !leagueFilter
-              ? 'border-amber-400 bg-amber-50 text-gray-900 shadow-sm'
-              : darkMode ? 'border-gray-700 bg-[#172033] text-gray-200' : 'border-gray-200 bg-white text-gray-800'
+              ? 'border-amber-400 bg-[#3a2d16] text-white shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_16px_36px_rgba(245,158,11,0.14)]'
+              : darkMode ? 'border-white/10 bg-[#101722] text-white hover:border-white/20' : 'border-gray-200 bg-white text-gray-800'
           }`}
         >
           <div className="flex h-full items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl flex items-center justify-center bg-white/85 border border-black/5">
+            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${!leagueFilter ? 'bg-amber-400/15 text-amber-200' : darkMode ? 'bg-white/5 text-white' : 'bg-gray-100 text-gray-700'}`}>
               <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
               </svg>
             </div>
-            <span className="text-base font-semibold">Todas</span>
+            <span className="text-[15px] font-semibold whitespace-nowrap">Todas</span>
           </div>
         </button>
         {availableLeagues.map(({ league, sport, logo, country }) => {
           const isActive = leagueFilter === league;
-          const formatted = formatLeagueHeader({ league, country });
-          const flagBadge = String(formatted.flag || '').trim();
           return (
             <button
               key={`${sport}-${league}`}
               onClick={() => setLeagueFilter(isActive ? null : league)}
-              className={`shrink-0 min-w-[170px] h-[86px] px-4 rounded-[22px] border transition-all text-left ${
+              className={`shrink-0 min-w-[172px] h-[86px] px-5 rounded-[24px] border transition-all text-left ${
                 isActive
-                  ? 'border-amber-400 bg-amber-50 shadow-sm'
-                  : darkMode ? 'border-gray-700 bg-[#172033] text-gray-100' : 'border-gray-200 bg-white text-gray-800'
+                  ? 'border-amber-400 bg-[#3a2d16] text-white shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_16px_36px_rgba(245,158,11,0.14)]'
+                  : darkMode ? 'border-white/10 bg-[#101722] text-white hover:border-white/20' : 'border-gray-200 bg-white text-gray-800'
               }`}
             >
               <div className="flex h-full items-center gap-3">
-                <div className={`relative w-12 h-12 rounded-2xl flex items-center justify-center overflow-hidden ${darkMode ? 'bg-white/95' : 'bg-gray-50'}`}>
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center overflow-hidden ${darkMode ? 'bg-white/95' : 'bg-gray-50'}`}>
                   <img
                     src={logo || getLeagueLogo({ league, country }, sport) || getSportIcon(sport)}
                     alt={league}
@@ -432,14 +430,9 @@ function Home({ mode = 'home' }: HomeProps) {
                       target.src = getSportIcon(sport);
                     }}
                   />
-                  {flagBadge ? (
-                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-white text-[10px] flex items-center justify-center shadow">
-                      {flagBadge}
-                    </span>
-                  ) : null}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-base font-semibold leading-tight truncate">{league}</div>
+                  <div className="text-[15px] font-semibold leading-tight whitespace-nowrap">{league}</div>
                 </div>
               </div>
             </button>
@@ -448,6 +441,32 @@ function Home({ mode = 'home' }: HomeProps) {
       </div>
     );
   };
+
+  const renderPrimaryControls = () => (
+    <div className="space-y-4">
+      <div className={`rounded-[26px] border px-5 py-4 ${darkMode ? 'border-white/10 bg-[#101722]' : 'border-gray-200 bg-white'}`}>
+        <div className="flex items-center gap-3">
+          <svg
+            className={`w-5 h-5 shrink-0 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35m1.85-5.15a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Pesquisar equipa ou liga..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className={`w-full bg-transparent text-[15px] outline-none ${darkMode ? 'text-white placeholder:text-gray-500' : 'text-gray-900 placeholder:text-gray-500'}`}
+          />
+        </div>
+      </div>
+      {renderLeagueFilterBar()}
+    </div>
+  );
 
   const multiplesSource = displayedUpcoming;
 
@@ -890,6 +909,10 @@ function Home({ mode = 'home' }: HomeProps) {
               )}
             </div>
 
+            <div className="mb-6">
+              {renderPrimaryControls()}
+            </div>
+
             {!revealed ? (
               <div className="text-center py-20">
                 <div className="animate-spin h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
@@ -900,7 +923,6 @@ function Home({ mode = 'home' }: HomeProps) {
                 {/* LIVE SECTION — shown only in mode='live' */}
                 {limitedLive.length > 0 && (
                   <div className="space-y-6">
-                    {renderLeagueFilterBar()}
                     <div className="flex flex-col gap-4">
                       {limitedLive.map((ev) => {
                         const evId = String((ev as any)?.id ?? (ev as any)?.fixture?.id ?? (ev as any)?.external_event_id ?? '').trim();
@@ -944,8 +966,6 @@ function Home({ mode = 'home' }: HomeProps) {
                            <h2 className="text-xl font-bold uppercase tracking-wide">Próximos Jogos</h2>
                         </div>
                      )}
-                     {renderLeagueFilterBar()}
-                     
                      <div className="flex flex-col gap-4">
                         {(() => {
                           let globalIdx = 0;
