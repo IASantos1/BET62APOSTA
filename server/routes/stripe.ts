@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 import { randomId } from '../lib/crypto';
 import { sendJson, badRequest, unauthorized } from '../lib/http';
 import { requireUser } from '../lib/auth';
+import { APP_TRANSACTIONS_TABLE, ensureAppTransactionsTable } from '../lib/appTables';
 
 function getRawBody(req: http.IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -86,6 +87,7 @@ export async function handleStripeRoutes(
   if (req.method === 'POST' && path === '/api/stripe/confirm') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppTransactionsTable(pool);
 
     const stripe = getStripe();
     if (!stripe) {
@@ -106,7 +108,7 @@ export async function handleStripeRoutes(
 
     // Idempotency check — don't double-credit if already processed
     const existing = await pool.query(
-      `SELECT id FROM transactions WHERE external_id = $1 AND type = 'deposit' LIMIT 1`,
+      `SELECT id FROM ${APP_TRANSACTIONS_TABLE} WHERE external_id = $1 AND type = 'deposit' LIMIT 1`,
       [paymentIntentId],
     );
     if (existing.rows.length > 0) {
@@ -138,8 +140,8 @@ export async function handleStripeRoutes(
 
       const txId = randomId(16);
       await pool.query(
-        `INSERT INTO transactions (id, user_id, type, amount, status, payment_method, description, external_id, created_at, updated_at)
-         VALUES ($1, $2, 'deposit', $3, 'completed', 'card', $4, $5, NOW(), NOW())`,
+        `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, external_id, completed_at, created_at, updated_at)
+         VALUES ($1, $2, 'deposit', $3, 'completed', 'card', $4, $5, NOW(), NOW(), NOW())`,
         [txId, u.id, amountEur, `Depósito via Cartão Stripe — €${amountEur.toFixed(2)}`, paymentIntentId],
       );
 
@@ -155,6 +157,7 @@ export async function handleStripeRoutes(
   if (req.method === 'POST' && path === '/api/stripe/webhook') {
     const stripe = getStripe();
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+    await ensureAppTransactionsTable(pool);
 
     if (!stripe || !webhookSecret) {
       res.statusCode = 400;
@@ -193,10 +196,11 @@ export async function handleStripeRoutes(
 
       // Idempotency check
       const existing = await pool.query(
-        `SELECT id FROM transactions WHERE external_id = $1 AND type = 'deposit' LIMIT 1`,
+        `SELECT id FROM ${APP_TRANSACTIONS_TABLE} WHERE external_id = $1 AND type = 'deposit' LIMIT 1`,
         [intent.id],
       );
       if (existing.rows.length === 0) {
+        await ensureAppTransactionsTable(pool);
         const amountEur = intent.amount / 100;
         const balRow = await pool.query(`SELECT balance FROM profiles WHERE user_id = $1`, [userId]);
         if (balRow.rows.length > 0) {
@@ -204,8 +208,8 @@ export async function handleStripeRoutes(
           await pool.query(`UPDATE profiles SET balance = $2, updated_at = NOW() WHERE user_id = $1`, [userId, current + amountEur]);
           const txId = randomId(16);
           await pool.query(
-            `INSERT INTO transactions (id, user_id, type, amount, status, payment_method, description, external_id, created_at, updated_at)
-             VALUES ($1, $2, 'deposit', $3, 'completed', 'card', $4, $5, NOW(), NOW())`,
+            `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, external_id, completed_at, created_at, updated_at)
+             VALUES ($1, $2, 'deposit', $3, 'completed', 'card', $4, $5, NOW(), NOW(), NOW())`,
             [txId, userId, amountEur, `Depósito Stripe webhook — €${amountEur.toFixed(2)}`, intent.id],
           );
           console.log(`[stripe] webhook credited €${amountEur.toFixed(2)} to user ${userId}`);

@@ -1,5 +1,6 @@
 import type http from 'http';
 import type pg from 'pg';
+import { randomId } from '../lib/crypto';
 import { readJsonBody, sendJson, badRequest, unauthorized, forbid } from '../lib/http';
 import { requireUser, isAdmin } from '../lib/auth';
 import type { EventsService } from './events';
@@ -10,6 +11,7 @@ import {
   evaluateSelection,
   type MatchResult,
 } from '../services/settlement';
+import { APP_BETS_TABLE, APP_TRANSACTIONS_TABLE, ensureAppBetsTable, ensureAppTransactionsTable } from '../lib/appTables';
 import { buildSportsDataPipelineStatus } from '../services/dataPipeline';
 
 interface TestKeyBody { key: string; sport?: string; matchId?: string }
@@ -116,9 +118,10 @@ export async function handleAdminRoutes(
 
   // ── Withdrawals ──────────────────────────────────────────────────────────────
   if (req.method === 'GET' && path === '/api/admin/withdrawals') {
+    await ensureAppTransactionsTable(pool);
     const r = await pool.query(
       `SELECT id, user_id, amount, status, payment_method, created_at
-       FROM transactions
+       FROM ${APP_TRANSACTIONS_TABLE}
        WHERE type = 'withdrawal'
        ORDER BY created_at DESC
        LIMIT 500`,
@@ -129,6 +132,7 @@ export async function handleAdminRoutes(
 
   // ── Bets list ────────────────────────────────────────────────────────────────
   if (req.method === 'GET' && path === '/api/admin/bets') {
+    await ensureAppBetsTable(pool);
     const statusFilter = url.searchParams.get('status');
     const params: any[] = [];
     let where = '';
@@ -138,7 +142,7 @@ export async function handleAdminRoutes(
     }
     const r = await pool.query(
       `SELECT id, user_id, bet_type, stake, potential_win, total_odds, status, winnings, settled_at, created_at, selections
-       FROM bets
+       FROM ${APP_BETS_TABLE}
        ${where}
        ORDER BY created_at DESC
        LIMIT 500`,
@@ -151,6 +155,8 @@ export async function handleAdminRoutes(
   // ── Admin update bet status (manual) ────────────────────────────────────────
   const betUpdateMatch = path.match(/^\/api\/admin\/bets\/([^/]+)$/);
   if (betUpdateMatch && req.method === 'PUT') {
+    await ensureAppBetsTable(pool);
+    await ensureAppTransactionsTable(pool);
     const betId = decodeURIComponent(betUpdateMatch[1] || '');
     const body = await readJsonBody<UpdateBetStatusBody>(req).catch(() => null);
     if (!body?.status) return badRequest(res, 'Missing status'), true;
@@ -158,7 +164,7 @@ export async function handleAdminRoutes(
     if (!allowed.includes(body.status)) return badRequest(res, 'Invalid status'), true;
 
     const r = await pool.query(
-      `SELECT id, user_id, stake, potential_win, is_free_bet, status FROM bets WHERE id = $1 LIMIT 1`,
+      `SELECT id, user_id, stake, potential_win, is_free_bet, status FROM ${APP_BETS_TABLE} WHERE id = $1 LIMIT 1`,
       [betId],
     );
     const bet = r.rows?.[0];
@@ -182,7 +188,7 @@ export async function handleAdminRoutes(
     try {
       await client.query('BEGIN');
       await client.query(
-        `UPDATE bets SET status = $2, winnings = $3, settled_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        `UPDATE ${APP_BETS_TABLE} SET status = $2, winnings = $3, settled_at = NOW(), updated_at = NOW() WHERE id = $1`,
         [betId, body.status, winnings],
       );
       if (winnings > 0) {
@@ -192,9 +198,9 @@ export async function handleAdminRoutes(
         );
         const txType = body.status === 'void' ? 'bet_refund' : 'bet_win';
         await client.query(
-          `INSERT INTO transactions (id, user_id, type, amount, status, description, completed_at, created_at, updated_at)
-           VALUES (gen_random_uuid()::text, $1, $2, $3, 'completed', $4, NOW(), NOW(), NOW())`,
-          [bet.user_id, txType, winnings, `Settlement manual: aposta ${betId}`],
+          `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, description, completed_at, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, 'completed', $5, NOW(), NOW(), NOW())`,
+          [randomId(16), bet.user_id, txType, winnings, `Settlement manual: aposta ${betId}`],
         );
       }
       await client.query('COMMIT');
@@ -211,13 +217,14 @@ export async function handleAdminRoutes(
 
   // ── Settlement: pending bets summary ────────────────────────────────────────
   if (req.method === 'GET' && path === '/api/admin/settlement/pending') {
+    await ensureAppBetsTable(pool);
     const r = await pool.query(
       `SELECT
          COUNT(*)::int AS total_pending,
          COUNT(DISTINCT jsonb_array_elements(selections)->>'event_id')::int AS unique_events,
          SUM(stake)::float AS total_stake_at_risk,
          SUM(potential_win)::float AS total_potential_win
-       FROM bets WHERE status = 'pending'`,
+       FROM ${APP_BETS_TABLE} WHERE status = 'pending'`,
     );
     const row = r.rows?.[0] || {};
     sendJson(res, 200, {
@@ -319,9 +326,10 @@ export async function handleAdminRoutes(
 
   // ── Settlement: list recently settled bets ───────────────────────────────────
   if (req.method === 'GET' && path === '/api/admin/settlement/history') {
+    await ensureAppBetsTable(pool);
     const r = await pool.query(
       `SELECT id, user_id, bet_type, stake, potential_win, total_odds, status, winnings, settled_at, selections
-       FROM bets
+       FROM ${APP_BETS_TABLE}
        WHERE status IN ('won', 'lost', 'void')
        ORDER BY settled_at DESC NULLS LAST
        LIMIT 200`,
@@ -390,6 +398,7 @@ export async function handleAdminRoutes(
   }
 
   if (req.method === 'GET' && path === '/api/metrics/settlement') {
+    await ensureAppBetsTable(pool);
     const r = await pool.query(
       `SELECT
          COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
@@ -399,7 +408,7 @@ export async function handleAdminRoutes(
          COUNT(*) FILTER (WHERE status = 'cashed_out')::int AS cashed_out,
          COALESCE(SUM(winnings) FILTER (WHERE status = 'won'), 0)::float AS total_paid_out,
          COALESCE(SUM(stake) FILTER (WHERE status = 'pending'), 0)::float AS stake_at_risk
-       FROM bets`,
+       FROM ${APP_BETS_TABLE}`,
     );
     sendJson(res, 200, r.rows?.[0] ?? {});
     return true;

@@ -4,6 +4,7 @@
 
 import type pg from 'pg';
 import { randomId } from '../lib/crypto.js';
+import { APP_BETS_TABLE, APP_TRANSACTIONS_TABLE, ensureAppBetsTable, ensureAppTransactionsTable } from '../lib/appTables';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1829,6 +1830,7 @@ async function creditWinnings(
   eventId: string,
 ): Promise<void> {
   if (winnings <= 0) return;
+  await ensureAppTransactionsTable(pool);
   const txId = randomId(16);
   const txType = outcome === 'void' ? 'bet_refund' : 'bet_win';
   const description =
@@ -1844,7 +1846,7 @@ async function creditWinnings(
       [userId, winnings],
     );
     await client.query(
-      `INSERT INTO transactions (id, user_id, type, amount, status, description, completed_at, created_at, updated_at)
+      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, description, completed_at, created_at, updated_at)
        VALUES ($1, $2, $3, $4, 'completed', $5, NOW(), NOW(), NOW())`,
       [txId, userId, txType, winnings, description],
     );
@@ -1863,13 +1865,14 @@ export async function settleEventBets(
   pool: pg.Pool,
   result: MatchResult,
 ): Promise<{ settled: number; credited: number; errors: string[] }> {
+  await ensureAppBetsTable(pool);
   let settled = 0;
   let credited = 0;
   const errors: string[] = [];
 
   const r = await pool.query(
     `SELECT id, user_id, bet_type, stake, potential_win, total_odds, is_free_bet, selections
-     FROM bets
+     FROM ${APP_BETS_TABLE}
      WHERE status = 'pending'
        AND selections::text LIKE $1`,
     [`%${result.eventId}%`],
@@ -1880,7 +1883,7 @@ export async function settleEventBets(
       const { outcome, winnings, note } = await settleBet(pool, bet, result);
 
       await pool.query(
-        `UPDATE bets
+        `UPDATE ${APP_BETS_TABLE}
          SET status = $2, winnings = $3, settled_at = NOW(), updated_at = NOW()
          WHERE id = $1`,
         [bet.id, outcome, winnings],
@@ -1915,6 +1918,7 @@ export async function autoSettleFromCache(
   apiKey: string,
   eventsCache: Map<string, any>,
 ): Promise<SettlementReport> {
+  await ensureAppBetsTable(pool);
   const report: SettlementReport = {
     totalChecked: 0,
     totalSettled: 0,
@@ -1931,7 +1935,7 @@ export async function autoSettleFromCache(
   try {
     const r = await pool.query(
       `SELECT DISTINCT jsonb_array_elements(selections)->>'event_id' AS eid
-       FROM bets WHERE status = 'pending'`
+       FROM ${APP_BETS_TABLE} WHERE status = 'pending'`
     );
     pendingEventIds = (r.rows || [])
       .map((row: any) => String(row.eid || '').trim())

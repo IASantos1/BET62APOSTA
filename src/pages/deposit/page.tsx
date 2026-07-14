@@ -11,9 +11,10 @@ import { useNotification } from '../../contexts/NotificationContext';
 import { apiFetch } from '../../services/backendClient';
 import MBWayForm from './components/MBWayForm';
 import MultibancoForm from './components/MultibancoForm';
+import CardForm from './components/CardForm';
 import TransferForm from './components/TransferForm';
 
-type PaymentMethod = 'mbway' | 'multibanco' | 'transfer' | null;
+type PaymentMethod = 'mbway' | 'multibanco' | 'card' | 'transfer' | null;
 
 const paymentMethods = [
   {
@@ -35,6 +36,16 @@ const paymentMethods = [
     bgLight: 'bg-teal-50',
     borderActive: 'border-teal-400 ring-2 ring-teal-100',
     time: '1-5 min',
+  },
+  {
+    id: 'card',
+    name: 'Cartão',
+    icon: 'ri-bank-card-line',
+    description: 'Visa e Mastercard',
+    color: 'from-blue-500 to-blue-600',
+    bgLight: 'bg-blue-50',
+    borderActive: 'border-blue-400 ring-2 ring-blue-100',
+    time: 'Instantâneo',
   },
   {
     id: 'transfer',
@@ -175,6 +186,11 @@ export default function DepositPage() {
 
   const handleTransferSubmit = () => {
     processDeposit('transfer');
+  };
+
+  const handleCardSubmit = () => {
+    setSuccessMessage(`Depósito de €${depositAmount.toFixed(2)} por cartão processado com sucesso.`);
+    fetchBalance();
   };
 
   const selectedMethodData = paymentMethods.find((m) => m.id === selectedMethod);
@@ -429,6 +445,9 @@ export default function DepositPage() {
               )}
               {selectedMethod === 'multibanco' && (
                 <MultibancoForm amount={depositAmount} onSubmit={handleMultibancoSubmit} loading={loading} />
+              )}
+              {selectedMethod === 'card' && (
+                <CardForm amount={depositAmount} onSubmit={handleCardSubmit} loading={loading} />
               )}
               {selectedMethod === 'transfer' && (
                 <TransferForm amount={depositAmount} onSubmit={handleTransferSubmit} loading={loading} />

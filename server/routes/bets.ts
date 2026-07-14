@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { randomId } from '../lib/crypto';
 import { readJsonBody, sendJson, badRequest, unauthorized } from '../lib/http';
 import { requireUser } from '../lib/auth';
+import { APP_BETS_TABLE, ensureAppBetsTable } from '../lib/appTables';
 import { validateBetSelections } from '../services/dataPipeline';
 import type { EventsService } from './events';
 
@@ -228,10 +229,11 @@ export async function handleBetRoutes(
   if (req.method === 'GET' && path === '/api/bets') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppBetsTable(pool);
 
     const r = await pool.query(
-      `SELECT id, bet_type, stake, potential_win, total_odds, status, is_free_bet, winnings, selections, created_at
-       FROM bets
+      `SELECT id, bet_type, stake, potential_win, total_odds, status, is_free_bet, winnings, selections, cashout_value, cashout_at, settled_at, created_at
+       FROM ${APP_BETS_TABLE}
        WHERE user_id = $1
        ORDER BY created_at DESC
        LIMIT 200`,
@@ -242,14 +244,25 @@ export async function handleBetRoutes(
       const selections = b.selections && typeof b.selections === 'object' ? b.selections : [];
       const arr = Array.isArray(selections) ? selections : [];
       const first = arr[0] || {};
+      const rawType = String(b.bet_type || 'single');
+      const uiType = rawType === 'multi' ? 'multiple' : 'single';
       return {
         id: String(b.id),
-        type: String(b.bet_type || ''),
+        user_id: String(u.id),
+        type: rawType,
+        bet_type: uiType,
         stake: toNumber(b.stake),
+        total_stake: toNumber(b.stake),
         potential_win: toNumber(b.potential_win),
+        potential_return: toNumber(b.potential_win),
         total_odds: toNumber(b.total_odds),
         status: String(b.status || 'pending'),
         is_freebet: b.is_free_bet ? 1 : 0,
+        is_free_bet: Boolean(b.is_free_bet),
+        winnings: toNumber(b.winnings),
+        cashout_value: toNumber(b.cashout_value),
+        cashout_at: b.cashout_at ? new Date(b.cashout_at).toISOString() : undefined,
+        settled_at: b.settled_at ? new Date(b.settled_at).toISOString() : undefined,
         selection: first.selection ? String(first.selection) : '',
         odd: toNumber(first.odd),
         event_id: first.event_id != null ? first.event_id : null,
@@ -260,13 +273,14 @@ export async function handleBetRoutes(
       };
     });
 
-    sendJson(res, 200, out);
+    sendJson(res, 200, { bets: out });
     return true;
   }
 
   if (req.method === 'POST' && path === '/api/bets') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppBetsTable(pool);
     const body = await readJsonBody<PlaceBetBody>(req).catch(() => null);
     if (!body) return badRequest(res, 'Invalid JSON'), true;
     const type = body.type === 'multi' ? 'multi' : 'single';
@@ -415,9 +429,9 @@ export async function handleBetRoutes(
     const potentialWin = stake * totalOdds;
     const betId = randomId(16);
     await pool.query(
-      `INSERT INTO bets (id, user_id, bet_type, stake, potential_win, total_odds, status, is_free_bet, selections, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8::jsonb, NOW(), NOW())`,
-      [betId, u.id, type, stake, potentialWin, totalOdds, useFree, JSON.stringify(payloadSelections)],
+      `INSERT INTO ${APP_BETS_TABLE} (id, user_id, bet_type, stake, potential_win, total_odds, status, is_free_bet, winnings, selections, total_stake, potential_return, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, NULL, $8::jsonb, $9, $10, NOW(), NOW())`,
+      [betId, u.id, type, stake, potentialWin, totalOdds, useFree, JSON.stringify(payloadSelections), stake, potentialWin],
     );
 
     if (useFree) {
@@ -434,10 +448,11 @@ export async function handleBetRoutes(
   if (cashoutMatch && req.method === 'POST') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppBetsTable(pool);
     const betId = cashoutMatch[1] || '';
 
     const r = await pool.query(
-      `SELECT id, stake, status FROM bets WHERE id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT id, stake, status FROM ${APP_BETS_TABLE} WHERE id = $1 AND user_id = $2 LIMIT 1`,
       [betId, u.id],
     );
     const b = r.rows?.[0];
@@ -447,7 +462,9 @@ export async function handleBetRoutes(
     const stake = toNumber(b.stake);
     const cashoutValue = Math.max(0, stake * 0.8);
     await pool.query(
-      `UPDATE bets SET status = 'cashed_out', cashout_value = $2, cashout_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      `UPDATE ${APP_BETS_TABLE}
+       SET status = 'cashed_out', cashout_value = $2, winnings = $2, cashout_at = NOW(), settled_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
       [betId, cashoutValue],
     );
 

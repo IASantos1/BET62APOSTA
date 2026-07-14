@@ -5,7 +5,7 @@ import { apiFetch } from '@/react-app/utils/api';
 import { formatLeagueHeader, getSportFromLeague, getSportIcon, translateSelection } from '@/shared/helpers';
 
 export function BetSlip() {
-  const { betSlip, removeFromBetSlip, updateStake, updateBetSlipOdds, clearBetSlip, darkMode, addNotification, user, selfExclude } = useApp();
+  const { betSlip, removeFromBetSlip, updateStake, updateBetSlipOdds, acceptUpdatedBetSlipOdds, clearBetSlip, darkMode, addNotification, user, selfExclude } = useApp();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isPlacingBet, setIsPlacingBet] = useState(false); 
   const [mode, setMode] = useState<'single' | 'multi'>('single');
@@ -339,6 +339,16 @@ export function BetSlip() {
           <p className={`text-xs ${darkMode ? 'text-amber-200/90' : 'text-amber-800'}`}>
             Revise as linhas destacadas e confirme a aposta novamente com os valores atualizados.
           </p>
+          <button
+            onClick={acceptUpdatedBetSlipOdds}
+            className={`mt-2 inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+              darkMode
+                ? 'bg-amber-500/20 text-amber-100 hover:bg-amber-500/30'
+                : 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+            }`}
+          >
+            Aceitar novas odds
+          </button>
         </div>
       )}
 

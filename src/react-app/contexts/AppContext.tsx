@@ -19,6 +19,7 @@ interface AppContextType {
   removeFromBetSlip: (id: string) => void;
   updateStake: (id: string, stake: number) => void;
   updateBetSlipOdds: (update: { event_id: number | string; selection: string; market?: string; odd: number; selectionLabel?: string; marketLabel?: string }) => boolean;
+  acceptUpdatedBetSlipOdds: () => void;
   clearBetSlip: () => void;
   defaultBet: number;
   darkMode: boolean;
@@ -344,6 +345,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     return updated;
   };
+
+  const acceptUpdatedBetSlipOdds = () => {
+    setBetSlip((prev) =>
+      prev.map((b) =>
+        b.changed
+          ? {
+              ...b,
+              changed: false,
+              currentOdd: undefined,
+              changedAt: undefined,
+            }
+          : b,
+      ),
+    );
+  };
  
   const clearBetSlip = () => { 
     setBetSlip([]); 
@@ -475,6 +491,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         removeFromBetSlip, 
         updateStake, 
         updateBetSlipOdds,
+        acceptUpdatedBetSlipOdds,
         clearBetSlip, 
         defaultBet,
         darkMode, 

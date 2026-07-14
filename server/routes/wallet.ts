@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { randomId } from '../lib/crypto';
 import { readJsonBody, sendJson, badRequest, unauthorized } from '../lib/http';
 import { requireUser } from '../lib/auth';
+import { APP_TRANSACTIONS_TABLE, ensureAppTransactionsTable } from '../lib/appTables';
 
 function toNumber(v: any): number {
   const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v);
@@ -24,9 +25,10 @@ async function setBalance(pool: pg.Pool, userId: string, newBalance: number): Pr
 }
 
 async function getTransactions(pool: pg.Pool, userId: string) {
+  await ensureAppTransactionsTable(pool);
   const r = await pool.query(
     `SELECT id, type, status, amount, created_at, payment_method, description, external_id
-     FROM transactions
+     FROM ${APP_TRANSACTIONS_TABLE}
      WHERE user_id = $1
      ORDER BY created_at DESC
      LIMIT 200`,
@@ -92,6 +94,7 @@ export async function handleWalletRoutes(
   if (req.method === 'POST' && path === '/api/transactions') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppTransactionsTable(pool);
 
     const body = await readJsonBody<any>(req).catch(() => null);
     if (!body) return badRequest(res, 'Invalid JSON'), true;
@@ -101,10 +104,9 @@ export async function handleWalletRoutes(
 
     const txId = randomId(16);
     const externalId = body.external_id ? String(body.external_id) : null;
-    const accountDetails = body.account_details ? JSON.stringify(body.account_details) : null;
 
     await pool.query(
-      `INSERT INTO transactions (id, user_id, type, amount, status, payment_method, description, external_id, created_at, updated_at)
+      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, external_id, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())`,
       [
         txId,
@@ -132,6 +134,7 @@ export async function handleWalletRoutes(
   if (req.method === 'POST' && path === '/api/wallet/deposit') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppTransactionsTable(pool);
 
     const body = await readJsonBody<any>(req).catch(() => null);
     if (!body) return badRequest(res, 'Invalid JSON'), true;
@@ -145,7 +148,7 @@ export async function handleWalletRoutes(
 
     const txId = randomId(16);
     await pool.query(
-      `INSERT INTO transactions (id, user_id, type, amount, status, payment_method, description, external_id, created_at, updated_at)
+      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, external_id, created_at, updated_at)
        VALUES ($1, $2, 'deposit', $3, 'completed', $4, $5, $6, NOW(), NOW())`,
       [
         txId,
@@ -165,6 +168,7 @@ export async function handleWalletRoutes(
   if (req.method === 'POST' && path === '/api/wallet/deposit/card') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppTransactionsTable(pool);
 
     const body = await readJsonBody<any>(req).catch(() => null);
     if (!body) return badRequest(res, 'Invalid JSON'), true;
@@ -177,7 +181,7 @@ export async function handleWalletRoutes(
 
     const txId = randomId(16);
     await pool.query(
-      `INSERT INTO transactions (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
+      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
        VALUES ($1, $2, 'deposit', $3, 'completed', 'card', $4, NOW(), NOW())`,
       [txId, u.id, amount, `Depósito via Cartão - €${amount.toFixed(2)}`],
     );
@@ -190,6 +194,7 @@ export async function handleWalletRoutes(
   if (req.method === 'POST' && path === '/api/wallet/deposit/mbway') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppTransactionsTable(pool);
 
     const body = await readJsonBody<any>(req).catch(() => null);
     if (!body) return badRequest(res, 'Invalid JSON'), true;
@@ -198,7 +203,7 @@ export async function handleWalletRoutes(
 
     const txId = randomId(16);
     await pool.query(
-      `INSERT INTO transactions (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
+      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
        VALUES ($1, $2, 'deposit', $3, 'pending', 'mbway', $4, NOW(), NOW())`,
       [txId, u.id, amount, `Depósito via MB WAY - €${amount.toFixed(2)}`],
     );
@@ -215,6 +220,7 @@ export async function handleWalletRoutes(
   if (req.method === 'POST' && path === '/api/wallet/withdraw') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppTransactionsTable(pool);
 
     const body = await readJsonBody<any>(req).catch(() => null);
     if (!body) return badRequest(res, 'Invalid JSON'), true;
@@ -233,7 +239,7 @@ export async function handleWalletRoutes(
     });
 
     await pool.query(
-      `INSERT INTO transactions (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
+      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
        VALUES ($1, $2, 'withdrawal', $3, 'pending', 'iban', $4, NOW(), NOW())`,
       [txId, u.id, amount, meta],
     );
@@ -254,6 +260,7 @@ export async function handleWalletRoutes(
   if (req.method === 'POST' && path === '/api/wallet/withdrawals') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppTransactionsTable(pool);
 
     const body = await readJsonBody<any>(req).catch(() => null);
     if (!body) return badRequest(res, 'Invalid JSON'), true;
@@ -271,7 +278,7 @@ export async function handleWalletRoutes(
     });
 
     await pool.query(
-      `INSERT INTO transactions (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
+      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
        VALUES ($1, $2, 'withdrawal', $3, 'pending', 'iban', $4, NOW(), NOW())`,
       [txId, u.id, amount, meta],
     );
@@ -285,19 +292,20 @@ export async function handleWalletRoutes(
   if (req.method === 'POST' && path === '/api/wallet/withdraw/cancel') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppTransactionsTable(pool);
 
     const body = await readJsonBody<any>(req).catch(() => null);
     if (!body?.id) return badRequest(res, 'ID em falta'), true;
 
     const r = await pool.query(
-      `SELECT id, amount FROM transactions WHERE id = $1 AND user_id = $2 AND type = 'withdrawal' AND status = 'pending' LIMIT 1`,
+      `SELECT id, amount FROM ${APP_TRANSACTIONS_TABLE} WHERE id = $1 AND user_id = $2 AND type = 'withdrawal' AND status = 'pending' LIMIT 1`,
       [String(body.id), u.id],
     );
     if (!r.rows[0]) return badRequest(res, 'Transação não encontrada ou já processada'), true;
 
     const amount = Number(r.rows[0].amount);
     await pool.query(
-      `UPDATE transactions SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+      `UPDATE ${APP_TRANSACTIONS_TABLE} SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
       [String(body.id)],
     );
 
@@ -365,6 +373,7 @@ export async function handleWalletRoutes(
   if (req.method === 'POST' && path === '/api/payments/mbway') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppTransactionsTable(pool);
 
     const body = await readJsonBody<any>(req).catch(() => null);
     if (!body) return badRequest(res, 'Invalid JSON'), true;
@@ -372,18 +381,23 @@ export async function handleWalletRoutes(
     const amount = toNumber(body.amount);
     if (!amount || amount < 10) return badRequest(res, 'Valor mínimo €10'), true;
 
+    const current = await getBalance(pool, u.id);
+    const newBalance = current + amount;
+    await setBalance(pool, u.id, newBalance);
+
     const txId = randomId(16);
     await pool.query(
-      `INSERT INTO transactions (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
-       VALUES ($1, $2, 'deposit', $3, 'pending', 'mbway', $4, NOW(), NOW())`,
+      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, completed_at, created_at, updated_at)
+       VALUES ($1, $2, 'deposit', $3, 'completed', 'mbway', $4, NOW(), NOW(), NOW())`,
       [txId, u.id, amount, `Depósito MB WAY - €${amount.toFixed(2)}`],
     );
 
     sendJson(res, 200, {
       ok: true,
       id: txId,
-      status: 'pending',
-      message: 'Pagamento MB WAY iniciado. Confirme no telemóvel.',
+      status: 'completed',
+      balance: newBalance,
+      message: 'Pagamento MB WAY confirmado. Saldo atualizado.',
     });
     return true;
   }
@@ -392,6 +406,7 @@ export async function handleWalletRoutes(
   if (req.method === 'POST' && path === '/api/payments/multibanco/generate') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    await ensureAppTransactionsTable(pool);
 
     const body = await readJsonBody<any>(req).catch(() => null);
     if (!body) return badRequest(res, 'Invalid JSON'), true;
@@ -404,17 +419,18 @@ export async function handleWalletRoutes(
 
     const txId = randomId(16);
     await pool.query(
-      `INSERT INTO transactions (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
+      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
        VALUES ($1, $2, 'deposit', $3, 'pending', 'multibanco', $4, NOW(), NOW())`,
       [txId, u.id, amount, `Referência Multibanco: ${entity} / ${reference}`],
     );
 
     sendJson(res, 200, {
       ok: true,
+      id: txId,
       entity,
       reference,
       amount,
-      expires_at: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+      expires_at: Math.floor((Date.now() + 72 * 3600 * 1000) / 1000),
     });
     return true;
   }
