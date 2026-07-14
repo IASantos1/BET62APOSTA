@@ -5,7 +5,7 @@ import { apiFetch } from '@/react-app/utils/api';
 import { formatLeagueHeader, getSportFromLeague, getSportIcon, translateSelection } from '@/shared/helpers';
 
 export function BetSlip() {
-  const { betSlip, removeFromBetSlip, updateStake, clearBetSlip, darkMode, addNotification, user, selfExclude } = useApp();
+  const { betSlip, removeFromBetSlip, updateStake, updateBetSlipOdds, clearBetSlip, darkMode, addNotification, user, selfExclude } = useApp();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isPlacingBet, setIsPlacingBet] = useState(false); 
   const [mode, setMode] = useState<'single' | 'multi'>('single');
@@ -143,6 +143,26 @@ export function BetSlip() {
     };
   };
 
+  const applySelectionErrorUpdates = (error: any): boolean => {
+    const payload = error?.data || {};
+    const selectionErrors = Array.isArray(payload?.selectionErrors) ? payload.selectionErrors : [];
+    let hasOddChange = false;
+    for (const item of selectionErrors) {
+      if (String(item?.code || '') !== 'ODD_CHANGED') continue;
+      const currentOdd = Number(item?.currentOdd || 0);
+      if (!(currentOdd > 1)) continue;
+      const changed = updateBetSlipOdds({
+        event_id: item?.event_id,
+        selection: item?.selection,
+        market: item?.market,
+        odd: currentOdd,
+        selectionLabel: item?.currentSelectionLabel,
+      });
+      if (changed) hasOddChange = true;
+    }
+    return hasOddChange;
+  };
+
   useEffect(() => {
     // 1. Not enough bets for multi -> Force Single
     if (betSlip.length < 2) {
@@ -233,10 +253,13 @@ export function BetSlip() {
       window.dispatchEvent(new CustomEvent('bets:refresh'));
       clearBetSlip(); 
      } catch (error: any) {
+       const oddsUpdated = applySelectionErrorUpdates(error);
        const formatted = formatBetApiError(error);
        addNotification({ 
-         type: 'error', 
-         message: formatted.message,
+         type: oddsUpdated ? 'warning' : 'error',
+         message: oddsUpdated
+           ? 'As odds foram atualizadas no boletim. Revise os novos valores e confirme a aposta novamente.'
+           : formatted.message,
          details: formatted.details,
        }); 
      } finally { 
@@ -356,9 +379,21 @@ export function BetSlip() {
                    </button> 
                  </div> 
                  <div className="flex items-center justify-between"> 
-                  <span className={`font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}> 
-                    {bet.odd.toFixed(2)} 
-                  </span> 
+                  <div className="flex flex-col items-start">
+                    {bet.changed && Number(bet.currentOdd || 0) > 1 && (
+                      <span className={`text-xs line-through ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {Number(bet.currentOdd).toFixed(2)}
+                      </span>
+                    )}
+                    <span className={`font-bold ${bet.changed ? 'text-amber-500' : (darkMode ? 'text-white' : 'text-gray-900')}`}> 
+                      {bet.odd.toFixed(2)} 
+                    </span>
+                    {bet.changed && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-500">
+                        odd atualizada
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1"> 
                      {mode === 'single' && (
                        <input

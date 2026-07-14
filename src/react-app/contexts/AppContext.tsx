@@ -18,6 +18,7 @@ interface AppContextType {
   addToBetSlip: (bet: BetSlipItem) => void;
   removeFromBetSlip: (id: string) => void;
   updateStake: (id: string, stake: number) => void;
+  updateBetSlipOdds: (update: { event_id: number | string; selection: string; market?: string; odd: number; selectionLabel?: string }) => boolean;
   clearBetSlip: () => void;
   defaultBet: number;
   darkMode: boolean;
@@ -313,6 +314,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
    const updateStake = (id: string, stake: number) => { 
      setBetSlip(prev => prev.map(b => b.id === id ? { ...b, stake } : b)); 
    }; 
+
+  const updateBetSlipOdds = (update: { event_id: number | string; selection: string; market?: string; odd: number; selectionLabel?: string }) => {
+    let updated = false;
+    const normalize = (value: any) =>
+      String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+
+    setBetSlip(prev => prev.map((b) => {
+      const sameEvent = String(b.event_id) === String(update.event_id);
+      const sameSelection = normalize(b.selection) === normalize(update.selection);
+      const sameMarket = !update.market || !b.market || normalize(b.market) === normalize(update.market);
+      if (!sameEvent || !sameSelection || !sameMarket) return b;
+      updated = true;
+      return {
+        ...b,
+        selection: update.selectionLabel ? String(update.selectionLabel) : b.selection,
+        currentOdd: Number(b.odd || 0),
+        odd: Number(update.odd || b.odd || 0),
+        changed: true,
+      };
+    }));
+
+    return updated;
+  };
  
   const clearBetSlip = () => { 
     setBetSlip([]); 
@@ -443,6 +472,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addToBetSlip, 
         removeFromBetSlip, 
         updateStake, 
+        updateBetSlipOdds,
         clearBetSlip, 
         defaultBet,
         darkMode, 
