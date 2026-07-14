@@ -56,13 +56,49 @@ const parseJsonLoose = (v: any) => {
     }
 };
 
+const getRawLiveEventId = (item: any) =>
+  String(item?.external_event_id || item?.id || item?.fixture?.id || '').trim();
+
+const normalizeLiveStatus = (value: any) =>
+  String(value || '')
+    .toUpperCase()
+    .trim()
+    .replace(/[^A-Z0-9_]+/g, '');
+
+const isFinishedLiveStatus = (value: any) => {
+  const status = normalizeLiveStatus(value);
+  if (!status) return false;
+  return (
+    status === 'FT' ||
+    status.startsWith('FT') ||
+    status === 'AET' ||
+    status === 'PEN' ||
+    status === 'FT_PEN' ||
+    status === 'FTPEN' ||
+    status === 'FIN' ||
+    status === 'FINAL' ||
+    status === 'ENDED' ||
+    status === 'AOT' ||
+    status === 'AP' ||
+    status === 'POST' ||
+    status === 'SUSP' ||
+    status === 'TBD' ||
+    status === 'WO' ||
+    status === 'ABD' ||
+    status === 'AWD' ||
+    status === 'CANC' ||
+    status === 'NS_CANC' ||
+    /MATCHFINISHED|FULLTIME|GAMEOVER|ENCERRAD|TERMINAD/.test(status)
+  );
+};
+
 const parseLiveEvent = (item: any) => {
     if (!item) return null;
-    const rawId = String(item.external_event_id || item.id || item.fixture?.id || '').trim();
+    const rawId = getRawLiveEventId(item);
 
     // Safety: Hide Finished/Abnormal statuses from Live Feed
-    const status = String(item.fixture?.status?.short || item.status?.short || item.status || '').toUpperCase().trim();
-    if (['FT', 'AET', 'PEN', 'FT_PEN', 'FIN', 'FINAL', 'ENDED', 'AOT', 'AP', 'POST', 'SUSP', 'TBD', 'WO', 'ABD', 'AWD', 'CANC', 'NS_CANC'].includes(status)) {
+    const status = item.fixture?.status?.short || item.status?.short || item.status || item.fixture?.status?.long;
+    if (isFinishedLiveStatus(status)) {
         __dbg('H5', 'drop-finished', { id: rawId, status });
         return null;
     }
@@ -287,16 +323,23 @@ export function useLiveFeed(sport?: string) {
           setHasLoaded(true);
           if (list.length === 0) {
             __dbg('H2', 'poll-empty', { sport: String(sport || 'all') });
-            setLastUpdatedAt(Date.now());
+            const now = Date.now();
+            startTransition(() => setEventsMap(() => {
+              const next = new Map<string, any>();
+              _liveCache.set(_sportKey, { map: next, ts: now });
+              return next;
+            }));
+            setLastUpdatedAt(now);
             return;
           }
           __dbg('H2', 'poll-data', { sport: String(sport || 'all'), count: list.length });
 
           const now = Date.now();
-          const graceMs = 120_000;
+          const graceMs = 30_000;
           startTransition(() => setEventsMap((prev) => {
               const next = new Map<string, any>(prev);
               const seen = new Set<string>();
+              const dropped = new Set<string>();
 
               list.forEach((raw: any) => {
                   const parsed = parseLiveEvent(raw);
@@ -331,12 +374,29 @@ export function useLiveFeed(sport?: string) {
                       }
                       next.set(id, merged);
                       seen.add(id);
+                  } else {
+                      const rawId = getRawLiveEventId(raw);
+                      if (rawId) dropped.add(rawId);
                   }
               });
 
+              for (const id of dropped) next.delete(id);
               for (const [id, ev] of next.entries()) {
                   const lastSeen = Number((ev as any)?.__lastSeenAt || 0);
-                  if (!lastSeen) continue;
+                  if (dropped.has(id)) {
+                    next.delete(id);
+                    continue;
+                  }
+                  if (!seen.has(id) && lastSeen && now - lastSeen > graceMs) {
+                    next.delete(id);
+                    continue;
+                  }
+                  const statusShort = (ev as any)?.fixture?.status?.short || (ev as any)?.status_short || (ev as any)?.status;
+                  const statusLong = (ev as any)?.fixture?.status?.long || (ev as any)?.status_long;
+                  if (isFinishedLiveStatus(statusShort) || isFinishedLiveStatus(statusLong)) {
+                    next.delete(id);
+                    continue;
+                  }
                   if (now - lastSeen > graceMs) next.delete(id);
               }
               _liveCache.set(_sportKey, { map: next, ts: now });
@@ -457,10 +517,15 @@ export function useLiveFeed(sport?: string) {
           const msg = JSON.parse(String((evt as any)?.data || ''));
           if (msg?.type === 'snapshot' && Array.isArray(msg?.live)) {
             const now = Date.now();
-            const graceMs = 120_000;
+            const graceMs = 30_000;
             setHasLoaded(true);
             if (msg.live.length === 0) {
               __dbg('H1', 'ws-snapshot-empty', { sport: String(sport || 'all') });
+              startTransition(() => setEventsMap(() => {
+                const next = new Map<string, any>();
+                _liveCache.set(_sportKey, { map: next, ts: now });
+                return next;
+              }));
               setLastUpdatedAt(now);
               return;
             }
@@ -469,6 +534,7 @@ export function useLiveFeed(sport?: string) {
             startTransition(() => setEventsMap((prev) => {
               const next = new Map<string, any>(prev);
               const seen = new Set<string>();
+              const dropped = new Set<string>();
               msg.live.forEach((raw: any) => {
                 const parsed = parseLiveEvent(raw);
                 if (parsed) {
@@ -502,11 +568,28 @@ export function useLiveFeed(sport?: string) {
                   }
                   next.set(id, merged);
                   seen.add(id);
+                } else {
+                  const rawId = getRawLiveEventId(raw);
+                  if (rawId) dropped.add(rawId);
                 }
               });
+              for (const id of dropped) next.delete(id);
               for (const [id, ev] of next.entries()) {
                 const lastSeen = Number((ev as any)?.__lastSeenAt || 0);
-                if (!lastSeen) continue;
+                if (dropped.has(id)) {
+                  next.delete(id);
+                  continue;
+                }
+                if (!seen.has(id) && lastSeen && now - lastSeen > graceMs) {
+                  next.delete(id);
+                  continue;
+                }
+                const statusShort = (ev as any)?.fixture?.status?.short || (ev as any)?.status_short || (ev as any)?.status;
+                const statusLong = (ev as any)?.fixture?.status?.long || (ev as any)?.status_long;
+                if (isFinishedLiveStatus(statusShort) || isFinishedLiveStatus(statusLong)) {
+                  next.delete(id);
+                  continue;
+                }
                 if (now - lastSeen > graceMs) next.delete(id);
               }
               _liveCache.set(_sportKey, { map: next, ts: now });
@@ -521,6 +604,11 @@ export function useLiveFeed(sport?: string) {
             setEventsMap((prev) => {
               const next = new Map<string, any>(prev);
               const id = String(delta.id);
+              if (isFinishedLiveStatus(delta.status_short) || isFinishedLiveStatus(delta.status_long) || isFinishedLiveStatus(delta.status)) {
+                next.delete(id);
+                _liveCache.set(_sportKey, { map: next, ts: now });
+                return next;
+              }
               const prevVal = next.get(id);
               if (!prevVal) {
                 const seeded = {
