@@ -390,7 +390,7 @@ function Home({ mode = 'home' }: HomeProps) {
       <div className="-mx-2 flex gap-3 overflow-x-auto px-2 pb-2 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
         <button
           onClick={() => setLeagueFilter(null)}
-          className={`shrink-0 min-w-[148px] h-[86px] px-5 rounded-[24px] border transition-all text-left ${
+          className={`shrink-0 min-w-[148px] h-[68px] px-4 rounded-[20px] border transition-all text-left ${
             !leagueFilter
               ? 'border-amber-400 bg-[#3a2d16] text-white shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_16px_36px_rgba(245,158,11,0.14)]'
               : darkMode ? 'border-white/10 bg-[#101722] text-white hover:border-white/20' : 'border-gray-200 bg-white text-gray-800'
@@ -411,7 +411,7 @@ function Home({ mode = 'home' }: HomeProps) {
             <button
               key={`${sport}-${league}`}
               onClick={() => setLeagueFilter(isActive ? null : league)}
-              className={`shrink-0 min-w-[172px] h-[86px] px-5 rounded-[24px] border transition-all text-left ${
+          className={`shrink-0 min-w-[172px] h-[68px] px-4 rounded-[20px] border transition-all text-left ${
                 isActive
                   ? 'border-amber-400 bg-[#3a2d16] text-white shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_16px_36px_rgba(245,158,11,0.14)]'
                   : darkMode ? 'border-white/10 bg-[#101722] text-white hover:border-white/20' : 'border-gray-200 bg-white text-gray-800'
