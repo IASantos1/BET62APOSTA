@@ -93,12 +93,14 @@ export default function App() {
           k.startsWith('event_') ||
           k.startsWith('events_cache_') ||
           k.startsWith('odds_cache_') ||
-          k.startsWith('upcoming_cache_')
+          k.startsWith('upcoming_cache_') ||
+          k.startsWith('sportsEvents:')
         ) {
           try { localStorage.removeItem(k); } catch { /* empty */ }
         }
       });
       try { localStorage.removeItem('home:pregame:v2'); } catch { /* empty */ }
+      try { localStorage.removeItem('home:pregame:v3'); } catch { /* empty */ }
       try { if ((window as any).caches) (window as any).caches.delete('betarena-static-v1'); } catch { /* empty */ }
     } catch { /* empty */ }
   }, []);

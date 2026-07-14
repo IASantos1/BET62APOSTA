@@ -158,6 +158,12 @@ export function useMergedEvents(
         const a = (e.away_team || '').trim();
         if (!h || !a || h === 'undefined' || a === 'undefined' || h === 'Home Team' || a === 'Away Team') return false;
         if (e.id === 'undefined' || !e.id) return false;
+        const status = statusKeyOf(e);
+        const isLiveLike =
+          Number((e as any).is_live) === 1 ||
+          status === 'LIVE' ||
+          ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN'].includes(status);
+        if (isLiveLike && !hasAnyOdds(e)) return false;
 
         return true;
     }).sort((a, b) => {

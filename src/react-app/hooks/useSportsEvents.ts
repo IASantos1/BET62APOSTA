@@ -142,7 +142,7 @@ export function useSportsEvents(
 ) {
   // Compute cache key here so useState lazy-initialisers can use it.
   const _safeCategory0 = typeof category === 'string' && category ? category : 'all';
-  const _cacheKey0 = `sportsEvents:${_safeCategory0}:v1`;
+  const _cacheKey0 = `sportsEvents:${_safeCategory0}:v2`;
   const _cacheEntry0 = _sCache.get(_cacheKey0);
   const _hasFresh0 = _cacheEntry0 != null && Date.now() - _cacheEntry0.ts < _S_FRESH_MS;
 
@@ -158,7 +158,6 @@ export function useSportsEvents(
 
   const abortRef = useRef<AbortController | null>(null);
   const isFirstLoadRef = useRef(true);
-  const triedAllFallbackRef = useRef(false);
   const lastLiveRef = useRef<Event[]>([]);
   const lastPregameRef = useRef<Event[]>([]);
 
@@ -306,7 +305,7 @@ export function useSportsEvents(
 
   // Fallback para 'all' se category for nulo
   const safeCategory = typeof category === 'string' && category ? category : 'all';
-  const cacheKey = `sportsEvents:${safeCategory}:v1`;
+  const cacheKey = `sportsEvents:${safeCategory}:v2`;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -463,33 +462,11 @@ export function useSportsEvents(
 
                 const url = `/api/events/by-sport?${params.toString()}`;
         __dbg('H2', 'http-fetch-start', { category: String(safeCategory || ''), sports: String(sportParam || ''), league: leagueFilter || null, url });
-        let data = await apiFetch<any>(url, { signal: controller.signal, timeout: only === 'pregame' ? 20000 : 12000 });
+        const data = await apiFetch<any>(url, { signal: controller.signal, timeout: only === 'pregame' ? 20000 : 12000 });
 
-        let liveCount = Array.isArray(data?.live) ? data.live.length : 0;
-        let pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
+        const liveCount = Array.isArray(data?.live) ? data.live.length : 0;
+        const pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
 
-        const hasStructuredInitial = Array.isArray(data?.live) || Array.isArray(data?.pregame);
-        const hasAnyStructuredInitial = liveCount > 0 || pregameCount > 0;
-        if (!triedAllFallbackRef.current && safeCategory !== 'all' && hasStructuredInitial && !hasAnyStructuredInitial) {
-          triedAllFallbackRef.current = true;
-          const p2 = new URLSearchParams();
-          p2.set('sports', 'all');
-          p2.set('include', 'odds');
-          p2.set('realtime', only === 'live' ? '1' : '0');
-          p2.set('only', only);
-          if (requireOdds) p2.set('requireOdds', '1');
-          const days2 =
-            daysOverride != null
-              ? String(daysOverride)
-              : (only === 'live'
-                  ? '0'
-                  : (sportParam === 'all' ? '2' : '7'));
-          p2.set('days', days2);
-          data = await apiFetch<any>(`/api/events/by-sport?${p2.toString()}`, { signal: controller.signal, timeout: only === 'pregame' ? 20000 : 12000 });
-          liveCount = Array.isArray(data?.live) ? data.live.length : 0;
-          pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
-          __dbg('H2', 'http-fetch-fallback-all', { from: String(safeCategory || ''), liveCount, pregameCount });
-        }
         __dbg('H2', 'http-fetch-done', { category: String(safeCategory || ''), sports: String(sportParam || ''), liveCount, pregameCount });
 
         /*
