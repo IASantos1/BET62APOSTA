@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { randomId } from '../lib/crypto';
 import { readJsonBody, sendJson, badRequest, unauthorized } from '../lib/http';
 import { requireUser } from '../lib/auth';
+import { validateBetSelections } from '../services/dataPipeline';
 
 type PlaceBetBody = {
   type?: 'single' | 'multi';
@@ -101,6 +102,8 @@ export async function handleBetRoutes(
     const type = body.type === 'multi' ? 'multi' : 'single';
     const bets = Array.isArray(body.bets) ? body.bets : [];
     if (bets.length === 0) return badRequest(res, 'No selections'), true;
+    const validationErrors = validateBetSelections(bets);
+    if (validationErrors.length > 0) return badRequest(res, validationErrors[0]), true;
 
     const totalOdds = bets.reduce((p, b) => p * Math.max(1, toNumber(b.odd)), 1);
     const payloadSelections = bets.map((b) => ({
@@ -176,4 +179,3 @@ export async function handleBetRoutes(
 
   return false;
 }
-

@@ -10,6 +10,19 @@ interface User { id: string; email: string; is_operator: number }
 interface Bet { id: string; user_id: string; amount: number; potential_win: number; status: string; created_at: string }
 interface OddsEvent { id: string; home_team: string; away_team: string; league: string; home_odd: number; draw_odd: number; away_odd: number; is_live: number; sport: string }
 interface Withdrawal { id: string; user_id: string; amount: number; status: string; method: string; created_at: string }
+interface FeedSourceStatus { key: string; label: string; enabled: boolean; role: 'primary' | 'secondary' | 'manual' }
+interface PipelineStageStatus { key: string; label: string; status: 'active' | 'partial' | 'manual'; details: string }
+interface PipelineValidation { totalEvents: number; uniqueEvents: number; duplicateEvents: number; liveEvents: number; liveWithoutScore: number; inconsistentStates: number; invalidClock: number; feedQualityScore: number }
+interface PipelineStatus {
+  provider: string;
+  providerConfigured: boolean;
+  feeds: FeedSourceStatus[];
+  stages: PipelineStageStatus[];
+  validation: PipelineValidation;
+  supportedSports: string[];
+  supportedSettlements: string[];
+  matchState: { score: number; clock: number; incidents: number; suspended: number };
+}
 
 const NAV: { key: Tab; label: string; icon: string }[] = [
   { key: 'overview',  label: 'Visão Geral',          icon: '📊' },
@@ -244,6 +257,7 @@ const AdminPanel: React.FC = () => {
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [metrics, setMetrics]         = useState<any>({});
   const [alerts, setAlerts]           = useState<any[]>([]);
+  const [pipeline, setPipeline]       = useState<PipelineStatus | null>(null);
   const [loadingOdds, setLoadingOdds] = useState(false);
   const [oddsFilter, setOddsFilter]   = useState<'all' | 'missing' | 'live'>('all');
   const [oddsSearch, setOddsSearch]   = useState('');
@@ -253,10 +267,13 @@ const AdminPanel: React.FC = () => {
   const load = useCallback(async (t: Tab) => {
     try {
       if (t === 'overview' || t === 'reports') {
-        const [mu, mo] = await Promise.allSettled([
-          apiFetch<any>('/api/metrics/users'), apiFetch<any>('/api/metrics/odds'),
+        const [mu, mo, mp] = await Promise.allSettled([
+          apiFetch<any>('/api/metrics/users'),
+          apiFetch<any>('/api/metrics/odds'),
+          apiFetch<PipelineStatus>('/api/admin/data-pipeline'),
         ]);
         setMetrics({ ...(mu.status === 'fulfilled' ? mu.value : {}), ...(mo.status === 'fulfilled' ? mo.value : {}) });
+        if (mp.status === 'fulfilled') setPipeline(mp.value);
       }
       if (t === 'users')    { const d = await apiFetch<User[]>('/api/admin/users').catch(() => []); setUsers(Array.isArray(d) ? d : []); }
       if (t === 'bets')     { const d = await apiFetch<any>('/api/admin/bets').catch(() => ({ bets: [] })); setBets(Array.isArray(d) ? d : (d?.bets || [])); }
@@ -336,11 +353,57 @@ const AdminPanel: React.FC = () => {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between"><span>Live eventos</span><Badge v={metrics.live ?? '—'} color="green" /></div>
                     <div className="flex justify-between"><span>Cobertura odds</span><Badge v={metrics.events > 0 ? `${Math.round((metrics.imported_odds / metrics.events) * 100)}%` : '—'} color="blue" /></div>
-                    <div className="flex justify-between"><span>API-Football</span><Badge v="Activo" color="green" /></div>
-                    <div className="flex justify-between"><span>odds-api.io</span><Badge v="Fallback" color="yellow" /></div>
+                    <div className="flex justify-between"><span>Feed principal</span><Badge v={pipeline?.provider || 'SPORTSAPIPRO'} color="green" /></div>
+                    <div className="flex justify-between"><span>Validacao do feed</span><Badge v={pipeline ? `${pipeline.validation.feedQualityScore}%` : '—'} color={(pipeline?.validation.feedQualityScore || 0) >= 80 ? 'green' : 'yellow'} /></div>
                   </div>
                 </div>
               </div>
+              {pipeline && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                  <div className={`rounded-lg p-4 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-sm`}>
+                    <h3 className="font-semibold mb-3">Feeds de Dados</h3>
+                    <div className="space-y-2 text-sm">
+                      {pipeline.feeds.map((feed) => (
+                        <div key={feed.key} className="flex items-center justify-between">
+                          <span>{feed.label}</span>
+                          <Badge
+                            v={feed.enabled ? (feed.role === 'primary' ? 'Activo' : 'Disponivel') : 'Inactivo'}
+                            color={feed.enabled ? (feed.role === 'primary' ? 'green' : 'blue') : 'gray'}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={`rounded-lg p-4 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-sm`}>
+                    <h3 className="font-semibold mb-3">Data Validation Engine</h3>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="flex justify-between gap-2"><span>Eventos</span><Badge v={pipeline.validation.totalEvents} color="blue" /></div>
+                      <div className="flex justify-between gap-2"><span>Unicos</span><Badge v={pipeline.validation.uniqueEvents} color="green" /></div>
+                      <div className="flex justify-between gap-2"><span>Duplicados</span><Badge v={pipeline.validation.duplicateEvents} color={pipeline.validation.duplicateEvents > 0 ? 'red' : 'green'} /></div>
+                      <div className="flex justify-between gap-2"><span>Ao vivo</span><Badge v={pipeline.validation.liveEvents} color="red" /></div>
+                      <div className="flex justify-between gap-2"><span>Sem placar</span><Badge v={pipeline.validation.liveWithoutScore} color={pipeline.validation.liveWithoutScore > 0 ? 'yellow' : 'green'} /></div>
+                      <div className="flex justify-between gap-2"><span>Relogio invalido</span><Badge v={pipeline.validation.invalidClock} color={pipeline.validation.invalidClock > 0 ? 'yellow' : 'green'} /></div>
+                    </div>
+                  </div>
+                  <div className={`rounded-lg p-4 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-sm lg:col-span-2`}>
+                    <h3 className="font-semibold mb-3">Pipeline SPORTSAPIPro</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {pipeline.stages.map((stage) => (
+                        <div key={stage.key} className={`rounded-lg border p-3 ${darkMode ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                          <div className="flex items-center justify-between gap-3 mb-1">
+                            <span className="font-medium">{stage.label}</span>
+                            <Badge
+                              v={stage.status === 'active' ? 'Activo' : stage.status === 'partial' ? 'Parcial' : 'Manual'}
+                              color={stage.status === 'active' ? 'green' : stage.status === 'partial' ? 'yellow' : 'gray'}
+                            />
+                          </div>
+                          <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{stage.details}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -351,7 +414,7 @@ const AdminPanel: React.FC = () => {
                 <button onClick={() => load('odds')} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700">🔄 Refresh</button>
               </div>
               <div className={`rounded-lg p-3 mb-4 text-xs ${darkMode ? 'bg-gray-800 text-gray-300' : 'bg-blue-50 text-blue-800'}`}>
-                <strong>Pipeline:</strong> API-Football (1xBet priority) → odds-api.io fallback → DB <code>events.home_odd</code> → <code>/api/events/by-sport</code> → Frontend cards
+                <strong>Pipeline:</strong> SPORTSAPIPro → Ingestion Service → Normalizacao → Data Validation → Match State Engine → Market Resolution → Settlement → <code>/api/events/by-sport</code> / WebSocket
               </div>
               <div className="flex gap-2 mb-3 flex-wrap">
                 <input value={oddsSearch} onChange={e => setOddsSearch(e.target.value)} placeholder="Pesquisar..."

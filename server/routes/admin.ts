@@ -10,6 +10,7 @@ import {
   evaluateSelection,
   type MatchResult,
 } from '../services/settlement';
+import { buildSportsDataPipelineStatus } from '../services/dataPipeline';
 
 interface TestKeyBody { key: string; sport?: string; matchId?: string }
 
@@ -332,6 +333,23 @@ export async function handleAdminRoutes(
   // ── Alerts ───────────────────────────────────────────────────────────────────
   if (req.method === 'GET' && path === '/api/admin/alerts') {
     sendJson(res, 200, { alerts: [] });
+    return true;
+  }
+
+  if (req.method === 'GET' && path === '/api/admin/data-pipeline') {
+    const [adminOddsEvents, eventsCache] = await Promise.all([
+      events.getAdminOddsEvents().catch(() => []),
+      Promise.resolve(events.getEventsCache?.() ?? new Map()),
+    ]);
+    sendJson(
+      res,
+      200,
+      buildSportsDataPipelineStatus({
+        apiKey,
+        adminOddsEvents,
+        eventsCache,
+      }),
+    );
     return true;
   }
 
