@@ -7,7 +7,6 @@ import { useMergedEvents } from '../hooks/useMergedEvents';
 import EventCard from '../components/EventCard';
 import { Sidebar } from '../components/Sidebar';
 import { BannerCarousel } from '../components/BannerCarousel';
-import WorldCupBanner, { BET62_TROPHY_PNG_URL } from '../components/WorldCupBanner';
 import { BetSlip } from '../components/BetSlip';
 import { useNavigate } from 'react-router-dom';
 import { formatLeagueHeader, getLeagueLogo, getSportIcon } from '../../shared/helpers';
@@ -104,9 +103,6 @@ function Home({ mode = 'home' }: HomeProps) {
   const [sportFilter, setSportFilter] = useState<string | null>(null);
   const [leagueFilter, setLeagueFilter] = useState<string | null>(null);
 
-  // Copa do Mundo inline filter mode
-  const isWorldCupMode = selectedCategory === 'copa-do-mundo';
-
   // Dados principais
   const isMainSports =
     !selectedCategory ||
@@ -114,16 +110,15 @@ function Home({ mode = 'home' }: HomeProps) {
     selectedCategory === 'soccer-all' ||
     selectedCategory === 'todos';
 
-  // Copa mode: fetch all events (client filters WC leagues); requireOdds=1 is on by default
-  const apiCategory = isWorldCupMode ? 'all' : (selectedCategory || 'all');
-  const apiDays = isWorldCupMode ? 30 : (mode === 'home' && isMainSports ? 3 : undefined);
+  const apiCategory = selectedCategory || 'all';
+  const apiDays = mode === 'home' && isMainSports ? 3 : undefined;
 
   const { live: httpLive, pregame, loading: eventsLoading, ready: eventsReady } = useSportsEvents(
     apiCategory,
     {
       only: mode === 'home' ? 'pregame' : mode === 'live' ? 'live' : 'both',
       days: apiDays,
-      requireOdds: !isWorldCupMode,
+      requireOdds: true,
     },
   );
 
@@ -177,81 +172,6 @@ function Home({ mode = 'home' }: HomeProps) {
   // dias) e revelamos tudo de uma só vez, num bloco estável com fade-in.
   const [revealed, setRevealed] = useState(false);
 
-  // ── Copa do Mundo data source ───────────────────────────────────
-  const [copaMatches, setCopaMatches] = useState<any[]>([]);
-  const [copaLoading, setCopaLoading] = useState(false);
-  const [copaOddsMap, setCopaOddsMap] = useState<Record<string, { home: number; draw: number; away: number }>>({});
-
-  useEffect(() => {
-    if (!isWorldCupMode) { setCopaMatches([]); setCopaOddsMap({}); return; }
-    let cancelled = false;
-    setCopaLoading(true);
-    setCopaMatches([]);
-    setCopaOddsMap({});
-
-    const isPlaceholder = (name: string) => {
-      if (!name || name.length < 2) return true;
-      if (name.includes('/')) return true;          // "3A/3B/3C/3D"
-      if (/^\d[A-Z]/.test(name)) return true;       // "2A", "1C"
-      if (/^[A-HW]\d/.test(name)) return true;      // "G1", "W73", "H2"
-      return false;
-    };
-
-    fetch('/api/world-cup-2026/matches?limit=200')
-      .then(r => r.json())
-      .then(async (data: any) => {
-        if (cancelled) return;
-        const all: any[] = Array.isArray(data?.matches) ? data.matches : [];
-        const real = all.filter(m =>
-          !isPlaceholder(m.home_team) && !isPlaceholder(m.away_team)
-        );
-        real.sort((a, b) =>
-          new Date(a.event_date || 0).getTime() - new Date(b.event_date || 0).getTime()
-        );
-        setCopaMatches(real);
-
-        // Fetch odds per match in background (concurrency 5)
-        const queue = [...real];
-        const worker = async () => {
-          while (queue.length) {
-            if (cancelled) return;
-            const m = queue.shift();
-            if (!m) break;
-            const id = String(m.id || '').trim();
-            if (!id) continue;
-            try {
-              const r = await fetch(`/api/events/${encodeURIComponent(id)}/odds?sport=soccer`);
-              if (!r.ok || cancelled) continue;
-              const d = await r.json().catch(() => null);
-              if (!d || cancelled) continue;
-              const home = Number(d.home || 0);
-              const draw = Number(d.draw || 0);
-              const away = Number(d.away || 0);
-              if (home > 1.01 && away > 1.01) {
-                setCopaOddsMap(prev => ({ ...prev, [id]: { home, draw, away } }));
-              }
-            } catch { /* ignore */ }
-          }
-        };
-        await Promise.all(Array.from({ length: 5 }, worker));
-      })
-      .catch(() => { if (!cancelled) setCopaMatches([]); })
-      .finally(() => { if (!cancelled) setCopaLoading(false); });
-
-    return () => { cancelled = true; };
-  }, [isWorldCupMode]);
-
-  // Merge fetched odds into Copa matches
-  const copaMatchesEnriched = useMemo(() => {
-    if (!isWorldCupMode || Object.keys(copaOddsMap).length === 0) return copaMatches;
-    return copaMatches.map(m => {
-      const id = String(m.id || '');
-      const o = copaOddsMap[id];
-      if (!o) return m;
-      return { ...m, home_odd: o.home, draw_odd: o.draw, away_odd: o.away };
-    });
-  }, [copaMatches, copaOddsMap, isWorldCupMode]);
-
   // Re-engaja a porta sempre que muda o modo ou a categoria.
   useEffect(() => {
     setRevealed(false);
@@ -259,15 +179,6 @@ function Home({ mode = 'home' }: HomeProps) {
 
   useEffect(() => {
     if (revealed) return;
-
-    // Copa mode: reveal when copa fetch finishes
-    if (isWorldCupMode) {
-      if (!copaLoading) {
-        const t = setTimeout(() => setRevealed(true), 150);
-        return () => clearTimeout(t);
-      }
-      return;
-    }
 
     // A fonte primária (HTTP) tem de ter respondido pela rede (não só cache).
     const primaryReady = eventsReady;
@@ -280,7 +191,7 @@ function Home({ mode = 'home' }: HomeProps) {
       const t = setTimeout(() => setRevealed(true), settleMs);
       return () => clearTimeout(t);
     }
-  }, [revealed, eventsReady, liveFeedLoaded, pregame7Ready, mode, isWorldCupMode, copaLoading]);
+  }, [revealed, eventsReady, liveFeedLoaded, pregame7Ready, mode]);
 
   // Tecto de segurança: nunca segurar o ecrã mais do que 6s.
   useEffect(() => {
@@ -381,10 +292,8 @@ function Home({ mode = 'home' }: HomeProps) {
   // Strict separation: Desporto = pregame only | AO VIVO = live only
   const displayedLive    = mode === 'live' ? processedLive : [];
   const displayedUpcoming = useMemo(() => {
-    // Copa mode: use enriched Copa data (real teams + fetched odds)
-    if (isWorldCupMode) return copaMatchesEnriched;
     return mode === 'home' ? sortedUpcoming : [];
-  }, [mode, sortedUpcoming, isWorldCupMode, copaMatchesEnriched]);
+  }, [mode, sortedUpcoming]);
 
   const groupedLive = useGroupedEvents(displayedLive, query);
   const groupedUpcoming = useGroupedEvents(displayedUpcoming, query);
@@ -398,6 +307,7 @@ function Home({ mode = 'home' }: HomeProps) {
 
   const filterEventsByControls = (events: Event[]) => {
     return events.filter((ev: any) => {
+      if (isWorldCupLeague(ev)) return false;
       const sportOk = !sportFilter || normalizeSportKey(ev?.sport) === sportFilter;
       const leagueName = getEventLeagueName(ev);
       const leagueOk = !leagueFilter || leagueName === leagueFilter;
@@ -507,7 +417,7 @@ function Home({ mode = 'home' }: HomeProps) {
   };
 
   const renderLeagueFilterBar = () => {
-    if (mode === 'live' || isWorldCupMode || availableLeagues.length === 0) return null;
+    if (mode === 'live' || availableLeagues.length === 0) return null;
     return (
       <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
         <button
@@ -989,62 +899,10 @@ function Home({ mode = 'home' }: HomeProps) {
 
         {/* Conteúdo principal */}
         <main className="flex-1 min-w-0 space-y-8">
-          {/* Banners — apenas quando NÃO está no modo Copa */}
-          {showBanner && !isWorldCupMode && <BannerCarousel />}
-          {showBanner && !isWorldCupMode && <WorldCupBanner variant="compact" />}
-
-          {/* Cabeçalho Copa do Mundo inline */}
-          {isWorldCupMode && (
-            <div className="space-y-4">
-              <WorldCupBanner variant="compact" />
-              <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-2">
-                  <img
-                    src={BET62_TROPHY_PNG_URL}
-                    alt="Troféu Bet62"
-                    className="w-11 h-11 object-contain select-none"
-                    style={{
-                      filter: 'drop-shadow(0 0 14px rgba(255,200,40,0.45))',
-                      animation: 'wcInlineTrophyShake 2.8s ease-in-out infinite',
-                    }}
-                    draggable={false}
-                  />
-                  <h2
-                    className="text-xl font-black uppercase tracking-wide"
-                    style={{
-                      background: 'linear-gradient(90deg, #ffd040, #f5a623)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                    }}
-                  >
-                    Copa do Mundo 2026
-                  </h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedCategory(null)}
-                  className="flex items-center gap-1.5 text-sm font-semibold text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/10"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  Fechar
-                </button>
-              </div>
-              <style>{`
-                @keyframes wcInlineTrophyShake {
-                  0%,100% { transform: translate3d(0,0,0) rotate(0deg); }
-                  25% { transform: translate3d(1px,-1px,0) rotate(-1.6deg); }
-                  50% { transform: translate3d(-1px,1px,0) rotate(1.4deg); }
-                  75% { transform: translate3d(1px,0,0) rotate(-0.8deg); }
-                }
-              `}</style>
-            </div>
-          )}
+          {showBanner && <BannerCarousel />}
 
           {/* Eventos */}
           <section id="events">
-            {!isWorldCupMode && (
             <div className="flex items-center gap-3 mb-5">
               {mode === 'live' ? (
                 <>
@@ -1065,7 +923,6 @@ function Home({ mode = 'home' }: HomeProps) {
                 </>
               )}
             </div>
-            )}
 
             {!revealed ? (
               <div className="text-center py-20">

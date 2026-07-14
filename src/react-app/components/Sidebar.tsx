@@ -23,7 +23,6 @@ const topCompetitions: SidebarSection = {
     'Brasil - Série A',
     'Ténis',
     'Seleções Amigáveis',
-    'Copa do Mundo',
   ],
 };
 
@@ -318,8 +317,7 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
                 /* removed explicit league shortcuts from Top Competições */
                 itemLabel === 'UEFA Champions League' ? 'uefa-champions' :
                 itemLabel === 'UEFA Europa League' ? 'uefa-europa' :
-                itemLabel === 'Seleções Amigáveis' ? 'international-friendlies' :
-                itemLabel === 'Copa do Mundo' ? 'world-cup' : '';
+                itemLabel === 'Seleções Amigáveis' ? 'international-friendlies' : '';
               const tokenSport =
                 itemLabel === 'Futebol' ? 'soccer-all' :
                 itemLabel === 'Basquetebol' ? 'basketball' :
@@ -492,13 +490,7 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
                         const fifaExpanded = expandedSports.has('FIFA');
                         const uefaExpanded = expandedSports.has('UEFA');
                         const fifaList: Array<{ label: string; token: string }> = [
-                          { label: 'Copa do Mundo FIFA', token: 'world-cup' },
-                          { label: 'Copa do Mundo Feminina', token: 'womens-world-cup' },
-                          { label: 'FIFA Club World Cup', token: 'club-world-cup' },
-                          { label: 'FIFA Club World Cup 2025', token: 'club-world-cup-2025' },
                           { label: 'FIFA Intercontinental Cup', token: 'intercontinental-cup' },
-                          { label: 'FIFA Futsal World Cup', token: 'fifa-futsal-world-cup' },
-                          { label: 'FIFA Beach Soccer World Cup', token: 'beach-soccer-world-cup' },
                         ];
                         const uefaList: Array<{ label: string; token: string }> = [
                           { label: 'UEFA Euro', token: 'uefa-euro' },
