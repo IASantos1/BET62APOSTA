@@ -232,16 +232,15 @@ export async function handleWalletRoutes(
     if (current < amount) return badRequest(res, 'Saldo insuficiente'), true;
 
     const txId = randomId(16);
-    const meta = JSON.stringify({
-      iban: String(body.iban || body.accountDetails?.iban || ''),
-      holder_name: String(body.holder_name || body.accountDetails?.accountHolder || ''),
-      nif: String(body.nif || ''),
-    });
+    const iban = String(body.iban || body.account_details?.iban || body.accountDetails?.iban || '').trim();
+    const maskedIban = iban ? `${iban.slice(0, 8)}...${iban.slice(-4)}` : '';
+    const description = String(body.description || `Levantamento para ${maskedIban || 'IBAN informado'}`);
+    const paymentMethod = String(body.payment_method || 'bank_transfer');
 
     await pool.query(
       `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
-       VALUES ($1, $2, 'withdrawal', $3, 'pending', 'iban', $4, NOW(), NOW())`,
-      [txId, u.id, amount, meta],
+       VALUES ($1, $2, 'withdrawal', $3, 'pending', $4, $5, NOW(), NOW())`,
+      [txId, u.id, amount, paymentMethod, description],
     );
 
     await setBalance(pool, u.id, current - amount);
@@ -271,16 +270,15 @@ export async function handleWalletRoutes(
     if (current < amount) return badRequest(res, 'Saldo insuficiente'), true;
 
     const txId = randomId(16);
-    const meta = JSON.stringify({
-      iban: String(body.iban || ''),
-      holder_name: String(body.holder_name || ''),
-      nif: String(body.nif || ''),
-    });
+    const iban = String(body.iban || body.account_details?.iban || '').trim();
+    const maskedIban = iban ? `${iban.slice(0, 8)}...${iban.slice(-4)}` : '';
+    const description = String(body.description || `Levantamento para ${maskedIban || 'IBAN informado'}`);
+    const paymentMethod = String(body.payment_method || 'bank_transfer');
 
     await pool.query(
       `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
-       VALUES ($1, $2, 'withdrawal', $3, 'pending', 'iban', $4, NOW(), NOW())`,
-      [txId, u.id, amount, meta],
+       VALUES ($1, $2, 'withdrawal', $3, 'pending', $4, $5, NOW(), NOW())`,
+      [txId, u.id, amount, paymentMethod, description],
     );
 
     await setBalance(pool, u.id, current - amount);

@@ -180,6 +180,11 @@ export default function DepositPage() {
     setSuccessMessage('');
   };
 
+  const handleMBWaySuccess = () => {
+    setSuccessMessage(`Depósito de €${depositAmount.toFixed(2)} via MB WAY confirmado com sucesso.`);
+    fetchBalance();
+  };
+
   const handleMultibancoSubmit = () => {
     setSuccessMessage('');
   };
@@ -441,7 +446,12 @@ export default function DepositPage() {
 
               {/* Specific payment form */}
               {selectedMethod === 'mbway' && (
-                <MBWayForm amount={depositAmount} onSubmit={handleMBWaySubmit} loading={loading} />
+                <MBWayForm
+                  amount={depositAmount}
+                  onSubmit={handleMBWaySubmit}
+                  onSuccess={handleMBWaySuccess}
+                  loading={loading}
+                />
               )}
               {selectedMethod === 'multibanco' && (
                 <MultibancoForm amount={depositAmount} onSubmit={handleMultibancoSubmit} loading={loading} />
