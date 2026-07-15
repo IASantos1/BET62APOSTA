@@ -46,10 +46,12 @@ export function useGroupedEvents(events: Event[], query: string) {
         const sportPrio = (sport: any): number => {
             const k = normalizeSportKey(sport);
             if (k === 'soccer') return 0;
-            if (k === 'tennis') return 1;
-            if (k === 'basketball') return 2;
+            if (k === 'basketball') return 1;
+            if (k === 'tennis') return 2;
             if (k === 'ice-hockey') return 3;
             if (k === 'baseball') return 4;
+            if (k === 'volleyball') return 5;
+            if (k === 'mma') return 6;
             return 9;
         };
 

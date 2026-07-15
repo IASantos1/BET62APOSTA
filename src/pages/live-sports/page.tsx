@@ -121,6 +121,22 @@ export default function LiveSportsPage() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { selections, addSelection, removeSelection, clearSelections } = useBets();
+  const allowedSports = useMemo(
+    () => new Set(['soccer', 'basketball', 'tennis', 'ice-hockey', 'baseball', 'volleyball', 'mma']),
+    [],
+  );
+  const normalizeSportKey = (sport: any): string => {
+    const s = String(sport || '').toLowerCase().trim();
+    if (!s) return '';
+    if (s === 'football' || s.includes('futebol') || s === 'soccer') return 'soccer';
+    if (s.includes('basquet')) return 'basketball';
+    if (s.includes('ténis') || s.includes('tênis') || s === 'tennis') return 'tennis';
+    if (s === 'hockey' || s.includes('hóquei') || s === 'ice-hockey') return 'ice-hockey';
+    if (s.includes('basebol') || s === 'baseball') return 'baseball';
+    if (s.includes('voleibol') || s.includes('vôlei') || s === 'volleyball') return 'volleyball';
+    if (s === 'mma') return 'mma';
+    return s;
+  };
 
   // Filtrar jogos por desporto
   const combinedMatches = useMemo(() => {
@@ -147,7 +163,9 @@ export default function LiveSportsPage() {
       })
       .filter((m: any) => !liveIds.has(String(m?.id || '')));
 
-    const merged = [...baseLive, ...startingSoon].sort((a: any, b: any) => {
+    const merged = [...baseLive, ...startingSoon]
+      .filter((m: any) => allowedSports.has(normalizeSportKey(m?.sport)))
+      .sort((a: any, b: any) => {
       const aLive = a?.isLive ? 1 : 0;
       const bLive = b?.isLive ? 1 : 0;
       if (aLive !== bLive) return bLive - aLive;
@@ -155,14 +173,14 @@ export default function LiveSportsPage() {
       const bt = startTimeMs(b);
       if (at && bt && at !== bt) return at - bt;
       return String(a?.league || '').localeCompare(String(b?.league || ''), 'pt-PT');
-    });
+      });
 
     return merged.slice(0, 150);
-  }, [liveOnlyMatches, upcomingMatches]);
+  }, [liveOnlyMatches, upcomingMatches, allowedSports]);
 
   const filteredMatches = useMemo(() => {
     if (selectedSport === 'all') return combinedMatches;
-    return combinedMatches.filter(m => m.sport === selectedSport);
+    return combinedMatches.filter(m => normalizeSportKey(m.sport) === selectedSport);
   }, [combinedMatches, selectedSport]);
 
   // Calcular ligas ativas a partir dos jogos atuais
@@ -172,7 +190,7 @@ export default function LiveSportsPage() {
       const key = m.league || '';
       if (!key) return;
       if (!leagueCounts[key]) {
-        leagueCounts[key] = { league: key, sport: m.sport || 'football', count: 0 };
+        leagueCounts[key] = { league: key, sport: normalizeSportKey(m.sport || 'football'), count: 0 };
       }
       leagueCounts[key].count += 1;
     });
@@ -183,29 +201,25 @@ export default function LiveSportsPage() {
   const groupedMatches = useMemo(() => {
     const groups: Record<string, Match[]> = {};
     filteredMatches.forEach(match => {
-      if (!groups[match.sport]) {
-        groups[match.sport] = [];
+      const sportKey = normalizeSportKey(match.sport);
+      if (!sportKey || !allowedSports.has(sportKey)) return;
+      if (!groups[sportKey]) {
+        groups[sportKey] = [];
       }
-      groups[match.sport].push(match);
+      groups[sportKey].push(match);
     });
     return groups;
-  }, [filteredMatches]);
+  }, [filteredMatches, allowedSports]);
 
   const getSportName = (sport: string) => {
     const names: Record<string, string> = {
       soccer: 'Futebol',
       basketball: 'Basquetebol',
       volleyball: 'Voleibol',
-      handball: 'Andebol',
       icehockey: 'Hóquei no Gelo',
       'ice-hockey': 'Hóquei no Gelo',
       baseball: 'Basebol',
-      americanfootball: 'Futebol Americano',
-      'american-football': 'Futebol Americano',
       mma: 'MMA',
-      formula1: 'Fórmula 1',
-      rugby: 'Rugby',
-      esports: 'eSports'
     };
     return names[sport] || sport;
   };

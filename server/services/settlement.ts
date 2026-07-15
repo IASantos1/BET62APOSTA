@@ -1566,6 +1566,10 @@ async function fetchMatchResult(
     sub = 'hockey';
   } else if (sportLower === 'baseball') {
     sub = 'baseball';
+  } else if (sportLower === 'volleyball' || sportLower === 'voleibol' || sportLower === 'vôlei') {
+    sub = 'volleyball';
+  } else if (sportLower === 'mma') {
+    sub = 'mma';
   } else {
     sub = 'football'; // soccer/football default
   }

@@ -313,6 +313,11 @@ export default function HomePage() {
     return featured;
   }, [liveMatches, upcomingMatches]);
 
+  const ALLOWED_SPORTS = useMemo(
+    () => new Set(['soccer', 'basketball', 'tennis', 'ice-hockey', 'baseball', 'volleyball', 'mma']),
+    [],
+  );
+
   const normalizeSportKey = useCallback((sport: any): string => {
     const s = String(sport || "").toLowerCase().trim();
     if (!s) return "";
@@ -385,20 +390,12 @@ export default function HomePage() {
 
   const sportPriorityRank = useCallback((sportKey: string): number => {
     if (sportKey === "soccer") return 1;
-    if (sportKey === "tennis") return 2;
-    if (sportKey === "basketball") return 3;
+    if (sportKey === "basketball") return 2;
+    if (sportKey === "tennis") return 3;
     if (sportKey === "ice-hockey") return 4;
     if (sportKey === "baseball") return 5;
-    if (sportKey === "american-football") return 6;
-    if (sportKey === "cricket") return 7;
-    if (sportKey === "rugby") return 8;
-    if (sportKey === "volleyball") return 9;
-    if (sportKey === "handball") return 10;
-    if (sportKey === "mma") return 11;
-    if (sportKey === "formula1") return 12;
-    if (sportKey === "golf") return 13;
-    if (sportKey === "horse-racing") return 14;
-    if (sportKey === "afl") return 15;
+    if (sportKey === "volleyball") return 6;
+    if (sportKey === "mma") return 7;
     return 99;
   }, []);
 
@@ -407,8 +404,8 @@ export default function HomePage() {
     const startSoonMin = 30 * 60 * 1000;
     const startSoonMax = 60 * 60 * 1000;
 
-    const baseLive = liveMatches || [];
-    const baseUpcoming = upcomingMatches || [];
+    const baseLive = (liveMatches || []).filter((m) => ALLOWED_SPORTS.has(normalizeSportKey(m?.sport)));
+    const baseUpcoming = (upcomingMatches || []).filter((m) => ALLOWED_SPORTS.has(normalizeSportKey(m?.sport)));
 
     const liveIds = new Set(baseLive.map((m) => String(m?.id || "")));
     const startingSoon = baseUpcoming
@@ -446,7 +443,7 @@ export default function HomePage() {
     const limited = combined.slice(0, 150);
     if (limited.length >= 10) return limited;
     return combined.slice(0, Math.min(150, Math.max(10, combined.length)));
-  }, [liveMatches, upcomingMatches, normalizeSportKey, startTimeMs, sportPriorityRank, footballLeagueRank]);
+  }, [liveMatches, upcomingMatches, normalizeSportKey, startTimeMs, sportPriorityRank, footballLeagueRank, ALLOWED_SPORTS]);
 
   const baseUpcomingMatches = useMemo(() => {
     const now = Date.now();
@@ -457,8 +454,9 @@ export default function HomePage() {
     const filtered = matches.filter((m) => {
       const t = startTimeMs(m);
       if (!t) return false;
-      if (t <= maxFuture) return true;
       const sk = normalizeSportKey(m?.sport);
+      if (!ALLOWED_SPORTS.has(sk)) return false;
+      if (t <= maxFuture) return true;
       if (sk !== "soccer") return false;
       return isBigFootballLeague(m?.league);
     });
@@ -533,7 +531,7 @@ export default function HomePage() {
     }
 
     return out.slice(0, 45);
-  }, [upcomingMatches, normalizeSportKey, startTimeMs, isBigFootballLeague, sportPriorityRank, footballLeagueRank]);
+  }, [upcomingMatches, normalizeSportKey, startTimeMs, isBigFootballLeague, sportPriorityRank, footballLeagueRank, ALLOWED_SPORTS]);
 
   const activeLeagues = useMemo<
     { league: string; sport: string; count: number }[]

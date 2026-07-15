@@ -20,11 +20,24 @@ type CacheEntry<T> = { ts: number; data: T };
 
 type AnyEvent = any;
 
-const SPORTS_DEFAULT = ['soccer', 'tennis'];
-const LIVE_SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'baseball', 'ice-hockey'];
+const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'baseball', 'ice-hockey', 'volleyball', 'mma'];
+const LIVE_SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'baseball', 'ice-hockey', 'volleyball', 'mma'];
 const RESOLVABLE_SPORTS = Array.from(new Set([...SPORTS_DEFAULT, ...LIVE_SPORTS_DEFAULT]));
 // Sports with a working /api/live endpoint on SportsApiPro / WS bootstrap
-const LIVE_CAPABLE = new Set(['soccer', 'football', 'futebol', 'tennis', 'basketball', 'baseball', 'ice-hockey', 'hockey']);
+const LIVE_CAPABLE = new Set([
+  'soccer',
+  'football',
+  'futebol',
+  'tennis',
+  'basketball',
+  'baseball',
+  'ice-hockey',
+  'hockey',
+  'volleyball',
+  'voleibol',
+  'vôlei',
+  'mma',
+]);
 const ODDS_FRESH_TTL_MS = 90_000;
 const LIVE_ODDS_FRESH_TTL_MS = 8_000;
 const ODDS_STALE_TTL_MS = 15 * 60_000;

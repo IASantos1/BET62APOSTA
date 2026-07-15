@@ -8,15 +8,11 @@
 export type SportType = 
   | 'football'
   | 'basketball'
+  | 'tennis'
   | 'baseball'
   | 'hockey'
-  | 'rugby'
   | 'volleyball'
-  | 'formula1'
   | 'mma'
-  | 'nfl'
-  | 'afl'
-  | 'handball';
 
 /**
  * Interface para Liga
@@ -44,15 +40,11 @@ export const API_FOOTBALL_BASE_URLS = {
 export const API_FOOTBALL_ENDPOINTS: Record<SportType, string> = {
   football: 'https://v3.football.api-sports.io',
   basketball: 'https://v1.basketball.api-sports.io',
+  tennis: 'https://v1.tennis.api-sports.io',
   baseball: 'https://v1.baseball.api-sports.io',
   hockey: 'https://v1.hockey.api-sports.io',
-  rugby: 'https://v1.rugby.api-sports.io',
   volleyball: 'https://v1.volleyball.api-sports.io',
-  formula1: 'https://v1.formula-1.api-sports.io',
   mma: 'https://v1.mma.api-sports.io',
-  nfl: 'https://v1.american-football.api-sports.io',
-  afl: 'https://v1.aussierules.api-sports.io',
-  handball: 'https://v1.handball.api-sports.io',
 };
 
 /**
@@ -61,15 +53,11 @@ export const API_FOOTBALL_ENDPOINTS: Record<SportType, string> = {
 export const SPORT_DISPLAY_NAMES: Record<SportType, string> = {
   football: 'Futebol',
   basketball: 'Basquetebol',
+  tennis: 'Ténis',
   baseball: 'Basebol',
   hockey: 'Hóquei no Gelo',
-  rugby: 'Rugby',
   volleyball: 'Voleibol',
-  formula1: 'Fórmula 1',
   mma: 'MMA',
-  nfl: 'NFL',
-  afl: 'AFL',
-  handball: 'Andebol',
 };
 
 /**
@@ -78,15 +66,11 @@ export const SPORT_DISPLAY_NAMES: Record<SportType, string> = {
 export const SPORT_ICONS: Record<SportType, string> = {
   football: 'ri-football-line',
   basketball: 'ri-basketball-line',
+  tennis: 'ri-tennis-line',
   baseball: 'ri-ball-pen-line',
   hockey: 'ri-hockey-puck-line',
-  rugby: 'ri-football-line',
   volleyball: 'ri-basketball-line',
-  formula1: 'ri-steering-2-line',
   mma: 'ri-boxing-line',
-  nfl: 'ri-football-line',
-  afl: 'ri-football-line',
-  handball: 'ri-basketball-line',
 };
 
 // ============================================

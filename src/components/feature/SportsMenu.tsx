@@ -20,18 +20,11 @@ interface SportsMenuProps {
 const SPORTS = [
   { key: 'soccer', name: 'Futebol', emoji: '⚽' },
   { key: 'basketball', name: 'Basquetebol', emoji: '🏀' },
+  { key: 'tennis', name: 'Ténis', emoji: '🎾' },
   { key: 'ice-hockey', name: 'Hóquei', emoji: '🏒' },
   { key: 'baseball', name: 'Basebol', emoji: '⚾' },
-  { key: 'tennis', name: 'Ténis', emoji: '🎾' },
-  { key: 'cricket', name: 'Críquete', emoji: '🏏' },
-  { key: 'golf', name: 'PGA Tour', emoji: '🏌' },
-  { key: 'horse-racing', name: 'Corridas de Cavalos', emoji: '🏇' },
-  { key: 'rugby', name: 'Rugby', emoji: '🏉' },
   { key: 'volleyball', name: 'Vôlei', emoji: '🏐' },
   { key: 'mma', name: 'MMA', emoji: '🥊' },
-  { key: 'handball', name: 'Andebol', emoji: '🤾' },
-  { key: 'afl', name: 'AFL', emoji: '🏈' },
-  { key: 'formula1', name: 'F1', emoji: '🏎️' },
 ];
 
 const SPORT_ICON_URL_BY_KEY: Record<string, string> = {
@@ -40,15 +33,8 @@ const SPORT_ICON_URL_BY_KEY: Record<string, string> = {
   'ice-hockey': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3d2.svg',
   baseball: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/26be.svg',
   tennis: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3be.svg',
-  cricket: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3cf.svg',
-  golf: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3cc.svg',
-  'horse-racing': 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c7.svg',
-  rugby: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c9.svg',
   volleyball: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3d0.svg',
   mma: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f94a.svg',
-  handball: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f93e.svg',
-  afl: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3c8.svg',
-  formula1: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f3ce.svg',
 };
 
 // ✅ PAÍSES COM BANDEIRAS OFICIAIS (URLs de imagens redondas)
@@ -200,16 +186,6 @@ const SPORT_LEAGUES: Record<string, string[]> = {
     'KBO League',
     'World Baseball Classic',
   ],
-  rugby: [
-    'Six Nations',
-    'Rugby Championship',
-    'Premiership Rugby',
-    'Top 14',
-    'United Rugby Championship',
-    'Super Rugby',
-    'NRL',
-    'Super League',
-  ],
   volleyball: [
     'Superliga Masculina',
     'Superliga Feminina',
@@ -230,22 +206,6 @@ const SPORT_LEAGUES: Record<string, string[]> = {
     'RIZIN',
     'KSW',
   ],
-  handball: [
-    'Bundesliga',
-    'Ligue Nationale de Handball',
-    'Liga ASOBAL',
-    'Herre Håndboldligaen',
-    'EHF Champions League',
-  ],
-  afl: [
-    'AFL Premiership',
-    'AFL Finals',
-    'AFLW',
-  ],
-  formula1: [
-    'F1 World Championship',
-    'F1 Sprint',
-  ],
 };
 
 // ✅ LIGAS PRIORITÁRIAS PARA TOP COMPETIÇÕES (ordem de prioridade)
@@ -263,8 +223,6 @@ const TOP_LEAGUES_PRIORITY = [
   'NHL',
   'MLB',
   'UFC',
-  'F1 Championship',
-  'AFL Premiership',
 ];
 
 export function SportsMenu({

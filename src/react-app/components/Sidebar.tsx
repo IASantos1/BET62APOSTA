@@ -32,18 +32,10 @@ const sports: SidebarSection = {
     'Futebol', 
     'Basquetebol', 
     'Ténis',
-    'Críquete',
-    'Futebol Americano', 
-    'Handebol', 
-    'MMA', 
-    'Fórmula 1', 
     'Hóquei', 
-    'Rúgbi', 
-    'Voleibol', 
     'Beisebol',
-    'Golfe',
-    'Corridas de Cavalos',
-    'AFL', 
+    'Voleibol',
+    'MMA', 
   ], 
 }; 
 
@@ -56,6 +48,7 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
   const [expandedSports, setExpandedSports] = useState<Set<string>>(new Set());
   const [expandedCountry, setExpandedCountry] = useState<Set<string>>(new Set());
   const [apiSports, setApiSports] = useState<string[]>([]);
+  const ALLOWED_SPORT_LABELS = new Set(['Futebol', 'Basquetebol', 'Ténis', 'Hóquei', 'Beisebol', 'Voleibol', 'MMA']);
   
   useEffect(() => {
     let timeoutId: any;
@@ -246,11 +239,12 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
     const normalizedBaseSports = new Set((sports.items || []).map(s => normalize(s)));
     const uniqueApiSports = (apiSports || []).filter(s => {
       const n = normalize(s);
-      return !normalizedBaseSports.has(n) && !HIDDEN_LEAGUES.has(n);
+      return !normalizedBaseSports.has(n) && !HIDDEN_LEAGUES.has(n) && ALLOWED_SPORT_LABELS.has(s);
     });
     
     const displaySports = Array.from(new Set([...(sports.items || []), ...uniqueApiSports]))
       .filter(Boolean)
+      .filter((s) => ALLOWED_SPORT_LABELS.has(s))
       .sort((a,b)=>a.localeCompare(b,'pt-PT'));
 
     return (

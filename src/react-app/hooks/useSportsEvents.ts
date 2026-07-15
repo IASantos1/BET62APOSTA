@@ -550,9 +550,19 @@ export function useSportsEvents(
                     return ok >= 2;
                   };
 
-          const sportKey = (e: Event) => String((e as any)?.sport || '').toLowerCase().trim();
-          const blockedSports = new Set(['horse-racing', 'esports', 'e-sports', 'e-sport', 'gaming']);
-          const isAllowedSport = (e: Event) => !blockedSports.has(sportKey(e));
+          const sportKey = (e: Event) => {
+            const s = String((e as any)?.sport || '').toLowerCase().trim();
+            if (s === 'football' || s.includes('futebol') || s === 'soccer') return 'soccer';
+            if (s.includes('basquet')) return 'basketball';
+            if (s.includes('ténis') || s.includes('tênis') || s === 'tennis') return 'tennis';
+            if (s === 'hockey' || s.includes('hóquei') || s === 'ice-hockey') return 'ice-hockey';
+            if (s.includes('basebol') || s === 'baseball') return 'baseball';
+            if (s.includes('voleibol') || s.includes('vôlei') || s === 'volleyball') return 'volleyball';
+            if (s === 'mma') return 'mma';
+            return s;
+          };
+          const allowedSports = new Set(['soccer', 'basketball', 'tennis', 'ice-hockey', 'baseball', 'volleyball', 'mma']);
+          const isAllowedSport = (e: Event) => allowedSports.has(sportKey(e));
 
           liveEvents = liveEvents.filter(isAllowedSport);
           pregameEvents = pregameEvents.filter(isAllowedSport);
@@ -582,17 +592,12 @@ export function useSportsEvents(
                   const sportRank = (s: string) => {
                     const k = s;
                     if (k === 'soccer') return 1;
-                    if (k === 'tennis') return 2;
-                    if (k === 'basketball') return 3;
+                    if (k === 'basketball') return 2;
+                    if (k === 'tennis') return 3;
                     if (k === 'ice-hockey') return 4;
-                    if (k === 'volleyball') return 5;
-                    if (k === 'handball') return 6;
-                    if (k === 'american-football') return 7;
-                    if (k === 'mma') return 8;
-                    if (k === 'formula1') return 9;
-                    if (k === 'golf') return 10;
-                    if (k === 'cricket') return 98;
-                    if (k === 'baseball') return 99;
+                    if (k === 'baseball') return 5;
+                    if (k === 'volleyball') return 6;
+                    if (k === 'mma') return 7;
                     return 50;
                   };
                   const startMs = (e: Event) => {
@@ -604,17 +609,12 @@ export function useSportsEvents(
                     if (safeCategory !== 'all') return arr.slice(0, max);
                     const caps = new Map<string, number>([
                       ['soccer', 500],
-                      ['tennis', 500],
                       ['basketball', 300],
+                      ['tennis', 300],
                       ['ice-hockey', 200],
+                      ['baseball', 200],
                       ['volleyball', 200],
-                      ['handball', 200],
-                      ['american-football', 200],
                       ['mma', 100],
-                      ['formula1', 100],
-                      ['golf', 100],
-                      ['cricket', 100],
-                      ['baseball', 100],
                     ]);
                     const used = new Map<string, number>();
                     const sorted = [...arr].sort((a, b) => {
@@ -726,9 +726,19 @@ export function useSportsEvents(
               return [...withOdds, ...withoutOdds].slice(0, max);
             };
 
-            const blockedSports = new Set(['horse-racing', 'esports', 'e-sports', 'e-sport', 'gaming']);
-            const sportKey = (e: Event) => String((e as any)?.sport || '').toLowerCase().trim();
-            const isAllowedSport = (e: Event) => !blockedSports.has(sportKey(e));
+            const allowedSports = new Set(['soccer', 'basketball', 'tennis', 'ice-hockey', 'baseball', 'volleyball', 'mma']);
+            const sportKey = (e: Event) => {
+              const s = String((e as any)?.sport || '').toLowerCase().trim();
+              if (s === 'football' || s.includes('futebol') || s === 'soccer') return 'soccer';
+              if (s.includes('basquet')) return 'basketball';
+              if (s.includes('ténis') || s.includes('tênis') || s === 'tennis') return 'tennis';
+              if (s === 'hockey' || s.includes('hóquei') || s === 'ice-hockey') return 'ice-hockey';
+              if (s.includes('basebol') || s === 'baseball') return 'baseball';
+              if (s.includes('voleibol') || s.includes('vôlei') || s === 'volleyball') return 'volleyball';
+              if (s === 'mma') return 'mma';
+              return s;
+            };
+            const isAllowedSport = (e: Event) => allowedSports.has(sportKey(e));
 
             const maxLive = safeCategory === 'all' ? 100 : 60;
             const finalLive = preferOdds(activeLive.filter(isAllowedSport), maxLive * 2).filter(hasPrimaryOdds).slice(0, maxLive);
@@ -737,17 +747,12 @@ export function useSportsEvents(
             const sportRank = (s: string) => {
               const k = s;
               if (k === 'soccer') return 1;
-              if (k === 'tennis') return 2;
-              if (k === 'basketball') return 3;
+              if (k === 'basketball') return 2;
+              if (k === 'tennis') return 3;
               if (k === 'ice-hockey') return 4;
-              if (k === 'volleyball') return 5;
-              if (k === 'handball') return 6;
-              if (k === 'american-football') return 7;
-              if (k === 'mma') return 8;
-              if (k === 'formula1') return 9;
-              if (k === 'golf') return 10;
-              if (k === 'cricket') return 98;
-              if (k === 'baseball') return 99;
+              if (k === 'baseball') return 5;
+              if (k === 'volleyball') return 6;
+              if (k === 'mma') return 7;
               return 50;
             };
             const startMs = (e: Event) => {
@@ -760,17 +765,12 @@ export function useSportsEvents(
               if (safeCategory !== 'all') return arr.slice(0, max);
               const caps = new Map<string, number>([
                 ['soccer', 500],
-                ['tennis', 500],
                 ['basketball', 300],
+                ['tennis', 300],
                 ['ice-hockey', 200],
+                ['baseball', 200],
                 ['volleyball', 200],
-                ['handball', 200],
-                ['american-football', 200],
                 ['mma', 100],
-                ['formula1', 100],
-                ['golf', 100],
-                ['cricket', 100],
-                ['baseball', 100],
               ]);
               const used = new Map<string, number>();
               const sorted = [...arr].sort((a, b) => {

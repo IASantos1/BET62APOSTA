@@ -36,7 +36,7 @@ export function createLiveWs(apiKey: string) {
   const timers = new Map<string, NodeJS.Timeout>();
   const lastSent = new Map<string, number>();
   const upstreams = new Map<string, UpstreamInfo>();
-  const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball'];
+  const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball', 'volleyball', 'mma'];
   // V2 mercados: cache fresco por 3.5s → atualiza entre 3-5s automaticamente
   const ODDS_FRESH_TTL_MS = 3_500;
   const ODDS_STALE_TTL_MS = 15 * 60_000;
@@ -550,7 +550,7 @@ export function createLiveWs(apiKey: string) {
         return;
       }
 
-      const sports = sport === 'all' ? ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball'] : [sport];
+      const sports = sport === 'all' ? ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball', 'volleyball', 'mma'] : [sport];
       const liveAll: any[] = [];
       try {
         const entries = await Promise.all(
