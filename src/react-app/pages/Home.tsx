@@ -92,6 +92,7 @@ function Home({ mode = 'home' }: HomeProps) {
   const { darkMode, selectedCategory, setSelectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
   const navigate = useNavigate();
   const [leagueFilter, setLeagueFilter] = useState<string | null>(null);
+  const [sportFilter, setSportFilter] = useState<string | null>(null);
 
   // Dados principais
   const isMainSports =
@@ -162,9 +163,11 @@ function Home({ mode = 'home' }: HomeProps) {
   // dias) e revelamos tudo de uma só vez, num bloco estável com fade-in.
   const [revealed, setRevealed] = useState(false);
 
-  // Re-engaja a porta sempre que muda o modo ou a categoria.
+  // Re-engaja a porta sempre que muda o modo ou a categoria; limpa filtros.
   useEffect(() => {
     setRevealed(false);
+    setSportFilter(null);
+    setLeagueFilter(null);
   }, [mode, selectedCategory]);
 
   useEffect(() => {
@@ -306,19 +309,17 @@ function Home({ mode = 'home' }: HomeProps) {
   const filterEventsByControls = (events: Event[]) => {
     return events.filter((ev: any) => {
       if (isWorldCupLeague(ev)) return false;
+      // Live mode → filter by sport
+      if (mode === 'live' && sportFilter) {
+        return normalizeSportKey((ev as any)?.sport || '') === sportFilter;
+      }
+      // Home mode → filter by league
       if (!leagueFilter) return true;
       const leagueName = getEventLeagueName(ev);
       const sport = normalizeSportKey((ev as any)?.sport || '');
-      // Grouped tennis filters
-      if (leagueFilter === 'ITF') {
-        return isTennisSport(sport) && isITFLeague(leagueName);
-      }
-      if (leagueFilter === 'ATP Tour') {
-        return isTennisSport(sport) && !isITFLeague(leagueName) && !isWTALeague(leagueName);
-      }
-      if (leagueFilter === 'WTA Tour') {
-        return isTennisSport(sport) && !isITFLeague(leagueName) && isWTALeague(leagueName);
-      }
+      if (leagueFilter === 'ITF') return isTennisSport(sport) && isITFLeague(leagueName);
+      if (leagueFilter === 'ATP Tour') return isTennisSport(sport) && !isITFLeague(leagueName) && !isWTALeague(leagueName);
+      if (leagueFilter === 'WTA Tour') return isTennisSport(sport) && !isITFLeague(leagueName) && isWTALeague(leagueName);
       return leagueName === leagueFilter;
     });
   };
@@ -332,12 +333,12 @@ function Home({ mode = 'home' }: HomeProps) {
 
   const limitedLive = useMemo(
     () => limitEvents(filterEventsByControls(flatLiveEvents), 120),
-    [flatLiveEvents, leagueFilter],
+    [flatLiveEvents, leagueFilter, sportFilter],
   );
 
   const limitedNext7 = useMemo(
     () => (mode === 'live' ? limitEvents(filterEventsByControls(flatNext7Events), 300) : []),
-    [flatNext7Events, leagueFilter, mode],
+    [flatNext7Events, leagueFilter, sportFilter, mode],
   );
 
   const buildLeagueOptions = (events: Event[]) => {
@@ -429,6 +430,49 @@ function Home({ mode = 'home' }: HomeProps) {
     [homeBaseEvents, liveBaseEvents, mode],
   );
 
+  // Sport labels in Portuguese
+  const sportLabel = (sport: string) => {
+    const labels: Record<string, string> = {
+      'soccer': 'Futebol',
+      'football': 'Futebol',
+      'tennis': 'Ténis',
+      'basketball': 'Basquetebol',
+      'baseball': 'Basebol',
+      'american-football': 'Fut. Americano',
+      'ice-hockey': 'Hóquei',
+      'mma': 'MMA',
+      'rugby': 'Râguebi',
+      'volleyball': 'Voleibol',
+      'handball': 'Andebol',
+      'cricket': 'Críquete',
+      'formula-1': 'Fórmula 1',
+      'golf': 'Golfe',
+      'afl': 'AFL',
+    };
+    return labels[sport] || sport.charAt(0).toUpperCase() + sport.slice(1);
+  };
+
+  const buildSportOptions = (events: Event[]) => {
+    const counts = new Map<string, number>();
+    for (const ev of events as any[]) {
+      const s = normalizeSportKey((ev as any)?.sport || '');
+      if (!s) continue;
+      counts.set(s, (counts.get(s) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => {
+        if (a[0] === 'soccer') return -1;
+        if (b[0] === 'soccer') return 1;
+        return b[1] - a[1];
+      })
+      .map(([sport, count]) => ({ sport, count }));
+  };
+
+  const availableSports = useMemo(
+    () => buildSportOptions(mode === 'live' ? [...flatLiveEvents, ...flatNext7Events] : []),
+    [flatLiveEvents, flatNext7Events, mode],
+  );
+
   const noSearchResults = useMemo(() => {
     if (!query.trim()) return false;
     return limitedLive.length + limitedUpcoming.length + limitedNext7.length === 0;
@@ -436,6 +480,56 @@ function Home({ mode = 'home' }: HomeProps) {
 
   const handleOpenEvent = (event: Event) => {
     navigate(`/event/${event.id}`);
+  };
+
+  const renderSportFilterBar = () => {
+    if (availableSports.length === 0) return null;
+    return (
+      <div className="-mx-2 flex gap-3 overflow-x-auto px-2 pb-2 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
+        {/* Todos */}
+        <button
+          onClick={() => setSportFilter(null)}
+          className={`shrink-0 min-w-[90px] h-[52px] px-3 rounded-[16px] border transition-all text-left ${
+            !sportFilter
+              ? 'border-amber-400 bg-[#3a2d16] text-white shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_8px_20px_rgba(245,158,11,0.14)]'
+              : darkMode ? 'border-white/10 bg-[#101722] text-white hover:border-white/20' : 'border-gray-200 bg-white text-gray-800'
+          }`}
+        >
+          <div className="flex h-full items-center gap-2">
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${!sportFilter ? 'bg-amber-400/15 text-amber-200' : darkMode ? 'bg-white/5 text-white' : 'bg-gray-100 text-gray-700'}`}>
+              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+              </svg>
+            </div>
+            <span className="text-[13px] font-semibold whitespace-nowrap">Todos</span>
+          </div>
+        </button>
+        {/* One pill per sport */}
+        {availableSports.map(({ sport }) => {
+          const isActive = sportFilter === sport;
+          const iconUrl = getSportIcon(sport);
+          const label = sportLabel(sport);
+          return (
+            <button
+              key={sport}
+              onClick={() => setSportFilter(isActive ? null : sport)}
+              className={`shrink-0 min-w-[110px] h-[52px] px-3 rounded-[16px] border transition-all text-left ${
+                isActive
+                  ? 'border-amber-400 bg-[#3a2d16] text-white shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_8px_20px_rgba(245,158,11,0.14)]'
+                  : darkMode ? 'border-white/10 bg-[#101722] text-white hover:border-white/20' : 'border-gray-200 bg-white text-gray-800'
+              }`}
+            >
+              <div className="flex h-full items-center gap-2">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden ${darkMode ? 'bg-white/10' : 'bg-gray-50'}`}>
+                  <img src={iconUrl} alt={label} className="w-6 h-6 object-contain" loading="lazy" />
+                </div>
+                <span className="text-[13px] font-semibold whitespace-nowrap">{label}</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
   };
 
   const renderLeagueFilterBar = () => {
@@ -518,7 +612,7 @@ function Home({ mode = 'home' }: HomeProps) {
           />
         </div>
       </div>
-      {renderLeagueFilterBar()}
+      {mode === 'live' ? renderSportFilterBar() : renderLeagueFilterBar()}
     </div>
   );
 
