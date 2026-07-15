@@ -1,234 +1,343 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { COUNTRIES } from '../../shared/constants';
 import { Header } from '../../components/feature/Header';
 import { Footer } from '../../components/feature/Footer';
 import { useAuth } from '../../contexts/AuthContext';
 
+type RegisterForm = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  nif: string;
+  country: string;
+  birthDate: string;
+  password: string;
+  confirmPassword: string;
+  acceptTerms: boolean;
+};
+
+const initialForm: RegisterForm = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  nif: '',
+  country: 'PT',
+  birthDate: '',
+  password: '',
+  confirmPassword: '',
+  acceptTerms: false,
+};
+
 export default function RegisterPage() {
-  const [formData, setFormData] = useState({
-    fullName: '',
-    email: '',
-    phone: '',
-    password: '',
-    confirmPassword: '',
-    birthDate: '',
-    acceptTerms: false
-  });
+  const [formData, setFormData] = useState<RegisterForm>(initialForm);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const _navigate = useNavigate();
+  const navigate = useNavigate();
   const { signUp } = useAuth();
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
+  const maxBirthDate = useMemo(() => {
+    const today = new Date();
+    today.setFullYear(today.getFullYear() - 18);
+    return today.toISOString().split('T')[0];
+  }, []);
+
+  const passwordChecks = useMemo(
+    () => ({
+      length: formData.password.length >= 8,
+      uppercase: /[A-Z]/.test(formData.password),
+      number: /\d/.test(formData.password),
+      symbol: /[^A-Za-z0-9]/.test(formData.password),
+    }),
+    [formData.password],
+  );
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    const nextValue =
+      e.target instanceof HTMLInputElement && e.target.type === 'checkbox'
+        ? e.target.checked
+        : value;
+
+    setFormData((prev) => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: nextValue,
     }));
     setError(null);
   };
 
-  const _validateAge = (birthDate: string): boolean => {
-    if (!birthDate) return true;
+  const validateAge = (birthDate: string): boolean => {
+    if (!birthDate) return false;
+
     const today = new Date();
     const birth = new Date(birthDate);
     let age = today.getFullYear() - birth.getFullYear();
     const monthDiff = today.getMonth() - birth.getMonth();
+
     if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-      age--;
+      age -= 1;
     }
+
     return age >= 18;
+  };
+
+  const validateForm = (): string | null => {
+    if (!formData.firstName.trim() || !formData.lastName.trim()) {
+      return 'Preencha nome e apelido.';
+    }
+
+    if (!formData.email.trim()) {
+      return 'Preencha o email.';
+    }
+
+    if (!formData.phone.trim()) {
+      return 'Preencha o telefone.';
+    }
+
+    if (!formData.nif.trim()) {
+      return 'Preencha o NIF.';
+    }
+
+    if (!formData.country) {
+      return 'Selecione o país.';
+    }
+
+    if (!validateAge(formData.birthDate)) {
+      return 'Tem de ter pelo menos 18 anos para criar conta.';
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      return 'As senhas não coincidem.';
+    }
+
+    if (!passwordChecks.length || !passwordChecks.uppercase || !passwordChecks.number || !passwordChecks.symbol) {
+      return 'A senha deve ter 8+ caracteres, uma maiúscula, um número e um símbolo.';
+    }
+
+    if (!formData.acceptTerms) {
+      return 'Tem de aceitar os Termos e a Política de Privacidade.';
+    }
+
+    return null;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-
-    if (formData.password !== formData.confirmPassword) {
-      setError('As senhas não coincidem');
-      return;
-    }
-
-    if (formData.password.length < 6) {
-      setError('A senha deve ter pelo menos 6 caracteres');
+    const validationError = validateForm();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
     setIsSubmitting(true);
+    setError(null);
 
     try {
-      await signUp(formData.email, formData.password, {
-        full_name: formData.fullName,
-        phone: formData.phone,
-        birth_date: formData.birthDate || '',
+      await signUp(formData.email.trim(), formData.password, {
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        phone: formData.phone.trim(),
+        nif: formData.nif.trim(),
+        country: formData.country,
+        birth_date: formData.birthDate,
       });
 
-      setSuccess(true);
+      navigate('/');
     } catch (err: any) {
-      console.error('Erro no registo:', err);
-      
-      // Tratamento específico para rate limit de email
-      if (err.message?.includes('email rate limit exceeded') || err.message?.includes('rate limit')) {
-        setError('⚠️ Limite de emails atingido. Isto acontece por segurança quando muitos emails são enviados num curto período. Por favor, aguarde 1 hora e tente novamente, ou contacte o suporte se já se registou recentemente.');
-      } else if (err.message?.includes('User already registered')) {
-        setError('Este email já está registado. Tente fazer login ou use outro email.');
-      } else if (err.message?.includes('Password should be')) {
-        setError('A senha deve ter pelo menos 6 caracteres.');
-      } else if (err.message?.includes('Invalid email')) {
-        setError('Por favor, insira um email válido.');
+      if (err.message?.includes('rate limit')) {
+        setError('Limite temporário de emails atingido. Aguarde um pouco e tente novamente.');
+      } else if (err.message?.includes('already')) {
+        setError('Este email já está registado. Faça login ou use outro email.');
       } else {
-        setError(`Erro ao criar conta: ${err.message || 'Tente novamente mais tarde.'}`);
+        setError(err instanceof Error ? err.message : 'Erro ao criar conta. Tente novamente.');
       }
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (success) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex flex-col" style={{ fontFamily: 'Inter, sans-serif' }}>
-        <Header isLoggedIn={false} />
-
-        <main className="flex-1 flex items-center justify-center py-12 px-6">
-          <div className="w-full max-w-md">
-            <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8 text-center">
-              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <i className="ri-check-line text-5xl text-red-600"></i>
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-3">Conta Criada com Sucesso!</h1>
-              <p className="text-gray-600 mb-6">
-                A sua conta foi criada. Agora já pode fazer login e começar a apostar na BET62.
-              </p>
-              <Link
-                to="/login"
-                className="inline-flex items-center justify-center w-full py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap"
-              >
-                <i className="ri-login-box-line mr-2"></i>
-                Ir para Login
-              </Link>
-            </div>
-          </div>
-        </main>
-
-        <Footer />
-      </div>
-    );
-  }
+  const passwordCheckItems = [
+    { ok: passwordChecks.length, label: '8+ caracteres' },
+    { ok: passwordChecks.uppercase, label: 'Uma letra maiúscula' },
+    { ok: passwordChecks.number, label: 'Um número' },
+    { ok: passwordChecks.symbol, label: 'Um símbolo' },
+  ];
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col" style={{ fontFamily: 'Inter, sans-serif' }}>
       <Header isLoggedIn={false} />
 
-      <main className="flex-1 py-12 px-6">
-        <div className="max-w-2xl mx-auto">
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8">
-            <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-gradient-to-br from-red-600 to-red-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <i className="ri-user-add-line text-3xl text-white"></i>
+      <main className="flex-1 px-4 py-10 md:px-6">
+        <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-xl md:p-8">
+            <div className="mb-8">
+              <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-red-600 to-red-700 text-white shadow-lg">
+                <i className="ri-user-add-line text-3xl"></i>
               </div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Criar Conta na BET62</h1>
-              <p className="text-gray-600">Cadastro rápido em menos de 2 minutos</p>
+              <h1 className="text-3xl font-black text-gray-900">Criar Conta na BET62</h1>
+              <p className="mt-2 text-sm text-gray-600">
+                Registo completo com dados civis, validação reforçada e acesso imediato.
+              </p>
             </div>
 
-            {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
-                <i className="ri-error-warning-line text-red-500 mr-3 mt-0.5 flex-shrink-0"></i>
-                <p className="text-red-700 text-sm">{error}</p>
+            {error ? (
+              <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <i className="ri-error-warning-line mt-0.5 text-lg text-red-500"></i>
+                <span>{error}</span>
               </div>
-            )}
+            ) : null}
 
             <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                 <div>
-                  <label htmlFor="fullName" className="block text-sm font-semibold text-gray-700 mb-2">
-                    Nome Completo *
+                  <label htmlFor="firstName" className="mb-2 block text-sm font-semibold text-gray-700">
+                    Nome
                   </label>
                   <input
-                    type="text"
-                    id="fullName"
-                    name="fullName"
-                    value={formData.fullName}
+                    id="firstName"
+                    name="firstName"
+                    value={formData.firstName}
                     onChange={handleChange}
+                    autoComplete="given-name"
                     required
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all text-sm"
-                    placeholder="João Silva"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
+                    placeholder="João"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-2">
-                    Email *
+                  <label htmlFor="lastName" className="mb-2 block text-sm font-semibold text-gray-700">
+                    Apelido
                   </label>
                   <input
-                    type="email"
+                    id="lastName"
+                    name="lastName"
+                    value={formData.lastName}
+                    onChange={handleChange}
+                    autoComplete="family-name"
+                    required
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
+                    placeholder="Silva"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                <div>
+                  <label htmlFor="email" className="mb-2 block text-sm font-semibold text-gray-700">
+                    Email
+                  </label>
+                  <input
                     id="email"
+                    type="email"
                     name="email"
                     value={formData.email}
                     onChange={handleChange}
+                    autoComplete="email"
                     required
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all text-sm"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
                     placeholder="seu@email.com"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label htmlFor="phone" className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="phone" className="mb-2 block text-sm font-semibold text-gray-700">
                     Telefone
                   </label>
                   <input
-                    type="tel"
                     id="phone"
+                    type="tel"
                     name="phone"
                     value={formData.phone}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all text-sm"
+                    autoComplete="tel"
+                    required
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
                     placeholder="+351 912 345 678"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+                <div>
+                  <label htmlFor="nif" className="mb-2 block text-sm font-semibold text-gray-700">
+                    NIF
+                  </label>
+                  <input
+                    id="nif"
+                    name="nif"
+                    value={formData.nif}
+                    onChange={handleChange}
+                    autoComplete="off"
+                    required
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
+                    placeholder="123456789"
+                  />
+                </div>
 
                 <div>
-                  <label htmlFor="birthDate" className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="country" className="mb-2 block text-sm font-semibold text-gray-700">
+                    País
+                  </label>
+                  <select
+                    id="country"
+                    name="country"
+                    value={formData.country}
+                    onChange={handleChange}
+                    required
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
+                  >
+                    {COUNTRIES.map((country) => (
+                      <option key={country.code} value={country.code}>
+                        {country.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="birthDate" className="mb-2 block text-sm font-semibold text-gray-700">
                     Data de Nascimento
                   </label>
                   <input
-                    type="date"
                     id="birthDate"
+                    type="date"
                     name="birthDate"
                     value={formData.birthDate}
                     onChange={handleChange}
-                    max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all text-sm"
+                    max={maxBirthDate}
+                    required
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Deve ter pelo menos 18 anos</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                 <div>
-                  <label htmlFor="password" className="block text-sm font-semibold text-gray-700 mb-2">
-                    Senha *
+                  <label htmlFor="password" className="mb-2 block text-sm font-semibold text-gray-700">
+                    Senha
                   </label>
                   <div className="relative">
                     <input
-                      type={showPassword ? 'text' : 'password'}
                       id="password"
+                      type={showPassword ? 'text' : 'password'}
                       name="password"
                       value={formData.password}
                       onChange={handleChange}
+                      autoComplete="new-password"
                       required
-                      minLength={8}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all text-sm pr-12"
-                      placeholder="Mínimo 8 caracteres"
+                      className="w-full rounded-xl border border-gray-300 px-4 py-3 pr-12 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
+                      placeholder="Crie uma senha forte"
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 cursor-pointer"
+                      onClick={() => setShowPassword((value) => !value)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 transition-colors hover:text-gray-800"
+                      aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                     >
                       <i className={showPassword ? 'ri-eye-off-line text-xl' : 'ri-eye-line text-xl'}></i>
                     </button>
@@ -236,25 +345,26 @@ export default function RegisterPage() {
                 </div>
 
                 <div>
-                  <label htmlFor="confirmPassword" className="block text-sm font-semibold text-gray-700 mb-2">
-                    Confirmar Senha *
+                  <label htmlFor="confirmPassword" className="mb-2 block text-sm font-semibold text-gray-700">
+                    Confirmar Senha
                   </label>
                   <div className="relative">
                     <input
-                      type={showConfirmPassword ? 'text' : 'password'}
                       id="confirmPassword"
+                      type={showConfirmPassword ? 'text' : 'password'}
                       name="confirmPassword"
                       value={formData.confirmPassword}
                       onChange={handleChange}
+                      autoComplete="new-password"
                       required
-                      minLength={8}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all text-sm pr-12"
+                      className="w-full rounded-xl border border-gray-300 px-4 py-3 pr-12 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
                       placeholder="Repita a senha"
                     />
                     <button
                       type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 cursor-pointer"
+                      onClick={() => setShowConfirmPassword((value) => !value)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 transition-colors hover:text-gray-800"
+                      aria-label={showConfirmPassword ? 'Ocultar confirmação de senha' : 'Mostrar confirmação de senha'}
                     >
                       <i className={showConfirmPassword ? 'ri-eye-off-line text-xl' : 'ri-eye-line text-xl'}></i>
                     </button>
@@ -262,45 +372,45 @@ export default function RegisterPage() {
                 </div>
               </div>
 
-              {/* Password strength indicator */}
-              {formData.password && (
-                <div className="space-y-2">
-                  <div className="flex items-center space-x-2 text-xs">
-                    <span className={`flex items-center ${formData.password.length >= 8 ? 'text-red-600' : 'text-gray-400'}`}>
-                      <i className={`${formData.password.length >= 8 ? 'ri-check-line' : 'ri-close-line'} mr-1`}></i>
-                      8+ caracteres
-                    </span>
-                    <span className={`flex items-center ${/[A-Z]/.test(formData.password) ? 'text-red-600' : 'text-gray-400'}`}>
-                      <i className={`${/[A-Z]/.test(formData.password) ? 'ri-check-line' : 'ri-close-line'} mr-1`}></i>
-                      Maiúscula
-                    </span>
-                    <span className={`flex items-center ${/[0-9]/.test(formData.password) ? 'text-red-600' : 'text-gray-400'}`}>
-                      <i className={`${/[0-9]/.test(formData.password) ? 'ri-check-line' : 'ri-close-line'} mr-1`}></i>
-                      Número
-                    </span>
+              {formData.password ? (
+                <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                  <p className="mb-3 text-sm font-semibold text-gray-700">Força da senha</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {passwordCheckItems.map((item) => (
+                      <div
+                        key={item.label}
+                        className={`flex items-center gap-2 text-sm ${
+                          item.ok ? 'text-emerald-600' : 'text-gray-500'
+                        }`}
+                      >
+                        <i className={item.ok ? 'ri-check-line' : 'ri-close-line'}></i>
+                        <span>{item.label}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              )}
+              ) : null}
 
-              <div className="bg-gray-100 border border-gray-300 rounded-lg p-4">
-                <label className="flex items-start cursor-pointer">
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <label className="flex items-start gap-3 text-sm text-gray-700">
                   <input
                     type="checkbox"
                     name="acceptTerms"
                     checked={formData.acceptTerms}
                     onChange={handleChange}
                     required
-                    className="w-5 h-5 text-red-600 border-gray-300 rounded focus:ring-red-500 mt-0.5 cursor-pointer"
+                    className="mt-0.5 h-5 w-5 rounded border-gray-300 text-red-600 focus:ring-red-500"
                   />
-                  <span className="ml-3 text-sm text-gray-700">
-                    Eu confirmo que tenho mais de 18 anos e aceito os{' '}
-                    <a href="#" className="text-red-600 hover:text-red-700 font-semibold cursor-pointer">
+                  <span>
+                    Confirmo que tenho mais de 18 anos e aceito os{' '}
+                    <Link to="/termos-e-condicoes" className="font-semibold text-red-600 hover:text-red-700">
                       Termos e Condições
-                    </a>{' '}
+                    </Link>{' '}
                     e a{' '}
-                    <a href="#" className="text-red-600 hover:text-red-700 font-semibold cursor-pointer">
+                    <Link to="/politica-de-privacidade" className="font-semibold text-red-600 hover:text-red-700">
                       Política de Privacidade
-                    </a>
+                    </Link>
+                    .
                   </span>
                 </label>
               </div>
@@ -308,48 +418,76 @@ export default function RegisterPage() {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold rounded-lg transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-600 to-red-700 px-4 py-4 font-bold text-white transition-all hover:from-red-700 hover:to-red-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isSubmitting ? (
                   <>
-                    <i className="ri-loader-4-line animate-spin mr-2"></i>
-                    Criando Conta...
+                    <i className="ri-loader-4-line animate-spin text-lg"></i>
+                    <span>A criar conta...</span>
                   </>
                 ) : (
                   <>
-                    <i className="ri-user-add-line mr-2"></i>
-                    Criar Conta e Começar
+                    <i className="ri-user-add-line text-lg"></i>
+                    <span>Criar Conta e Entrar</span>
                   </>
                 )}
               </button>
             </form>
 
-            <div className="mt-6 text-center">
-              <p className="text-gray-600 text-sm">
-                Já tem uma conta?{' '}
-                <Link to="/login" className="text-red-600 hover:text-red-700 font-semibold cursor-pointer">
-                  Entrar agora
-                </Link>
-              </p>
+            <div className="mt-6 text-center text-sm text-gray-600">
+              Já tem uma conta?{' '}
+              <Link to="/login" className="font-semibold text-red-600 hover:text-red-700">
+                Entrar agora
+              </Link>
             </div>
+          </section>
 
-            <div className="mt-8 pt-6 border-t border-gray-200">
-              <div className="grid grid-cols-3 gap-4 text-center text-xs text-gray-500">
-                <div>
-                  <i className="ri-shield-check-line text-red-500 text-xl mb-1"></i>
-                  <div>100% Seguro</div>
+          <aside className="rounded-3xl border border-gray-200 bg-white p-6 shadow-xl md:p-8">
+            <h2 className="text-xl font-black text-gray-900">Registo Profissional</h2>
+            <p className="mt-2 text-sm text-gray-600">
+              O fluxo novo evita formulários simples antigos e mantém a conta pronta logo após o cadastro.
+            </p>
+
+            <div className="mt-6 space-y-4">
+              <div className="rounded-2xl bg-red-50 p-4">
+                <div className="font-semibold text-red-700">Dados completos</div>
+                <div className="mt-1 text-sm text-red-600">
+                  Nome, apelido, telefone, NIF, país e data de nascimento no mesmo fluxo.
                 </div>
-                <div>
-                  <i className="ri-time-line text-red-500 text-xl mb-1"></i>
-                  <div>Cadastro em 2min</div>
+              </div>
+
+              <div className="rounded-2xl bg-emerald-50 p-4">
+                <div className="font-semibold text-emerald-700">Entrada imediata</div>
+                <div className="mt-1 text-sm text-emerald-600">
+                  O backend já devolve o utilizador autenticado no signup para evitar uma chamada extra.
                 </div>
-                <div>
-                  <i className="ri-gift-line text-red-500 text-xl mb-1"></i>
-                  <div>Bónus de Boas-Vindas</div>
+              </div>
+
+              <div className="rounded-2xl bg-blue-50 p-4">
+                <div className="font-semibold text-blue-700">Segurança visível</div>
+                <div className="mt-1 text-sm text-blue-600">
+                  Checklist de senha forte e campos com validação clara para reduzir erros.
                 </div>
               </div>
             </div>
-          </div>
+
+            <div className="mt-8 border-t border-gray-200 pt-6">
+              <div className="grid grid-cols-3 gap-4 text-center text-xs text-gray-500">
+                <div>
+                  <i className="ri-shield-check-line mb-1 text-xl text-red-500"></i>
+                  <div>Fluxo seguro</div>
+                </div>
+                <div>
+                  <i className="ri-flashlight-line mb-1 text-xl text-red-500"></i>
+                  <div>Menos passos</div>
+                </div>
+                <div>
+                  <i className="ri-layout-grid-line mb-1 text-xl text-red-500"></i>
+                  <div>Sem legado</div>
+                </div>
+              </div>
+            </div>
+          </aside>
         </div>
       </main>
 

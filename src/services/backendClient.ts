@@ -40,6 +40,22 @@ function resolvePath(path: string): string {
   return path;
 }
 
+function mapAuthUser(rawUser: any): AuthUser | null {
+  if (!rawUser) return null;
+
+  const id = String(rawUser.userId || rawUser.id || '').trim();
+  const email = String(rawUser.username || rawUser.email || '').trim();
+
+  if (!id || !email) return null;
+
+  return {
+    id,
+    email,
+    role: rawUser.is_operator ? 'admin' : 'user',
+    name: rawUser.name ? String(rawUser.name) : undefined,
+  };
+}
+
 export async function apiFetch(path: string, options: RequestInit = {}) {
   const token = getToken();
   const headers: HeadersInit = {
@@ -110,14 +126,7 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
     const data = await apiFetch('/auth/me', { method: 'GET' });
-    if (!data?.user) return null;
-    const u = data.user;
-    return {
-      id: String(u.userId || u.id || ''),
-      email: String(u.username || u.email || ''),
-      role: u.is_operator ? 'admin' : 'user',
-      name: u.name,
-    } as AuthUser;
+    return mapAuthUser(data?.user);
   } catch {
     return null;
   }
@@ -142,6 +151,9 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
     if (typeof window !== 'undefined') window.localStorage.setItem('refresh_token', data.refreshToken);
   }
 
+  const user = mapAuthUser(data.user);
+  if (user) return user;
+
   const me = await getCurrentUser();
   if (!me) throw new Error('Não foi possível obter o perfil do utilizador');
   return me;
@@ -157,6 +169,9 @@ export async function signUp(
     password,
     firstName: extraData?.firstName || extraData?.first_name || '',
     lastName: extraData?.lastName || extraData?.last_name || '',
+    phone: extraData?.phone || '',
+    country: extraData?.country || '',
+    nif: extraData?.nif || '',
     dob: extraData?.dob || extraData?.birth_date || null,
   };
 
@@ -179,6 +194,9 @@ export async function signUp(
   if (data.refreshToken) {
     if (typeof window !== 'undefined') window.localStorage.setItem('refresh_token', data.refreshToken);
   }
+
+  const user = mapAuthUser(data.user);
+  if (user) return user;
 
   const me = await getCurrentUser();
   return me;

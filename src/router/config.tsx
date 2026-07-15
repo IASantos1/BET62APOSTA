@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { RouteObject } from 'react-router-dom';
+import { Navigate, RouteObject } from 'react-router-dom';
 import NotFound from '../pages/NotFound';
 
 // Lazy‑load page components
@@ -91,6 +91,18 @@ const routes: RouteObject[] = [
         <RegisterPage />
       </Suspense>
     ),
+  },
+  {
+    path: '/register',
+    element: <Navigate to="/registro" replace />,
+  },
+  {
+    path: '/admin/login',
+    element: <Navigate to="/login" replace />,
+  },
+  {
+    path: '/administrador/login',
+    element: <Navigate to="/login" replace />,
   },
   {
     path: '/desportos-ao-vivo',
