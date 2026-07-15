@@ -18,6 +18,7 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
   const [paymentIntentId, setPaymentIntentId] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
     apiFetch<{ available: boolean; publishableKey?: string }>('/api/stripe/config')
@@ -42,7 +43,11 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
         );
         if (cancelled) return;
         if (status?.status === 'succeeded') {
-          addNotification({ type: 'success', message: '✅ Pagamento MB WAY confirmado. Saldo atualizado.' });
+          if (!confirmed) {
+            setConfirmed(true);
+            addNotification({ type: 'success', message: '✅ Pagamento MB WAY confirmado. Saldo atualizado.' });
+            onSuccess();
+          }
           clearInterval(interval);
           return;
         }
@@ -60,7 +65,7 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
       cancelled = true;
       clearInterval(interval);
     };
-  }, [sent, paymentIntentId, addNotification]);
+  }, [sent, paymentIntentId, addNotification, confirmed, onSuccess]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,11 +100,13 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
 
       if (intent.status === 'succeeded') {
         await apiFetch('/api/stripe/confirm', { method: 'POST', body: JSON.stringify({ paymentIntentId: intent.id }) });
+        setConfirmed(true);
+        addNotification({ type: 'success', message: '✅ Pagamento MB WAY confirmado. Saldo atualizado.' });
+        onSuccess();
       }
 
       setSent(true);
       addNotification({ type: 'success', message: '📱 Pedido MBway enviado! Confirma na tua app.' });
-      onSuccess();
     } catch (err: any) {
       const msg = String(err?.message || '');
       setError(/401|Unauthorized/i.test(msg) ? 'Sessão expirada. Faz login novamente.' : msg || 'Erro ao processar MBway');
@@ -109,8 +116,20 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
   if (sent) return (
     <div className="text-center py-6">
       <div className="text-4xl mb-3">📱</div>
-      <p className="font-bold text-green-400 text-lg">Pedido enviado!</p>
-      <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Abre a tua app MBway e confirma o pagamento de €{amount.toFixed(2)}</p>
+      <p className={`font-bold text-lg ${confirmed ? 'text-green-400' : 'text-yellow-400'}`}>
+        {confirmed ? 'Pagamento confirmado!' : 'Pedido enviado!'}
+      </p>
+      <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+        {confirmed
+          ? `Saldo atualizado para o depósito de €${amount.toFixed(2)}.`
+          : `Abre a tua app MBway e confirma o pagamento de €${amount.toFixed(2)}.`}
+      </p>
+      {!confirmed && (
+        <div className="flex items-center justify-center gap-2 mt-4">
+          <div className="w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+          <p className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>A aguardar confirmação...</p>
+        </div>
+      )}
     </div>
   );
 
@@ -313,7 +332,9 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
           <p className="font-semibold mb-1">Como pagar:</p>
           <ul className="space-y-0.5 ml-3"><li>• Caixa ATM → Pagamentos → Outros Serviços</li><li>• Homebanking → Pagamentos → Serviços</li><li>• Crédito automático após confirmação</li></ul>
         </div>
-        <button type="button" onClick={onSuccess} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition-colors">✅ Concluído</button>
+        <button type="button" onClick={onSuccess} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition-colors">
+          {ref.paid ? '✅ Confirmado' : 'Ok'}
+        </button>
       </div>
     );
   }

@@ -305,8 +305,18 @@ export async function handleWalletRoutes(
     return true;
   }
 
+  if ((req.method === 'POST' || req.method === 'GET') && path === '/payments/mbway') {
+    sendJson(res, 410, { error: 'Endpoint antigo MB WAY desativado. Atualiza a app e usa /api/stripe/*.' });
+    return true;
+  }
+
   // POST /api/payments/multibanco/generate — generate Multibanco reference
   if (req.method === 'POST' && path === '/api/payments/multibanco/generate') {
+    sendJson(res, 410, { error: 'Endpoint antigo Multibanco desativado. Atualiza a app e usa Stripe.' });
+    return true;
+  }
+
+  if ((req.method === 'POST' || req.method === 'GET') && path === '/payments/multibanco/generate') {
     sendJson(res, 410, { error: 'Endpoint antigo Multibanco desativado. Atualiza a app e usa Stripe.' });
     return true;
   }
