@@ -1016,6 +1016,7 @@ export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
     { test: /brasileir[aã]o|campeonato brasileiro|serie a.*brasil/, id: 71 },
     { test: /copa do brasil/, id: 73 },
     // Argentina
+    { test: /copa.*argentina|argentina.*copa/, id: 130 },
     { test: /primera division.*arg|arg.*primera|liga profesional/, id: 128 },
     // USA
     { test: /\bmls\b|major league soccer/, id: 253 },
