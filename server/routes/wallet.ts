@@ -132,87 +132,19 @@ export async function handleWalletRoutes(
 
   // POST /api/wallet/deposit — credit balance after payment confirmation
   if (req.method === 'POST' && path === '/api/wallet/deposit') {
-    const u = await requireUser(pool, req);
-    if (!u) return unauthorized(res), true;
-    await ensureAppTransactionsTable(pool);
-
-    const body = await readJsonBody<any>(req).catch(() => null);
-    if (!body) return badRequest(res, 'Invalid JSON'), true;
-
-    const amount = toNumber(body.amount);
-    if (!amount || amount < 1) return badRequest(res, 'Valor inválido'), true;
-
-    const current = await getBalance(pool, u.id);
-    const newBalance = current + amount;
-    await setBalance(pool, u.id, newBalance);
-
-    const txId = randomId(16);
-    await pool.query(
-      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, external_id, created_at, updated_at)
-       VALUES ($1, $2, 'deposit', $3, 'completed', $4, $5, $6, NOW(), NOW())`,
-      [
-        txId,
-        u.id,
-        amount,
-        String(body.payment_method || 'manual'),
-        String(body.description || 'Depósito'),
-        body.external_id ? String(body.external_id) : null,
-      ],
-    );
-
-    sendJson(res, 200, { ok: true, balance: newBalance, id: txId });
+    sendJson(res, 410, { error: 'Depósito manual desativado. Usa pagamentos via Stripe.' });
     return true;
   }
 
   // POST /api/wallet/deposit/card — Stripe/PayPal card deposit (same as above)
   if (req.method === 'POST' && path === '/api/wallet/deposit/card') {
-    const u = await requireUser(pool, req);
-    if (!u) return unauthorized(res), true;
-    await ensureAppTransactionsTable(pool);
-
-    const body = await readJsonBody<any>(req).catch(() => null);
-    if (!body) return badRequest(res, 'Invalid JSON'), true;
-    const amount = toNumber(body.amount);
-    if (!amount || amount < 10) return badRequest(res, 'Valor mínimo €10'), true;
-
-    const current = await getBalance(pool, u.id);
-    const newBalance = current + amount;
-    await setBalance(pool, u.id, newBalance);
-
-    const txId = randomId(16);
-    await pool.query(
-      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
-       VALUES ($1, $2, 'deposit', $3, 'completed', 'card', $4, NOW(), NOW())`,
-      [txId, u.id, amount, `Depósito via Cartão - €${amount.toFixed(2)}`],
-    );
-
-    sendJson(res, 200, { ok: true, balance: newBalance, id: txId });
+    sendJson(res, 410, { error: 'Depósito direto por cartão desativado. Usa /api/stripe/*.' });
     return true;
   }
 
   // POST /api/wallet/deposit/mbway — MB WAY deposit
   if (req.method === 'POST' && path === '/api/wallet/deposit/mbway') {
-    const u = await requireUser(pool, req);
-    if (!u) return unauthorized(res), true;
-    await ensureAppTransactionsTable(pool);
-
-    const body = await readJsonBody<any>(req).catch(() => null);
-    if (!body) return badRequest(res, 'Invalid JSON'), true;
-    const amount = toNumber(body.amount);
-    if (!amount || amount < 10) return badRequest(res, 'Valor mínimo €10'), true;
-
-    const txId = randomId(16);
-    await pool.query(
-      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
-       VALUES ($1, $2, 'deposit', $3, 'pending', 'mbway', $4, NOW(), NOW())`,
-      [txId, u.id, amount, `Depósito via MB WAY - €${amount.toFixed(2)}`],
-    );
-
-    sendJson(res, 200, {
-      ok: true,
-      id: txId,
-      message: 'Pedido MB WAY enviado. Confirme no telemóvel.',
-    });
+    sendJson(res, 410, { error: 'Endpoint antigo MB WAY desativado. Atualiza a app e usa Stripe.' });
     return true;
   }
 
@@ -369,67 +301,13 @@ export async function handleWalletRoutes(
 
   // POST /api/payments/mbway — initiate MB WAY payment
   if (req.method === 'POST' && path === '/api/payments/mbway') {
-    const u = await requireUser(pool, req);
-    if (!u) return unauthorized(res), true;
-    await ensureAppTransactionsTable(pool);
-
-    const body = await readJsonBody<any>(req).catch(() => null);
-    if (!body) return badRequest(res, 'Invalid JSON'), true;
-
-    const amount = toNumber(body.amount);
-    if (!amount || amount < 10) return badRequest(res, 'Valor mínimo €10'), true;
-
-    const current = await getBalance(pool, u.id);
-    const newBalance = current + amount;
-    await setBalance(pool, u.id, newBalance);
-
-    const txId = randomId(16);
-    await pool.query(
-      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, completed_at, created_at, updated_at)
-       VALUES ($1, $2, 'deposit', $3, 'completed', 'mbway', $4, NOW(), NOW(), NOW())`,
-      [txId, u.id, amount, `Depósito MB WAY - €${amount.toFixed(2)}`],
-    );
-
-    sendJson(res, 200, {
-      ok: true,
-      id: txId,
-      status: 'completed',
-      balance: newBalance,
-      message: 'Pagamento MB WAY confirmado. Saldo atualizado.',
-    });
+    sendJson(res, 410, { error: 'Endpoint antigo MB WAY desativado. Atualiza a app e usa /api/stripe/*.' });
     return true;
   }
 
   // POST /api/payments/multibanco/generate — generate Multibanco reference
   if (req.method === 'POST' && path === '/api/payments/multibanco/generate') {
-    const u = await requireUser(pool, req);
-    if (!u) return unauthorized(res), true;
-    await ensureAppTransactionsTable(pool);
-
-    const body = await readJsonBody<any>(req).catch(() => null);
-    if (!body) return badRequest(res, 'Invalid JSON'), true;
-
-    const amount = toNumber(body.amount);
-    if (!amount || amount < 10) return badRequest(res, 'Valor mínimo €10'), true;
-
-    const entity = '11249';
-    const reference = `${Math.floor(Math.random() * 900000000 + 100000000)}`;
-
-    const txId = randomId(16);
-    await pool.query(
-      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
-       VALUES ($1, $2, 'deposit', $3, 'pending', 'multibanco', $4, NOW(), NOW())`,
-      [txId, u.id, amount, `Referência Multibanco: ${entity} / ${reference}`],
-    );
-
-    sendJson(res, 200, {
-      ok: true,
-      id: txId,
-      entity,
-      reference,
-      amount,
-      expires_at: Math.floor((Date.now() + 72 * 3600 * 1000) / 1000),
-    });
+    sendJson(res, 410, { error: 'Endpoint antigo Multibanco desativado. Atualiza a app e usa Stripe.' });
     return true;
   }
 

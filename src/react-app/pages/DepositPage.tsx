@@ -12,17 +12,91 @@ type Method = 'mbway' | 'multibanco' | 'cartao';
 const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
   const { addNotification, darkMode } = useApp();
   const [phone, setPhone] = useState('');
+  const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
+  const [paymentIntentId, setPaymentIntentId] = useState('');
+
+  useEffect(() => {
+    apiFetch<{ available: boolean; publishableKey?: string }>('/api/stripe/config')
+      .then((data) => {
+        if (!data.available || !data.publishableKey) {
+          setUnavailable(true);
+          return;
+        }
+        setStripePromise(loadStripe(data.publishableKey));
+      })
+      .catch(() => setUnavailable(true));
+  }, []);
+
+  useEffect(() => {
+    if (!sent || !paymentIntentId) return;
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      try {
+        const status = await apiFetch<{ status?: string; error?: string }>(
+          `/api/stripe/payment-intent-status?paymentIntentId=${encodeURIComponent(paymentIntentId)}`,
+          { method: 'GET' },
+        );
+        if (cancelled) return;
+        if (status?.status === 'succeeded') {
+          addNotification({ type: 'success', message: '✅ Pagamento MB WAY confirmado. Saldo atualizado.' });
+          clearInterval(interval);
+          return;
+        }
+        if (status?.status === 'requires_payment_method' || status?.status === 'canceled') {
+          setError(status?.error || 'O pagamento MB WAY não foi concluído.');
+          clearInterval(interval);
+        }
+      } catch {
+        if (!cancelled) {
+          /* no-op */
+        }
+      }
+    }, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [sent, paymentIntentId, addNotification]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!phone || phone.length < 9) { setError('Insere um número de telemóvel válido (9 dígitos)'); return; }
     setLoading(true); setError('');
     try {
-      const formattedPhone = phone.startsWith('+351') ? phone : `+351${phone.replace(/\s/g, '')}`;
-      await apiFetch('/api/wallet/deposit/mbway', { method: 'POST', body: JSON.stringify({ amount, phone: formattedPhone }) });
+      if (unavailable) throw new Error('MB WAY não disponível de momento.');
+      const stripe = await stripePromise;
+      if (!stripe) throw new Error('Stripe ainda a carregar. Tenta novamente.');
+      const stripeAny = stripe as any;
+      if (typeof stripeAny.confirmMbWayPayment !== 'function') throw new Error('Stripe.js não suporta MB WAY neste ambiente.');
+
+      const formattedPhone = `+351${phone.replace(/\s/g, '')}`;
+      const pi = await apiFetch<{ clientSecret?: string; error?: string }>('/api/stripe/create-payment-intent', {
+        method: 'POST',
+        body: JSON.stringify({ amount, paymentMethod: 'mbway' }),
+      });
+      if (!pi.clientSecret) throw new Error(pi.error || 'Erro ao iniciar pagamento MB WAY');
+
+      const result = await stripeAny.confirmMbWayPayment(pi.clientSecret, {
+        payment_method: {
+          billing_details: {
+            phone: formattedPhone,
+          },
+        },
+      });
+      if (result?.error) throw new Error(result.error.message || 'Pagamento recusado');
+
+      const intent = result?.paymentIntent;
+      if (!intent?.id) throw new Error('Não foi possível iniciar o pagamento MB WAY.');
+      setPaymentIntentId(intent.id);
+
+      if (intent.status === 'succeeded') {
+        await apiFetch('/api/stripe/confirm', { method: 'POST', body: JSON.stringify({ paymentIntentId: intent.id }) });
+      }
+
       setSent(true);
       addNotification({ type: 'success', message: '📱 Pedido MBway enviado! Confirma na tua app.' });
       onSuccess();
@@ -60,24 +134,121 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
 };
 
 // ─── Multibanco ───────────────────────────────────────────────────────────────
-type MultibancoRef = { entity: string; reference: string; amount: number; expiresAt: number | null; paymentIntentId: string };
+type MultibancoRef = {
+  entity: string;
+  reference: string;
+  amount: number;
+  expiresAt: number | null;
+  hostedVoucherUrl?: string;
+  paymentIntentId: string;
+  paid?: boolean;
+};
 
 const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
   const { addNotification, darkMode, user } = useApp();
   const [email, setEmail] = useState((user as any)?.email || '');
+  const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [ref, setRef] = useState<MultibancoRef | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch<{ available: boolean; publishableKey?: string }>('/api/stripe/config')
+      .then((data) => {
+        if (!data.available || !data.publishableKey) {
+          setUnavailable(true);
+          return;
+        }
+        setStripePromise(loadStripe(data.publishableKey));
+      })
+      .catch(() => setUnavailable(true));
+  }, []);
+
+  useEffect(() => {
+    if (!ref?.paymentIntentId || ref.paid) return;
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      try {
+        const status = await apiFetch<{
+          status?: string;
+          error?: string;
+          voucher?: { entity?: string; reference?: string; expiresAt?: number | null; hostedVoucherUrl?: string } | null;
+        }>(`/api/stripe/payment-intent-status?paymentIntentId=${encodeURIComponent(ref.paymentIntentId)}`, { method: 'GET' });
+
+        if (cancelled) return;
+
+        if (status?.voucher?.entity && status?.voucher?.reference) {
+          setRef((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  entity: String(status.voucher?.entity || prev.entity),
+                  reference: String(status.voucher?.reference || prev.reference),
+                  expiresAt: typeof status.voucher?.expiresAt === 'number' ? status.voucher.expiresAt : prev.expiresAt,
+                  hostedVoucherUrl: String(status.voucher?.hostedVoucherUrl || prev.hostedVoucherUrl || ''),
+                }
+              : prev,
+          );
+        }
+
+        if (status?.status === 'succeeded') {
+          setRef((prev) => (prev ? { ...prev, paid: true } : prev));
+          addNotification({ type: 'success', message: '✅ Pagamento Multibanco confirmado. Saldo atualizado.' });
+          clearInterval(interval);
+          return;
+        }
+
+        if (status?.status === 'requires_payment_method' || status?.status === 'canceled') {
+          setError(status?.error || 'A referência Multibanco deixou de estar válida.');
+          clearInterval(interval);
+        }
+      } catch {
+        if (!cancelled) {
+          /* no-op */
+        }
+      }
+    }, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [ref?.paymentIntentId, ref?.paid, addNotification]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { setError('Email inválido'); return; }
     setLoading(true); setError('');
     try {
-      const res = await apiFetch<{ status: string; paymentIntentId: string; entity: string | null; reference: string | null; amount: number; expiresAt: number | null; }>('/api/wallet/deposit/multibanco', { method: 'POST', body: JSON.stringify({ amount, email }) });
-      if (!res.entity || !res.reference) throw new Error('Não foi possível gerar a referência. Tenta novamente.');
-      setRef({ entity: res.entity, reference: res.reference, amount: res.amount, expiresAt: res.expiresAt, paymentIntentId: res.paymentIntentId });
+      if (unavailable) throw new Error('Multibanco não disponível de momento.');
+      const stripe = await stripePromise;
+      if (!stripe) throw new Error('Stripe ainda a carregar. Tenta novamente.');
+      const stripeAny = stripe as any;
+      if (typeof stripeAny.confirmMultibancoPayment !== 'function') throw new Error('Stripe.js não suporta Multibanco neste ambiente.');
+
+      const pi = await apiFetch<{ clientSecret?: string; error?: string }>('/api/stripe/create-payment-intent', {
+        method: 'POST',
+        body: JSON.stringify({ amount, paymentMethod: 'multibanco' }),
+      });
+      if (!pi.clientSecret) throw new Error(pi.error || 'Erro ao iniciar pagamento Multibanco');
+
+      const confirmation = await stripeAny.confirmMultibancoPayment(pi.clientSecret, {
+        payment_method: { billing_details: { email } },
+      });
+      if (confirmation?.error) throw new Error(confirmation.error.message || 'Erro ao gerar referência Multibanco');
+
+      const intent = confirmation?.paymentIntent;
+      if (!intent?.id) throw new Error('Não foi possível gerar a referência. Tenta novamente.');
+
+      const details = (intent?.next_action as any)?.multibanco_display_details;
+      const entity = String(details?.entity || '');
+      const reference = String(details?.reference || '');
+      if (!entity || !reference) throw new Error('Não foi possível obter a referência. Tenta novamente.');
+      const expiresAt = typeof details?.expires_at === 'number' ? details.expires_at : null;
+      const hostedVoucherUrl = String(details?.hosted_voucher_url || '');
+      setRef({ entity, reference, amount, expiresAt, paymentIntentId: intent.id, hostedVoucherUrl });
+
       addNotification({ type: 'success', message: '🏦 Referência Multibanco gerada!' });
     } catch (err: any) {
       const msg = String(err?.message || '');
@@ -98,6 +269,11 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
       : '3 dias';
     return (
       <div className="space-y-4">
+        {ref.paid && (
+          <div className={`rounded-xl p-4 border ${darkMode ? 'bg-green-900/20 border-green-700/40 text-green-200' : 'bg-green-50 border-green-200 text-green-800'}`}>
+            Pagamento confirmado. O saldo já foi creditado.
+          </div>
+        )}
         <div className={`rounded-xl p-4 border-2 ${darkMode ? 'bg-blue-900/20 border-blue-700' : 'bg-blue-50 border-blue-300'}`}>
           <div className="flex items-center gap-2 mb-3">
             <svg viewBox="0 0 48 20" width="48" height="20" xmlns="http://www.w3.org/2000/svg"><rect width="48" height="20" rx="4" fill="#003b95"/><text x="4" y="14" fontSize="9" fill="#fff" fontFamily="Arial" fontWeight="bold">Multibanco</text></svg>
@@ -124,6 +300,15 @@ const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () =
             </div>
           </div>
         </div>
+        {ref.hostedVoucherUrl && (
+          <button
+            type="button"
+            onClick={() => window.open(ref.hostedVoucherUrl!, '_blank', 'noopener,noreferrer')}
+            className={`w-full py-3 font-bold rounded-xl transition-colors ${darkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-white hover:bg-gray-50 text-gray-800 border'}`}
+          >
+            Abrir voucher
+          </button>
+        )}
         <div className={`rounded-lg p-3 text-xs ${darkMode ? 'bg-gray-700/50 text-gray-300' : 'bg-gray-50 text-gray-700'}`}>
           <p className="font-semibold mb-1">Como pagar:</p>
           <ul className="space-y-0.5 ml-3"><li>• Caixa ATM → Pagamentos → Outros Serviços</li><li>• Homebanking → Pagamentos → Serviços</li><li>• Crédito automático após confirmação</li></ul>
