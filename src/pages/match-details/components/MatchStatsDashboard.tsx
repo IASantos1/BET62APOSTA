@@ -97,6 +97,131 @@ function computeH2HMetrics(h2hMatches: any[] | undefined) {
   return { avgGoals, over15, over25, btts };
 }
 
+type DashboardSport = 'football' | 'volleyball' | 'mma' | 'other';
+
+function detectDashboardSport(match: any): DashboardSport {
+  const raw = String(match?.sport || '').trim().toLowerCase();
+  if (!raw || raw === 'soccer' || raw === 'football' || raw === 'futebol') return 'football';
+  if (raw === 'volleyball' || raw === 'voleibol' || raw === 'vôlei' || raw === 'volei') return 'volleyball';
+  if (raw === 'mma') return 'mma';
+  return 'other';
+}
+
+function parseScorePayload(raw: unknown): Record<string, any> | null {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    const text = raw.trim();
+    if (!text || (!text.startsWith('{') && !text.startsWith('['))) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }
+  return typeof raw === 'object' ? (raw as Record<string, any>) : null;
+}
+
+function extractSetPairs(match: any): Array<{ home: number | null; away: number | null }> {
+  const payload = parseScorePayload(match?.score);
+  const setsRoot = payload?.sets || payload?.set || match?.sets || null;
+  if (!setsRoot || typeof setsRoot !== 'object') return [];
+
+  const toNum = (value: unknown): number | null => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+
+  const indexes = Object.keys(setsRoot)
+    .map((key) => {
+      const result = /^(?:s|set)\s*(\d{1,2})$/i.exec(String(key).trim());
+      return result ? Number(result[1]) : null;
+    })
+    .filter((value): value is number => value !== null)
+    .sort((a, b) => a - b);
+
+  return indexes.map((index) => {
+    const entry =
+      setsRoot[`s${index}`] ??
+      setsRoot[`set${index}`] ??
+      setsRoot[`S${index}`] ??
+      setsRoot[`SET${index}`];
+    return {
+      home: entry && typeof entry === 'object' ? toNum(entry.home) : null,
+      away: entry && typeof entry === 'object' ? toNum(entry.away) : null,
+    };
+  });
+}
+
+function countSetWins(sets: Array<{ home: number | null; away: number | null }>): { home: number; away: number } {
+  return sets.reduce(
+    (acc, set) => {
+      if (set.home == null || set.away == null) return acc;
+      if (set.home > set.away) acc.home += 1;
+      if (set.away > set.home) acc.away += 1;
+      return acc;
+    },
+    { home: 0, away: 0 },
+  );
+}
+
+function extractCurrentRound(match: any): number {
+  const raw = String(match?.period || match?.statusShort || match?.statusLabel || '').toUpperCase();
+  const roundMatch = /(?:ROUND|R)\s*([1-9])/.exec(raw);
+  if (roundMatch) return Number(roundMatch[1]);
+  const minute = Number(match?.elapsed ?? match?.minute ?? 0);
+  if (minute > 0) return Math.max(1, Math.ceil(minute / 5));
+  return 1;
+}
+
+function computeAdaptiveProbabilities(params: {
+  sport: DashboardSport;
+  homeMetric: number;
+  awayMetric: number;
+}): { homeWin: number; draw: number; awayWin: number; counts: { homeWins: number; draws: number; awayWins: number } } {
+  const homeMetric = Number.isFinite(params.homeMetric) ? params.homeMetric : 0;
+  const awayMetric = Number.isFinite(params.awayMetric) ? params.awayMetric : 0;
+  const diff = homeMetric - awayMetric;
+  const tensionBase = params.sport === 'mma' ? 22 : 30;
+
+  let homeWin = 50 + diff * tensionBase;
+  let awayWin = 50 - diff * tensionBase;
+  let draw = 100 - Math.abs(diff) * (params.sport === 'mma' ? 28 : 34);
+
+  homeWin = clampPercent(homeWin);
+  awayWin = clampPercent(awayWin);
+  draw = clampPercent(draw);
+
+  const total = homeWin + draw + awayWin || 1;
+  return {
+    homeWin: (homeWin / total) * 100,
+    draw: (draw / total) * 100,
+    awayWin: (awayWin / total) * 100,
+    counts: {
+      homeWins: Math.max(0, Math.round(homeMetric)),
+      draws: Math.max(0, Math.round(draw / 10)),
+      awayWins: Math.max(0, Math.round(awayMetric)),
+    },
+  };
+}
+
+function PhaseCard({
+  title,
+  value,
+  subtitle,
+}: {
+  title: string;
+  value: string;
+  subtitle: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+      <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{title}</div>
+      <div className="mt-2 text-2xl font-black text-slate-900">{value}</div>
+      <div className="mt-1 text-sm text-slate-500">{subtitle}</div>
+    </div>
+  );
+}
+
 function ResultPill({ result }: { result: 'W' | 'D' | 'L' }) {
   const label = result === 'W' ? 'V' : result === 'D' ? 'E' : 'D';
   const cls =
@@ -306,6 +431,22 @@ export default function MatchStatsDashboard({ match, onOpenMarkets }: { match: a
   const homeName = match?.homeTeam || match?.teams?.home?.name || 'Casa';
   const awayName = match?.awayTeam || match?.teams?.away?.name || 'Fora';
   const matchId = match?.id || match?.fixtureId || null;
+  const sport = useMemo(() => detectDashboardSport(match), [match]);
+  const setPairs = useMemo(() => extractSetPairs(match), [match]);
+  const setWins = useMemo(() => countSetWins(setPairs), [setPairs]);
+  const currentRound = useMemo(() => extractCurrentRound(match), [match]);
+  const currentSet = setPairs.length > 0 ? setPairs[setPairs.length - 1] : null;
+  const volleyballHeaderScore = {
+    home: setWins.home || Number(match?.homeScore ?? 0),
+    away: setWins.away || Number(match?.awayScore ?? 0),
+  };
+  const headerScore =
+    sport === 'volleyball'
+      ? volleyballHeaderScore
+      : {
+          home: Number(match?.homeScore ?? 0),
+          away: Number(match?.awayScore ?? 0),
+        };
 
   const {
     statistics,
@@ -319,7 +460,7 @@ export default function MatchStatsDashboard({ match, onOpenMarkets }: { match: a
     formLoading,
     fetchH2H,
     fetchRecentForm,
-  } = useMatchStatistics(matchId, !!match?.isLive, 30000);
+  } = useMatchStatistics(matchId, !!match?.isLive, 30000, sport);
 
   useEffect(() => {
     if (!homeName || !awayName) return;
@@ -330,57 +471,250 @@ export default function MatchStatsDashboard({ match, onOpenMarkets }: { match: a
   const h2hMetrics = useMemo(() => computeH2HMetrics(headToHead?.matches), [headToHead]);
 
   const probabilities = useMemo(
-    () =>
-      computeProbabilities({
-        h2h: headToHead
-          ? {
-              homeWins: headToHead.homeWins,
-              draws: headToHead.draws,
-              awayWins: headToHead.awayWins,
-              total: headToHead.total,
-            }
-          : undefined,
-        homeForm: recentForm?.home ? { form: recentForm.home.form } : undefined,
-        awayForm: recentForm?.away ? { form: recentForm.away.form } : undefined,
-      }),
-    [headToHead, recentForm],
+    () => {
+      if (sport === 'football') {
+        return computeProbabilities({
+          h2h: headToHead
+            ? {
+                homeWins: headToHead.homeWins,
+                draws: headToHead.draws,
+                awayWins: headToHead.awayWins,
+                total: headToHead.total,
+              }
+            : undefined,
+          homeForm: recentForm?.home ? { form: recentForm.home.form } : undefined,
+          awayForm: recentForm?.away ? { form: recentForm.away.form } : undefined,
+        });
+      }
+
+      if (sport === 'volleyball') {
+        return computeAdaptiveProbabilities({
+          sport,
+          homeMetric: setWins.home || Number(match?.homeScore ?? 0),
+          awayMetric: setWins.away || Number(match?.awayScore ?? 0),
+        });
+      }
+
+      if (sport === 'mma') {
+        return computeAdaptiveProbabilities({
+          sport,
+          homeMetric: Number(match?.homeScore ?? 0),
+          awayMetric: Number(match?.awayScore ?? 0),
+        });
+      }
+
+      return computeAdaptiveProbabilities({
+        sport: 'other',
+        homeMetric: Number(match?.homeScore ?? 0),
+        awayMetric: Number(match?.awayScore ?? 0),
+      });
+    },
+    [headToHead, match?.awayScore, match?.homeScore, recentForm, setWins.away, setWins.home, sport],
   );
 
   const marketRows = useMemo(
-    () => [
-      {
-        label: 'Mais de 1.5 Golos',
-        value: h2hMetrics.over15,
-        trailing: h2hMetrics.avgGoals == null ? '--' : h2hMetrics.avgGoals.toFixed(2),
-        color: 'bg-blue-500',
-      },
-      {
-        label: 'Mais de 2.5 Golos',
-        value: h2hMetrics.over25,
-        trailing: probabilities.draw > 0 ? (100 / Math.max(probabilities.homeWin, 1)).toFixed(2) : '--',
-        color: 'bg-red-500',
-      },
-      {
-        label: 'Ambas Marcam',
-        value: h2hMetrics.btts,
-        trailing: h2hMetrics.btts == null ? '--' : (100 / Math.max(h2hMetrics.btts, 1)).toFixed(2),
-        color: 'bg-blue-500',
-      },
+    () => {
+      if (sport === 'volleyball') {
+        const currentSetPoints = (currentSet?.home ?? 0) + (currentSet?.away ?? 0);
+        const currentSetGap = Math.abs((currentSet?.home ?? 0) - (currentSet?.away ?? 0));
+        return [
+          {
+            label: 'Mais de 3.5 Sets',
+            value: clampPercent((setPairs.length / 5) * 100),
+            trailing: `${setPairs.length}/5`,
+            color: 'bg-blue-500',
+          },
+          {
+            label: 'Pontos no Set Atual',
+            value: clampPercent((currentSetPoints / 50) * 100),
+            trailing: `${currentSet?.home ?? 0}-${currentSet?.away ?? 0}`,
+            color: 'bg-red-500',
+          },
+          {
+            label: 'Equilíbrio do Set',
+            value: clampPercent(100 - currentSetGap * 8),
+            trailing: `Dif. ${currentSetGap}`,
+            color: 'bg-blue-500',
+          },
+        ];
+      }
+
+      if (sport === 'mma') {
+        const totalPoints = Math.max(1, Number(match?.homeScore ?? 0) + Number(match?.awayScore ?? 0));
+        return [
+          {
+            label: `Vantagem ${homeName}`,
+            value: clampPercent((Number(match?.homeScore ?? 0) / totalPoints) * 100),
+            trailing: `${match?.homeScore ?? 0}`,
+            color: 'bg-blue-500',
+          },
+          {
+            label: 'Combate Equilibrado',
+            value: probabilities.draw,
+            trailing: `R${currentRound}`,
+            color: 'bg-red-500',
+          },
+          {
+            label: `Vantagem ${awayName}`,
+            value: clampPercent((Number(match?.awayScore ?? 0) / totalPoints) * 100),
+            trailing: `${match?.awayScore ?? 0}`,
+            color: 'bg-blue-500',
+          },
+        ];
+      }
+
+      return [
+        {
+          label: 'Mais de 1.5 Golos',
+          value: h2hMetrics.over15,
+          trailing: h2hMetrics.avgGoals == null ? '--' : h2hMetrics.avgGoals.toFixed(2),
+          color: 'bg-blue-500',
+        },
+        {
+          label: 'Mais de 2.5 Golos',
+          value: h2hMetrics.over25,
+          trailing: probabilities.draw > 0 ? (100 / Math.max(probabilities.homeWin, 1)).toFixed(2) : '--',
+          color: 'bg-red-500',
+        },
+        {
+          label: 'Ambas Marcam',
+          value: h2hMetrics.btts,
+          trailing: h2hMetrics.btts == null ? '--' : (100 / Math.max(h2hMetrics.btts, 1)).toFixed(2),
+          color: 'bg-blue-500',
+        },
+      ];
+    },
+    [
+      currentRound,
+      currentSet?.away,
+      currentSet?.home,
+      h2hMetrics,
+      homeName,
+      match?.awayScore,
+      match?.homeScore,
+      probabilities.draw,
+      probabilities.homeWin,
+      setPairs.length,
+      sport,
+      awayName,
     ],
-    [h2hMetrics, probabilities.homeWin, probabilities.draw],
   );
 
   const detailedStats = useMemo(
-    () => [
-      { label: 'Posse de Bola', home: statistics?.possession.home ?? 0, away: statistics?.possession.away ?? 0, isPercent: true },
-      { label: 'Cantos', home: statistics?.corners.home ?? 0, away: statistics?.corners.away ?? 0 },
-      { label: 'Cartões Amarelos', home: statistics?.yellowCards.home ?? 0, away: statistics?.yellowCards.away ?? 0 },
-      { label: 'Cartões Vermelhos', home: statistics?.redCards.home ?? 0, away: statistics?.redCards.away ?? 0 },
-      { label: 'Remates à Baliza', home: statistics?.shotsOnTarget.home ?? 0, away: statistics?.shotsOnTarget.away ?? 0 },
-      { label: 'Passes', home: statistics?.passes.home ?? 0, away: statistics?.passes.away ?? 0 },
+    () => {
+      if (sport === 'volleyball') {
+        const totalPoints = setPairs.reduce(
+          (acc, set) => ({
+            home: acc.home + (set.home ?? 0),
+            away: acc.away + (set.away ?? 0),
+          }),
+          { home: 0, away: 0 },
+        );
+        return [
+          { label: 'Sets Vencidos', home: setWins.home, away: setWins.away },
+          { label: 'Pontos Totais', home: totalPoints.home, away: totalPoints.away },
+          { label: 'Pontos no Set Atual', home: currentSet?.home ?? 0, away: currentSet?.away ?? 0 },
+          { label: 'Pressão no Jogo', home: probabilities.homeWin, away: probabilities.awayWin, isPercent: true },
+        ];
+      }
+
+      if (sport === 'mma') {
+        return [
+          { label: 'Pontuação Parcial', home: Number(match?.homeScore ?? 0), away: Number(match?.awayScore ?? 0) },
+          { label: 'Controlo Estimado', home: probabilities.homeWin, away: probabilities.awayWin, isPercent: true },
+          { label: 'Ronda Atual', home: currentRound, away: Math.max(1, 3 - currentRound + 1) },
+        ];
+      }
+
+      return [
+        { label: 'Posse de Bola', home: statistics?.possession.home ?? 0, away: statistics?.possession.away ?? 0, isPercent: true },
+        { label: 'Cantos', home: statistics?.corners.home ?? 0, away: statistics?.corners.away ?? 0 },
+        { label: 'Cartões Amarelos', home: statistics?.yellowCards.home ?? 0, away: statistics?.yellowCards.away ?? 0 },
+        { label: 'Cartões Vermelhos', home: statistics?.redCards.home ?? 0, away: statistics?.redCards.away ?? 0 },
+        { label: 'Remates à Baliza', home: statistics?.shotsOnTarget.home ?? 0, away: statistics?.shotsOnTarget.away ?? 0 },
+        { label: 'Passes', home: statistics?.passes.home ?? 0, away: statistics?.passes.away ?? 0 },
+      ];
+    },
+    [
+      currentRound,
+      currentSet?.away,
+      currentSet?.home,
+      match?.awayScore,
+      match?.homeScore,
+      probabilities.awayWin,
+      probabilities.homeWin,
+      setPairs,
+      setWins.away,
+      setWins.home,
+      sport,
+      statistics,
     ],
-    [statistics],
   );
+
+  const snapshotCards = useMemo(() => {
+    if (sport === 'volleyball') {
+      const totalPlayed = setPairs.filter((set) => set.home != null || set.away != null).length;
+      const pointGap = Math.abs((currentSet?.home ?? 0) - (currentSet?.away ?? 0));
+      return [
+        { value: `${setWins.home}-${setWins.away}`, label: 'Sets', sublabel: match?.league || 'Partida', tone: 'red' as const },
+        { value: `S${Math.max(1, totalPlayed)}`, label: 'Set Atual', sublabel: `${currentSet?.home ?? 0}-${currentSet?.away ?? 0}`, tone: 'blue' as const },
+        { value: `${pointGap}`, label: 'Dif. Pontos', sublabel: 'Set em curso', tone: 'red' as const },
+      ];
+    }
+
+    if (sport === 'mma') {
+      return [
+        { value: `R${currentRound}`, label: 'Ronda Atual', sublabel: match?.league || 'Combate', tone: 'red' as const },
+        { value: `${match?.homeScore ?? 0}-${match?.awayScore ?? 0}`, label: 'Parcial', sublabel: `${homeName} x ${awayName}`, tone: 'blue' as const },
+        { value: String(match?.statusShort || 'LIVE'), label: 'Estado', sublabel: 'Atualização em tempo real', tone: 'red' as const },
+      ];
+    }
+
+    return [
+      { value: formatNumber(h2hMetrics.avgGoals, 1), label: 'Golos/Jogo', sublabel: `Liga: ${formatNumber(h2hMetrics.avgGoals, 1)}`, tone: 'red' as const },
+      { value: h2hMetrics.btts == null ? '--' : formatPercent(h2hMetrics.btts), label: 'AEM', sublabel: `Liga: ${h2hMetrics.btts == null ? '--' : formatPercent(h2hMetrics.btts)}`, tone: 'blue' as const },
+      { value: formatNumber((statistics?.corners.home ?? 0) + (statistics?.corners.away ?? 0), 1), label: 'Cantos/Jogo', sublabel: match?.league || 'Partida', tone: 'red' as const },
+    ];
+  }, [
+    currentRound,
+    currentSet?.away,
+    currentSet?.home,
+    h2hMetrics.avgGoals,
+    h2hMetrics.btts,
+    homeName,
+    awayName,
+    match?.awayScore,
+    match?.homeScore,
+    match?.league,
+    match?.statusShort,
+    setPairs,
+    setWins.away,
+    setWins.home,
+    sport,
+    statistics?.corners.away,
+    statistics?.corners.home,
+  ]);
+
+  const probabilityMiddleLabel = sport === 'football' ? 'Empate' : 'Equilíbrio';
+  const probabilitySubLabels =
+    sport === 'football'
+      ? {
+          home: `H2H: ${probabilities.counts.homeWins}`,
+          middle: `H2H: ${probabilities.counts.draws}`,
+          away: `H2H: ${probabilities.counts.awayWins}`,
+        }
+      : sport === 'volleyball'
+        ? {
+            home: `Sets: ${setWins.home}`,
+            middle: `Sets: ${setPairs.length}`,
+            away: `Sets: ${setWins.away}`,
+          }
+        : {
+            home: `Score: ${match?.homeScore ?? 0}`,
+            middle: `R${currentRound}`,
+            away: `Score: ${match?.awayScore ?? 0}`,
+          };
+  const showMomentumGraph = sport === 'football';
 
   const isLive =
     !!match?.isLive ||
@@ -424,11 +758,21 @@ export default function MatchStatsDashboard({ match, onOpenMarkets }: { match: a
             </div>
             <div className="text-center">
               <div className="text-5xl font-black text-slate-900 sm:text-6xl">
-                {match?.homeScore ?? 0} - {match?.awayScore ?? 0}
+                {headerScore.home} - {headerScore.away}
               </div>
               <div className="mt-2 text-3xl font-black text-slate-800 sm:text-4xl">
                 {match?.time || (match?.minute ? `${match.minute}'` : '--:--')}
               </div>
+              {sport === 'volleyball' && currentSet ? (
+                <div className="mt-2 text-sm font-bold uppercase tracking-[0.18em] text-slate-500">
+                  Set atual: {currentSet.home ?? 0} - {currentSet.away ?? 0}
+                </div>
+              ) : null}
+              {sport === 'mma' ? (
+                <div className="mt-2 text-sm font-bold uppercase tracking-[0.18em] text-slate-500">
+                  Ronda {currentRound}
+                </div>
+              ) : null}
             </div>
             <div className="text-center">
               <div className="text-3xl font-black text-slate-900 sm:text-4xl">{awayName}</div>
@@ -441,9 +785,9 @@ export default function MatchStatsDashboard({ match, onOpenMarkets }: { match: a
         <div className="rounded-[32px] border border-slate-200 bg-[#f4f4f7] p-5 shadow-sm">
           <h3 className="text-sm font-black uppercase tracking-[0.22em] text-slate-500">Probabilidade de Resultado</h3>
           <div className="mt-5 grid grid-cols-1 gap-6 sm:grid-cols-3">
-            <CircularProbability value={probabilities.homeWin} label={homeName} sublabel={`H2H: ${probabilities.counts.homeWins}`} color="text-blue-500" />
-            <CircularProbability value={probabilities.draw} label="Empate" sublabel={`H2H: ${probabilities.counts.draws}`} color="text-slate-800" />
-            <CircularProbability value={probabilities.awayWin} label={awayName} sublabel={`H2H: ${probabilities.counts.awayWins}`} color="text-red-500" />
+            <CircularProbability value={probabilities.homeWin} label={homeName} sublabel={probabilitySubLabels.home} color="text-blue-500" />
+            <CircularProbability value={probabilities.draw} label={probabilityMiddleLabel} sublabel={probabilitySubLabels.middle} color="text-slate-800" />
+            <CircularProbability value={probabilities.awayWin} label={awayName} sublabel={probabilitySubLabels.away} color="text-red-500" />
           </div>
         </div>
 
@@ -464,16 +808,28 @@ export default function MatchStatsDashboard({ match, onOpenMarkets }: { match: a
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <SnapshotCard value={formatNumber(h2hMetrics.avgGoals, 1)} label="Golos/Jogo" sublabel={`Liga: ${formatNumber(h2hMetrics.avgGoals, 1)}`} tone="red" />
-        <SnapshotCard value={h2hMetrics.btts == null ? '--' : formatPercent(h2hMetrics.btts)} label="AEM" sublabel={`Liga: ${h2hMetrics.btts == null ? '--' : formatPercent(h2hMetrics.btts)}`} tone="blue" />
-        <SnapshotCard value={formatNumber((statistics?.corners.home ?? 0) + (statistics?.corners.away ?? 0), 1)} label="Cantos/Jogo" sublabel={match?.league || 'Partida'} tone="red" />
+        {snapshotCards.map((card) => (
+          <SnapshotCard
+            key={`${card.label}-${card.value}`}
+            value={card.value}
+            label={card.label}
+            sublabel={card.sublabel}
+            tone={card.tone}
+          />
+        ))}
       </div>
 
       <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-4">
           <div>
             <h3 className="text-sm font-black uppercase tracking-[0.22em] text-slate-500">Estatísticas</h3>
-            <p className="mt-1 text-sm text-slate-400">Gráfico azul e vermelho com leitura do momento do jogo</p>
+            <p className="mt-1 text-sm text-slate-400">
+              {showMomentumGraph
+                ? 'Gráfico azul e vermelho com leitura do momento do jogo'
+                : sport === 'volleyball'
+                  ? 'Leitura set a set para o Voleibol em tempo real'
+                  : 'Resumo da luta e fase atual em tempo real'}
+            </p>
           </div>
           <button
             type="button"
@@ -484,15 +840,41 @@ export default function MatchStatsDashboard({ match, onOpenMarkets }: { match: a
           </button>
         </div>
 
-        <LiveMomentumGraph
-          darkMode={darkMode}
-          stats={statistics || undefined}
-          matchEvents={events}
-          homeName={homeName}
-          awayName={awayName}
-          currentMinute={Number(match?.elapsed ?? match?.minute ?? 0)}
-          statusKey={String(match?.statusShort || match?.period || (isLive ? '1H' : 'NS'))}
-        />
+        {showMomentumGraph ? (
+          <LiveMomentumGraph
+            darkMode={darkMode}
+            stats={statistics || undefined}
+            matchEvents={events}
+            homeName={homeName}
+            awayName={awayName}
+            currentMinute={Number(match?.elapsed ?? match?.minute ?? 0)}
+            statusKey={String(match?.statusShort || match?.period || (isLive ? '1H' : 'NS'))}
+          />
+        ) : sport === 'volleyball' ? (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <PhaseCard
+              title="Sets ganhos"
+              value={`${setWins.home}-${setWins.away}`}
+              subtitle={`${homeName} x ${awayName}`}
+            />
+            <PhaseCard
+              title="Set atual"
+              value={`S${Math.max(1, setPairs.length)}`}
+              subtitle={`${currentSet?.home ?? 0} - ${currentSet?.away ?? 0}`}
+            />
+            <PhaseCard
+              title="Pontos jogados"
+              value={`${(currentSet?.home ?? 0) + (currentSet?.away ?? 0)}`}
+              subtitle="No set em curso"
+            />
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <PhaseCard title="Ronda atual" value={`R${currentRound}`} subtitle={String(match?.statusShort || 'LIVE')} />
+            <PhaseCard title="Parcial" value={`${match?.homeScore ?? 0}-${match?.awayScore ?? 0}`} subtitle={`${homeName} x ${awayName}`} />
+            <PhaseCard title="Equilíbrio" value={formatPercent(probabilities.draw)} subtitle="Combate em curso" />
+          </div>
+        )}
 
         <div className="mt-5 space-y-3">
           {detailedStats.map((item) => (
@@ -512,7 +894,7 @@ export default function MatchStatsDashboard({ match, onOpenMarkets }: { match: a
           </div>
         ) : null}
 
-        {!loading && !statistics ? (
+        {!loading && !statistics && showMomentumGraph ? (
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-base text-slate-500">
             Estatísticas detalhadas não disponíveis.
           </div>

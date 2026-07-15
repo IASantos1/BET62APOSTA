@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useCallback, lazy, Suspense, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Header } from '../../components/feature/Header';
 import { Footer } from '../../components/feature/Footer';
@@ -7,6 +7,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useLiveMatches } from '../../hooks/useLiveMatches';
 import { useUpcomingMatches } from '../../hooks/useUpcomingMatches';
 import { useLiveEventsConnector } from '../../hooks/useLiveEventsConnector';
+import { useLiveScoresWebSocket } from '../../hooks/useLiveScoresWebSocket';
 import { SkeletonLoader } from '../../components/base/SkeletonLoader';
 
 // ✅ LAZY LOADING: Componentes pesados carregam sob demanda
@@ -33,6 +34,7 @@ export default function MatchDetailsPage() {
   const [toasts, setToasts] = useState([]);
   const [selections, setSelections] = useState<any[]>([]);
   const [marketsOpen, setMarketsOpen] = useState(false);
+  const lastToastKeyRef = useRef<string | null>(null);
 
   // Conectar à API de eventos ao vivo
   const { lastEvent } = useLiveEventsConnector(true);
@@ -88,6 +90,12 @@ export default function MatchDetailsPage() {
   }, [match, matchId]);
 
   const resolvedMatch = match || fallbackMatch;
+  const matchSport = String(resolvedMatch?.sport || '').trim().toLowerCase();
+
+  const { incidents } = useLiveScoresWebSocket({
+    matchIds: matchId ? [String(matchId)] : [],
+  });
+  const latestIncident = incidents.length > 0 ? incidents[incidents.length - 1] : null;
 
   const isLive = useMemo(() => {
     return !!liveMatches?.some((m) => String(m.id) === matchId);
@@ -112,6 +120,42 @@ export default function MatchDetailsPage() {
       }
     }
   }, [lastEvent, matchId, showToast]);
+
+  useEffect(() => {
+    if (!latestIncident || String(latestIncident.matchId) !== String(matchId)) return;
+
+    const toastKey = `${latestIncident.type}-${latestIncident.timestamp}`;
+    if (lastToastKeyRef.current === toastKey) return;
+    lastToastKeyRef.current = toastKey;
+
+    if (matchSport === 'volleyball') {
+      if (latestIncident.type === 'point') {
+        showToast(
+          latestIncident.team === 'home'
+            ? `🏐 Ponto para ${resolvedMatch?.homeTeam || 'Casa'}`
+            : `🏐 Ponto para ${resolvedMatch?.awayTeam || 'Fora'}`,
+        );
+      } else if (latestIncident.type === 'set') {
+        showToast(`🏐 ${latestIncident.detail || 'Novo set iniciado'}`);
+      }
+      return;
+    }
+
+    if (matchSport === 'mma') {
+      if (latestIncident.type === 'round') {
+        showToast(`🥊 ${latestIncident.detail || 'Nova ronda iniciada'}`);
+      } else if (latestIncident.type === 'score_change') {
+        showToast('🥊 Atualização de pontuação da luta');
+      }
+    }
+  }, [
+    latestIncident,
+    matchId,
+    matchSport,
+    resolvedMatch?.awayTeam,
+    resolvedMatch?.homeTeam,
+    showToast,
+  ]);
 
   const isSelected = useCallback(
     (selection: string) => {

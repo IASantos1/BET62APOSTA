@@ -42,7 +42,21 @@ export interface LiveOddsUpdate {
 
 export interface LiveIncident {
   matchId: string;
-  type: 'goal' | 'red_card' | 'yellow_card' | 'var' | 'penalty' | 'substitution';
+  type:
+    | 'goal'
+    | 'red_card'
+    | 'yellow_card'
+    | 'var'
+    | 'penalty'
+    | 'substitution'
+    | 'point'
+    | 'set'
+    | 'round'
+    | 'knockdown'
+    | 'takedown'
+    | 'submission'
+    | 'fight_end'
+    | 'score_change';
   team: 'home' | 'away';
   player?: string;
   minute: number;
@@ -93,6 +107,137 @@ const CONFIG = {
   USE_LOCAL_SIMULATION: false,
   SIMULATION_INTERVAL: 15000,
 };
+
+function normalizeLiveSport(value: unknown): string {
+  const sport = String(value || '').trim().toLowerCase();
+  if (!sport) return 'soccer';
+  if (sport === 'football' || sport === 'futebol') return 'soccer';
+  if (sport === 'ice hockey' || sport === 'ice_hockey' || sport === 'hóquei') return 'ice-hockey';
+  if (sport === 'voleibol' || sport === 'vôlei' || sport === 'volei') return 'volleyball';
+  return sport;
+}
+
+function parseStructuredScore(raw: unknown): Record<string, any> | null {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    const text = raw.trim();
+    if (!text || (!text.startsWith('{') && !text.startsWith('['))) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }
+  return typeof raw === 'object' ? (raw as Record<string, any>) : null;
+}
+
+function readSetPairs(raw: unknown): Array<{ home: number | null; away: number | null }> {
+  const score = parseStructuredScore(raw);
+  const setsRoot = score?.sets || score?.set || null;
+  if (!setsRoot || typeof setsRoot !== 'object') return [];
+
+  const toNum = (value: unknown): number | null => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+
+  const keys = Object.keys(setsRoot)
+    .map((key) => {
+      const match = /^(?:s|set)\s*(\d{1,2})$/i.exec(String(key).trim());
+      return match ? Number(match[1]) : null;
+    })
+    .filter((value): value is number => value !== null)
+    .sort((a, b) => a - b);
+
+  return keys.map((index) => {
+    const entry =
+      (setsRoot as Record<string, any>)[`s${index}`] ??
+      (setsRoot as Record<string, any>)[`set${index}`] ??
+      (setsRoot as Record<string, any>)[`S${index}`] ??
+      (setsRoot as Record<string, any>)[`SET${index}`];
+    return {
+      home: entry && typeof entry === 'object' ? toNum(entry.home) : null,
+      away: entry && typeof entry === 'object' ? toNum(entry.away) : null,
+    };
+  });
+}
+
+function computeSportPeriod(params: {
+  sport: string;
+  minute: number;
+  statusShort?: string;
+  rawPeriod?: unknown;
+  score?: unknown;
+}): string {
+  const sport = normalizeLiveSport(params.sport);
+  const statusShort = String(params.statusShort || '').trim().toUpperCase();
+  const rawPeriod = String(params.rawPeriod || '').trim().toUpperCase();
+
+  if (sport === 'volleyball') {
+    const direct = rawPeriod || statusShort;
+    const periodMatch = /(?:SET|S)\s*([1-5])/.exec(direct);
+    if (periodMatch) return `S${periodMatch[1]}`;
+    const sets = readSetPairs(params.score);
+    if (sets.length > 0) {
+      const activeSet = Math.min(5, Math.max(1, sets.length));
+      return `S${activeSet}`;
+    }
+    return 'S1';
+  }
+
+  if (sport === 'mma') {
+    const direct = rawPeriod || statusShort;
+    const roundMatch = /(?:ROUND|R)\s*([1-9])/.exec(direct);
+    if (roundMatch) return `R${roundMatch[1]}`;
+    return params.minute > 0 ? `R${Math.max(1, Math.ceil(params.minute / 5))}` : 'R1';
+  }
+
+  if (sport === 'soccer') {
+    if (minute < 45) return 'P1';
+    if (minute === 45) return 'INT';
+    if (minute <= 90) return 'P2';
+    return 'PRO';
+  }
+
+  if (rawPeriod) return rawPeriod;
+  if (statusShort) return statusShort;
+  return minute > 0 ? `${minute}'` : 'LIVE';
+}
+
+function buildScoreIncident(params: {
+  sport: string;
+  matchId: string;
+  minute: number;
+  previous: { home: number; away: number };
+  next: { home: number; away: number };
+  timestamp: number;
+}): LiveIncident | null {
+  const sport = normalizeLiveSport(params.sport);
+  if (
+    params.previous.home === params.next.home &&
+    params.previous.away === params.next.away
+  ) {
+    return null;
+  }
+
+  const team: 'home' | 'away' =
+    params.next.home > params.previous.home ? 'home' : 'away';
+
+  const type =
+    sport === 'volleyball'
+      ? 'point'
+      : sport === 'mma'
+        ? 'score_change'
+        : 'goal';
+
+  return {
+    matchId: params.matchId,
+    type,
+    team,
+    minute: params.minute,
+    timestamp: params.timestamp,
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CLASSE PRINCIPAL
@@ -488,33 +633,72 @@ class LiveScoresWebSocket {
       if (!matchId) continue;
 
       const prev = this.liveMatches.get(matchId) as any;
+      const sport = normalizeLiveSport(item?.sport || prev?.sport);
 
       // Parse scores
       const goals = item?.goals ?? item?.score;
       const newH = Number((goals && typeof goals === 'object' ? goals.home : null) ?? item?.home_score ?? 0);
       const newA = Number((goals && typeof goals === 'object' ? goals.away : null) ?? item?.away_score ?? 0);
       const minute = Number(item?.elapsed ?? item?.fixture?.status?.elapsed ?? item?.timer ?? 0);
+      const nextPeriod = computeSportPeriod({
+        sport,
+        minute,
+        statusShort: String(item?.status ?? item?.fixture?.status?.short ?? prev?.statusShort ?? 'LIVE'),
+        rawPeriod: item?.period ?? item?.status_long ?? item?.fixture?.status?.long,
+        score: goals,
+      });
+      const prevPeriod = computeSportPeriod({
+        sport,
+        minute: Number(prev?.elapsed ?? prev?.minute ?? 0),
+        statusShort: String(prev?.statusShort ?? prev?.status ?? ''),
+        rawPeriod: prev?.period,
+        score: prev?.score,
+      });
 
       // Score update if changed
       const prevScore = this.lastScores.get(matchId);
       if (!prevScore || prevScore.home !== newH || prevScore.away !== newA) {
         if (prevScore && (prevScore.home !== newH || prevScore.away !== newA)) {
-          // Goal detected
-          const scoringTeam: 'home' | 'away' = newH > prevScore.home ? 'home' : 'away';
-          const incident: LiveIncident = {
-            matchId, type: 'goal', team: scoringTeam,
-            minute, timestamp: now,
-          };
-          this.emit('incident', incident);
+          const incident = buildScoreIncident({
+            sport,
+            matchId,
+            minute,
+            previous: prevScore,
+            next: { home: newH, away: newA },
+            timestamp: now,
+          });
+          if (incident) this.emit('incident', incident);
         }
         this.lastScores.set(matchId, { home: newH, away: newA });
         const scoreUpdate: LiveScoreUpdate = {
           matchId, homeScore: newH, awayScore: newA, minute,
-          period: minute <= 45 ? 'P1' : 'P2',
+          period: nextPeriod,
           statusShort: String(item?.status ?? item?.fixture?.status?.short ?? 'LIVE'),
           timestamp: now,
         };
         this.emit('score_update', scoreUpdate);
+      }
+
+      if (prev && prevPeriod !== nextPeriod) {
+        if (sport === 'volleyball' && /^S\d+$/.test(nextPeriod)) {
+          this.emit('incident', {
+            matchId,
+            type: 'set',
+            team: 'home',
+            minute,
+            detail: `Início do ${nextPeriod.replace('S', '')}º set`,
+            timestamp: now,
+          });
+        } else if (sport === 'mma' && /^R\d+$/.test(nextPeriod)) {
+          this.emit('incident', {
+            matchId,
+            type: 'round',
+            team: 'home',
+            minute,
+            detail: `Ronda ${nextPeriod.replace('R', '')}`,
+            timestamp: now,
+          });
+        }
       }
 
       // Odds update if changed
@@ -544,7 +728,10 @@ class LiveScoresWebSocket {
       }
 
       // Update local cache
-      this.liveMatches.set(matchId, { ...((prev as any) || {}), ...item, id: matchId } as Match);
+      this.liveMatches.set(
+        matchId,
+        { ...((prev as any) || {}), ...item, id: matchId, sport, period: nextPeriod } as Match,
+      );
     }
   }
 
@@ -554,7 +741,8 @@ class LiveScoresWebSocket {
 
     const now = Date.now();
     const prev = this.liveMatches.get(matchId) as any;
-    const nextMatch = { ...(prev || {}), ...delta, id: matchId } as Match;
+    const sport = normalizeLiveSport(delta?.sport || prev?.sport);
+    const nextMatch = { ...(prev || {}), ...delta, id: matchId, sport } as Match;
 
     const goals = delta?.goals;
     const homeScore =
@@ -572,19 +760,34 @@ class LiveScoresWebSocket {
 
     const minute = Number(delta?.elapsed ?? delta?.minute ?? prev?.elapsed ?? 0);
     const statusShort = String(delta?.status_short ?? delta?.statusShort ?? prev?.statusShort ?? 'LIVE');
+    const nextPeriod = computeSportPeriod({
+      sport,
+      minute,
+      statusShort,
+      rawPeriod: delta?.period ?? delta?.status_long ?? prev?.period,
+      score: delta?.score ?? delta?.goals ?? prev?.score,
+    });
+    const prevPeriod = computeSportPeriod({
+      sport,
+      minute: Number(prev?.elapsed ?? prev?.minute ?? 0),
+      statusShort: String(prev?.statusShort ?? prev?.status ?? ''),
+      rawPeriod: prev?.period,
+      score: prev?.score,
+    });
 
     if (Number.isFinite(homeScore) && Number.isFinite(awayScore)) {
       const prevScore = this.lastScores.get(matchId);
       if (!prevScore || prevScore.home !== homeScore || prevScore.away !== awayScore) {
         if (prevScore && (prevScore.home !== homeScore || prevScore.away !== awayScore)) {
-          const scoringTeam: 'home' | 'away' = homeScore > prevScore.home ? 'home' : 'away';
-          this.emit('incident', {
+          const incident = buildScoreIncident({
+            sport,
             matchId,
-            type: 'goal',
-            team: scoringTeam,
             minute,
+            previous: prevScore,
+            next: { home: homeScore, away: awayScore },
             timestamp: now,
           });
+          if (incident) this.emit('incident', incident);
         }
 
         this.lastScores.set(matchId, { home: homeScore, away: awayScore });
@@ -593,7 +796,7 @@ class LiveScoresWebSocket {
           homeScore,
           awayScore,
           minute,
-          period: minute <= 45 ? 'P1' : 'P2',
+          period: nextPeriod,
           statusShort,
           timestamp: now,
         });
@@ -603,6 +806,29 @@ class LiveScoresWebSocket {
         (nextMatch as any).elapsed = minute;
         (nextMatch as any).minute = String(minute);
         (nextMatch as any).statusShort = statusShort;
+        (nextMatch as any).period = nextPeriod;
+      }
+    }
+
+    if (prev && prevPeriod !== nextPeriod) {
+      if (sport === 'volleyball' && /^S\d+$/.test(nextPeriod)) {
+        this.emit('incident', {
+          matchId,
+          type: 'set',
+          team: 'home',
+          minute,
+          detail: `Início do ${nextPeriod.replace('S', '')}º set`,
+          timestamp: now,
+        });
+      } else if (sport === 'mma' && /^R\d+$/.test(nextPeriod)) {
+        this.emit('incident', {
+          matchId,
+          type: 'round',
+          team: 'home',
+          minute,
+          detail: `Ronda ${nextPeriod.replace('R', '')}`,
+          timestamp: now,
+        });
       }
     }
 

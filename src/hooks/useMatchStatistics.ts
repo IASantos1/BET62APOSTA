@@ -3,7 +3,7 @@
  * Inclui: estatísticas, escalações, eventos e lances perigosos
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 // All API-Football calls go through the backend proxy — no API keys in the browser
 
@@ -204,10 +204,28 @@ function setCache<T>(key: string, data: T): void {
 // FUNÇÕES DE FETCH
 // ═══════════════════════════════════════════════════════════
 
-async function fetchFromApi<T>(endpoint: string): Promise<T | null> {
+type StatsSport = 'football' | 'basketball' | 'baseball' | 'hockey' | 'volleyball' | 'mma';
+
+function normalizeStatsSport(value?: string | null): StatsSport {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw || raw === 'football' || raw === 'soccer' || raw === 'futebol') return 'football';
+  if (raw === 'basketball' || raw === 'basquetebol') return 'basketball';
+  if (raw === 'baseball' || raw === 'beisebol') return 'baseball';
+  if (raw === 'hockey' || raw === 'ice-hockey' || raw === 'ice hockey' || raw === 'hóquei') return 'hockey';
+  if (raw === 'volleyball' || raw === 'voleibol' || raw === 'vôlei' || raw === 'volei') return 'volleyball';
+  if (raw === 'mma') return 'mma';
+  return 'football';
+}
+
+const SPORTS_WITH_EVENTS_PROXY = new Set<StatsSport>(['football', 'basketball', 'baseball', 'hockey']);
+
+async function fetchFromApi<T>(endpoint: string, sport: StatsSport = 'football'): Promise<T | null> {
   try {
+    if (!SPORTS_WITH_EVENTS_PROXY.has(sport)) {
+      return null;
+    }
     // Route through the backend proxy — no API key in browser
-    const params = new URLSearchParams({ sport: 'football', endpoint: endpoint.replace(/^\//, '').split('?')[0] });
+    const params = new URLSearchParams({ sport, endpoint: endpoint.replace(/^\//, '').split('?')[0] });
     const qsPart = endpoint.includes('?') ? endpoint.split('?')[1] : '';
     if (qsPart) {
       new URLSearchParams(qsPart).forEach((v, k) => params.append(k, v));
@@ -228,12 +246,12 @@ async function fetchFromApi<T>(endpoint: string): Promise<T | null> {
 /**
  * Busca estatísticas do jogo
  */
-export async function fetchMatchStatistics(fixtureId: number): Promise<TeamStatistics[] | null> {
-  const cacheKey = `stats_${fixtureId}`;
+export async function fetchMatchStatistics(fixtureId: number, sport: StatsSport = 'football'): Promise<TeamStatistics[] | null> {
+  const cacheKey = `stats_${sport}_${fixtureId}`;
   const cached = getCached<TeamStatistics[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await fetchFromApi<TeamStatistics[]>(`/fixtures/statistics?fixture=${fixtureId}`);
+  const data = await fetchFromApi<TeamStatistics[]>(`/fixtures/statistics?fixture=${fixtureId}`, sport);
   if (data) setCache(cacheKey, data);
   return data;
 }
@@ -241,12 +259,12 @@ export async function fetchMatchStatistics(fixtureId: number): Promise<TeamStati
 /**
  * Busca escalações do jogo
  */
-export async function fetchMatchLineups(fixtureId: number): Promise<TeamLineup[] | null> {
-  const cacheKey = `lineups_${fixtureId}`;
+export async function fetchMatchLineups(fixtureId: number, sport: StatsSport = 'football'): Promise<TeamLineup[] | null> {
+  const cacheKey = `lineups_${sport}_${fixtureId}`;
   const cached = getCached<TeamLineup[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await fetchFromApi<TeamLineup[]>(`/fixtures/lineups?fixture=${fixtureId}`);
+  const data = await fetchFromApi<TeamLineup[]>(`/fixtures/lineups?fixture=${fixtureId}`, sport);
   if (data) setCache(cacheKey, data);
   return data;
 }
@@ -254,12 +272,12 @@ export async function fetchMatchLineups(fixtureId: number): Promise<TeamLineup[]
 /**
  * Busca eventos do jogo (golos, cartões, substituições)
  */
-export async function fetchMatchEvents(fixtureId: number): Promise<MatchEvent[] | null> {
-  const cacheKey = `events_${fixtureId}`;
+export async function fetchMatchEvents(fixtureId: number, sport: StatsSport = 'football'): Promise<MatchEvent[] | null> {
+  const cacheKey = `events_${sport}_${fixtureId}`;
   const cached = getCached<MatchEvent[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await fetchFromApi<MatchEvent[]>(`/fixtures/events?fixture=${fixtureId}`);
+  const data = await fetchFromApi<MatchEvent[]>(`/fixtures/events?fixture=${fixtureId}`, sport);
   if (data) setCache(cacheKey, data);
   return data;
 }
@@ -410,7 +428,8 @@ export function parseTeamStatistics(teamStats: TeamStatistics[]): ParsedStatisti
 export function useMatchStatistics(
   matchId: string | number | null,
   autoRefresh: boolean = true,
-  refreshInterval: number = 60000
+  refreshInterval: number = 60000,
+  sport?: string
 ): MatchStatisticsData & {
   refresh: () => Promise<void>;
   headToHead: HeadToHeadSummary | null;
@@ -429,6 +448,7 @@ export function useMatchStatistics(
   const [h2hLoading, setH2hLoading] = useState<boolean>(false);
   const [recentForm, setRecentForm] = useState<RecentFormData | null>(null);
   const [formLoading, setFormLoading] = useState<boolean>(false);
+  const normalizedSport = useMemo(() => normalizeStatsSport(sport), [sport]);
 
   // Extrair ID numérico do fixture
   const getFixtureId = useCallback((): number | null => {
@@ -478,13 +498,20 @@ export function useMatchStatistics(
     setError(null);
 
     try {
-      console.log(`📊 Buscando estatísticas do jogo ${fixtureId}...`);
+      console.log(`📊 Buscando estatísticas do jogo ${fixtureId} (${normalizedSport})...`);
+
+      if (normalizedSport !== 'football') {
+        setStatistics(null);
+        setLineups([]);
+        setEvents([]);
+        return;
+      }
 
       // Buscar tudo em paralelo
       const [statsData, lineupsData, eventsData] = await Promise.all([
-        fetchMatchStatistics(fixtureId),
-        fetchMatchLineups(fixtureId),
-        fetchMatchEvents(fixtureId)
+        fetchMatchStatistics(fixtureId, normalizedSport),
+        fetchMatchLineups(fixtureId, normalizedSport),
+        fetchMatchEvents(fixtureId, normalizedSport)
       ]);
 
       // Processar estatísticas
@@ -519,13 +546,17 @@ export function useMatchStatistics(
     } finally {
       setLoading(false);
     }
-  }, [getFixtureId, matchId]);
+  }, [getFixtureId, matchId, normalizedSport]);
 
   const refresh = useCallback(async () => {
     await fetchData();
   }, [fetchData]);
 
   const fetchH2H = useCallback(async (homeTeam: string, awayTeam: string) => {
+    if (normalizedSport !== 'football') {
+      setHeadToHead(null);
+      return;
+    }
     setH2hLoading(true);
     try {
       console.log(`⚔️ Buscando H2H: ${homeTeam} vs ${awayTeam}...`);
@@ -582,10 +613,14 @@ export function useMatchStatistics(
     } finally {
       setH2hLoading(false);
     }
-  }, []);
+  }, [normalizedSport]);
 
   // 🆕 Buscar forma recente das equipas
   const fetchRecentForm = useCallback(async (homeTeam: string, awayTeam: string) => {
+    if (normalizedSport !== 'football') {
+      setRecentForm({ home: null, away: null });
+      return;
+    }
     setFormLoading(true);
     try {
       console.log(`📋 Buscando forma recente: ${homeTeam} e ${awayTeam}...`);
@@ -670,7 +705,7 @@ export function useMatchStatistics(
     } finally {
       setFormLoading(false);
     }
-  }, []);
+  }, [normalizedSport]);
 
   // Busca inicial
   useEffect(() => {
