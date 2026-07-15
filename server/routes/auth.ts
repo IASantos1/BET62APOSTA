@@ -12,7 +12,9 @@ type SignUpBody = {
   firstName?: string;
   lastName?: string;
   dob?: string;
+  phone?: string;
   country?: string;
+  nif?: string;
 };
 
 type SignInBody = {
@@ -184,6 +186,9 @@ async function createProfileRecord(
   email: string,
   name: string | null,
   dob: string | null,
+  phone: string | null,
+  country: string | null,
+  nif: string | null,
 ): Promise<void> {
   const profileCols = await getTableCols(pool, 'profiles').catch(() => []);
   if (profileCols.length === 0) return;
@@ -202,6 +207,9 @@ async function createProfileRecord(
   if (hasCol(profileCols, 'full_name')) pushCol('full_name', name);
   if (hasCol(profileCols, 'name')) pushCol('name', name);
   if (hasCol(profileCols, 'birth_date')) pushCol('birth_date', dob);
+  if (hasCol(profileCols, 'phone')) pushCol('phone', phone);
+  if (hasCol(profileCols, 'country')) pushCol('country', country);
+  if (hasCol(profileCols, 'nif')) pushCol('nif', nif);
   if (hasCol(profileCols, 'created_at')) pushCol('created_at', new Date().toISOString());
   if (hasCol(profileCols, 'updated_at')) pushCol('updated_at', new Date().toISOString());
 
@@ -217,6 +225,36 @@ async function createProfileRecord(
   } catch (e: any) {
     console.warn('[auth] profile insert skipped:', String(e?.message || e));
   }
+}
+
+async function buildAuthUser(pool: pg.Pool, userId: string): Promise<{ userId: string; username: string; is_operator: number; kyc_status: string; country?: string | null }> {
+  const userCols = await getTableCols(pool, 'users').catch(() => []);
+  const loginCol = firstExistingCol(userCols, 'email', 'username');
+  const userRes = await pool.query(
+    `SELECT ${loginCol || 'email'} AS email, ${hasCol(userCols, 'role') ? 'role' : `'user'::text AS role`} FROM users WHERE id = $1 LIMIT 1`,
+    [userId],
+  ).catch(() => ({ rows: [] as any[] }));
+  const profileCols = await getTableCols(pool, 'profiles').catch(() => []);
+  const profileRes = profileCols.length > 0
+    ? await pool.query(
+        `SELECT ${
+          hasCol(profileCols, 'kyc_verified') ? 'kyc_verified' : 'FALSE AS kyc_verified'
+        }, ${
+          hasCol(profileCols, 'country') ? 'country' : 'NULL AS country'
+        } FROM profiles WHERE user_id = $1 LIMIT 1`,
+        [userId],
+      ).catch(() => ({ rows: [] as any[] }))
+    : { rows: [] as any[] };
+
+  const userRow = userRes.rows?.[0] || {};
+  const profileRow = profileRes.rows?.[0] || {};
+  return {
+    userId: String(userId),
+    username: String(userRow.email || ''),
+    is_operator: String(userRow.role || '').toLowerCase() === 'admin' ? 1 : 0,
+    kyc_status: profileRow.kyc_verified ? 'verified' : 'unverified',
+    country: profileRow.country ? String(profileRow.country) : null,
+  };
 }
 
 async function loadUserForSignin(pool: pg.Pool, email: string): Promise<any | null> {
@@ -312,11 +350,15 @@ export async function handleAuthRoutes(
       if (exists.rows.length > 0) return sendJson(res, 409, { error: 'Email already exists' }), true;
 
       const name = `${String(body.firstName || '').trim()} ${String(body.lastName || '').trim()}`.trim();
+      const phone = String(body.phone || '').trim() || null;
+      const country = String(body.country || '').trim() || null;
+      const nif = String(body.nif || '').trim() || null;
       const userId = await createUserRecord(pool, email, password, name || null);
-      await createProfileRecord(pool, userId, email, name || null, body.dob || null);
+      await createProfileRecord(pool, userId, email, name || null, body.dob || null, phone, country, nif);
 
       const tokens = await issueTokens(pool, userId, req);
-      sendJson(res, 200, { token: tokens.token, refreshToken: tokens.refreshToken });
+      const user = await buildAuthUser(pool, userId);
+      sendJson(res, 200, { token: tokens.token, refreshToken: tokens.refreshToken, user });
       return true;
     } catch (e: any) {
       sendJson(res, 500, { error: 'Signup failed', details: String(e?.message || e) });
@@ -343,7 +385,8 @@ export async function handleAuthRoutes(
       }
 
       const tokens = await issueTokens(pool, String(u.id), req);
-      sendJson(res, 200, { token: tokens.token, refreshToken: tokens.refreshToken });
+      const user = await buildAuthUser(pool, String(u.id));
+      sendJson(res, 200, { token: tokens.token, refreshToken: tokens.refreshToken, user });
       return true;
     } catch (e: any) {
       sendJson(res, 500, { error: 'Signin failed', details: String(e?.message || e) });
@@ -472,7 +515,8 @@ export async function handleAuthRoutes(
     if (!ok) return sendJson(res, 200, { success: false }), true;
 
     const tokens = await issueTokens(pool, userId, req);
-    sendJson(res, 200, { success: true, token: tokens.token, refreshToken: tokens.refreshToken });
+    const user = await buildAuthUser(pool, userId);
+    sendJson(res, 200, { success: true, token: tokens.token, refreshToken: tokens.refreshToken, user });
     return true;
   }
 

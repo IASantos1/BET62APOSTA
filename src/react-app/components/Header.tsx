@@ -110,10 +110,8 @@ export function Header() {
     try {
       if (typeof window !== 'undefined') {
         const url = new URL(window.location.href);
-        if (url.pathname === '/register' || url.searchParams.has('ref')) {
+        if (url.searchParams.has('ref')) {
           setTimeout(() => openAuthModal('register'), 100);
-        } else if (url.pathname === '/login') {
-          setTimeout(() => openAuthModal('login'), 100);
         }
       }
     } catch { void 0; }

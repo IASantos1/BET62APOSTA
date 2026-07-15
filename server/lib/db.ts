@@ -111,6 +111,8 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
       user_agent TEXT,
       ip         TEXT
     )`,
+    `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS country TEXT`,
+    `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS nif TEXT`,
     `CREATE TABLE IF NOT EXISTS transactions (
       id                TEXT          PRIMARY KEY,
       user_id           TEXT          NOT NULL REFERENCES users(id) ON DELETE CASCADE,

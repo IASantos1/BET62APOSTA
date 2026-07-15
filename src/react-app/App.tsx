@@ -23,6 +23,7 @@ import { BackLink } from './components/BackLink';
 import { SWUpdateBar } from './components/SWUpdateBar';
 import { InstallBar } from './components/InstallBar';
 import HomePage from './pages/Home';
+import LoginPage from './pages/LoginPage';
 import DepositPage from "./pages/DepositPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import WithdrawPage from "./pages/WithdrawPage";
@@ -35,6 +36,7 @@ import EventStatsPage from "./pages/EventStatsPage";
 import Promotions from "./pages/Promotions";
 import ProfilePage from "./pages/ProfilePage";
 import MyBetsPage from "./pages/MyBetsPage";
+import RegisterPage from "./pages/RegisterPage";
 import { AdminRoute } from './routes/AdminRoute';
 import AdminKycPage from "./pages/AdminKycPage";
 import AdminWithdrawalsPage from "./pages/AdminWithdrawalsPage";
@@ -138,12 +140,8 @@ function AppContent() {
   const isPublicAuthPath = location.pathname === '/login' || location.pathname === '/register';
 
   useEffect(() => {
-    if (location.pathname === '/login') {
+    if (isAdminAuthPath) {
       openAuthModal('login');
-    } else if (isAdminAuthPath) {
-      openAuthModal('login');
-    } else if (location.pathname === '/register') {
-      openAuthModal('register');
     }
   }, [location.pathname, isAdminAuthPath]);
 
@@ -218,8 +216,8 @@ function AppContent() {
             <Route path="/wallet" element={<WalletPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/my-bets" element={<MyBetsPage />} />
-            <Route path="/register" element={<HomePage mode="home" />} />
-            <Route path="/login" element={<HomePage mode="home" />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/login" element={<LoginPage />} />
             <Route path="/admin/login" element={<HomePage mode="home" />} />
             <Route path="/administrador/login" element={<HomePage mode="home" />} />
             <Route path="/admin" element={

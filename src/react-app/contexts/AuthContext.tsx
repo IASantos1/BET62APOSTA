@@ -12,6 +12,7 @@ import { apiFetch } from '../utils/api';
   username: string; 
   is_operator?: number;
   kyc_status?: 'unverified' | 'pending' | 'verified' | 'rejected' | 'suspended' | 'closed';
+  country?: string | null;
 }; 
  
  type AuthContextType = { 
@@ -30,7 +31,9 @@ import { apiFetch } from '../utils/api';
     firstName: string;
     lastName: string;
     dob: string;
+    phone?: string;
     country: string;
+    nif?: string;
   }) => Promise<boolean>;
 
   signOut: () => Promise<void>;
@@ -121,9 +124,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         if (two?.token) localStorage.setItem('auth_token', two.token);
         if (two?.refreshToken) localStorage.setItem('refresh_token', two.refreshToken);
+        if (two?.user) setUser(two.user);
+        else await refreshUser();
       }
 
-      await refreshUser();
+      if (data.user) setUser(data.user);
+      else if (!data.requires2fa) await refreshUser();
       return { success: true };
     } catch {
       return { success: false };
@@ -139,7 +145,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     firstName: string;
     lastName: string;
     dob: string;
+    phone?: string;
     country: string;
+    nif?: string;
   }) => {
     try {
       const res = await apiFetch<any>('/api/auth/signup', {
@@ -155,7 +163,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('refresh_token', res.refreshToken);
       }
 
-      await refreshUser();
+      if (res.user) setUser(res.user);
+      else await refreshUser();
       return true;
     } catch {
       return false;

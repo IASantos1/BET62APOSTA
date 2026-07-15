@@ -45,7 +45,9 @@ interface AppContextType {
     firstName: string;
     lastName: string;
     dob: string;
+    phone?: string;
     country: string;
+    nif?: string;
   }) => Promise<boolean>;
   signOut: () => Promise<void>;
   getTwoFactorStatus: () => Promise<boolean>;
