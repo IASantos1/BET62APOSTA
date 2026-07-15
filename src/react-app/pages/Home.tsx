@@ -295,6 +295,14 @@ function Home({ mode = 'home' }: HomeProps) {
   const flatUpcomingEvents = useMemo(() => groupedUpcoming.flatMap(([, events]) => events), [groupedUpcoming]);
   const flatNext7Events = useMemo(() => groupedNext7.flatMap(([, events]) => events), [groupedNext7]);
 
+  // Tennis league classification helpers — must be declared before filterEventsByControls
+  const isTennisSport = (sport: string) => normalizeSportKey(sport) === 'tennis';
+  const isITFLeague = (league: string) => /\bitf\b/i.test(league);
+  const isWTALeague = (league: string) => {
+    const l = league.toLowerCase();
+    return l.includes('wta') || l.includes('women') || /\bw\d{2,3}\b/.test(l);
+  };
+
   const filterEventsByControls = (events: Event[]) => {
     return events.filter((ev: any) => {
       if (isWorldCupLeague(ev)) return false;
@@ -331,14 +339,6 @@ function Home({ mode = 'home' }: HomeProps) {
     () => (mode === 'live' ? limitEvents(filterEventsByControls(flatNext7Events), 300) : []),
     [flatNext7Events, leagueFilter, mode],
   );
-
-  // Tennis league classification helpers
-  const isTennisSport = (sport: string) => normalizeSportKey(sport) === 'tennis';
-  const isITFLeague = (league: string) => /\bitf\b/i.test(league);
-  const isWTALeague = (league: string) => {
-    const l = league.toLowerCase();
-    return l.includes('wta') || l.includes('women') || /\bw\d{2,3}\b/.test(l);
-  };
 
   const buildLeagueOptions = (events: Event[]) => {
     const grouped = new Map<string, { league: string; sport: string; country: string; count: number; logo: string }>();
