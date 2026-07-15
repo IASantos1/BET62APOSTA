@@ -203,6 +203,49 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      // ── Image proxy for media.api-sports.io logos (no CORS issues, no API key needed) ──
+      if (req.method === 'GET' && url.pathname === '/api/media-proxy') {
+        const target = url.searchParams.get('url') || '';
+        let allowed = false;
+        try {
+          const u = new URL(target);
+          const h = u.hostname.toLowerCase();
+          allowed =
+            h === 'media.api-sports.io' ||
+            h.endsWith('.api-sports.io') ||
+            h === 'upload.wikimedia.org' ||
+            h === 'flagcdn.com' ||
+            h === 'cdnjs.cloudflare.com';
+        } catch { allowed = false; }
+        if (!allowed || !target) {
+          res.statusCode = 400;
+          res.end('Bad Request');
+          return;
+        }
+        try {
+          const upstream = await fetch(target, {
+            headers: { 'User-Agent': 'BET62/1.0', 'Accept': 'image/*,*/*' },
+            signal: AbortSignal.timeout(8000),
+          });
+          if (!upstream.ok) {
+            res.statusCode = upstream.status;
+            res.end();
+            return;
+          }
+          const ct = upstream.headers.get('content-type') || 'image/png';
+          res.statusCode = 200;
+          res.setHeader('content-type', ct);
+          res.setHeader('cache-control', 'public, max-age=604800, immutable'); // 7 days
+          res.setHeader('access-control-allow-origin', '*');
+          const buf = Buffer.from(await upstream.arrayBuffer());
+          res.end(buf);
+        } catch {
+          res.statusCode = 502;
+          res.end();
+        }
+        return;
+      }
+
       if (await events.handleEventsRoutes(req, res, url)) return;
       if (!dbReady) {
         if (url.pathname === '/api/auth/me' && req.method === 'GET') {

@@ -952,6 +952,10 @@ const leagueBadgeSvg = (label: string, accent: string, textColor: string = '#fff
   </svg>
 `);
 
+// Build a proxied URL for api-sports.io football league logos (served via the app's own proxy)
+const apiSportsLeagueLogo = (id: number) =>
+  `/api/media-proxy?url=${encodeURIComponent(`https://media.api-sports.io/football/leagues/${id}.png`)}`;
+
 export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
   const formatted = formatLeagueHeader(rawInput);
   const leagueName =
@@ -960,49 +964,121 @@ export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
       ? rawInput
       : rawInput?.league_name || rawInput?.league?.name || rawInput?.league || rawInput?.name || '');
   const key = normalizeLeagueLogoKey(leagueName);
+  const normSport = String(sport || 'soccer').toLowerCase().replace(/\s+/g, '-');
 
-  const inlineMapped: Array<{ test: RegExp; url: string }> = [
-    { test: /premier league/, url: leagueBadgeSvg('PL', '#4c1d95') },
-    { test: /bundesliga/, url: leagueBadgeSvg('BL', '#dc2626') },
-    { test: /ligue 1/, url: leagueBadgeSvg('L1', '#111827') },
-    { test: /(^serie a$|italian serie a|serie a tim)/, url: leagueBadgeSvg('SA', '#2563eb') },
-    { test: /\bnhl\b|national hockey league/, url: leagueBadgeSvg('NHL', '#111827') },
-    { test: /uefa conference league/, url: leagueBadgeSvg('UECL', '#0f766e') },
-    { test: /uefa europa league/, url: leagueBadgeSvg('UEL', '#ea580c') },
-    { test: /uefa champions league/, url: leagueBadgeSvg('UCL', '#1d4ed8') },
-    { test: /brasileirao serie a|brasileirao a|serie a\b/, url: leagueBadgeSvg('SA', '#15803d') },
-    { test: /brasileirao serie b|brasileirao b|serie b\b/, url: leagueBadgeSvg('SB', '#16a34a') },
-    { test: /\bnba\b/, url: leagueBadgeSvg('NBA', '#1d4ed8') },
-    { test: /\batp\b/, url: leagueBadgeSvg('ATP', '#65a30d') },
-    { test: /\bwta\b/, url: leagueBadgeSvg('WTA', '#db2777') },
-    { test: /\bitf\b/, url: leagueBadgeSvg('ITF', '#84cc16', '#0f172a') },
+  // ── Football / Soccer: official logos from api-sports.io (via app proxy) ─────────────
+  // Pattern order matters: more specific patterns first.
+  const footballLogoMap: Array<{ test: RegExp; id: number }> = [
+    // European club competitions (UEFA)
+    { test: /champions league/, id: 2 },
+    { test: /europa league(?!.*conference)/, id: 3 },
+    { test: /conference league/, id: 848 },
+    { test: /europa super cup|uefa super cup/, id: 531 },
+    { test: /nations league/, id: 5 },
+    { test: /youth league/, id: 4 },
+    { test: /womens champions league|women.*champions league/, id: 21 },
+    { test: /womens euro|euro.*women/, id: 39 },
+    { test: /world cup(?!.*club)|copa.*mundo|world.*cup/, id: 1 },
+    { test: /club world cup/, id: 15 },
+    { test: /intercontinental cup/, id: 531 },
+    // England
+    { test: /premier league/, id: 39 },
+    { test: /\bchampionship\b/, id: 40 },
+    { test: /league one/, id: 41 },
+    { test: /league two/, id: 42 },
+    // Spain
+    { test: /la liga 2|laliga 2|segunda division|hypermotion/, id: 141 },
+    { test: /\bla liga\b|laliga(?!\s*2)/, id: 140 },
+    // Germany
+    { test: /2[\. -]bundesliga/, id: 79 },
+    { test: /\bbundesliga\b/, id: 78 },
+    // France
+    { test: /\bligue 2\b/, id: 62 },
+    { test: /\bligue 1\b/, id: 61 },
+    // Italy
+    { test: /\bserie b\b/, id: 136 },
+    { test: /\bserie a\b|italian serie a|serie a tim/, id: 135 },
+    // Portugal
+    { test: /liga portugal 2|primeira liga.*2|liga bwin/, id: 95 },
+    { test: /primeira liga|liga portugal|liga nos/, id: 94 },
+    // Netherlands
+    { test: /eredivisie/, id: 88 },
+    // Belgium
+    { test: /jupiler|belgian pro league|first division a/, id: 144 },
+    // Scotland
+    { test: /scottish premiership/, id: 179 },
+    // Turkey
+    { test: /s[uü]per lig|superlig/, id: 203 },
+    // Greece
+    { test: /super league.*greece|super league.*ellas/, id: 197 },
+    // Brazil
+    { test: /brasileir[aã]o.*serie b|serie b.*brasil/, id: 72 },
+    { test: /brasileir[aã]o|campeonato brasileiro|serie a.*brasil/, id: 71 },
+    { test: /copa do brasil/, id: 73 },
+    // Argentina
+    { test: /primera division.*arg|arg.*primera|liga profesional/, id: 128 },
+    // USA
+    { test: /\bmls\b|major league soccer/, id: 253 },
+    // Mexico
+    { test: /liga mx/, id: 262 },
+    // Saudi Arabia
+    { test: /saudi pro league|saudi.*professional/, id: 307 },
+    // Japan
+    { test: /j1 league|j\.league/, id: 98 },
+    // Australia
+    { test: /a-league|aleague/, id: 188 },
+    // Russia
+    { test: /russian premier|rpl/, id: 235 },
+    // China
+    { test: /chinese super league|csl/, id: 169 },
+    // Friendlies / Others
+    { test: /club friendly|amigos de clubes/, id: 667 },
+    { test: /international friendl|selec.*amig|internat.*amig/, id: 10 },
   ];
 
+  if (normSport === 'soccer' || normSport === 'football' || normSport === 'futebol' || !normSport || normSport === '') {
+    const entry = footballLogoMap.find((e) => e.test.test(key));
+    if (entry) return apiSportsLeagueLogo(entry.id);
+  }
+
+  // ── Other sports ──────────────────────────────────────────────────────────────────────
+  // Real Wikimedia logos (verified 200). For logos without a reliable public URL,
+  // leagueBadgeSvg generates a styled data-URL badge (always works, no network request).
   const mapped: Array<{ test: RegExp; url: string }> = [
-    { test: /premier league/, url: 'https://upload.wikimedia.org/wikipedia/en/f/f2/Premier_League_Logo.svg' },
-    { test: /bundesliga/, url: 'https://upload.wikimedia.org/wikipedia/en/d/df/Bundesliga_logo_%282017%29.svg' },
-    { test: /ligue 1/, url: 'https://upload.wikimedia.org/wikipedia/en/c/c7/Ligue1.svg' },
-    { test: /(^serie a$|italian serie a|serie a tim)/, url: 'https://upload.wikimedia.org/wikipedia/en/e/e1/Serie_A_logo_%282019%29.svg' },
-    { test: /\bnhl\b|national hockey league/, url: 'https://upload.wikimedia.org/wikipedia/en/3/3a/05_NHL_Shield.svg' },
-    { test: /uefa conference league/, url: 'https://upload.wikimedia.org/wikipedia/commons/7/76/UEFA_Europa_Conference_League_logo.svg' },
-    { test: /uefa europa league/, url: 'https://upload.wikimedia.org/wikipedia/en/8/8b/UEFA_Europa_League_logo_%282024%29.svg' },
-    { test: /uefa champions league/, url: 'https://upload.wikimedia.org/wikipedia/en/b/bf/UEFA_Champions_League_logo_2.svg' },
+    // Tennis — no working public logo CDN; use styled badges
+    { test: /\bitf\b/, url: leagueBadgeSvg('ITF', '#16a34a', '#ffffff') },
+    { test: /\bwta\b|wta tour/, url: leagueBadgeSvg('WTA', '#db2777', '#ffffff') },
+    { test: /atp tour|\batp\b/, url: leagueBadgeSvg('ATP', '#0ea5e9', '#ffffff') },
+    // Basketball
     { test: /\bnba\b/, url: 'https://upload.wikimedia.org/wikipedia/en/0/03/National_Basketball_Association_logo.svg' },
-    { test: /\bmls\b|major league soccer/, url: 'https://upload.wikimedia.org/wikipedia/en/7/76/MLS_crest_logo_RGB_gradient.svg' },
-    { test: /la liga 2|laliga 2|segunda division|hypermotion/, url: 'https://upload.wikimedia.org/wikipedia/commons/1/13/LaLiga_Hypermotion.svg' },
-    { test: /\bla liga\b|laliga(?!\s*2)/, url: 'https://upload.wikimedia.org/wikipedia/commons/0/03/LaLiga_logo.svg' },
-    { test: /super lig|superlig/, url: 'https://upload.wikimedia.org/wikipedia/en/f/f2/S%C3%BCper_Lig_logo.svg' },
+    { test: /euroleague/, url: 'https://upload.wikimedia.org/wikipedia/en/0/0b/Euroleague_Basketball_logo.svg' },
+    // American Football
+    { test: /\bnfl\b|national football league/, url: 'https://upload.wikimedia.org/wikipedia/en/a/a2/National_Football_League_logo.svg' },
+    // Ice Hockey
+    { test: /\bnhl\b|national hockey league/, url: 'https://upload.wikimedia.org/wikipedia/en/3/3a/05_NHL_Shield.svg' },
+    // Baseball
+    { test: /\bmlb\b|major league baseball/, url: 'https://upload.wikimedia.org/wikipedia/commons/a/a6/Major_League_Baseball_logo.svg' },
+    // MMA
+    { test: /\bufc\b/, url: 'https://upload.wikimedia.org/wikipedia/commons/9/92/UFC_Logo.svg' },
+    // Rugby
+    { test: /premiership.*rugby|premiership rugby/, url: 'https://upload.wikimedia.org/wikipedia/en/1/1d/Premiership_Rugby_logo.svg' },
+    { test: /top 14|top14/, url: leagueBadgeSvg('TOP14', '#1e40af', '#ffffff') },
+    // Formula 1
+    { test: /formula.?1|formula one|\bf1\b/, url: 'https://upload.wikimedia.org/wikipedia/commons/3/33/F1.svg' },
+    // Cricket
+    { test: /\bipl\b|indian premier league/, url: leagueBadgeSvg('IPL', '#004BA0', '#FFD700') },
+    // AFL — no reliable public URL; use badge
+    { test: /\bafl\b/, url: leagueBadgeSvg('AFL', '#003087', '#FFD700') },
   ];
-
-  const inlineDirect = inlineMapped.find((entry) => entry.test.test(key));
-  if (inlineDirect) return inlineDirect.url;
 
   const direct = mapped.find((entry) => entry.test.test(key));
   if (direct) {
     const stableUrl = getStableAssetUrl(direct.url);
     if (stableUrl) return stableUrl;
   }
-  return getSportIcon(sport || 'soccer');
+
+  // Final fallback: sport icon
+  return getSportIcon(normSport || 'soccer');
 };
 
 export const translateSelection = (selection: string) => {
