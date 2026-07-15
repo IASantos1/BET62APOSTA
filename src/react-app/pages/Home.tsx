@@ -298,9 +298,20 @@ function Home({ mode = 'home' }: HomeProps) {
   const filterEventsByControls = (events: Event[]) => {
     return events.filter((ev: any) => {
       if (isWorldCupLeague(ev)) return false;
+      if (!leagueFilter) return true;
       const leagueName = getEventLeagueName(ev);
-      const leagueOk = !leagueFilter || leagueName === leagueFilter;
-      return leagueOk;
+      const sport = normalizeSportKey((ev as any)?.sport || '');
+      // Grouped tennis filters
+      if (leagueFilter === 'ITF') {
+        return isTennisSport(sport) && isITFLeague(leagueName);
+      }
+      if (leagueFilter === 'ATP Tour') {
+        return isTennisSport(sport) && !isITFLeague(leagueName) && !isWTALeague(leagueName);
+      }
+      if (leagueFilter === 'WTA Tour') {
+        return isTennisSport(sport) && !isITFLeague(leagueName) && isWTALeague(leagueName);
+      }
+      return leagueName === leagueFilter;
     });
   };
 
@@ -321,11 +332,39 @@ function Home({ mode = 'home' }: HomeProps) {
     [flatNext7Events, leagueFilter, mode],
   );
 
+  // Tennis league classification helpers
+  const isTennisSport = (sport: string) => normalizeSportKey(sport) === 'tennis';
+  const isITFLeague = (league: string) => /\bitf\b/i.test(league);
+  const isWTALeague = (league: string) => {
+    const l = league.toLowerCase();
+    return l.includes('wta') || l.includes('women') || /\bw\d{2,3}\b/.test(l);
+  };
+
   const buildLeagueOptions = (events: Event[]) => {
     const grouped = new Map<string, { league: string; sport: string; country: string; count: number; logo: string }>();
+    // Accumulators for grouped tennis
+    let itfCount = 0;
+    let atpCount = 0;
+    let wtaCount = 0;
+
     for (const ev of events as any[]) {
       const meta = getEventLeagueMeta(ev);
       if (!meta.league) continue;
+
+      // Group tennis leagues
+      if (isTennisSport(meta.sport)) {
+        if (isITFLeague(meta.league)) {
+          itfCount += 1;
+          continue;
+        } else if (isWTALeague(meta.league)) {
+          wtaCount += 1;
+          continue;
+        } else {
+          atpCount += 1;
+          continue;
+        }
+      }
+
       const prev = grouped.get(meta.league);
       if (prev) {
         prev.count += 1;
@@ -339,6 +378,18 @@ function Home({ mode = 'home' }: HomeProps) {
         });
       }
     }
+
+    // Add grouped tennis entries if they have events
+    if (itfCount > 0) {
+      grouped.set('ITF', { league: 'ITF', sport: 'tennis', country: 'Mundial', count: itfCount, logo: '' });
+    }
+    if (atpCount > 0) {
+      grouped.set('ATP Tour', { league: 'ATP Tour', sport: 'tennis', country: 'Mundial', count: atpCount, logo: '' });
+    }
+    if (wtaCount > 0) {
+      grouped.set('WTA Tour', { league: 'WTA Tour', sport: 'tennis', country: 'Mundial', count: wtaCount, logo: '' });
+    }
+
     const preferredOrder = [
       'nhl',
       'premier league',
@@ -349,6 +400,9 @@ function Home({ mode = 'home' }: HomeProps) {
       'uefa champions league',
       'uefa europa league',
       'uefa conference league',
+      'itf',
+      'atp tour',
+      'wta tour',
     ];
 
     const orderIndex = (leagueName: string) => {
@@ -364,7 +418,7 @@ function Home({ mode = 'home' }: HomeProps) {
         if (orderA !== orderB) return orderA - orderB;
         return b.count - a.count || a.league.localeCompare(b.league);
       })
-      .slice(0, 18);
+      .slice(0, 20);
   };
 
   const homeBaseEvents = useMemo(() => flatUpcomingEvents, [flatUpcomingEvents]);
@@ -390,19 +444,19 @@ function Home({ mode = 'home' }: HomeProps) {
       <div className="-mx-2 flex gap-3 overflow-x-auto px-2 pb-2 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
         <button
           onClick={() => setLeagueFilter(null)}
-          className={`shrink-0 min-w-[148px] h-[68px] px-4 rounded-[20px] border transition-all text-left ${
+          className={`shrink-0 min-w-[110px] h-[52px] px-3 rounded-[16px] border transition-all text-left ${
             !leagueFilter
-              ? 'border-amber-400 bg-[#3a2d16] text-white shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_16px_36px_rgba(245,158,11,0.14)]'
+              ? 'border-amber-400 bg-[#3a2d16] text-white shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_8px_20px_rgba(245,158,11,0.14)]'
               : darkMode ? 'border-white/10 bg-[#101722] text-white hover:border-white/20' : 'border-gray-200 bg-white text-gray-800'
           }`}
         >
-          <div className="flex h-full items-center gap-3">
-            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${!leagueFilter ? 'bg-amber-400/15 text-amber-200' : darkMode ? 'bg-white/5 text-white' : 'bg-gray-100 text-gray-700'}`}>
-              <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2">
+          <div className="flex h-full items-center gap-2">
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${!leagueFilter ? 'bg-amber-400/15 text-amber-200' : darkMode ? 'bg-white/5 text-white' : 'bg-gray-100 text-gray-700'}`}>
+              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
               </svg>
             </div>
-            <span className="text-[15px] font-semibold whitespace-nowrap">Todas</span>
+            <span className="text-[13px] font-semibold whitespace-nowrap">Todas</span>
           </div>
         </button>
         {availableLeagues.map(({ league, sport, logo, country }) => {
@@ -411,18 +465,18 @@ function Home({ mode = 'home' }: HomeProps) {
             <button
               key={`${sport}-${league}`}
               onClick={() => setLeagueFilter(isActive ? null : league)}
-          className={`shrink-0 min-w-[172px] h-[68px] px-4 rounded-[20px] border transition-all text-left ${
+              className={`shrink-0 min-w-[130px] h-[52px] px-3 rounded-[16px] border transition-all text-left ${
                 isActive
-                  ? 'border-amber-400 bg-[#3a2d16] text-white shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_16px_36px_rgba(245,158,11,0.14)]'
+                  ? 'border-amber-400 bg-[#3a2d16] text-white shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_8px_20px_rgba(245,158,11,0.14)]'
                   : darkMode ? 'border-white/10 bg-[#101722] text-white hover:border-white/20' : 'border-gray-200 bg-white text-gray-800'
               }`}
             >
-              <div className="flex h-full items-center gap-3">
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center overflow-hidden ${darkMode ? 'bg-white/95' : 'bg-gray-50'}`}>
+              <div className="flex h-full items-center gap-2">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden ${darkMode ? 'bg-white/95' : 'bg-gray-50'}`}>
                   <img
                     src={logo || getLeagueLogo({ league, country }, sport) || getSportIcon(sport)}
                     alt={league}
-                    className="w-9 h-9 object-contain"
+                    className="w-7 h-7 object-contain"
                     loading="lazy"
                     onError={(e) => {
                       const target = e.currentTarget;
@@ -432,7 +486,7 @@ function Home({ mode = 'home' }: HomeProps) {
                   />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[15px] font-semibold leading-tight whitespace-nowrap">{league}</div>
+                  <div className="text-[13px] font-semibold leading-tight whitespace-nowrap">{league}</div>
                 </div>
               </div>
             </button>
