@@ -51,7 +51,7 @@ export interface LiveIncident {
 }
 
 export interface WebSocketMessage {
-  type: 'score_update' | 'odds_update' | 'incident' | 'match_start' | 'match_end' | 'heartbeat' | 'initial_data';
+  type: 'score_update' | 'odds_update' | 'incident' | 'match_start' | 'match_end' | 'heartbeat' | 'initial_data' | 'snapshot' | 'update';
   data: LiveScoreUpdate | LiveOddsUpdate | LiveIncident | Match | Match[] | null;
 }
 
@@ -440,6 +440,12 @@ class LiveScoresWebSocket {
         return;
       }
 
+      // Handle delta updates emitted by the backend WS bridge.
+      if (message?.type === 'update' && message?.data && typeof message.data === 'object') {
+        this.processDelta(message.data);
+        return;
+      }
+
       // Handle pong from server
       if (message?.type === 'pong') return;
 
@@ -540,6 +546,82 @@ class LiveScoresWebSocket {
       // Update local cache
       this.liveMatches.set(matchId, { ...((prev as any) || {}), ...item, id: matchId } as Match);
     }
+  }
+
+  private processDelta(delta: any): void {
+    const matchId = String(delta?.id || delta?.matchId || delta?.external_event_id || '').trim();
+    if (!matchId) return;
+
+    const now = Date.now();
+    const prev = this.liveMatches.get(matchId) as any;
+    const nextMatch = { ...(prev || {}), ...delta, id: matchId } as Match;
+
+    const goals = delta?.goals;
+    const homeScore =
+      goals && typeof goals === 'object' && goals.home != null
+        ? Number(goals.home)
+        : delta?.homeScore != null
+          ? Number(delta.homeScore)
+          : null;
+    const awayScore =
+      goals && typeof goals === 'object' && goals.away != null
+        ? Number(goals.away)
+        : delta?.awayScore != null
+          ? Number(delta.awayScore)
+          : null;
+
+    const minute = Number(delta?.elapsed ?? delta?.minute ?? prev?.elapsed ?? 0);
+    const statusShort = String(delta?.status_short ?? delta?.statusShort ?? prev?.statusShort ?? 'LIVE');
+
+    if (Number.isFinite(homeScore) && Number.isFinite(awayScore)) {
+      const prevScore = this.lastScores.get(matchId);
+      if (!prevScore || prevScore.home !== homeScore || prevScore.away !== awayScore) {
+        if (prevScore && (prevScore.home !== homeScore || prevScore.away !== awayScore)) {
+          const scoringTeam: 'home' | 'away' = homeScore > prevScore.home ? 'home' : 'away';
+          this.emit('incident', {
+            matchId,
+            type: 'goal',
+            team: scoringTeam,
+            minute,
+            timestamp: now,
+          });
+        }
+
+        this.lastScores.set(matchId, { home: homeScore, away: awayScore });
+        this.emit('score_update', {
+          matchId,
+          homeScore,
+          awayScore,
+          minute,
+          period: minute <= 45 ? 'P1' : 'P2',
+          statusShort,
+          timestamp: now,
+        });
+
+        (nextMatch as any).homeScore = homeScore;
+        (nextMatch as any).awayScore = awayScore;
+        (nextMatch as any).elapsed = minute;
+        (nextMatch as any).minute = String(minute);
+        (nextMatch as any).statusShort = statusShort;
+      }
+    }
+
+    const hasOdds =
+      Number(delta?.home_odd || 0) > 0 ||
+      Number(delta?.draw_odd || 0) > 0 ||
+      Number(delta?.away_odd || 0) > 0;
+
+    if (hasOdds) {
+      const odds = {
+        home: Number(delta?.home_odd || 0),
+        draw: Number(delta?.draw_odd || 0),
+        away: Number(delta?.away_odd || 0),
+      };
+      (nextMatch as any).odds = odds;
+      this.emit('odds_update', { matchId, odds, timestamp: now });
+    }
+
+    this.liveMatches.set(matchId, nextMatch);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -190,7 +190,7 @@ export default function HomePage() {
     matches: liveMatches,
     loading: liveLoading,
     refetch: refreshLive,
-  } = useLiveMatches({ autoRefresh: true, interval: 15000, useWebSocket: false });
+  } = useLiveMatches({ autoRefresh: true, interval: 15000, useWebSocket: true });
 
   const {
     matches: upcomingMatches,

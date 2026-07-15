@@ -10,9 +10,7 @@ import { OddButton } from '../../components/base/OddButton';
 import { BettingSlipSidebar } from '../../components/feature/BettingSlipSidebar';
 import { useNavigate } from 'react-router-dom';
 import type { Match } from '../../types/sports';
-import { useLiveMatchesAutoRefresh } from '../../hooks/useLiveMatchesAutoRefresh';
 import { AutoRefreshIndicator } from '../../components/feature/AutoRefreshIndicator';
-import { useSmoothTransition } from '../../hooks/useSmoothTransition';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useBets } from '../../hooks/useBets';
 
@@ -112,29 +110,17 @@ function formatScoreByType(homeScore: number | undefined, awayScore: number | un
 }
 
 export default function LiveSportsPage() {
-  const { matches: liveOnlyMatches, loading } = useLiveMatches();
+  const { matches: liveOnlyMatches, loading, lastUpdate, isWebSocketConnected } = useLiveMatches({
+    autoRefresh: true,
+    interval: 15000,
+    useWebSocket: true,
+  });
   const { matches: upcomingMatches } = useUpcomingMatches({ autoRefresh: true, interval: 30000, hoursAhead: 72 });
   const [selectedSport, setSelectedSport] = useState<string>('all');
   const [isBettingSlipOpen, setIsBettingSlipOpen] = useState(false);
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { selections, addSelection, removeSelection, clearSelections } = useBets();
-
-  // ✅ Atualização automática de jogos ao vivo a cada 3 segundos
-  const { matches: liveMatches, isLive, lastUpdate, forceRefresh: _forceRefresh } = useLiveMatchesAutoRefresh(
-    async () => {
-      // Buscar jogos ao vivo atualizados
-      const response = await fetch('/api/matches/live');
-      return response.json();
-    },
-    true
-  );
-
-  // ✅ Transição suave sem flickering
-  const { displayData: _displayMatches, isTransitioning } = useSmoothTransition({
-    data: liveMatches,
-    compareKey: (matches) => matches.map((m: any) => `${m.fixture.id}:${m.goals?.home}-${m.goals?.away}`).join(','),
-  });
 
   // Filtrar jogos por desporto
   const combinedMatches = useMemo(() => {
@@ -243,18 +229,13 @@ export default function LiveSportsPage() {
             Jogos ao Vivo
           </h1>
           <AutoRefreshIndicator 
-            isLive={isLive} 
+            isLive={isWebSocketConnected} 
             lastUpdate={lastUpdate}
             showDetails
           />
         </div>
 
-        {/* ✅ Transição suave de conteúdo */}
-        <div 
-          className={`transition-opacity duration-300 ${
-            isTransitioning ? 'opacity-90' : 'opacity-100'
-          }`}
-        >
+        <div className="transition-opacity duration-300 opacity-100">
           {/* Menu de desportos */}
           <SportsMenu
             onSelectLeague={() => {}}

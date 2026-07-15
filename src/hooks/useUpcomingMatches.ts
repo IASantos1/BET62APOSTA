@@ -64,7 +64,7 @@ const persistCacheToStorage = () => {
   }
 };
 
-const fetchWithDedup = async (hoursAhead: number) => {
+const fetchWithDedup = async (hoursAhead: number): Promise<any[] | null> => {
   if (
     upcomingCache.isLoading &&
     upcomingCache.promise &&
@@ -78,16 +78,25 @@ const fetchWithDedup = async (hoursAhead: number) => {
 
   upcomingCache.promise = getUpcomingMatches()
     .then((data) => {
+      const receivedEmpty = Array.isArray(data) && data.length === 0;
+      const hadPreviousData = Array.isArray(upcomingCache.data) && upcomingCache.data.length > 0;
+
       if (
-        Array.isArray(data) &&
-        data.length === 0 &&
-        Array.isArray(upcomingCache.data) &&
-        upcomingCache.data.length > 0
+        receivedEmpty &&
+        hadPreviousData
       ) {
         upcomingCache.isLoading = false;
         upcomingCache.promise = null;
         return upcomingCache.data;
       }
+
+      // Avoid poisoning the cache with an empty cold-start response.
+      if (receivedEmpty && !hadPreviousData) {
+        upcomingCache.isLoading = false;
+        upcomingCache.promise = null;
+        return null;
+      }
+
       upcomingCache.data = data || [];
       upcomingCache.timestamp = Date.now();
       upcomingCache.isLoading = false;
@@ -148,16 +157,29 @@ export function useUpcomingMatches(options: UseUpcomingMatchesOptions = {}) {
       try {
         setError(null);
         const upcomingMatches = await fetchWithDedup(hoursAhead);
-        const finalMatches = upcomingMatches;
-        upcomingCache.data = finalMatches;
-        upcomingCache.timestamp = Date.now();
-        persistCacheToStorage();
+        const finalMatches = Array.isArray(upcomingMatches) ? upcomingMatches : null;
 
         if (!isMountedRef.current) return;
 
-        setMatches(finalMatches);
-        setLoading(false);
-        setLastUpdate(Date.now());
+        if (finalMatches) {
+          upcomingCache.data = finalMatches;
+          upcomingCache.timestamp = Date.now();
+          persistCacheToStorage();
+
+          setMatches(finalMatches);
+          setLoading(false);
+          setLastUpdate(Date.now());
+          return;
+        }
+
+        // Empty cold-start fallback: keep loading briefly and retry once.
+        setLoading(true);
+        setError(null);
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            fetchMatches(true);
+          }
+        }, 1500);
       } catch (err) {
         if (err && err.name === 'AbortError') return;
 
