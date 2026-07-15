@@ -31,10 +31,6 @@ task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
 
-[[ports]]
-localPort = 3000
-externalPort = 3000
-
 [deployment]
 deploymentTarget = "static"
 build = ["npm", "run", "build"]
@@ -45,3 +41,11 @@ publicDir = "dist"
 [userenv.shared]
 STATPAL_KEY = "72bac50d-fc07-4f0e-ae06-6a34a737604b"
 SPORTS_API_KEY = "72bac50d-fc07-4f0e-ae06-6a34a737604b"
+
+[[ports]]
+localPort = 3000
+externalPort = 3000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
