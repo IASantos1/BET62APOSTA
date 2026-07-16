@@ -103,89 +103,196 @@ export default function ProfilePage() {
   }
 
   const isExcluded = isSelfExcluded?.() || false;
-  const _isCooling = isCoolingOff?.() || false;
+  const isCooling = isCoolingOff?.() || false;
+  const completionChecks = [
+    Boolean(profile?.full_name),
+    Boolean(user?.email),
+    Boolean(profile?.phone),
+    Boolean(profile?.birth_date),
+    Boolean(profile?.kyc_verified),
+  ];
+  const completionPercent = Math.round((completionChecks.filter(Boolean).length / completionChecks.length) * 100);
+  const surfaceClass = isDark ? 'bg-gray-800 border border-gray-700/70' : 'bg-white border border-gray-200/70';
+  const softSurfaceClass = isDark ? 'bg-gray-700/70 border border-gray-600/70' : 'bg-gray-50 border border-gray-200/70';
+  const successClass = isDark
+    ? 'bg-green-500/10 border border-green-500/25 text-green-300'
+    : 'bg-green-50 border border-green-200 text-green-800';
+  const accountBadges = [
+    {
+      key: 'kyc',
+      label: profile?.kyc_verified ? 'KYC Verificado' : 'KYC Pendente',
+      icon: 'ri-verified-badge-line',
+      className: profile?.kyc_verified
+        ? 'bg-green-500/15 text-green-300 border border-green-500/25'
+        : 'bg-amber-500/15 text-amber-300 border border-amber-500/25',
+    },
+    {
+      key: 'theme',
+      label: isDark ? 'Modo Escuro' : 'Modo Claro',
+      icon: isDark ? 'ri-moon-line' : 'ri-sun-line',
+      className: 'bg-white/10 text-white border border-white/10',
+    },
+    ...(isExcluded
+      ? [{
+          key: 'excluded',
+          label: 'Auto-Exclusão',
+          icon: 'ri-shield-user-fill',
+          className: 'bg-red-500/15 text-red-300 border border-red-500/25',
+        }]
+      : isCooling
+        ? [{
+            key: 'cooling',
+            label: 'Período de Reflexão',
+            icon: 'ri-timer-line',
+            className: 'bg-orange-500/15 text-orange-300 border border-orange-500/25',
+          }]
+        : [{
+            key: 'safe',
+            label: 'Conta Ativa',
+            icon: 'ri-shield-check-line',
+            className: 'bg-teal-500/15 text-teal-300 border border-teal-500/25',
+          }]),
+  ];
+  const walletStats = [
+    { label: 'Saldo', value: `€${(profile?.balance || 0).toFixed(2)}`, tone: 'text-white' },
+    { label: 'Bónus', value: `€${(profile?.bonus_balance || 0).toFixed(2)}`, tone: 'text-amber-400' },
+    { label: 'FreeBets', value: `€${(profile?.freebet_balance || 0).toFixed(2)}`, tone: 'text-teal-400' },
+  ];
 
   return (
     <div className={`min-h-screen flex flex-col transition-colors duration-300 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`} style={{ fontFamily: 'Inter, sans-serif' }}>
       <Header />
 
       <main className="flex-1 pt-20 pb-24 lg:pb-8">
-        <div className="max-w-4xl mx-auto px-4">
+        <div className="max-w-5xl mx-auto px-4">
           {/* Cabeçalho do Perfil */}
-          <div className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 rounded-2xl p-6 mb-6 relative overflow-hidden">
+          <div className="bg-gradient-to-br from-gray-950 via-gray-900 to-gray-800 rounded-[28px] p-6 mb-6 relative overflow-hidden shadow-2xl shadow-black/20">
             {/* Decoração de fundo */}
-            <div className="absolute inset-0 opacity-10">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-              <div className="absolute bottom-0 left-0 w-48 h-48 bg-teal-500 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
+            <div className="absolute inset-0 opacity-20">
+              <div className="absolute top-0 right-0 w-72 h-72 bg-amber-500 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+              <div className="absolute bottom-0 left-0 w-56 h-56 bg-teal-500 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
             </div>
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,0.14),transparent_30%),radial-gradient(circle_at_bottom_left,rgba(20,184,166,0.12),transparent_28%)]"></div>
 
-            <div className="relative z-10 flex items-center gap-4">
-              <div className="w-20 h-20 bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl flex items-center justify-center shadow-lg shadow-amber-500/30">
-                <span className="text-3xl font-bold text-gray-900">
-                  {profile?.full_name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U'}
-                </span>
-              </div>
-              <div className="flex-1">
-                <h1 className="text-xl font-bold text-white mb-1">
-                  {profile?.full_name || 'Utilizador'}
-                </h1>
-                <p className="text-gray-400 text-sm">{user?.email}</p>
-                <div className="flex items-center gap-2 mt-2">
-                  {isExcluded && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs font-medium">
-                      <i className="ri-shield-user-fill"></i>
-                      Auto-Exclusão
+            <div className="relative z-10 grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
+              <div>
+                <div className="flex items-start gap-4">
+                  <div className="w-20 h-20 bg-gradient-to-br from-amber-300 to-amber-600 rounded-3xl flex items-center justify-center shadow-lg shadow-amber-500/30 ring-4 ring-white/10">
+                    <span className="text-3xl font-bold text-gray-900">
+                      {profile?.full_name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U'}
                     </span>
-                  )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-300 border border-white/10">
+                        <i className="ri-user-star-line"></i>
+                        Centro de Perfil
+                      </span>
+                      {accountBadges.map((badge) => (
+                        <span key={badge.key} className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium ${badge.className}`}>
+                          <i className={badge.icon}></i>
+                          {badge.label}
+                        </span>
+                      ))}
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight">
+                      {profile?.full_name || 'Utilizador'}
+                    </h1>
+                    <p className="text-gray-300 text-sm sm:text-base mt-1 break-all">{user?.email}</p>
+                    <p className="text-gray-400 text-sm mt-3 max-w-2xl">
+                      Gere os teus dados, segurança, limites de jogo e preferências da conta a partir de um painel único mais claro e organizado.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="w-11 h-11 bg-white/10 hover:bg-white/20 rounded-2xl flex items-center justify-center transition-colors cursor-pointer border border-white/10 shrink-0"
+                    aria-label={isEditing ? 'Fechar edição' : 'Editar perfil'}
+                  >
+                    <i className={`${isEditing ? 'ri-close-line' : 'ri-edit-line'} text-white text-lg`}></i>
+                  </button>
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {walletStats.map((stat) => (
+                    <div key={stat.label} className="bg-white/5 backdrop-blur-sm rounded-2xl p-4 border border-white/10">
+                      <p className="text-gray-400 text-[11px] uppercase tracking-[0.18em] mb-1">{stat.label}</p>
+                      <p className={`font-bold text-xl ${stat.tone}`}>{stat.value}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
-              <button
-                onClick={() => setIsEditing(!isEditing)}
-                className="w-10 h-10 bg-white/10 hover:bg-white/20 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
-              >
-                <i className={`${isEditing ? 'ri-close-line' : 'ri-edit-line'} text-white text-lg`}></i>
-              </button>
-            </div>
 
-            {/* Saldo Rápido */}
-            <div className="relative z-10 mt-6 grid grid-cols-3 gap-3">
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-3 border border-white/10">
-                <p className="text-gray-400 text-[10px] mb-0.5">Saldo</p>
-                <p className="text-white font-bold text-lg">€{(profile?.balance || 0).toFixed(2)}</p>
-              </div>
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-3 border border-white/10">
-                <p className="text-gray-400 text-[10px] mb-0.5">Bónus</p>
-                <p className="text-amber-400 font-bold text-lg">€{(profile?.bonus_balance || 0).toFixed(2)}</p>
-              </div>
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-3 border border-white/10">
-                <p className="text-gray-400 text-[10px] mb-0.5">FreeBets</p>
-                <p className="text-teal-400 font-bold text-lg">€{(profile?.freebet_balance || 0).toFixed(2)}</p>
+              <div className="bg-white/6 backdrop-blur-md rounded-3xl border border-white/10 p-5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-semibold text-white">Conclusão do Perfil</p>
+                    <span className="text-xs font-semibold text-amber-300">{completionPercent}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-white/10 overflow-hidden mb-4">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-amber-400 to-teal-400 transition-all duration-500"
+                      style={{ width: `${completionPercent}%` }}
+                    ></div>
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { label: 'Nome completo', done: Boolean(profile?.full_name) },
+                      { label: 'Telefone', done: Boolean(profile?.phone) },
+                      { label: 'Nascimento', done: Boolean(profile?.birth_date) },
+                      { label: 'KYC', done: Boolean(profile?.kyc_verified) },
+                    ].map((item) => (
+                      <div key={item.label} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-300">{item.label}</span>
+                        <span className={`inline-flex items-center gap-1 text-xs font-medium ${item.done ? 'text-green-300' : 'text-gray-400'}`}>
+                          <i className={item.done ? 'ri-checkbox-circle-fill' : 'ri-time-line'}></i>
+                          {item.done ? 'Completo' : 'Pendente'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-5 rounded-2xl border border-white/10 bg-black/15 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-gray-400 mb-1">Estado da Conta</p>
+                  <p className="text-white font-semibold mb-1">
+                    {isExcluded ? 'Restrições Ativas' : isCooling ? 'Reflexão em Curso' : 'Conta operacional'}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {isExcluded
+                      ? 'A conta está em auto-exclusão e deve apresentar os avisos de jogo responsável.'
+                      : isCooling
+                        ? 'Existe um período temporário de pausa ativo.'
+                        : 'Sem bloqueios manuais ativos neste momento.'}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Mensagem de Sucesso */}
           {showSuccess && (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4 flex items-center gap-3 animate-pulse">
-              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                <i className="ri-checkbox-circle-fill text-green-600 text-xl"></i>
+            <div className={`rounded-2xl p-4 mb-4 flex items-center gap-3 animate-pulse ${successClass}`}>
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isDark ? 'bg-green-500/15' : 'bg-green-100'}`}>
+                <i className={`ri-checkbox-circle-fill text-xl ${isDark ? 'text-green-300' : 'text-green-600'}`}></i>
               </div>
-              <p className="text-green-800 font-medium">Alterações guardadas com sucesso!</p>
+              <p className="font-medium">Alterações guardadas com sucesso!</p>
             </div>
           )}
 
           {/* Ações Rápidas */}
-          <div className={`rounded-2xl shadow-sm p-4 mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-            <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              <i className="ri-flashlight-line text-amber-500"></i>
-              Ações Rápidas
-            </h3>
+          <div className={`rounded-3xl shadow-sm p-5 mb-4 ${surfaceClass}`}>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <h3 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                <i className="ri-flashlight-line text-amber-500"></i>
+                Ações Rápidas
+              </h3>
+              <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Atalhos principais da conta</span>
+            </div>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
               {quickActions.map((action) => (
                 <Link
                   key={action.path}
                   to={action.path}
-                  className={`flex flex-col items-center gap-1.5 p-3 rounded-xl transition-colors cursor-pointer group ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}`}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-2xl transition-all cursor-pointer group ${isDark ? 'hover:bg-gray-700/90' : 'hover:bg-gray-50'} hover:-translate-y-0.5`}
                 >
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110 ${
                     action.color === 'teal' ? 'bg-teal-100 text-teal-600' :
@@ -204,7 +311,7 @@ export default function ProfilePage() {
           </div>
 
           {/* Tabs de Menu */}
-          <div className={`rounded-2xl shadow-sm overflow-hidden mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+          <div className={`rounded-3xl shadow-sm overflow-hidden mb-4 ${surfaceClass}`}>
             <div className={`flex border-b overflow-x-auto ${isDark ? 'border-gray-700' : 'border-gray-100'}`}>
               {menuItems.map((item) => (
                 <button
@@ -212,8 +319,10 @@ export default function ProfilePage() {
                   onClick={() => setActiveTab(item.id)}
                   className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
                     activeTab === item.id
-                      ? 'text-amber-600 border-b-2 border-amber-500 bg-amber-50/50'
-                      : isDark ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                      ? isDark
+                        ? 'text-amber-300 border-b-2 border-amber-400 bg-amber-500/10'
+                        : 'text-amber-700 border-b-2 border-amber-500 bg-amber-50/70'
+                      : isDark ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/60' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                   }`}
                 >
                   <i className={item.icon}></i>
@@ -222,10 +331,24 @@ export default function ProfilePage() {
               ))}
             </div>
 
-            <div className="p-5">
+            <div className="p-5 sm:p-6">
               {/* Tab: Dados Pessoais */}
               {activeTab === 'info' && (
                 <div className="space-y-4">
+                  <div className={`rounded-2xl p-4 ${softSurfaceClass}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Dados Principais</p>
+                        <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                          Mantém as tuas informações sempre atualizadas para levantamento, verificação e segurança.
+                        </p>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${isEditing ? 'bg-amber-500 text-white' : isDark ? 'bg-gray-600 text-gray-200' : 'bg-gray-100 text-gray-600'}`}>
+                        <i className={isEditing ? 'ri-edit-2-line' : 'ri-eye-line'}></i>
+                        {isEditing ? 'Modo edição' : 'Modo leitura'}
+                      </span>
+                    </div>
+                  </div>
                   <div>
                     <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nome Completo</label>
                     {isEditing ? (
