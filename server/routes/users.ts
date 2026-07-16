@@ -28,22 +28,6 @@ function toBooleanInt(v: any): number {
   return 0;
 }
 
-async function getTableCols(pool: pg.Pool, tableName: string): Promise<string[]> {
-  const r = await pool.query(
-    `SELECT column_name
-     FROM information_schema.columns
-     WHERE table_name = $1`,
-    [String(tableName || '').toLowerCase()],
-  );
-  return (r.rows || []).map((x: any) => String(x.column_name || '').toLowerCase());
-}
-
-async function ensureProfilePaymentColumns(pool: pg.Pool): Promise<void> {
-  await pool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS iban TEXT`);
-  await pool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS iban_holder_name TEXT`);
-  await pool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS nif TEXT`);
-}
-
 export async function handleUsersRoutes(
   pool: pg.Pool,
   req: http.IncomingMessage,
@@ -79,66 +63,6 @@ export async function handleUsersRoutes(
     const profile = (r.rows?.[0]?.profile && typeof r.rows[0].profile === 'object') ? r.rows[0].profile : {};
     const operator = Boolean((profile as any).is_operator);
     sendJson(res, 200, { operator });
-    return true;
-  }
-
-  if (req.method === 'GET' && path === '/api/users/iban') {
-    const u = await requireUser(pool, req);
-    if (!u) return unauthorized(res), true;
-    await ensureProfilePaymentColumns(pool);
-    const cols = await getTableCols(pool, 'profiles').catch(() => []);
-    const hasIbanCol = cols.includes('iban');
-    const hasHolderCol = cols.includes('iban_holder_name');
-    const hasNifCol = cols.includes('nif');
-    const r = await pool.query(
-      `SELECT ${hasIbanCol ? 'iban' : 'NULL AS iban'}, ${hasHolderCol ? 'iban_holder_name' : 'NULL AS iban_holder_name'}, ${hasNifCol ? 'nif' : 'NULL AS nif'}
-       FROM profiles
-       WHERE user_id = $1
-       LIMIT 1`,
-      [u.id],
-    );
-    const row = r.rows?.[0] || {};
-    const iban = String(row.iban || '').trim();
-    const holderName = String(row.iban_holder_name || '').trim();
-    const nif = String(row.nif || '').trim();
-    sendJson(res, 200, {
-      has_iban: !!iban,
-      iban_masked: iban ? `${iban.slice(0, 8)}...${iban.slice(-4)}` : '',
-      holder_name: holderName,
-      nif,
-    });
-    return true;
-  }
-
-  if (req.method === 'POST' && path === '/api/users/iban') {
-    const u = await requireUser(pool, req);
-    if (!u) return unauthorized(res), true;
-    await ensureProfilePaymentColumns(pool);
-    const body = await readJsonBody<any>(req).catch(() => null);
-    if (!body) return badRequest(res, 'Invalid JSON'), true;
-
-    const iban = String(body.iban || '').replace(/\s+/g, '').toUpperCase().trim();
-    const holderName = String(body.holder_name || body.full_name || '').trim();
-    const nif = String(body.nif || '').replace(/\D+/g, '').trim();
-
-    if (!iban || iban.length < 15) return badRequest(res, 'IBAN inválido'), true;
-    if (!holderName || holderName.length < 5) return badRequest(res, 'Nome completo inválido'), true;
-    if (!/^\d{9}$/.test(nif)) return badRequest(res, 'Número de contribuinte inválido'), true;
-
-    await pool.query(
-      `UPDATE profiles
-       SET iban = $2, iban_holder_name = $3, nif = $4, updated_at = NOW()
-       WHERE user_id = $1`,
-      [u.id, iban, holderName, nif],
-    );
-
-    sendJson(res, 200, {
-      ok: true,
-      iban: `${iban.slice(0, 8)}...${iban.slice(-4)}`,
-      iban_masked: `${iban.slice(0, 8)}...${iban.slice(-4)}`,
-      holder_name: holderName,
-      nif,
-    });
     return true;
   }
 

@@ -129,18 +129,7 @@ async function tryServeStatic(req: http.IncomingMessage, res: http.ServerRespons
     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       res.statusCode = 200;
       res.setHeader('content-type', contentTypeOf(filePath));
-      const noCacheStatic =
-        normalized === '/sw.js' ||
-        normalized === '/manifest.webmanifest' ||
-        normalized === '/index.html';
-      res.setHeader(
-        'cache-control',
-        noCacheStatic
-          ? 'no-store, no-cache, must-revalidate'
-          : normalized.startsWith('/assets/')
-            ? 'public, max-age=31536000, immutable'
-            : 'public, max-age=3600'
-      );
+      res.setHeader('cache-control', normalized.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
       res.setHeader('access-control-allow-origin', '*');
       if (req.method === 'HEAD') return res.end(), true;
       fs.createReadStream(filePath).pipe(res);
@@ -156,10 +145,7 @@ async function tryServeStatic(req: http.IncomingMessage, res: http.ServerRespons
     if (fs.existsSync(pubPath) && fs.statSync(pubPath).isFile()) {
       res.statusCode = 200;
       res.setHeader('content-type', contentTypeOf(pubPath));
-      const noCachePublic =
-        normalized === '/sw.js' ||
-        normalized === '/manifest.webmanifest';
-      res.setHeader('cache-control', noCachePublic ? 'no-store, no-cache, must-revalidate' : 'public, max-age=3600');
+      res.setHeader('cache-control', 'public, max-age=3600');
       res.setHeader('access-control-allow-origin', '*');
       if (req.method === 'HEAD') return res.end(), true;
       fs.createReadStream(pubPath).pipe(res);

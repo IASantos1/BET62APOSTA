@@ -58,15 +58,9 @@ export default function LoginPage() {
               darkMode ? 'border-gray-800 bg-gray-900/70' : 'border-gray-200 bg-white'
             }`}
           >
-            <div className="mb-8 text-center">
-              <div className="mb-4 flex justify-center">
-                <div className={`flex h-20 w-20 items-center justify-center rounded-full border-4 shadow-lg ${
-                  darkMode ? 'border-amber-300/80 bg-amber-300/10' : 'border-amber-300 bg-amber-50'
-                }`}>
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-red-500 to-red-700 text-[1.35rem] font-black tracking-tight text-white shadow-inner">
-                    62
-                  </div>
-                </div>
+            <div className="mb-8">
+              <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-red-600 to-red-800 text-white shadow-lg">
+                <i className="ri-login-box-line text-2xl"></i>
               </div>
               <h1 className={`text-3xl font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>Entrar na sua conta</h1>
               <p className={`mt-2 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
