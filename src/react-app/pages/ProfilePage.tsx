@@ -469,78 +469,106 @@ const ProfilePage: React.FC = () => {
   // ── Main menu view ─────────────────────────────────────────────────
   const renderMenu = () => (
     <div className="max-w-3xl mx-auto px-4 pb-12 pt-4">
-      <div className="relative rounded-[28px] p-6 mb-6 overflow-hidden bg-gradient-to-br from-[#0f1726] via-[#121d2d] to-[#18253a] shadow-2xl shadow-black/20 border border-white/5">
-        <div className="absolute inset-0 opacity-20">
-          <div className="absolute top-0 right-0 w-72 h-72 rounded-full bg-red-500 blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-          <div className="absolute bottom-0 left-0 w-56 h-56 rounded-full bg-cyan-500 blur-3xl translate-y-1/2 -translate-x-1/2"></div>
-        </div>
-        <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
+      <div className={`relative overflow-hidden rounded-[28px] p-5 mb-6 shadow-sm ${darkMode ? 'bg-gradient-to-br from-[#0f1726] via-[#121d2d] to-[#18253a] border border-white/5 shadow-black/20' : 'bg-white border border-gray-200'}`}>
+        <div className={`absolute inset-x-0 top-0 h-32 ${darkMode ? 'bg-gradient-to-r from-red-500/20 via-transparent to-cyan-500/20' : 'bg-gradient-to-r from-red-100 via-white to-amber-50'}`}></div>
+        <div className="relative grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div>
             <div className="flex items-start gap-4">
               <div className="relative shrink-0">
-                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-red-400 to-red-700 flex items-center justify-center text-white text-2xl font-bold shadow-lg ring-4 ring-white/10">
-                  {initials}
+                <div className={`relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-[30px] shadow-lg ${
+                  darkMode ? 'bg-gradient-to-br from-slate-700 via-slate-800 to-black' : 'bg-gradient-to-br from-[#f6f7fb] via-white to-[#eef2f7] border border-gray-200'
+                }`}>
+                  <div className={`absolute -left-3 top-6 flex h-10 w-10 items-center justify-center rounded-full text-lg shadow ${darkMode ? 'bg-amber-400 text-slate-900' : 'bg-amber-300 text-amber-900'}`}>€</div>
+                  <div className={`absolute -right-2 top-12 flex h-8 w-8 items-center justify-center rounded-full text-sm shadow ${darkMode ? 'bg-yellow-300 text-slate-900' : 'bg-yellow-200 text-yellow-900'}`}>€</div>
+                  <div className={`absolute left-4 top-4 flex h-14 w-14 items-center justify-center rounded-2xl text-xl font-black ${
+                    darkMode ? 'bg-gradient-to-br from-red-500 to-rose-700 text-white' : 'bg-gradient-to-br from-red-500 to-rose-600 text-white'
+                  }`}>
+                    {initials}
+                  </div>
                 </div>
                 {kycStatus === 'verified' && (
-                  <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center border-2 border-[#101826]">
+                  <div className={`absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center ${darkMode ? 'border-2 border-[#101826]' : 'border-2 border-white'}`}>
                     <BadgeCheck className="w-4 h-4 text-white" />
                   </div>
                 )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 mb-2">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-200 border border-white/10">
+                  <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${darkMode ? 'bg-white/10 text-red-200 border border-white/10' : 'bg-red-50 text-red-600 border border-red-100'}`}>
                     <UserCheck className="w-3.5 h-3.5" />
                     Centro de Perfil
                   </span>
                   {heroBadges.map((badge) => (
-                    <span key={badge.key} className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium ${badge.className}`}>
+                    <span
+                      key={badge.key}
+                      className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium ${
+                        darkMode
+                          ? badge.className
+                          : badge.key === 'kyc'
+                            ? (kycStatus === 'verified' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-amber-50 text-amber-600 border border-amber-100')
+                            : badge.key === 'status'
+                              ? (selfExclude ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-teal-50 text-teal-600 border border-teal-100')
+                              : 'bg-gray-50 text-gray-600 border border-gray-200'
+                      }`}
+                    >
                       {badge.label}
                     </span>
                   ))}
                 </div>
-                <h1 className="text-[28px] sm:text-[32px] leading-tight font-bold text-white">{fullName}</h1>
-                {email && <p className="text-gray-300 text-[14px] mt-1 break-all">{email}</p>}
-                <p className="text-gray-400 text-[13px] mt-3 max-w-2xl">
-                  Gere dados pessoais, pagamentos, segurança, documentos e jogo responsável num painel único mais claro e organizado.
+                <h1 className={`text-[30px] sm:text-[32px] leading-tight font-black ${darkMode ? 'text-white' : 'text-gray-950'}`}>{fullName}</h1>
+                {email && <p className={`text-[14px] mt-1 break-all ${darkMode ? 'text-gray-300' : 'text-gray-500'}`}>{email}</p>}
+                <p className={`text-[13px] mt-3 max-w-2xl ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Gere conta, pagamentos, documentos, segurança e preferências num painel único mais limpo.
                 </p>
               </div>
             </div>
 
-            <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {walletStats.map((stat) => (
-                <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-4">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 mb-1">{stat.label}</p>
-                  <p className={`text-[22px] font-bold ${stat.tone}`}>{stat.value}</p>
+            <div className={`mt-5 rounded-[28px] p-5 ${darkMode ? 'border border-white/10 bg-white/5' : 'border border-gray-200 bg-[#fbfbfc]'}`}>
+              <div className="grid gap-5 lg:grid-cols-[1fr_auto]">
+                <div>
+                  <p className={`text-[13px] font-semibold ${darkMode ? 'text-gray-300' : 'text-gray-500'}`}>Saldo disponível</p>
+                  <p className={`mt-1 text-[44px] font-black leading-none ${darkMode ? 'text-white' : 'text-gray-950'}`}>
+                    {balance.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                  </p>
+                  <div className={`mt-5 space-y-2 text-[15px] font-black ${darkMode ? 'text-white' : 'text-gray-950'}`}>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="inline-flex items-center gap-2"><span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">F</span> FREEBETS</span>
+                      <span>0,00 €</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="inline-flex items-center gap-2"><span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-purple-600 text-[10px] text-white">C</span> BÓNUS DE CASINO</span>
+                      <span>0,00 €</span>
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-3 sm:max-w-md">
-              <button
-                onClick={() => setSelectedItem('Métodos de Pagamento')}
-                className="py-3 rounded-2xl text-[14px] font-bold text-white bg-white/10 hover:bg-white/15 border border-white/10 transition"
-              >
-                Levantar
-              </button>
-              <button
-                onClick={() => setSelectedItem('Métodos de Pagamento')}
-                className="py-3 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-[14px] font-bold transition"
-              >
-                Depositar
-              </button>
+                <div className="flex flex-col justify-end gap-3">
+                  <button
+                    onClick={() => setSelectedItem('Métodos de Pagamento')}
+                    className={`min-w-[180px] rounded-2xl px-6 py-3 text-[16px] font-black transition ${darkMode ? 'bg-slate-950 text-white hover:bg-black' : 'bg-slate-950 text-white hover:bg-slate-800'}`}
+                  >
+                    Levantar
+                  </button>
+                  <button
+                    onClick={() => setSelectedItem('Métodos de Pagamento')}
+                    className="min-w-[180px] rounded-2xl bg-red-600 px-6 py-3 text-[16px] font-black text-white transition hover:bg-red-700"
+                  >
+                    Depositar
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-white/6 backdrop-blur-md p-5 flex flex-col justify-between">
+          <div className={`rounded-[28px] p-5 flex flex-col justify-between ${darkMode ? 'border border-white/10 bg-white/6' : 'border border-gray-200 bg-[#fbfbfc]'}`}>
             <div>
               <div className="flex items-center justify-between mb-3">
-                <p className="text-[14px] font-semibold text-white">Conclusão do Perfil</p>
-                <span className="text-[12px] font-semibold text-red-200">{completionPercent}%</span>
+                <p className={`text-[14px] font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>Conclusão do Perfil</p>
+                <span className={`text-[12px] font-semibold ${darkMode ? 'text-red-200' : 'text-red-500'}`}>{completionPercent}%</span>
               </div>
-              <div className="h-2 rounded-full bg-white/10 overflow-hidden mb-4">
+              <div className={`h-2 rounded-full overflow-hidden mb-4 ${darkMode ? 'bg-white/10' : 'bg-gray-200'}`}>
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-red-400 to-cyan-400 transition-all duration-500"
+                  className="h-full rounded-full bg-gradient-to-r from-red-500 to-orange-400 transition-all duration-500"
                   style={{ width: `${completionPercent}%` }}
                 ></div>
               </div>
@@ -553,8 +581,8 @@ const ProfilePage: React.FC = () => {
                   { label: 'KYC', done: kycStatus === 'verified' },
                 ].map((item) => (
                   <div key={item.label} className="flex items-center justify-between text-[13px]">
-                    <span className="text-gray-300">{item.label}</span>
-                    <span className={`inline-flex items-center gap-1 ${item.done ? 'text-emerald-300' : 'text-gray-400'}`}>
+                    <span className={darkMode ? 'text-gray-300' : 'text-gray-600'}>{item.label}</span>
+                    <span className={`inline-flex items-center gap-1 ${item.done ? 'text-emerald-500' : darkMode ? 'text-gray-400' : 'text-gray-400'}`}>
                       {item.done ? <Check className="w-3.5 h-3.5" /> : <History className="w-3.5 h-3.5" />}
                       {item.done ? 'Completo' : 'Pendente'}
                     </span>
@@ -562,10 +590,10 @@ const ProfilePage: React.FC = () => {
                 ))}
               </div>
             </div>
-            <div className="mt-5 rounded-2xl border border-white/10 bg-black/15 p-4">
+            <div className={`mt-5 rounded-2xl p-4 ${darkMode ? 'border border-white/10 bg-black/15' : 'border border-gray-200 bg-white'}`}>
               <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 mb-1">Estado da Conta</p>
-              <p className="text-white font-semibold mb-1">{accountStatusLabel}</p>
-              <p className="text-[12px] text-gray-400">{accountStatusDescription}</p>
+              <p className={darkMode ? 'text-white font-semibold mb-1' : 'text-gray-900 font-semibold mb-1'}>{accountStatusLabel}</p>
+              <p className={`text-[12px] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{accountStatusDescription}</p>
             </div>
           </div>
         </div>

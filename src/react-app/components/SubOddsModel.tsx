@@ -31,6 +31,22 @@ export interface Markets {
   [key: string]: MarketItem[]
 }
 
+type LegacyComboCard = {
+  id: string
+  badge: string
+  title: string
+  odd: number
+  marketLabel: string
+  legs: Array<{
+    marketId: string
+    marketName: string
+    selection: string
+    odd: number
+    settlementKey: string
+  }>
+  comboMeta: any
+}
+
 const parseLiveMinuteValue = (rawTimer?: string | null, fallbackElapsed?: number | null): number => {
   const timer = String(rawTimer || '').trim();
   const stoppage = timer.match(/^(\d{1,3})\s*\+\s*(\d{1,2})$/);
@@ -222,7 +238,7 @@ export function SubOddsModel({
   darkMode: boolean
   markets: Markets | null
   eventOdds: Record<string, any[]> | null
-  onSelect: (label: string, odd: number) => void
+  onSelect: (label: string, odd: number, market?: string, comboMeta?: any) => void
   labelOutcome: (market: string, name: string) => string
   applyMarginClamp: (mk: string, v: number) => number
   suspendedMarkets?: { eventId: number; marketId: string; reason: string }[]
@@ -701,6 +717,239 @@ export function SubOddsModel({
       { label: 'Sim', odd: Math.round(oddSim * 100) / 100 },
     ] as MarketItem[]
   }, [eventOdds, markets, normalizedMarkets, resultadoRegulamentar, totalsItems])
+
+  const isSoccerEvent = useMemo(() => {
+    const sportKey = String((event as any)?.sport || '').toLowerCase()
+    return (
+      sportKey.includes('soccer') ||
+      sportKey.includes('futebol') ||
+      (sportKey.includes('football') && !sportKey.includes('american'))
+    )
+  }, [event])
+
+  const comboCards = useMemo((): LegacyComboCard[] => {
+    if (!isSoccerEvent) return []
+
+    const normalizeMainSelection = (label: string) => {
+      const lower = String(label || '').toLowerCase()
+      if (lower === 'casa' || lower === 'home') return home || 'Casa'
+      if (lower === 'fora' || lower === 'away') return away || 'Fora'
+      return label
+    }
+
+    const normalizeLine = (n: number) => {
+      if (!Number.isFinite(n)) return '2.5'
+      if (Math.abs(n - Math.round(n)) < 0.001) return String(Math.round(n))
+      return String(n).replace('.', ',')
+    }
+
+    const parseLineValue = (v: any) => {
+      const s = String(v ?? '').replace(',', '.')
+      const m = s.match(/(\d+(?:\.\d+)?)/)
+      if (!m) return null
+      const n = Number(m[1])
+      return Number.isFinite(n) ? n : null
+    }
+
+    const pickOverLine = () => {
+      const candidates = totalsItems
+        .filter((item: MarketItem) => /(acima|over|mais)/i.test(String(item.label || '')))
+        .map((item: MarketItem) => {
+          const line = parseLineValue(item.handicap ?? item.label)
+          return line != null ? { line, odd: Number(item.odd) } : null
+        })
+        .filter(Boolean) as Array<{ line: number; odd: number }>
+
+      if (candidates.length) {
+        const prefer = 2.5
+        return candidates
+          .filter((c) => Number.isFinite(c.odd) && c.odd > 1.01)
+          .sort((a, b) => Math.abs(a.line - prefer) - Math.abs(b.line - prefer))[0]
+      }
+
+      const lambdaTotal = 2.6
+      const pOver25 = 1 - Math.exp(-lambdaTotal) * (1 + lambdaTotal + (lambdaTotal * lambdaTotal) / 2)
+      const margin = 1.05
+      const odd = pOver25 > 0.05 && pOver25 < 0.95 ? Math.round(((1 / pOver25) / margin) * 100) / 100 : 1.9
+      return { line: 2.5, odd }
+    }
+
+    const overPick = pickOverLine()
+
+    const homeWinner = [...resultadoRegulamentar].find((item) => {
+      const l = String(item.label || '').toLowerCase()
+      return l === 'casa' || l === 'home' || (home && l.includes(String(home).toLowerCase()))
+    })
+    const awayWinner = [...resultadoRegulamentar].find((item) => {
+      const l = String(item.label || '').toLowerCase()
+      return l === 'fora' || l === 'away' || (away && l.includes(String(away).toLowerCase()))
+    })
+
+    const homeProtected = doubleChanceItems.find((item: MarketItem) => String(item.label || '').toUpperCase() === '1X')
+    const awayProtected = doubleChanceItems.find((item: MarketItem) => String(item.label || '').toUpperCase() === 'X2')
+    const bttsYes = bttsItems.find((item: MarketItem) => /sim|yes/i.test(String(item.label || '')))
+
+    const calculateCombinedOdd = (odds: number[], correlationFactor: number) => {
+      if (!odds.length) return 1
+      const impliedProbability = odds.reduce((acc, odd) => acc * (1 / odd), 1)
+      const adjustedProbability = Math.min(0.92, impliedProbability * correlationFactor)
+      return Number((1 / adjustedProbability).toFixed(2))
+    }
+
+    const buildCombo = (
+      id: string,
+      badge: string,
+      title: string,
+      legs: Array<{ marketId: string; marketName: string; selection: string; odd: number; settlementKey: string }>,
+      correlationFactor: number,
+    ): LegacyComboCard | null => {
+      if (legs.length < 2 || legs.some((leg) => !(Number(leg.odd) > 1.01))) return null
+      const odd = calculateCombinedOdd(legs.map((leg) => Number(leg.odd)), correlationFactor)
+      return {
+        id,
+        badge,
+        title,
+        odd,
+        marketLabel: 'Mercados Combinados',
+        legs,
+        comboMeta: {
+          kind: 'same_game_combo',
+          comboId: `legacy-${event?.id || 'event'}-${id}`,
+          title,
+          generatedAutomatically: true,
+          generatedAt: new Date().toISOString(),
+          sport: 'soccer',
+          settlementMode: 'multi_leg_standard',
+          voidPolicy: 'void_leg_reprices_combo',
+          supportedBySettlement: true,
+          explanation: 'Combo gerado automaticamente a partir dos mercados disponíveis deste jogo.',
+          legs: legs.map((leg) => ({
+            marketId: leg.marketId,
+            marketName: leg.marketName,
+            settlementKey: leg.settlementKey,
+            selection: leg.selection,
+            odd: leg.odd,
+            availableInPlay: true,
+            pauseTriggers: [],
+          })),
+        },
+      }
+    }
+
+    const cards = [
+      buildCombo(
+        'home-over',
+        'Equilibrado',
+        homeWinner
+          ? `${normalizeMainSelection(homeWinner.label)} + Mais de ${normalizeLine(overPick.line)} Golos`
+          : `Casa + Mais de ${normalizeLine(overPick.line)} Golos`,
+        [
+          homeWinner
+            ? {
+                marketId: 'match-winner',
+                marketName: 'Resultado Final',
+                selection: normalizeMainSelection(homeWinner.label),
+                odd: Number(homeWinner.odd),
+                settlementKey: 'match_winner',
+              }
+            : null,
+          {
+            marketId: 'over-under-goals',
+            marketName: 'Mais/Menos Golos',
+            selection: `Mais de ${normalizeLine(overPick.line)} Golos`,
+            odd: Number(overPick.odd),
+            settlementKey: 'totals',
+          },
+        ].filter(Boolean) as LegacyComboCard['legs'],
+        1.08,
+      ),
+      buildCombo(
+        'away-over',
+        'Equilibrado',
+        awayWinner
+          ? `${normalizeMainSelection(awayWinner.label)} + Mais de ${normalizeLine(overPick.line)} Golos`
+          : `Fora + Mais de ${normalizeLine(overPick.line)} Golos`,
+        [
+          awayWinner
+            ? {
+                marketId: 'match-winner',
+                marketName: 'Resultado Final',
+                selection: normalizeMainSelection(awayWinner.label),
+                odd: Number(awayWinner.odd),
+                settlementKey: 'match_winner',
+              }
+            : null,
+          {
+            marketId: 'over-under-goals',
+            marketName: 'Mais/Menos Golos',
+            selection: `Mais de ${normalizeLine(overPick.line)} Golos`,
+            odd: Number(overPick.odd),
+            settlementKey: 'totals',
+          },
+        ].filter(Boolean) as LegacyComboCard['legs'],
+        1.07,
+      ),
+      buildCombo(
+        'home-protected-btts',
+        'Protegido',
+        homeProtected ? '1X + Ambas Marcam' : 'Casa Protegida + Ambas Marcam',
+        [
+          homeProtected
+            ? {
+                marketId: 'double-chance',
+                marketName: 'Dupla Hipótese',
+                selection: String(homeProtected.label || ''),
+                odd: Number(homeProtected.odd),
+                settlementKey: 'double_chance',
+              }
+            : null,
+          bttsYes
+            ? {
+                marketId: 'btts',
+                marketName: 'Ambas Marcam',
+                selection: 'Ambas Marcam - Sim',
+                odd: Number(bttsYes.odd),
+                settlementKey: 'btts',
+              }
+            : null,
+        ].filter(Boolean) as LegacyComboCard['legs'],
+        1.07,
+      ),
+      buildCombo(
+        'away-protected-btts',
+        'Protegido',
+        awayProtected ? 'X2 + Ambas Marcam' : 'Fora Protegida + Ambas Marcam',
+        [
+          awayProtected
+            ? {
+                marketId: 'double-chance',
+                marketName: 'Dupla Hipótese',
+                selection: String(awayProtected.label || ''),
+                odd: Number(awayProtected.odd),
+                settlementKey: 'double_chance',
+              }
+            : null,
+          bttsYes
+            ? {
+                marketId: 'btts',
+                marketName: 'Ambas Marcam',
+                selection: 'Ambas Marcam - Sim',
+                odd: Number(bttsYes.odd),
+                settlementKey: 'btts',
+              }
+            : null,
+        ].filter(Boolean) as LegacyComboCard['legs'],
+        1.06,
+      ),
+    ].filter((card): card is LegacyComboCard => card !== null)
+
+    const unique = new Map<string, LegacyComboCard>()
+    for (const card of cards) {
+      const key = card.legs.map((leg) => `${leg.marketId}:${leg.selection}`).sort().join('|')
+      if (!unique.has(key)) unique.set(key, card)
+    }
+    return Array.from(unique.values()).slice(0, 4)
+  }, [isSoccerEvent, event?.id, home, away, resultadoRegulamentar, totalsItems, bttsItems, doubleChanceItems])
 
   // ─────────────────────────────────────────────────────────────────────
   // CRITICAL EVENT STATE MACHINE — replaces 1X2 buttons during key moments
@@ -2047,6 +2296,102 @@ export function SubOddsModel({
           <span style={{ animation: 'wcPulse 1.8s ease-in-out infinite', display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#f97316', flexShrink: 0 }} />
           ⏱ {liquidationTier} · mercados em liquidação
           <style>{`@keyframes wcPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(1.85)}}`}</style>
+        </div>
+      )}
+
+      {comboCards.length > 0 && (
+        <div className={`mb-4 rounded-2xl border p-3 ${
+          darkMode ? 'border-gray-700 bg-gray-900/70' : 'border-gray-200 bg-white'
+        }`}>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="text-lg text-amber-400">⚡</span>
+              <div className="min-w-0">
+                <h3 className={`text-sm font-black uppercase tracking-[0.12em] ${
+                  darkMode ? 'text-white' : 'text-gray-900'
+                }`}>
+                  Biblioteca de Combinações
+                </h3>
+                <p className={`text-[11px] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Same Game Combo prontos para este jogo
+                </p>
+              </div>
+            </div>
+            <span className={`whitespace-nowrap text-xs ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+              {comboCards.length} combos
+            </span>
+          </div>
+
+          <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+            {comboCards.map((combo) => (
+              <article
+                key={combo.id}
+                className={`min-w-[280px] rounded-2xl border p-3 shadow-sm ${
+                  darkMode
+                    ? 'border-gray-700 bg-gradient-to-b from-gray-900 to-gray-950'
+                    : 'border-gray-200 bg-gradient-to-b from-white to-gray-50'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <span className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${
+                    combo.badge === 'Protegido'
+                      ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-400'
+                      : 'border-blue-500/40 bg-blue-500/10 text-blue-400'
+                  }`}>
+                    {combo.badge}
+                  </span>
+                  <div className={`text-right text-[10px] ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                    Automático
+                  </div>
+                </div>
+
+                <h4 className={`mt-3 text-lg font-black leading-tight ${
+                  darkMode ? 'text-white' : 'text-gray-900'
+                }`}>
+                  {combo.title}
+                </h4>
+
+                <ul className={`mt-3 space-y-1.5 text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  {combo.legs.map((leg) => (
+                    <li key={`${combo.id}-${leg.marketId}-${leg.selection}`} className="flex items-start gap-2">
+                      <span className="mt-1 h-1.5 w-1.5 rounded-full bg-gray-400"></span>
+                      <span>
+                        {leg.selection}
+                        <span className={`ml-2 text-[11px] ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                          {leg.marketName}
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className={`mt-4 flex items-end justify-between gap-3 border-t pt-4 ${
+                  darkMode ? 'border-gray-800' : 'border-gray-200'
+                }`}>
+                  <div>
+                    <div className={`text-[11px] uppercase tracking-[0.14em] ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                      Odd
+                    </div>
+                    <div className={`text-3xl font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                      {combo.odd.toFixed(2)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(
+                      combo.title,
+                      combo.odd,
+                      `${combo.marketLabel}: ${combo.legs.map((leg) => leg.selection).join(' | ')}`,
+                      combo.comboMeta,
+                    )}
+                    className="rounded-2xl bg-gradient-to-r from-red-600 to-orange-500 px-4 py-2.5 text-sm font-black text-white transition hover:from-red-700 hover:to-orange-600"
+                  >
+                    + Adicionar
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
       )}
 

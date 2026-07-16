@@ -49,7 +49,7 @@ function NavBtn({
 export function Header() {
   const {
     darkMode, user, selfExclude, selfExcludeUntil, isOperator,
-    showMobileSidebar, setShowMobileSidebar, openAuthModal,
+    showMobileSidebar, setShowMobileSidebar,
     setSelectedCategory, showDashboard, setShowDashboard,
   } = useApp();
   const { pathname } = useLocation();
@@ -105,19 +105,6 @@ export function Header() {
     loadFreebets();
     return () => { alive = false; };
   }, [user]);
-
-  useEffect(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const url = new URL(window.location.href);
-        if (url.pathname === '/register' || url.searchParams.has('ref')) {
-          setTimeout(() => openAuthModal('register'), 100);
-        } else if (url.pathname === '/login') {
-          setTimeout(() => openAuthModal('login'), 100);
-        }
-      }
-    } catch { void 0; }
-  }, []);
 
   return (
     <>

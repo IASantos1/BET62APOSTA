@@ -35,6 +35,8 @@ import EventStatsPage from "./pages/EventStatsPage";
 import Promotions from "./pages/Promotions";
 import ProfilePage from "./pages/ProfilePage";
 import MyBetsPage from "./pages/MyBetsPage";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
 import { AdminRoute } from './routes/AdminRoute';
 import AdminKycPage from "./pages/AdminKycPage";
 import AdminWithdrawalsPage from "./pages/AdminWithdrawalsPage";
@@ -135,15 +137,10 @@ function AppContent() {
   const location = useLocation();
   const navigate = useNavigate();
   const isAdminAuthPath = location.pathname === '/administrador/login' || location.pathname === '/admin/login';
-  const isPublicAuthPath = location.pathname === '/login' || location.pathname === '/register';
 
   useEffect(() => {
-    if (location.pathname === '/login') {
+    if (isAdminAuthPath) {
       openAuthModal('login');
-    } else if (isAdminAuthPath) {
-      openAuthModal('login');
-    } else if (location.pathname === '/register') {
-      openAuthModal('register');
     }
   }, [location.pathname, isAdminAuthPath]);
 
@@ -151,15 +148,6 @@ function AppContent() {
     closeAuthModal();
     if (isAdminAuthPath) {
       navigate('/');
-      return;
-    }
-    if (isPublicAuthPath) {
-      try {
-        if (window.history.length > 2) navigate(-1);
-        else navigate('/');
-      } catch {
-        navigate('/');
-      }
     }
   };
 
@@ -184,9 +172,6 @@ function AppContent() {
             if (isAdminAuthPath) {
               navigate('/administrador');
               return;
-            }
-            if (isPublicAuthPath) {
-              navigate('/');
             }
           }}
           onRequire2FA={(userId) => openAuthModal('2fa', userId)}
@@ -218,8 +203,8 @@ function AppContent() {
             <Route path="/wallet" element={<WalletPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/my-bets" element={<MyBetsPage />} />
-            <Route path="/register" element={<HomePage mode="home" />} />
-            <Route path="/login" element={<HomePage mode="home" />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/login" element={<LoginPage />} />
             <Route path="/admin/login" element={<HomePage mode="home" />} />
             <Route path="/administrador/login" element={<HomePage mode="home" />} />
             <Route path="/admin" element={

@@ -44,6 +44,8 @@ interface AppContextType {
     password: string;
     firstName: string;
     lastName: string;
+    phone?: string;
+    nif?: string;
     dob: string;
     country: string;
   }) => Promise<boolean>;

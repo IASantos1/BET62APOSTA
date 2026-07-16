@@ -29,6 +29,8 @@ import { apiFetch } from '../utils/api';
     password: string;
     firstName: string;
     lastName: string;
+    phone?: string;
+    nif?: string;
     dob: string;
     country: string;
   }) => Promise<boolean>;
@@ -138,6 +140,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     password: string;
     firstName: string;
     lastName: string;
+    phone?: string;
+    nif?: string;
     dob: string;
     country: string;
   }) => {
