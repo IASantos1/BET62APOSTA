@@ -56,6 +56,40 @@ const parseJsonLoose = (v: any) => {
     }
 };
 
+const parseScoreObject = (value: any): Record<string, any> | null => {
+  if (!value) return null;
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
+  if (typeof value !== 'string') return null;
+  const s = value.trim();
+  if (!s || !(s.startsWith('{') || s.startsWith('['))) return null;
+  try {
+    const parsed = JSON.parse(s);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const mergeLiveScore = (prevScore: any, nextScore: any) => {
+  const prevObj = parseScoreObject(prevScore);
+  const nextObj = parseScoreObject(nextScore);
+  if (prevObj && nextObj) {
+    return {
+      ...prevObj,
+      ...nextObj,
+      sets: {
+        ...((prevObj.sets && typeof prevObj.sets === 'object') ? prevObj.sets : {}),
+        ...((nextObj.sets && typeof nextObj.sets === 'object') ? nextObj.sets : {}),
+      },
+      point: {
+        ...((prevObj.point && typeof prevObj.point === 'object') ? prevObj.point : {}),
+        ...((nextObj.point && typeof nextObj.point === 'object') ? nextObj.point : {}),
+      },
+    };
+  }
+  return nextScore ?? prevScore;
+};
+
 const getRawLiveEventId = (item: any) =>
   String(item?.external_event_id || item?.id || item?.fixture?.id || '').trim();
 
@@ -352,7 +386,7 @@ export function useLiveFeed(sport?: string) {
   // Poll function
   const fetchLiveEvents = useCallback(async () => {
       try {
-          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&include=odds&only=live&days=0`;
+          const url = `/api/events/by-sport?sports=${sport || 'all'}&realtime=1&only=live&days=0`;
           const data = await apiFetch<any>(url, { cache: 'no-store' });
           
           const list = Array.isArray(data) ? data : (data && Array.isArray(data.live) ? data.live : null);
@@ -465,7 +499,13 @@ export function useLiveFeed(sport?: string) {
     const loop = async () => {
       if (cancelled) return;
       if (wsOk) return;
-      const fallbackMs = String(sport || 'all').toLowerCase() === 'tennis' ? 1200 : 2500;
+      const sportKey = String(sport || 'all').toLowerCase();
+      const fallbackMs =
+        sportKey === 'tennis'
+          ? 1200
+          : sportKey === 'soccer' || sportKey === 'football' || sportKey === 'futebol' || sportKey === 'all'
+            ? 1500
+            : 2500;
       if (inflight) {
         timeoutId = setTimeout(loop, fallbackMs);
         return;
@@ -654,6 +694,9 @@ export function useLiveFeed(sport?: string) {
                   is_live: 1,
                   goals: delta.goals || { home: delta.score?.home ?? null, away: delta.score?.away ?? null },
                   score: delta.score && typeof delta.score === 'object' ? { ...delta.score } : undefined,
+                  suspended_reason: delta.suspended_reason ?? delta.suspendReason ?? undefined,
+                  suspendReason: delta.suspendReason ?? delta.suspended_reason ?? undefined,
+                  suspended_markets: Array.isArray(delta.suspended_markets) ? delta.suspended_markets : undefined,
                   status_short: delta.status_short || '',
                   status_long: delta.status_long || '',
                   elapsed: typeof delta.elapsed === 'number' ? delta.elapsed : 0,
@@ -693,13 +736,7 @@ export function useLiveFeed(sport?: string) {
                 }
               }
               if (delta.score && typeof delta.score === 'object') {
-                const baseScore =
-                  typeof merged.score === 'string'
-                    ? (() => {
-                        try { return JSON.parse(merged.score); } catch { return {}; }
-                      })()
-                    : (merged.score && typeof merged.score === 'object' ? merged.score : {});
-                merged.score = { ...(baseScore || {}), ...delta.score };
+                merged.score = mergeLiveScore(merged.score, delta.score);
                 if (!delta.goals && (delta.score.home != null || delta.score.away != null)) {
                   merged.goals = {
                     home: delta.score.home ?? merged.goals?.home ?? null,
@@ -727,6 +764,13 @@ export function useLiveFeed(sport?: string) {
               if (delta.draw_odd != null && delta.draw_odd > 0) merged.draw_odd = Number(delta.draw_odd);
               if (delta.away_odd != null && delta.away_odd > 0) merged.away_odd = Number(delta.away_odd);
               if (delta.markets) merged.markets = { ...(merged.markets || {}), ...delta.markets };
+              if (typeof delta.suspended === 'boolean') merged.suspended = delta.suspended;
+              if (delta.suspended_reason != null || delta.suspendReason != null) {
+                const reason = String(delta.suspended_reason ?? delta.suspendReason ?? '').trim();
+                merged.suspended_reason = reason || undefined;
+                merged.suspendReason = reason || undefined;
+              }
+              if (Array.isArray(delta.suspended_markets)) merged.suspended_markets = delta.suspended_markets;
 
               next.set(id, merged);
               _liveCache.set(_sportKey, { map: next, ts: now });
@@ -755,6 +799,8 @@ export function useLiveFeed(sport?: string) {
                 id,
                 external_event_id: (prevVal as any)?.external_event_id || id,
                 is_live: 1,
+                suspended_reason: String(delta.suspendReason || delta.suspended_reason || '').trim() || (prevVal as any)?.suspended_reason,
+                suspendReason: String(delta.suspendReason || delta.suspended_reason || '').trim() || (prevVal as any)?.suspendReason,
                 events: nextIncidents,
                 fixture: {
                   ...((prevVal as any)?.fixture || {}),

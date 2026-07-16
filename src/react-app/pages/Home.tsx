@@ -151,7 +151,7 @@ function Home({ mode = 'home' }: HomeProps) {
   const { signals: liveSignals } = useBatchMarketSignals({
     events: processedLive,
     enabled: processedLive.length > 0,
-    maxEvents: 20,
+    maxEvents: 60,
   });
 
   // Busca

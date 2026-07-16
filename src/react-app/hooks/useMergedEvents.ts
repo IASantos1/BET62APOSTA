@@ -33,6 +33,78 @@ const isNonEmptyMarkets = (v: any) => (Array.isArray(v) ? v.length > 0 : isNonEm
 
 const isNonEmptyString = (v: any) => typeof v === 'string' && v.trim().length > 0;
 
+const parseScoreObject = (value: any): Record<string, any> | null => {
+  if (!value) return null;
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
+  if (typeof value !== 'string') return null;
+  const s = value.trim();
+  if (!s || !(s.startsWith('{') || s.startsWith('['))) return null;
+  try {
+    const parsed = JSON.parse(s);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const scoreDetailWeight = (value: any): number => {
+  const obj = parseScoreObject(value);
+  if (!obj) return 0;
+  let weight = 0;
+  if (obj.home != null) weight += 1;
+  if (obj.away != null) weight += 1;
+  if (obj.point && typeof obj.point === 'object') {
+    if (obj.point.home != null) weight += 2;
+    if (obj.point.away != null) weight += 2;
+  }
+  const sets = obj.sets && typeof obj.sets === 'object' ? obj.sets : null;
+  if (sets) {
+    for (const setValue of Object.values(sets)) {
+      if (!setValue || typeof setValue !== 'object') continue;
+      if ((setValue as any).home != null) weight += 3;
+      if ((setValue as any).away != null) weight += 3;
+    }
+  }
+  return weight;
+};
+
+const mergeScores = (httpScore: any, wsScore: any) => {
+  const httpObj = parseScoreObject(httpScore);
+  const wsObj = parseScoreObject(wsScore);
+
+  if (httpObj && wsObj) {
+    return {
+      ...httpObj,
+      ...wsObj,
+      sets: {
+        ...((httpObj.sets && typeof httpObj.sets === 'object') ? httpObj.sets : {}),
+        ...((wsObj.sets && typeof wsObj.sets === 'object') ? wsObj.sets : {}),
+      },
+      point: {
+        ...((httpObj.point && typeof httpObj.point === 'object') ? httpObj.point : {}),
+        ...((wsObj.point && typeof wsObj.point === 'object') ? wsObj.point : {}),
+      },
+    };
+  }
+
+  const httpWeight = scoreDetailWeight(httpScore);
+  const wsWeight = scoreDetailWeight(wsScore);
+  if (wsWeight > httpWeight) return wsScore;
+  if (httpWeight > 0) return httpScore;
+  return wsScore ?? httpScore;
+};
+
+const mergeGoals = (httpEvt: any, wsEvt: any, mergedScore: any) => {
+  const scoreObj = parseScoreObject(mergedScore);
+  if (scoreObj && (scoreObj.home != null || scoreObj.away != null)) {
+    return {
+      home: scoreObj.home ?? wsEvt?.goals?.home ?? httpEvt?.goals?.home ?? null,
+      away: scoreObj.away ?? wsEvt?.goals?.away ?? httpEvt?.goals?.away ?? null,
+    };
+  }
+  return wsEvt?.goals ?? httpEvt?.goals;
+};
+
 const hasAnyOdds = (e: any) => {
   const h = Number(e?.home_odd || 0);
   const d = Number(e?.draw_odd || 0);
@@ -134,6 +206,9 @@ export function useMergedEvents(
       const wsDrawOdd = Number((e as any)?.draw_odd || 0);
       const wsAwayOdd = Number((e as any)?.away_odd || 0);
 
+      const mergedScore = mergeScores((httpEvt as any)?.score, (e as any)?.score);
+      const mergedGoals = mergeGoals(httpEvt as any, e as any, mergedScore);
+
       const mergedEvt: Event = {
         ...(httpEvt || {}),
         ...e,
@@ -144,8 +219,18 @@ export function useMergedEvents(
         draw_odd: httpDrawOdd > 1 ? httpDrawOdd : wsDrawOdd > 1 ? wsDrawOdd : httpDrawOdd || wsDrawOdd || 0,
         away_odd: httpAwayOdd > 1 ? httpAwayOdd : wsAwayOdd > 1 ? wsAwayOdd : httpAwayOdd || wsAwayOdd || 0,
         markets,
+        score: mergedScore,
+        goals: mergedGoals,
         elapsed: pickElapsed((e as any)?.elapsed ?? (e as any)?.fixture?.status?.elapsed, (httpEvt as any)?.elapsed ?? (httpEvt as any)?.fixture?.status?.elapsed),
         timer: pickTimer((e as any)?.timer ?? (e as any)?.fixture?.status?.timer, (httpEvt as any)?.timer ?? (httpEvt as any)?.fixture?.status?.timer),
+        suspended: typeof (e as any)?.suspended === 'boolean' ? (e as any).suspended : (httpEvt as any)?.suspended,
+        suspended_reason: (e as any)?.suspended_reason ?? (e as any)?.suspendReason ?? (httpEvt as any)?.suspended_reason ?? (httpEvt as any)?.suspendReason,
+        suspendReason: (e as any)?.suspendReason ?? (e as any)?.suspended_reason ?? (httpEvt as any)?.suspendReason ?? (httpEvt as any)?.suspended_reason,
+        suspended_markets: Array.isArray((e as any)?.suspended_markets)
+          ? (e as any).suspended_markets
+          : Array.isArray((httpEvt as any)?.suspended_markets)
+            ? (httpEvt as any).suspended_markets
+            : undefined,
       } as Event;
 
       map.set(canonical, mergedEvt);
@@ -162,15 +247,15 @@ export function useMergedEvents(
         const isLiveLike =
           Number((e as any).is_live) === 1 ||
           status === 'LIVE' ||
-          ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN'].includes(status);
+          ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(status);
         if (isLiveLike && !hasAnyOdds(e)) return false;
 
         return true;
     }).sort((a, b) => {
       const aStatus = statusKeyOf(a);
       const bStatus = statusKeyOf(b);
-      const aLive = Number((a as any).is_live) === 1 || aStatus === 'LIVE' || ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN'].includes(aStatus);
-      const bLive = Number((b as any).is_live) === 1 || bStatus === 'LIVE' || ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN'].includes(bStatus);
+      const aLive = Number((a as any).is_live) === 1 || aStatus === 'LIVE' || ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(aStatus);
+      const bLive = Number((b as any).is_live) === 1 || bStatus === 'LIVE' || ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(bStatus);
       
       if (aLive && !bLive) return -1;
       if (!aLive && bLive) return 1;

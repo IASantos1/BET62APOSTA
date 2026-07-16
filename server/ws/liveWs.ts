@@ -56,6 +56,8 @@ export function createLiveWs(apiKey: string) {
   const criticalIncidentCache = new Map<string, CriticalIncidentEntry>();
   const criticalIncidentInflight = new Map<string, Promise<void>>();
   const lastIncidentSweepAt = new Map<string, number>();
+  const tennisFreezeByMatch = new Map<string, { until: number; reason: string }>();
+  const criticalFreezeByMatch = new Map<string, { until: number; reason: string }>();
   let allBootstrapAt = 0;
   let allBootstrapInflight: Promise<void> | null = null;
 
@@ -215,6 +217,112 @@ export function createLiveWs(apiKey: string) {
     if (t === 'penalty' || t === 'penalty_awarded' || t === 'missed_penalty') return 'PENALTY';
     if (t === 'red_card' || t === 'yellow_red') return 'CARD';
     return 'SUSPENSO';
+  };
+
+  const tennisSuspendedMarketKeys = (reason: string): string[] => {
+    const r = String(reason || '').toUpperCase().trim();
+    if (r === 'POINT') return ['game_winner', 'next_game_winner', 'first_serve_winner'];
+    if (r === 'GAME') return ['game_winner', 'next_game_winner', 'break_points', 'break_points_converted', 'first_serve_winner'];
+    if (r === 'SET_END') {
+      return [
+        'set_winner',
+        'current_set_winner',
+        'current_set_totals',
+        'first_set_winner',
+        'second_set_winner',
+        'third_set_winner',
+        'set_1_h2h',
+        'set_2_h2h',
+        'set_3_h2h',
+        'set_4_h2h',
+        'set_5_h2h',
+        'game_winner',
+        'next_game_winner',
+        'break_points',
+        'break_points_converted',
+        'first_serve_winner',
+      ];
+    }
+    return [];
+  };
+
+  const getTennisFreeze = (matchId: string) => {
+    const current = tennisFreezeByMatch.get(matchId);
+    if (!current) return null;
+    if (current.until > Date.now()) return current;
+    tennisFreezeByMatch.delete(matchId);
+    return null;
+  };
+
+  const getCriticalFreeze = (matchId: string) => {
+    const current = criticalFreezeByMatch.get(matchId);
+    if (!current) return null;
+    if (current.until > Date.now()) return current;
+    criticalFreezeByMatch.delete(matchId);
+    return null;
+  };
+
+  const getRealtimeSuspensionPayload = (sport: string, matchId: string) => {
+    const localSport = String(sport || '').trim().toLowerCase();
+    if (localSport === 'tennis') {
+      const freeze = getTennisFreeze(matchId);
+      if (!freeze) return { suspended_reason: undefined, suspended_markets: undefined };
+      return {
+        suspended_reason: freeze.reason,
+        suspended_markets: tennisSuspendedMarketKeys(freeze.reason),
+      };
+    }
+    if (isSoccerSport(localSport)) {
+      const freeze = getCriticalFreeze(matchId);
+      if (!freeze) return { suspended_reason: undefined, suspended_markets: undefined };
+      return {
+        suspended_reason: freeze.reason,
+        suspended_markets: undefined,
+      };
+    }
+    return { suspended_reason: undefined, suspended_markets: undefined };
+  };
+
+  const applyRealtimeScoreFreeze = (sport: string, matchId: string, prev: UpstreamStateEntry | undefined, next: UpstreamStateEntry) => {
+    const localSport = String(sport || '').trim().toLowerCase();
+    if (localSport === 'tennis') {
+      const prevScore = prev?.score && typeof prev.score === 'object' ? prev.score : null;
+      const nextScore = next?.score && typeof next.score === 'object' ? next.score : null;
+      const prevPoint = prevScore?.point ? JSON.stringify(prevScore.point) : null;
+      const nextPoint = nextScore?.point ? JSON.stringify(nextScore.point) : null;
+      const prevSets = prevScore?.sets ? JSON.stringify(prevScore.sets) : null;
+      const nextSets = nextScore?.sets ? JSON.stringify(nextScore.sets) : null;
+      const prevHome = prevScore?.home ?? prev?.home ?? null;
+      const prevAway = prevScore?.away ?? prev?.away ?? null;
+      const nextHome = nextScore?.home ?? next?.home ?? null;
+      const nextAway = nextScore?.away ?? next?.away ?? null;
+
+      let reason: string | null = null;
+      if (prevSets !== null && nextSets !== null && prevSets !== nextSets) reason = 'SET_END';
+      else if (prevPoint !== null && nextPoint !== null && prevPoint !== nextPoint) reason = 'POINT';
+      else if ((prevHome !== null || prevAway !== null) && (nextHome !== null || nextAway !== null) && (prevHome !== nextHome || prevAway !== nextAway)) reason = 'GAME';
+
+      if (reason) {
+        const ttlMs = reason === 'POINT' ? 1200 : reason === 'GAME' ? 3000 : 7000;
+        tennisFreezeByMatch.set(matchId, { until: Date.now() + ttlMs, reason });
+      }
+      return;
+    }
+
+    if (isSoccerSport(localSport)) {
+      const prevHome = prev?.score?.home ?? prev?.home ?? null;
+      const prevAway = prev?.score?.away ?? prev?.away ?? null;
+      const nextHome = next?.score?.home ?? next?.home ?? null;
+      const nextAway = next?.score?.away ?? next?.away ?? null;
+      const scoreChanged =
+        (prevHome !== null || prevAway !== null) &&
+        (nextHome !== null || nextAway !== null) &&
+        (prevHome !== nextHome || prevAway !== nextAway);
+
+      if (scoreChanged) {
+        criticalFreezeByMatch.set(matchId, { until: Date.now() + 20_000, reason: 'GOAL' });
+      }
+    }
   };
 
   const buildTennisScoreFromDelta = (data: any): Record<string, any> | null => {
@@ -912,12 +1020,25 @@ export function createLiveWs(apiKey: string) {
           criticalIncidentCache.set(cacheKey, { ts: Date.now(), lastKey });
           if (!latest || !lastKey || lastKey === prevKey) return;
 
+          const suspendReason = incidentToSuspendReason(latest.incident?.type);
+          if (suspendReason && suspendReason !== 'SUSPENSO') {
+            const ttlMs =
+              suspendReason === 'VAR'
+                ? 30_000
+                : suspendReason === 'PENALTY'
+                  ? 25_000
+                  : suspendReason === 'CARD'
+                    ? 10_000
+                    : 20_000;
+            criticalFreezeByMatch.set(target.id, { until: Date.now() + ttlMs, reason: suspendReason });
+          }
+
           broadcastIncident(target.sport, {
             id: target.id,
             sport: target.sport,
             incident: latest.incident,
             incidents: normalized.slice(-8),
-            suspendReason: incidentToSuspendReason(latest.incident?.type),
+            suspendReason,
           });
         })()
           .catch(() => void 0)
@@ -979,6 +1100,7 @@ export function createLiveWs(apiKey: string) {
             const timer = timerRaw == null ? '' : String(timerRaw).trim();
             const deltaScore = localSport === 'tennis' ? buildTennisScoreFromDelta(d) : null;
             const m = upstreamState.get(localSport) || (upstreamState.set(localSport, new Map()), upstreamState.get(localSport)!);
+            const prevData = m.get(id);
             
             const updateData = {
               ts: Date.now(),
@@ -990,7 +1112,9 @@ export function createLiveWs(apiKey: string) {
               elapsed: elapsed ?? undefined,
               timer: timer || undefined,
             };
+            applyRealtimeScoreFreeze(localSport, id, prevData, updateData);
             m.set(id, updateData);
+            const realtimeSuspension = getRealtimeSuspensionPayload(localSport, id);
             
             // DELTA UPDATE: Envia apenas a mudança de placar/status imediatamente
             broadcastDelta(localSport, {
@@ -1002,6 +1126,9 @@ export function createLiveWs(apiKey: string) {
               status_long: statusDesc || undefined,
               elapsed: elapsed ?? undefined,
               timer: timer || undefined,
+              suspended_reason: realtimeSuspension.suspended_reason,
+              suspendReason: realtimeSuspension.suspended_reason,
+              suspended_markets: realtimeSuspension.suspended_markets,
               is_live: 1
             });
 

@@ -422,15 +422,21 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     });
   };
 
-  // Check if we have valid odds locally, even if realtime thinks it's suspended
-  const hasLocalOdds = currentMarkets && currentMarkets.length > 0;
+  const transientSuspended = transientSuspend.until > Date.now();
+  const explicitEventSuspended = !!suspension || !!(event as any).oddsFrozen || event.suspended === true;
 
   const apiVarActive = !!signals?.varActive;
-  const isSuspended = apiVarActive || ((!!suspension || (event as any).oddsFrozen || event.suspended) && !hasLocalOdds);
+  const isSuspended = apiVarActive || explicitEventSuspended || transientSuspended;
 
   const suspendReason = apiVarActive
     ? 'VAR'
-    : (suspension?.reason || (event as any).suspendReason || ((event as any).oddsFrozen ? 'EVENT_FROZEN' : 'SUSPENSO'));
+    : (
+        transientSuspend.reason ||
+        suspension?.reason ||
+        (event as any).suspended_reason ||
+        (event as any).suspendReason ||
+        ((event as any).oddsFrozen ? 'EVENT_FROZEN' : 'SUSPENSO')
+      );
   const normalizedSuspendReason = String(suspendReason || '').trim().toUpperCase();
 
   const apiCritState = useMemo(() => {
@@ -503,6 +509,45 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     big_chance:  'CHANCE',
     cards:       'CARD',
   };
+
+  const TRANSIENT_SUSPEND_MS: Record<string, number> = {
+    POINT: 1500,
+    GAME: 3000,
+    SET_END: 7000,
+    GOAL: 20000,
+    VAR: 30000,
+    PENALTY: 25000,
+    CARD: 10000,
+  };
+  const [transientSuspend, setTransientSuspend] = useState<{ reason: string; until: number }>({ reason: '', until: 0 });
+  const lastTransientSuspendRef = useRef<string>('');
+  const backendSuspendReason = useMemo(
+    () => String((event as any)?.suspended_reason || (event as any)?.suspendReason || '').trim().toUpperCase(),
+    [event],
+  );
+  const suspendSignalKey = useMemo(() => {
+    const scoreSig =
+      typeof (event as any)?.score === 'string'
+        ? (event as any).score
+        : JSON.stringify((event as any)?.score || {});
+    const goalsSig = `${String((event as any)?.goals?.home ?? '')}-${String((event as any)?.goals?.away ?? '')}`;
+    const statusSig = String((event as any)?.status ?? (event as any)?.fixture?.status?.short ?? '').toUpperCase().trim();
+    return `${eventId}|${backendSuspendReason}|${statusSig}|${goalsSig}|${scoreSig}`;
+  }, [backendSuspendReason, event, eventId]);
+
+  useEffect(() => {
+    const ttl = TRANSIENT_SUSPEND_MS[backendSuspendReason];
+    if (!ttl) return;
+    if (suspendSignalKey === lastTransientSuspendRef.current) return;
+    lastTransientSuspendRef.current = suspendSignalKey;
+
+    const until = Date.now() + ttl;
+    setTransientSuspend({ reason: backendSuspendReason, until });
+    const timerId = setTimeout(() => {
+      setTransientSuspend((prev) => (prev.until === until ? { reason: '', until: 0 } : prev));
+    }, ttl + 50);
+    return () => clearTimeout(timerId);
+  }, [backendSuspendReason, suspendSignalKey]);
 
   useEffect(() => {
     if (!isLiveEvent || liveEventList.length === 0) return;
