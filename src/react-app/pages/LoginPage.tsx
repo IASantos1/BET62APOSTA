@@ -41,7 +41,7 @@ export default function LoginPage() {
         setPending2faUserId(result.userId);
         return;
       }
-      setError('Credenciais inválidas. Verifique o email/utilizador e a senha.');
+      setError(result.error || 'Credenciais inválidas. Verifique o email/utilizador e a senha.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao iniciar sessão');
     } finally {

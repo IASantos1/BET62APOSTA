@@ -105,7 +105,7 @@ export default function RegisterPage() {
     setLoading(true);
     setError(null);
     try {
-      const ok = await signUp({
+      const result = await signUp({
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         email: form.email.trim(),
@@ -116,8 +116,8 @@ export default function RegisterPage() {
         country: form.country,
       });
 
-      if (!ok) {
-        setError('Não foi possível criar a conta. Verifique os dados e tente novamente.');
+      if (!result.success) {
+        setError(result.error || 'Não foi possível criar a conta. Verifique os dados e tente novamente.');
         return;
       }
 

@@ -50,14 +50,14 @@ export function AuthModal(props: AuthModalProps) {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await signIn(loginEmail, loginPassword) as { success: boolean; requires2fa?: boolean; userId?: string };
+      const res = await signIn(loginEmail, loginPassword) as { success: boolean; requires2fa?: boolean; userId?: string; error?: string };
       if (res.success) {
         onLoginSuccess();
         addNotification({ type: 'success', message: 'Sessão iniciada' });
       } else if (res.requires2fa && res.userId) {
         onRequire2FA(res.userId);
       } else {
-        addNotification({ type: 'error', message: 'Credenciais inválidas' });
+        addNotification({ type: 'error', message: res.error || 'Credenciais inválidas' });
       }
     } catch {
       addNotification({ type: 'error', message: 'Erro ao tentar entrar' });
@@ -76,7 +76,7 @@ export function AuthModal(props: AuthModalProps) {
 
     setLoading(true);
     try {
-      const ok = await signUp({
+      const result = await signUp({
         firstName,
         lastName,
         email,
@@ -85,11 +85,11 @@ export function AuthModal(props: AuthModalProps) {
         country
       });
 
-      if (ok) {
+      if (result.success) {
         onLoginSuccess();
         addNotification({ type: 'success', message: 'Conta criada com sucesso' });
       } else {
-        addNotification({ type: 'error', message: 'Erro ao criar conta' });
+        addNotification({ type: 'error', message: result.error || 'Erro ao criar conta' });
       }
     } catch {
       addNotification({ type: 'error', message: 'Erro ao tentar registar' });

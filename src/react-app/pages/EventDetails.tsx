@@ -8,6 +8,7 @@ import { Sidebar } from '@/react-app/components/Sidebar'
 import { MemoSubOddsModel } from '@/react-app/components/SubOddsModel'
 import { useLiveFeed } from '@/react-app/hooks/useLiveFeed'
 import { useMergedEvents } from '@/react-app/hooks/useMergedEvents'
+import { useMarketSignals } from '@/react-app/hooks/useMarketSignals'
 import { useSportsEvents } from '@/react-app/hooks/useSportsEvents'
 import { useUpcomingCache } from '@/react-app/hooks/useUpcomingCache'
 import { useTopLeagues } from '@/react-app/hooks/useTopLeagues'
@@ -358,6 +359,23 @@ export default function EventDetails() {
 
   // Must be declared before any conditional return (Rules of Hooks)
   const isLiveRef = useRef(false);
+  const signalsSource: any = displayEvent || event || null;
+  const signalsStatusShort = typeof signalsSource?.status === 'object' ? signalsSource?.status?.short : signalsSource?.status;
+  const signalsStatusKey = String(signalsStatusShort || signalsSource?.fixture?.status?.short || '').toUpperCase().trim();
+  const signalsLiveStatuses = new Set([
+    'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'P',
+    'Q1', 'Q2', 'Q3', 'Q4', 'OT',
+    'P1', 'P2', 'P3',
+    'S1', 'S2', 'S3', 'S4', 'S5',
+    'IN', 'IN1', 'IN2', 'IN3', 'IN4', 'IN5', 'IN6', 'IN7', 'IN8', 'IN9',
+    'IN_PROGRESS',
+  ]);
+  const signalsIsLive = signalsSource?.is_live === 1 || signalsLiveStatuses.has(signalsStatusKey);
+  const marketSignals = useMarketSignals({
+    eventId: signalsSource?.id,
+    sport: signalsSource?.sport,
+    isLive: signalsIsLive,
+  });
 
   if (loading) return <div className="p-8 text-center"><div className="animate-spin h-8 w-8 border-4 border-red-600 border-t-transparent rounded-full mx-auto"></div></div>;
   if (error || !displayEvent) return <div className="p-8 text-center text-red-600">{error || 'Evento não encontrado'}</div>;
@@ -392,6 +410,16 @@ export default function EventDetails() {
     return `${Math.floor(n)}'`;
   })();
   const liveElapsed = Number((displayEvent as any)?.elapsed ?? displayEvent?.fixture?.status?.elapsed ?? 0) || 0;
+  const fallbackSuspendedReason = (() => {
+    if (marketSignals.varActive) return 'VAR';
+    if (marketSignals.cta === 'goal') return 'GOAL';
+    if (marketSignals.cta === 'big_chance') return 'CHANCE';
+    if (marketSignals.cta === 'penalty') return 'PENALTY';
+    if (marketSignals.cta === 'cards') return 'CARD';
+    return '';
+  })();
+  const effectiveOddsSuspended = oddsSuspended || !!fallbackSuspendedReason;
+  const effectiveOddsSuspendedReason = oddsSuspendedReason || fallbackSuspendedReason;
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'}`}>
@@ -452,6 +480,11 @@ export default function EventDetails() {
                 const n = Number(v);
                 return Number.isFinite(n) ? n : null;
               };
+              const toTextOrNull = (v: any): string | null => {
+                if (v == null) return null;
+                const s = String(v).trim();
+                return s ? s : null;
+              };
               const readSetPair = (v: any): { home: number | null; away: number | null } => {
                 if (!v || typeof v !== 'object') return { home: null, away: null };
                 return { home: toNumOrNull(v.home), away: toNumOrNull(v.away) };
@@ -479,7 +512,12 @@ export default function EventDetails() {
               })();
               const currentSet = last === 0 ? (statusSetNum || 1) : Math.min(5, Math.max(statusSetNum, last + 1));
               const count = Math.max(2, Math.min(5, currentSet));
-              return { sets, count, currentSet };
+              const pointRoot = obj.point && typeof obj.point === 'object' ? obj.point : obj;
+              const point = {
+                home: toTextOrNull(pointRoot?.home ?? pointRoot?.pointHome ?? pointRoot?.currentHome),
+                away: toTextOrNull(pointRoot?.away ?? pointRoot?.pointAway ?? pointRoot?.currentAway),
+              };
+              return { sets, count, currentSet, point };
             })();
 
             const tennisSetLabel = (() => {
@@ -535,23 +573,41 @@ export default function EventDetails() {
                     {(isLive || hasBeenLive) ? (
                       isTennis && tennisScore ? (
                         <div className={`rounded-xl overflow-hidden border ${darkMode ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'} w-full max-w-[420px]`}>
-                          <div className={`grid items-center ${tennisScore.count === 2 ? 'grid-cols-[1fr_auto_auto]' : tennisScore.count === 3 ? 'grid-cols-[1fr_auto_auto_auto]' : tennisScore.count === 4 ? 'grid-cols-[1fr_auto_auto_auto_auto]' : 'grid-cols-[1fr_auto_auto_auto_auto_auto]'} px-3 py-2 gap-x-2`}>
+                          <div
+                            className="grid items-center gap-x-2 px-3 py-2"
+                            style={{
+                              gridTemplateColumns: `minmax(0,1fr) repeat(${tennisScore.count}, auto) ${tennisScore.point?.home || tennisScore.point?.away ? 'auto' : ''}`.trim(),
+                            }}
+                          >
                             <div />
                             {Array.from({ length: tennisScore.count }, (_, i) => (
                               <div key={i} className={`text-[10px] font-black text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>S{i + 1}</div>
                             ))}
+                            {tennisScore.point?.home || tennisScore.point?.away ? (
+                              <div className={`text-[10px] font-black text-center ${darkMode ? 'text-red-300' : 'text-red-600'}`}>GAME</div>
+                            ) : null}
                             <div className={`text-sm font-black truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{homeTeam}</div>
                             {Array.from({ length: tennisScore.count }, (_, i) => (
                               <div key={i} className={`text-sm font-black text-center tabular-nums ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
                                 {tennisScore.sets[i]?.home ?? ''}
                               </div>
                             ))}
+                            {tennisScore.point?.home || tennisScore.point?.away ? (
+                              <div className={`text-sm font-black text-center tabular-nums ${darkMode ? 'text-red-300' : 'text-red-600'}`}>
+                                {tennisScore.point?.home ?? ''}
+                              </div>
+                            ) : null}
                             <div className={`text-sm font-black truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{awayTeam}</div>
                             {Array.from({ length: tennisScore.count }, (_, i) => (
                               <div key={i} className={`text-sm font-black text-center tabular-nums ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
                                 {tennisScore.sets[i]?.away ?? ''}
                               </div>
                             ))}
+                            {tennisScore.point?.home || tennisScore.point?.away ? (
+                              <div className={`text-sm font-black text-center tabular-nums ${darkMode ? 'text-red-300' : 'text-red-600'}`}>
+                                {tennisScore.point?.away ?? ''}
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       ) : (
@@ -572,8 +628,8 @@ export default function EventDetails() {
           })()}
 
           {/* Suspension reason banner */}
-          {oddsSuspended && (() => {
-            const r = String(oddsSuspendedReason || '').toUpperCase();
+          {effectiveOddsSuspended && (() => {
+            const r = String(effectiveOddsSuspendedReason || '').toUpperCase();
             const label = /GOAL|GOL|CHANCE|ATTACK|DANGER/.test(r)
               ? 'Grande Chance de Gol'
               : /VAR/.test(r)
@@ -591,7 +647,7 @@ export default function EventDetails() {
 
           {/* Odds */}
           <MemoSubOddsModel
-            event={{ ...displayEvent, suspended: oddsSuspended, suspendReason: oddsSuspendedReason }}
+            event={{ ...displayEvent, suspended: effectiveOddsSuspended, suspendReason: effectiveOddsSuspendedReason }}
             darkMode={darkMode}
             markets={realtimeOdds || (displayEvent as any).markets || (displayEvent as any).odds || null}
             eventOdds={realtimeOdds || (displayEvent as any).markets || (displayEvent as any).odds || null}

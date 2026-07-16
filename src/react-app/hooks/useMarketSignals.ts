@@ -185,8 +185,16 @@ export function useMarketSignals(params: {
       }
     }
 
+    const sportKey = String(sportParam).toLowerCase()
+    const pollMs =
+      sportKey.includes('soccer') || sportKey.includes('football') || sportKey.includes('futebol')
+        ? 1500
+        : sportKey.includes('tennis') || sportKey.includes('tênis') || sportKey.includes('tenis')
+          ? 2500
+          : 3000
+
     tick()
-    intervalRef.current = setInterval(tick, 3000)
+    intervalRef.current = setInterval(tick, pollMs)
     return () => {
       cancelled = true
       if (timerRef.current) clearTimeout(timerRef.current)

@@ -1727,6 +1727,33 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         }
       }
 
+      const needsLiveFallback =
+        !found ||
+        (sKey === 'tennis' &&
+          !String((found as any)?.score || '').includes('"point"'));
+
+      if (needsLiveFallback) {
+        const liveList = await fetchLive(sport).catch(() => []);
+        const liveFound = liveList.find((e: any) => String((e as any)?.id || '') === String(id));
+        if (liveFound) {
+          found = found
+            ? {
+                ...found,
+                ...liveFound,
+                id,
+                sport,
+                score: liveFound.score ?? found.score,
+                goals: liveFound.goals ?? found.goals,
+                status: liveFound.status ?? found.status,
+                status_short: liveFound.status_short ?? found.status_short,
+                status_long: liveFound.status_long ?? found.status_long,
+                elapsed: typeof liveFound.elapsed === 'number' ? liveFound.elapsed : found.elapsed,
+                timer: liveFound.timer ?? found.timer,
+              }
+            : liveFound;
+        }
+      }
+
       if (!found) {
         const cached = lastEventById.get(id);
         if (cached && ttlOk(cached.ts, 2 * 60_000)) found = cached.data;

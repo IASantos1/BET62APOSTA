@@ -501,11 +501,40 @@ export function SubOddsModel({
     const raw = (eventOdds && (eventOdds as any)['double_chance']);
     const list = Array.isArray(raw) ? raw : (raw?.outcomes || raw?.values || []);
     const isSuspended = raw?.suspended === true || raw?.status === 'suspended';
+    const normalizeDoubleChance = (value: any) => {
+      const s = String(value || '').trim().toLowerCase();
+      if (!s) return '';
+      if (
+        s === '1x' ||
+        s === '1/x' ||
+        s === '1 ou x' ||
+        s === '1 or x' ||
+        s.includes('home or draw') ||
+        s.includes('casa ou empate')
+      ) return '1X';
+      if (
+        s === 'x2' ||
+        s === 'x/2' ||
+        s === 'x ou 2' ||
+        s === 'x or 2' ||
+        s.includes('draw or away') ||
+        s.includes('empate ou fora')
+      ) return 'X2';
+      if (
+        s === '12' ||
+        s === '1/2' ||
+        s === '1 ou 2' ||
+        s === '1 or 2' ||
+        s.includes('home or away') ||
+        s.includes('casa ou fora')
+      ) return '12';
+      return String(value || '').trim();
+    };
 
     const mapped = list.map((o: any) => {
       const v0 = Number(o?.value || o?.odd || 0)
       const v = applyMarginClamp('double_chance', v0)
-      const lbl = labelOutcome('double_chance', String(o?.outcome || o?.name || ''))
+      const lbl = normalizeDoubleChance(labelOutcome('double_chance', String(o?.outcome || o?.name || '')))
       return { label: lbl, odd: v } as MarketItem
     }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd > 0))
     if (mapped.length > 0) return mapped

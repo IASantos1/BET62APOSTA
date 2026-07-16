@@ -13,6 +13,20 @@ import { apiFetch } from '../utils/api';
   is_operator?: number;
   kyc_status?: 'unverified' | 'pending' | 'verified' | 'rejected' | 'suspended' | 'closed';
 }; 
+
+type AuthActionResult = {
+  success: boolean;
+  requires2fa?: boolean;
+  userId?: string;
+  error?: string;
+  errorCode?: 'invalid_credentials' | 'invalid_2fa' | 'validation' | 'timeout' | 'network' | 'server';
+};
+
+type SignUpResult = {
+  success: boolean;
+  error?: string;
+  errorCode?: 'validation' | 'timeout' | 'network' | 'server';
+};
  
  type AuthContextType = { 
    user: User | null; 
@@ -22,7 +36,7 @@ import { apiFetch } from '../utils/api';
      username: string, 
      password: string, 
      twoFactorCode?: string 
-   ) => Promise<{ success: boolean; requires2fa?: boolean; userId?: string }>; 
+  ) => Promise<AuthActionResult>; 
  
    signUp: (data: {
     email: string;
@@ -33,13 +47,47 @@ import { apiFetch } from '../utils/api';
     nif?: string;
     dob: string;
     country: string;
-  }) => Promise<boolean>;
+  }) => Promise<SignUpResult>;
 
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
+
+function mapAuthTechnicalError(err: any, fallbackMessage: string): { error: string; errorCode: 'timeout' | 'network' | 'server' } {
+  const status = Number(err?.status || 0);
+  const message = String(err?.message || '').trim();
+  const lowered = message.toLowerCase();
+  const isTimeout =
+    err?.name === 'AbortError' ||
+    lowered.includes('timed out') ||
+    lowered.includes('timeout') ||
+    lowered.includes('signal is aborted');
+  const isNetwork =
+    lowered.includes('failed to fetch') ||
+    lowered.includes('networkerror') ||
+    lowered.includes('load failed') ||
+    lowered.includes('network request failed') ||
+    lowered.includes('offline');
+
+  if (isTimeout) {
+    return {
+      error: 'O pedido demorou demasiado tempo. Verifique a ligação e tente novamente.',
+      errorCode: 'timeout',
+    };
+  }
+  if (isNetwork || !status) {
+    return {
+      error: 'Falha de ligação ao servidor. Verifique a internet e tente novamente.',
+      errorCode: 'network',
+    };
+  }
+  return {
+    error: fallbackMessage,
+    errorCode: 'server',
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -92,6 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
+        timeout: 12_000,
       });
 
       // Save Token if present
@@ -120,6 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             userId: data.userId,
             token: twoFactorCode,
           }),
+          timeout: 12_000,
         });
         if (two?.token) localStorage.setItem('auth_token', two.token);
         if (two?.refreshToken) localStorage.setItem('refresh_token', two.refreshToken);
@@ -127,8 +177,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       await refreshUser();
       return { success: true };
-    } catch {
-      return { success: false };
+    } catch (err: any) {
+      const status = Number(err?.status || 0);
+      if (twoFactorCode && (status === 400 || status === 401 || status === 403)) {
+        return {
+          success: false,
+          error: 'Código de autenticação inválido. Tente novamente.',
+          errorCode: 'invalid_2fa',
+        };
+      }
+      if (!twoFactorCode && (status === 400 || status === 401 || status === 403)) {
+        return {
+          success: false,
+          error: 'Credenciais inválidas. Verifique o email/utilizador e a senha.',
+          errorCode: 'invalid_credentials',
+        };
+      }
+      const technical = mapAuthTechnicalError(err, 'Não foi possível iniciar sessão agora. Tente novamente em instantes.');
+      return { success: false, ...technical };
     }
   };
 
@@ -150,6 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
+        timeout: 15_000,
       });
 
       if (res.token) {
@@ -160,9 +227,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       await refreshUser();
-      return true;
-    } catch {
-      return false;
+      return { success: true };
+    } catch (err: any) {
+      const status = Number(err?.status || 0);
+      if (status === 400 || status === 409 || status === 422) {
+        return {
+          success: false,
+          error: 'Os dados de registo foram rejeitados. Verifique o formulário e tente novamente.',
+          errorCode: 'validation',
+        };
+      }
+      const technical = mapAuthTechnicalError(err, 'Não foi possível criar a conta agora. Tente novamente em instantes.');
+      return { success: false, ...technical };
     }
   }; 
  
@@ -279,8 +355,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { 
       user: null, 
       loading: false, 
-      signIn: async () => ({ success: false }), 
-      signUp: async () => false, 
+      signIn: async () => ({ success: false, error: 'Autenticação indisponível', errorCode: 'server' as const }), 
+      signUp: async () => ({ success: false, error: 'Registo indisponível', errorCode: 'server' as const }), 
       signOut: async () => {}, 
       refreshUser: async () => {} 
     }; 

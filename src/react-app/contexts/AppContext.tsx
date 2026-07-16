@@ -37,7 +37,7 @@ interface AppContextType {
     twofa_enabled?: boolean;
     country?: string;
   } | null;
-  signIn: (username: string, password: string) => Promise<{ success: boolean; requires2fa?: boolean; userId?: string }>;
+  signIn: (username: string, password: string) => Promise<{ success: boolean; requires2fa?: boolean; userId?: string; error?: string; errorCode?: string }>;
   loginWith2FA: (userId: string, token: string) => Promise<boolean>;
   signUp: (data: {
     email: string;
@@ -48,7 +48,7 @@ interface AppContextType {
     nif?: string;
     dob: string;
     country: string;
-  }) => Promise<boolean>;
+  }) => Promise<{ success: boolean; error?: string; errorCode?: string }>;
   signOut: () => Promise<void>;
   getTwoFactorStatus: () => Promise<boolean>;
   setupTwoFactor: () => Promise<{ qrCode: string; secret: string; otpauth: string } | null>;
