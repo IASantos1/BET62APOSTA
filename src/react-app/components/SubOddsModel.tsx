@@ -1065,15 +1065,6 @@ export function SubOddsModel({
     return elapsed || 0;
   }, [isLive, liveTimer, event]);
 
-  const liveStatusShort = useMemo(() => {
-    return String(
-      (event as any)?.status?.short ??
-      (event as any)?.fixture?.status?.short ??
-      (event as any)?.status ??
-      ''
-    ).toUpperCase().trim();
-  }, [event]);
-
   const isSoccerLive = useMemo(() => {
     if (!isLive) return false;
     const s = String((event as any)?.sport || (event as any)?.sport_key || '').toLowerCase();
@@ -1115,36 +1106,6 @@ export function SubOddsModel({
     if (SECOND_HALF_ONLY.has(key) && liveSoccerPhase === 'first_half') return true;
 
     if (min < 85) return false;
-
-  const isFirstHalfOnlyMarket = (key: string) => {
-    const lk = key.toLowerCase();
-    return (
-      /^1st_half\b/.test(lk) ||
-      /^first_half\b/.test(lk) ||
-      /^1st_/.test(lk) ||
-      /^first_half_/.test(lk) ||
-      /_1st_half\b/.test(lk) ||
-      /_first_half\b/.test(lk) ||
-      lk === 'half_time_result' ||
-      lk === 'first_half_result' ||
-      lk === 'totals_ht' ||
-      lk === 'ht_totals'
-    );
-  };
-
-  const isSecondHalfOnlyMarket = (key: string) => {
-    const lk = key.toLowerCase();
-    return (
-      /^2nd_half\b/.test(lk) ||
-      /^second_half\b/.test(lk) ||
-      /^2nd_/.test(lk) ||
-      /^second_half_/.test(lk) ||
-      /_2nd_half\b/.test(lk) ||
-      /_second_half\b/.test(lk) ||
-      lk === 'totals_sh' ||
-      lk === 'sh_totals'
-    );
-  };
 
     // 85–90 min: H2H + Totals + Chance Dupla
     const keep85 = new Set(['totals', 'match_goals', 'goals_total', 'total_goals', 'double_chance']);
@@ -2427,11 +2388,6 @@ export function SubOddsModel({
       {/* Navigation Tabs */}
       <div className="flex overflow-x-auto pb-2 mb-4 gap-2 no-scrollbar">
          {(() => {
-             const s = (event?.sport || '').toLowerCase();
-             const isSoccer =
-               s.includes('soccer') ||
-               s.includes('futebol') ||
-               (s.includes('football') && !s.includes('american'));
              const groups = finalGroups.filter(group => group.keys.some(k => renderMarketContent(k) !== null));
              return groups.map((group) => (
                  <button
