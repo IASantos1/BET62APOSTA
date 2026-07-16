@@ -81,6 +81,21 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
     )`,
     `DO $$
     BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'users'
+          AND column_name = 'id'
+          AND data_type <> 'text'
+      ) THEN
+        ALTER TABLE users
+          ALTER COLUMN id TYPE TEXT
+          USING id::text;
+      END IF;
+    END $$`,
+    `DO $$
+    BEGIN
       IF to_regclass('public.profiles') IS NULL AND to_regclass('public.user_profile') IS NOT NULL THEN
         ALTER TABLE user_profile RENAME TO profiles;
       END IF;
@@ -117,6 +132,37 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_operator BOOLEAN NOT NULL DEFAULT FALSE`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+    `DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'profiles'
+          AND column_name = 'id'
+          AND data_type <> 'text'
+      ) THEN
+        ALTER TABLE profiles
+          ALTER COLUMN id TYPE TEXT
+          USING id::text;
+      END IF;
+    END $$`,
+    `DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'profiles'
+          AND column_name = 'user_id'
+          AND data_type <> 'text'
+      ) THEN
+        ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_user_id_fkey;
+        ALTER TABLE profiles
+          ALTER COLUMN user_id TYPE TEXT
+          USING user_id::text;
+      END IF;
+    END $$`,
     `DO $$
     BEGIN
       IF EXISTS (
@@ -266,6 +312,37 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE p.user_id IS NULL`,
+    `DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'profiles'
+          AND column_name = 'user_id'
+      ) AND EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'users'
+          AND column_name = 'id'
+      ) THEN
+        ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_user_id_fkey;
+        IF EXISTS (
+          SELECT 1
+          FROM profiles p
+          LEFT JOIN users u ON u.id = p.user_id
+          WHERE p.user_id IS NOT NULL
+            AND u.id IS NULL
+          LIMIT 1
+        ) THEN
+          RAISE EXCEPTION 'profiles.user_id contains values without matching users.id';
+        END IF;
+        ALTER TABLE profiles
+          ADD CONSTRAINT profiles_user_id_fkey
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+      END IF;
+    END $$`,
     `CREATE TABLE IF NOT EXISTS sessions (
       token      TEXT        PRIMARY KEY,
       user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,

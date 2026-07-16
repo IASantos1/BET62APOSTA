@@ -13,6 +13,7 @@ Use one of these safe paths instead:
 
 1. Preferred: run `npm run db:railway:push`
 2. Manual repair for an existing Railway database with drift: apply `migrations/0018_repair_railway_postgres_schema.sql`
+3. If PostgreSQL reports `profiles_user_id_fkey cannot be implemented`: apply `migrations/0037_fix_profiles_users_fk_postgres.sql`
 
 The current PostgreSQL schema uses:
 
