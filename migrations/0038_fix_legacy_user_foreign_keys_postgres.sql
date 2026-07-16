@@ -19,6 +19,7 @@ END $$;
 DO $$
 DECLARE
   ref RECORD;
+  fk RECORD;
 BEGIN
   FOR ref IN
     SELECT *
@@ -43,11 +44,23 @@ BEGIN
         AND table_name = ref.table_name
         AND column_name = ref.column_name
     ) THEN
-      EXECUTE format(
-        'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-        ref.table_name,
-        ref.table_name || '_' || ref.column_name || '_fkey'
-      );
+      FOR fk IN
+        SELECT c.conname
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY (c.conkey)
+        WHERE c.contype = 'f'
+          AND n.nspname = 'public'
+          AND t.relname = ref.table_name
+          AND a.attname = ref.column_name
+      LOOP
+        EXECUTE format(
+          'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+          ref.table_name,
+          fk.conname
+        );
+      END LOOP;
     END IF;
 
     IF EXISTS (
@@ -71,6 +84,7 @@ END $$;
 DO $$
 DECLARE
   ref RECORD;
+  fk RECORD;
   has_orphans BOOLEAN;
 BEGIN
   FOR ref IN
@@ -96,6 +110,24 @@ BEGIN
         AND table_name = ref.table_name
         AND column_name = ref.column_name
     ) THEN
+      FOR fk IN
+        SELECT c.conname
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY (c.conkey)
+        WHERE c.contype = 'f'
+          AND n.nspname = 'public'
+          AND t.relname = ref.table_name
+          AND a.attname = ref.column_name
+      LOOP
+        EXECUTE format(
+          'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+          ref.table_name,
+          fk.conname
+        );
+      END LOOP;
+
       EXECUTE format(
         'SELECT EXISTS (
           SELECT 1
