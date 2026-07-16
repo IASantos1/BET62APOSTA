@@ -86,6 +86,14 @@ const normalizeSport = (s: string) => {
   return v.replace(/\s+/g, '-');
 };
 
+const safeSerialize = (value: any): string => {
+  try {
+    return JSON.stringify(value ?? {});
+  } catch {
+    return '';
+  }
+};
+
 const parseLiveMinuteValue = (rawTimer?: string | null, fallbackElapsed?: number | null): number => {
   const timer = String(rawTimer || '').trim();
   const stoppage = timer.match(/^(\d{1,3})\s*\+\s*(\d{1,2})$/);
@@ -529,7 +537,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     const scoreSig =
       typeof (event as any)?.score === 'string'
         ? (event as any).score
-        : JSON.stringify((event as any)?.score || {});
+        : safeSerialize((event as any)?.score || {});
     const goalsSig = `${String((event as any)?.goals?.home ?? '')}-${String((event as any)?.goals?.away ?? '')}`;
     const statusSig = String((event as any)?.status ?? (event as any)?.fixture?.status?.short ?? '').toUpperCase().trim();
     return `${eventId}|${backendSuspendReason}|${statusSig}|${goalsSig}|${scoreSig}`;
