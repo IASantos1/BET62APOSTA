@@ -990,7 +990,7 @@ export const getLeagueLogo = (rawInput: any, sport: string = 'soccer') => {
     { test: /la liga 2|laliga 2|segunda division|hypermotion/, id: 141 },
     { test: /\bla liga\b|laliga(?!\s*2)/, id: 140 },
     // Germany
-    { test: /2[\. -]bundesliga/, id: 79 },
+    { test: /2[. -]bundesliga/, id: 79 },
     { test: /\bbundesliga\b/, id: 78 },
     // France
     { test: /\bligue 2\b/, id: 62 },
