@@ -89,7 +89,7 @@ const getEventLeagueMeta = (event: any) => {
 };
 
 function Home({ mode = 'home' }: HomeProps) {
-  const { darkMode, selectedCategory, setSelectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
+  const { darkMode, selectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
   const navigate = useNavigate();
   const [leagueFilter, setLeagueFilter] = useState<string | null>(null);
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -128,7 +128,6 @@ function Home({ mode = 'home' }: HomeProps) {
     requireOdds: true,
   });
   void eventsLoading;
-  const showBanner = mode === 'home';
   
   const { liveEvents: wsLiveEvents, hasLoaded: liveFeedLoaded } = useLiveFeed('all');
   const mergedLive = useMergedEvents(httpLive, wsLiveEvents);

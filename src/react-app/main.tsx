@@ -30,7 +30,6 @@ try {
   if (sw) {
     const clearLegacyPwa = async () => {
       const registrations = await sw.getRegistrations().catch(() => [] as ServiceWorkerRegistration[])
-      const hadRegistrations = registrations.length > 0
       await Promise.all(registrations.map((reg) => reg.unregister().catch(() => false)))
 
       if ('caches' in window) {

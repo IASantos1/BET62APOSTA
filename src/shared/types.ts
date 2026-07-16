@@ -140,6 +140,7 @@ export interface BetSlipItem {
   match: string;
   selection: string;
   market?: string;
+  comboMeta?: any;
   odd: number;
   currentOdd?: number;
   changed?: boolean;

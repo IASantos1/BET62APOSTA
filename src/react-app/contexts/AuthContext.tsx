@@ -338,7 +338,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
  /* ================================ 
     HOOK 
  ================================= */ 
- export function useAuth() { 
+export function useAuth(): AuthContextType { 
    const ctx = useContext(AuthContext); 
   if (!ctx) { 
     return { 
