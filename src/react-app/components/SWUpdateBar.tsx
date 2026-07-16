@@ -10,15 +10,20 @@ export function SWUpdateBar() {
   useEffect(() => {
     const sw = 'serviceWorker' in navigator ? navigator.serviceWorker : undefined;
     if (!sw) return;
-    const reg = (window as any).swRegistration as ServiceWorkerRegistration | undefined;
     const check = async () => {
+      const reg = (window as any).swRegistration as ServiceWorkerRegistration | undefined;
       const r = reg || (await sw.getRegistration().catch(() => undefined));
       if (r && r.waiting) setReady(true);
     };
-    check();
+    void check();
+    const onUpdateReady = () => { void check(); };
     const onController = () => { setUpdating(false); setReady(false); location.reload(); };
+    window.addEventListener('bet62-sw-update', onUpdateReady as EventListener);
     sw.addEventListener('controllerchange', onController);
-    return () => { sw.removeEventListener('controllerchange', onController); };
+    return () => {
+      window.removeEventListener('bet62-sw-update', onUpdateReady as EventListener);
+      sw.removeEventListener('controllerchange', onController);
+    };
   }, []);
   if (!ready) return null;
   return (

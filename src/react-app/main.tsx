@@ -27,33 +27,29 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
 try {
   const sw = 'serviceWorker' in navigator ? navigator.serviceWorker : undefined;
-  if (sw) {
-    const clearLegacyPwa = async () => {
-      const registrations = await sw.getRegistrations().catch(() => [] as ServiceWorkerRegistration[])
-      const hadRegistrations = registrations.length > 0
-      await Promise.all(registrations.map((reg) => reg.unregister().catch(() => false)))
+  if (sw && import.meta.env.PROD) {
+    const registerPwa = async () => {
+      const registration = await sw.register('/sw.js', { scope: '/' });
+      (window as any).swRegistration = registration;
 
-      if ('caches' in window) {
-        const cacheKeys = await caches.keys().catch(() => [] as string[])
-        await Promise.all(cacheKeys.map((key) => caches.delete(key).catch(() => false)))
+      if (registration.waiting) {
+        window.dispatchEvent(new CustomEvent('bet62-sw-update'));
       }
 
-      (window as any).swRegistration = null
+      registration.addEventListener('updatefound', () => {
+        const installing = registration.installing;
+        if (!installing) return;
+        installing.addEventListener('statechange', () => {
+          if (installing.state === 'installed' && sw.controller) {
+            (window as any).swRegistration = registration;
+            window.dispatchEvent(new CustomEvent('bet62-sw-update'));
+          }
+        });
+      });
 
-      try {
-        const reloadFlag = 'bet62_pwa_cache_cleared_v3'
-        const shouldReload = sessionStorage.getItem(reloadFlag) !== '1'
-        if (shouldReload) {
-          sessionStorage.setItem(reloadFlag, '1')
-          window.location.replace(window.location.href)
-          return
-        }
-        sessionStorage.removeItem(reloadFlag)
-      } catch {
-        /* no-op */
-      }
-    }
+      void registration.update().catch(() => void 0);
+    };
 
-    void clearLegacyPwa()
+    void registerPwa().catch(() => void 0);
   }
 } catch { /* do nothing */ }
