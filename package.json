@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "start": "tsx server/index.ts",
     "start:server": "tsx server/index.ts",
+    "db:railway:push": "tsx server/scripts/db-push.ts",
     "db:push": "tsx server/scripts/db-push.ts",
     "smoke": "node scripts/smoke.js",
     "smoke:live": "node scripts/check-live-feeds.mjs",

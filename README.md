@@ -121,6 +121,36 @@ O servidor em produção recusa startup se `ensureSchema` falhar. Se o ambiente 
 
 - `migrations/0018_repair_railway_postgres_schema.sql`
 
+### Importante sobre migrations antigas
+
+Nem todos os ficheiros em `migrations/` pertencem ao fluxo atual do Railway/PostgreSQL.
+
+Há SQL legado de `D1/SQLite` que ainda referencia a tabela `user(id)` no singular, enquanto o schema canónico atual do Railway usa:
+
+- `users(id)`
+- `profiles.user_id REFERENCES users(id) ON DELETE CASCADE`
+
+No Railway, use estes caminhos:
+
+1. Preferencial: `npm run db:railway:push`
+2. Reparação manual de uma base antiga com drift: `migrations/0018_repair_railway_postgres_schema.sql`
+
+Não aplique cegamente a cadeia histórica antiga de `migrations/*.sql` num PostgreSQL do Railway.
+
+Os ficheiros legados mais sensíveis são:
+
+- `migrations/0002_consolidate_schema.sql`
+- `migrations/0016_security_hardening.sql`
+- `migrations/0017_add_kyc_state_engine.sql`
+- `migrations/0019_tier1_payment_system.sql`
+- `migrations/0021_allow_paypal_deposits.sql`
+
+Resumo operacional:
+
+- `migrations/README.md` documenta a separação entre legado D1/SQLite e Railway/Postgres
+- `server/lib/db.ts` e `scripts/init-db.ts` são a source of truth do schema atual
+- `server/scripts/db-push.ts` aplica o schema PostgreSQL correto via `ensureSchema()`
+
 ### Checklist rápido pós-deploy
 
 - `GET /health` devolve `200`
