@@ -117,9 +117,11 @@ Eventos mínimos:
 
 ### Nota de migração
 
-O servidor em produção recusa startup se `ensureSchema` falhar. Se o ambiente Railway já existia com drift antigo, aplique também a migration:
+O servidor em produção recusa startup se `ensureSchema` falhar. Se o ambiente Railway já existia com drift antigo, aplique também as migrations de reparo compatíveis com PostgreSQL:
 
 - `migrations/0018_repair_railway_postgres_schema.sql`
+- `migrations/0037_fix_profiles_users_fk_postgres.sql` quando o Postgres acusar `profiles_user_id_fkey cannot be implemented`
+- `migrations/0038_fix_legacy_user_foreign_keys_postgres.sql` quando o Postgres acusar `bets_user_id_fkey cannot be implemented` ou outras FKs legadas com `user_id`
 
 ### Importante sobre migrations antigas
 
