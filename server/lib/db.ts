@@ -376,7 +376,7 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
     )`,
     `CREATE TABLE IF NOT EXISTS bets (
       id               TEXT          PRIMARY KEY,
-      user_id          TEXT          NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id          TEXT          NOT NULL,
       bet_type         TEXT          NOT NULL,
       stake            NUMERIC(18,2) NOT NULL,
       potential_win    NUMERIC(18,2) NOT NULL,
@@ -522,3 +522,4 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
   await ensureAppAuthTables(pool);
   await ensureAppFinancialTables(pool);
 }
+
