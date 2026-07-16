@@ -72,7 +72,7 @@ function computeVarActive(incidents: any[]) {
   let lastVarKey = -1
   for (let i = 0; i < incidents.length; i++) {
     const inc = incidents[i]
-    if (String(inc?.type || '').toUpperCase() !== 'VAR') continue
+    if (String(inc?.type || '').trim().toLowerCase() !== 'var') continue
     const k = incidentTimeKey(inc, i)
     if (k >= lastVarKey) {
       lastVarKey = k
@@ -150,7 +150,7 @@ export function useMarketSignals(params: {
       try {
         const resp = await apiFetch<any>(
           `/api/events/${encodeURIComponent(String(eventId))}/incidents?sport=${encodeURIComponent(sportParam)}`,
-          { method: 'GET', cache: 'no-store', timeout: 15000 }
+          { method: 'GET', cache: 'no-store', timeout: 10000 }
         )
         if (cancelled) return
         const list: any[] = Array.isArray(resp?.incidents) ? resp.incidents : []
@@ -173,7 +173,9 @@ export function useMarketSignals(params: {
           if (latestId && latestId !== lastIncidentIdRef.current) {
             lastIncidentIdRef.current = latestId
             const kind = classifyCtaFromIncident(latest?.type)
-            if (kind !== 'idle' && !varState.active) setTimedCta(kind, kind === 'goal' ? 12000 : kind === 'penalty' ? 15000 : 12000)
+            if (kind !== 'idle' && !varState.active) {
+              setTimedCta(kind, kind === 'goal' ? 20000 : kind === 'penalty' ? 18000 : 12000)
+            }
           }
         }
       } catch (error) {
@@ -184,7 +186,7 @@ export function useMarketSignals(params: {
     }
 
     tick()
-    intervalRef.current = setInterval(tick, 8000)
+    intervalRef.current = setInterval(tick, 3000)
     return () => {
       cancelled = true
       if (timerRef.current) clearTimeout(timerRef.current)
@@ -196,4 +198,3 @@ export function useMarketSignals(params: {
 
   return { cta, varActive, ctaUntil } as MarketSignals
 }
-

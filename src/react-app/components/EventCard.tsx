@@ -431,6 +431,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
   const suspendReason = apiVarActive
     ? 'VAR'
     : (suspension?.reason || (event as any).suspendReason || ((event as any).oddsFrozen ? 'EVENT_FROZEN' : 'SUSPENSO'));
+  const normalizedSuspendReason = String(suspendReason || '').trim().toUpperCase();
 
   const apiCritState = useMemo(() => {
     if (apiVarActive) return 'var_review' as const
@@ -1063,7 +1064,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
             // Odds are blocked during any critical event OR explicit suspension
             const isOddsBlocked = isSuspended || (effectiveCrit !== 'idle' && isLiveEvent)
             const blockReason: string = isSuspended
-              ? (suspendReason === 'VAR' ? 'VAR' : suspendReason === 'EVENT_FROZEN' ? 'GOAL' : 'SUSPENSO')
+              ? (normalizedSuspendReason === 'VAR' ? 'VAR' : normalizedSuspendReason === 'EVENT_FROZEN' ? 'GOAL' : 'SUSPENSO')
               : (CRIT_TO_REASON[effectiveCrit] || 'SUSPENSO')
 
             // Suspension object passed to OddButton

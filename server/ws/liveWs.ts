@@ -3,6 +3,7 @@ import type { Duplex } from 'stream';
 import WebSocket, { WebSocketServer } from 'ws';
 import {
   fetchSportsApiProLive,
+  fetchSportsApiProMatchIncidents,
   fetchSportsApiProMatchOddsAll,
   fetchSportsApiProMatchOddsLive,
   fetchSportsApiProMatchOddsPreMatch,
@@ -30,13 +31,18 @@ type UpstreamStateEntry = {
   score?: Record<string, any> | null;
 };
 
+type CriticalIncidentEntry = {
+  ts: number;
+  lastKey: string;
+};
+
 export function createLiveWs(apiKey: string) {
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<ClientInfo>();
   const timers = new Map<string, NodeJS.Timeout>();
   const lastSent = new Map<string, number>();
   const upstreams = new Map<string, UpstreamInfo>();
-  const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball'];
+  const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball', 'volleyball', 'mma'];
   // V2 mercados: cache fresco por 3.5s → atualiza entre 3-5s automaticamente
   const ODDS_FRESH_TTL_MS = 3_500;
   const ODDS_STALE_TTL_MS = 15 * 60_000;
@@ -47,6 +53,9 @@ export function createLiveWs(apiKey: string) {
   const upstreamState = new Map<string, Map<string, UpstreamStateEntry>>();
   const matchMeta = new Map<string, { ts: number; sport: string; homeTeam: string; awayTeam: string }>();
   const oddsSubscribed = new Map<string, number>();
+  const criticalIncidentCache = new Map<string, CriticalIncidentEntry>();
+  const criticalIncidentInflight = new Map<string, Promise<void>>();
+  const lastIncidentSweepAt = new Map<string, number>();
   let allBootstrapAt = 0;
   let allBootstrapInflight: Promise<void> | null = null;
 
@@ -103,6 +112,109 @@ export function createLiveWs(apiKey: string) {
   const toNumOrNull = (v: any): number | null => {
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
+  };
+
+  const isSoccerSport = (sport: string): boolean => {
+    const s = String(sport || '').trim().toLowerCase();
+    return s === 'soccer' || s === 'football' || s === 'futebol' || (s.includes('football') && !s.includes('american'));
+  };
+
+  const incidentTimeKey = (inc: any, idx: number) => {
+    const minute = Number(inc?.minute ?? 0) || 0;
+    const added = Number(inc?.addedTime ?? inc?.added_time ?? 0) || 0;
+    return minute * 1000 + added * 10 + (idx % 10);
+  };
+
+  const extractIncidents = (raw: any): any[] => {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (Array.isArray(raw.data?.incidents)) return raw.data.incidents;
+    if (Array.isArray(raw.incidents)) return raw.incidents;
+    if (Array.isArray(raw.data?.events)) return raw.data.events;
+    if (Array.isArray(raw.events)) return raw.events;
+    if (Array.isArray(raw.data)) return raw.data;
+    return [];
+  };
+
+  const TYPE_MAP: Record<number, string> = {
+    1: 'goal',
+    2: 'yellow_card',
+    3: 'red_card',
+    4: 'yellow_red',
+    6: 'penalty',
+    7: 'own_goal',
+    8: 'missed_penalty',
+    9: 'disallowed_goal',
+    10: 'var',
+    11: 'penalty_awarded',
+  };
+
+  const normalizeCriticalIncidents = (matchId: string, sport: string, raw: any, meta?: { homeTeam?: string; awayTeam?: string }) => {
+    const homeName = String(meta?.homeTeam || '').trim().toLowerCase();
+    const awayName = String(meta?.awayTeam || '').trim().toLowerCase();
+    return extractIncidents(raw)
+      .map((inc: any, i: number) => {
+        const typeId = Number(inc.typeId ?? inc.type_id ?? inc.incident_type ?? 0);
+        const type = String(TYPE_MAP[typeId] || inc.type || 'other').trim().toLowerCase();
+        if (!['goal', 'own_goal', 'disallowed_goal', 'penalty', 'penalty_awarded', 'missed_penalty', 'red_card', 'yellow_red', 'var'].includes(type)) {
+          return null;
+        }
+        const minute = Number(inc.time ?? inc.minute ?? inc.elapsed ?? 0);
+        const addedTime = Number(inc.addedTime ?? inc.added_time ?? inc.injuryTime ?? 0);
+        const teamSide = String(inc.teamSide ?? inc.team_side ?? inc.team ?? '').toLowerCase();
+        const teamId = String(inc.team?.id ?? inc.teamId ?? '').trim();
+        const teamName = String(inc.team?.name ?? inc.teamName ?? '').trim().toLowerCase();
+        const isHome = teamSide === 'home' || teamSide === '1' || (!!teamName && teamName === homeName);
+        const isAway = teamSide === 'away' || teamSide === '2' || (!!teamName && teamName === awayName);
+        return {
+          id: String(inc.id ?? `${matchId}-${i}`),
+          type,
+          minute,
+          addedTime,
+          team: isHome ? 'home' : isAway ? 'away' : (teamId ? teamId : null),
+          player: inc.player?.name ?? inc.playerName ?? inc.player ?? null,
+          assist: inc.player2?.name ?? inc.assistName ?? inc.assist ?? null,
+          description: inc.description ?? inc.text ?? null,
+          isConfirmed: inc.isConfirmed ?? inc.confirmed ?? inc.is_confirmed ?? true,
+        };
+      })
+      .filter(Boolean);
+  };
+
+  const latestCriticalIncident = (incidents: any[]) => {
+    let latest: any = null;
+    let latestIdx = -1;
+    let latestKey = -Infinity;
+    for (let i = 0; i < incidents.length; i += 1) {
+      const inc = incidents[i];
+      const key = incidentTimeKey(inc, i);
+      if (key >= latestKey) {
+        latest = inc;
+        latestIdx = i;
+        latestKey = key;
+      }
+    }
+    if (!latest) return null;
+    return {
+      incident: latest,
+      lastKey: [
+        String(latest?.id ?? ''),
+        String(latest?.type ?? ''),
+        String(latest?.minute ?? ''),
+        String(latest?.addedTime ?? latest?.added_time ?? ''),
+        String(latest?.description ?? ''),
+        String(latestIdx),
+      ].join('|'),
+    };
+  };
+
+  const incidentToSuspendReason = (type: string): string => {
+    const t = String(type || '').trim().toLowerCase();
+    if (t === 'var') return 'VAR';
+    if (t === 'goal' || t === 'own_goal' || t === 'disallowed_goal') return 'GOAL';
+    if (t === 'penalty' || t === 'penalty_awarded' || t === 'missed_penalty') return 'PENALTY';
+    if (t === 'red_card' || t === 'yellow_red') return 'CARD';
+    return 'SUSPENSO';
   };
 
   const buildTennisScoreFromDelta = (data: any): Record<string, any> | null => {
@@ -535,6 +647,7 @@ export function createLiveWs(apiKey: string) {
         for (const [sp, ids] of Object.entries(group)) {
           for (const id of ids) trySubscribeMatchOdds(sp, id);
         }
+        pollCriticalIncidentsFor('all', liveAll);
 
         snapshotCache.set('all', { ts: Date.now(), live: liveAll });
         const msg = JSON.stringify({ type: 'snapshot', live: liveAll });
@@ -550,7 +663,7 @@ export function createLiveWs(apiKey: string) {
         return;
       }
 
-      const sports = sport === 'all' ? ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball'] : [sport];
+      const sports = sport === 'all' ? ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball', 'volleyball', 'mma'] : [sport];
       const liveAll: any[] = [];
       try {
         const entries = await Promise.all(
@@ -598,6 +711,7 @@ export function createLiveWs(apiKey: string) {
       for (const [sp, ids] of Object.entries(group)) {
         for (const id of ids) trySubscribeMatchOdds(sp, id);
       }
+      pollCriticalIncidentsFor(sport, liveAll);
 
       const budget = { remaining: 24 };
       const withOdds = await mapLimit(liveAll, 8, async (e) => {
@@ -745,6 +859,74 @@ export function createLiveWs(apiKey: string) {
       }
     };
 
+    const broadcastIncident = (sport: string, payload: any) => {
+      const msg = JSON.stringify({ type: 'incident', sport, data: payload });
+      for (const c of clients) {
+        if (c.sport !== 'all' && c.sport !== sport) continue;
+        if (c.ws.readyState !== WebSocket.OPEN) continue;
+        try {
+          c.ws.send(msg);
+        } catch {
+          void 0;
+        }
+      }
+    };
+
+    const pollCriticalIncidentsFor = (sport: string, liveList: any[]) => {
+      const sportKey = String(sport || '').trim().toLowerCase();
+      const now = Date.now();
+      const lastAt = lastIncidentSweepAt.get(sportKey) || 0;
+      if (now - lastAt < 2000) return;
+      lastIncidentSweepAt.set(sportKey, now);
+
+      const targets = (Array.isArray(liveList) ? liveList : [])
+        .filter((ev: any) => isSoccerSport(String(ev?.sport || sportKey)))
+        .map((ev: any) => {
+          const id = String(ev?.id || '').trim();
+          if (!id) return null;
+          return {
+            id,
+            sport: String(ev?.sport || sportKey || 'soccer').trim().toLowerCase(),
+            homeTeam: String(ev?.home_team || ev?.teams?.home?.name || '').trim(),
+            awayTeam: String(ev?.away_team || ev?.teams?.away?.name || '').trim(),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 12) as Array<{ id: string; sport: string; homeTeam: string; awayTeam: string }>;
+
+      for (const target of targets) {
+        const cacheKey = `${target.sport}:${target.id}`;
+        const cached = criticalIncidentCache.get(cacheKey);
+        if (cached && now - cached.ts < 1500) continue;
+        if (criticalIncidentInflight.has(cacheKey)) continue;
+
+        const task = (async () => {
+          const raw = await fetchSportsApiProMatchIncidents(apiKey, target.sport, target.id).catch(() => null);
+          const normalized = normalizeCriticalIncidents(target.id, target.sport, raw, {
+            homeTeam: target.homeTeam,
+            awayTeam: target.awayTeam,
+          });
+          const latest = latestCriticalIncident(normalized);
+          const lastKey = latest?.lastKey || '';
+          const prevKey = criticalIncidentCache.get(cacheKey)?.lastKey || '';
+          criticalIncidentCache.set(cacheKey, { ts: Date.now(), lastKey });
+          if (!latest || !lastKey || lastKey === prevKey) return;
+
+          broadcastIncident(target.sport, {
+            id: target.id,
+            sport: target.sport,
+            incident: latest.incident,
+            incidents: normalized.slice(-8),
+            suspendReason: incidentToSuspendReason(latest.incident?.type),
+          });
+        })()
+          .catch(() => void 0)
+          .finally(() => criticalIncidentInflight.delete(cacheKey));
+
+        criticalIncidentInflight.set(cacheKey, task);
+      }
+    };
+
     ws.on('message', (raw) => {
       u.lastMessageAt = Date.now();
       try {
@@ -754,16 +936,60 @@ export function createLiveWs(apiKey: string) {
           const d = msg.data;
           const id = String(d.eventId ?? d.id ?? '').trim();
           if (id) {
-            const homeRaw = d['homeScore.current'] ?? d['homeScore.display'] ?? d.homeScore?.current ?? d.homeScore?.display ?? null;
-            const awayRaw = d['awayScore.current'] ?? d['awayScore.display'] ?? d.awayScore?.current ?? d.awayScore?.display ?? null;
+            const homeRaw =
+              d['homeScore.current'] ??
+              d['homeScore.display'] ??
+              d['homeScore.total'] ??
+              d.homeScore?.current ??
+              d.homeScore?.display ??
+              d.homeScore?.total ??
+              d.score?.home ??
+              d.goals?.home ??
+              null;
+            const awayRaw =
+              d['awayScore.current'] ??
+              d['awayScore.display'] ??
+              d['awayScore.total'] ??
+              d.awayScore?.current ??
+              d.awayScore?.display ??
+              d.awayScore?.total ??
+              d.score?.away ??
+              d.goals?.away ??
+              null;
             const home = homeRaw == null ? null : (Number.isFinite(Number(homeRaw)) ? Number(homeRaw) : null);
             const away = awayRaw == null ? null : (Number.isFinite(Number(awayRaw)) ? Number(awayRaw) : null);
             const statusDesc = String(d['status.description'] ?? d.statusDescription ?? d['statusDescription'] ?? d.statusDescriptionText ?? '').trim();
             const status = String(d['status.type'] ?? d['status.code'] ?? d['statusType'] ?? d.statusType ?? '').trim();
+            const elapsedRaw =
+              d.elapsed ??
+              d['status.elapsed'] ??
+              d.status?.elapsed ??
+              d.clock?.elapsed ??
+              d.time?.elapsed ??
+              null;
+            const timerRaw =
+              d.timer ??
+              d.clock ??
+              d['status.timer'] ??
+              d.status?.timer ??
+              d.time?.clock ??
+              d.time?.display ??
+              null;
+            const elapsed = elapsedRaw == null ? null : (Number.isFinite(Number(elapsedRaw)) ? Number(elapsedRaw) : null);
+            const timer = timerRaw == null ? '' : String(timerRaw).trim();
             const deltaScore = localSport === 'tennis' ? buildTennisScoreFromDelta(d) : null;
             const m = upstreamState.get(localSport) || (upstreamState.set(localSport, new Map()), upstreamState.get(localSport)!);
             
-            const updateData = { ts: Date.now(), status: status || undefined, statusDesc: statusDesc || undefined, home, away, score: deltaScore };
+            const updateData = {
+              ts: Date.now(),
+              status: status || undefined,
+              statusDesc: statusDesc || undefined,
+              home,
+              away,
+              score: deltaScore,
+              elapsed: elapsed ?? undefined,
+              timer: timer || undefined,
+            };
             m.set(id, updateData);
             
             // DELTA UPDATE: Envia apenas a mudança de placar/status imediatamente
@@ -774,6 +1000,8 @@ export function createLiveWs(apiKey: string) {
               score: deltaScore || undefined,
               status_short: status || undefined,
               status_long: statusDesc || undefined,
+              elapsed: elapsed ?? undefined,
+              timer: timer || undefined,
               is_live: 1
             });
 

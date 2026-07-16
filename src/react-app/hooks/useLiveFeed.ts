@@ -92,6 +92,43 @@ const isFinishedLiveStatus = (value: any) => {
   );
 };
 
+const incidentTimeKey = (inc: any, idx: number) => {
+  const minute = Number(inc?.minute ?? 0) || 0;
+  const added = Number(inc?.addedTime ?? inc?.added_time ?? 0) || 0;
+  return minute * 1000 + added * 10 + (idx % 10);
+};
+
+const mergeCriticalIncidents = (prevList: any, incomingList: any) => {
+  const source = Array.isArray(prevList) ? prevList : [];
+  const incoming = Array.isArray(incomingList) ? incomingList : [];
+  const byKey = new Map<string, any>();
+  source.forEach((inc, idx) => {
+    const key = [
+      String(inc?.id ?? ''),
+      String(inc?.type ?? ''),
+      String(inc?.minute ?? ''),
+      String(inc?.addedTime ?? inc?.added_time ?? ''),
+      String(inc?.description ?? ''),
+      String(idx),
+    ].join('|');
+    byKey.set(key, inc);
+  });
+  incoming.forEach((inc, idx) => {
+    const key = [
+      String(inc?.id ?? ''),
+      String(inc?.type ?? ''),
+      String(inc?.minute ?? ''),
+      String(inc?.addedTime ?? inc?.added_time ?? ''),
+      String(inc?.description ?? ''),
+      String(idx),
+    ].join('|');
+    byKey.set(key, inc);
+  });
+  return Array.from(byKey.values())
+    .sort((a, b) => incidentTimeKey(a, 0) - incidentTimeKey(b, 0))
+    .slice(-12);
+};
+
 const parseLiveEvent = (item: any) => {
     if (!item) return null;
     const rawId = getRawLiveEventId(item);
@@ -619,7 +656,16 @@ export function useLiveFeed(sport?: string) {
                   score: delta.score && typeof delta.score === 'object' ? { ...delta.score } : undefined,
                   status_short: delta.status_short || '',
                   status_long: delta.status_long || '',
-                  fixture: { status: { short: delta.status_short || '', long: delta.status_long || '', elapsed: 0, timer: '' } },
+                  elapsed: typeof delta.elapsed === 'number' ? delta.elapsed : 0,
+                  timer: delta.timer || '',
+                  fixture: {
+                    status: {
+                      short: delta.status_short || '',
+                      long: delta.status_long || '',
+                      elapsed: typeof delta.elapsed === 'number' ? delta.elapsed : 0,
+                      timer: delta.timer || '',
+                    },
+                  },
                   markets: delta.markets || {},
                   __lastSeenAt: now,
                 } as any;
@@ -669,12 +715,61 @@ export function useLiveFeed(sport?: string) {
                 merged.status_long = delta.status_long;
                 if (merged.fixture?.status) merged.fixture.status.long = delta.status_long;
               }
+              if (typeof delta.elapsed === 'number') {
+                merged.elapsed = delta.elapsed;
+                if (merged.fixture?.status) merged.fixture.status.elapsed = delta.elapsed;
+              }
+              if (typeof delta.timer === 'string') {
+                merged.timer = delta.timer;
+                if (merged.fixture?.status) merged.fixture.status.timer = delta.timer;
+              }
               if (delta.home_odd != null && delta.home_odd > 0) merged.home_odd = Number(delta.home_odd);
               if (delta.draw_odd != null && delta.draw_odd > 0) merged.draw_odd = Number(delta.draw_odd);
               if (delta.away_odd != null && delta.away_odd > 0) merged.away_odd = Number(delta.away_odd);
               if (delta.markets) merged.markets = { ...(merged.markets || {}), ...delta.markets };
 
               next.set(id, merged);
+              _liveCache.set(_sportKey, { map: next, ts: now });
+              return next;
+            });
+            setLastUpdatedAt(now);
+            return;
+          }
+          if (msg?.type === 'incident' && msg?.data?.id) {
+            const now = Date.now();
+            const delta = msg.data;
+            setEventsMap((prev) => {
+              const next = new Map<string, any>(prev);
+              const id = String(delta.id);
+              const prevVal = next.get(id);
+              const nextIncidents = mergeCriticalIncidents(
+                (prevVal as any)?.events ?? (prevVal as any)?.fixture?.events,
+                Array.isArray(delta.incidents) && delta.incidents.length > 0
+                  ? delta.incidents
+                  : delta.incident
+                    ? [delta.incident]
+                    : [],
+              );
+              const merged = {
+                ...(prevVal || {}),
+                id,
+                external_event_id: (prevVal as any)?.external_event_id || id,
+                is_live: 1,
+                events: nextIncidents,
+                fixture: {
+                  ...((prevVal as any)?.fixture || {}),
+                  events: nextIncidents,
+                  status: {
+                    ...((prevVal as any)?.fixture?.status || {}),
+                  },
+                },
+                __lastSeenAt: now,
+              } as any;
+              next.set(id, merged);
+              if (!prevVal && now - missingDeltaRefreshAt > 1000) {
+                missingDeltaRefreshAt = now;
+                fetchLiveEvents().catch(() => void 0);
+              }
               _liveCache.set(_sportKey, { map: next, ts: now });
               return next;
             });

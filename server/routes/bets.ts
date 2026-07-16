@@ -18,6 +18,8 @@ type PlaceBetBody = {
     stake?: number;
     market?: string;
     market_key?: string;
+    comboMeta?: any;
+    combo_meta?: any;
   }>;
 };
 
@@ -196,6 +198,42 @@ async function updateProfile(pool: pg.Pool, userId: string, balance: number, fre
   );
 }
 
+function serializeBetRecord(row: any, userId: string) {
+  const selections = row?.selections && typeof row.selections === 'object' ? row.selections : [];
+  const arr = Array.isArray(selections) ? selections : [];
+  const first = arr[0] || {};
+  const rawType = String(row?.bet_type || 'single');
+  const uiType = rawType === 'multi' ? 'multiple' : 'single';
+  const stake = toNumber(row?.stake ?? row?.total_stake);
+  const potentialWin = toNumber(row?.potential_win ?? row?.potential_return);
+
+  return {
+    id: String(row?.id || ''),
+    user_id: String(userId),
+    type: rawType,
+    bet_type: uiType,
+    stake,
+    total_stake: stake,
+    potential_win: potentialWin,
+    potential_return: potentialWin,
+    total_odds: toNumber(row?.total_odds),
+    status: String(row?.status || 'pending'),
+    is_freebet: row?.is_free_bet ? 1 : 0,
+    is_free_bet: Boolean(row?.is_free_bet),
+    winnings: toNumber(row?.winnings),
+    cashout_value: toNumber(row?.cashout_value),
+    cashout_at: row?.cashout_at ? new Date(row.cashout_at).toISOString() : undefined,
+    settled_at: row?.settled_at ? new Date(row.settled_at).toISOString() : undefined,
+    selection: first.selection ? String(first.selection) : '',
+    odd: toNumber(first.odd),
+    event_id: first.event_id != null ? first.event_id : null,
+    team_match: first.team_match ? String(first.team_match) : '',
+    league: first.league ? String(first.league) : '',
+    selections: arr,
+    created_at: row?.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+  };
+}
+
 function sendBetSelectionError(
   res: http.ServerResponse,
   message: string,
@@ -240,38 +278,7 @@ export async function handleBetRoutes(
       [u.id],
     );
 
-    const out = (r.rows || []).map((b: any) => {
-      const selections = b.selections && typeof b.selections === 'object' ? b.selections : [];
-      const arr = Array.isArray(selections) ? selections : [];
-      const first = arr[0] || {};
-      const rawType = String(b.bet_type || 'single');
-      const uiType = rawType === 'multi' ? 'multiple' : 'single';
-      return {
-        id: String(b.id),
-        user_id: String(u.id),
-        type: rawType,
-        bet_type: uiType,
-        stake: toNumber(b.stake),
-        total_stake: toNumber(b.stake),
-        potential_win: toNumber(b.potential_win),
-        potential_return: toNumber(b.potential_win),
-        total_odds: toNumber(b.total_odds),
-        status: String(b.status || 'pending'),
-        is_freebet: b.is_free_bet ? 1 : 0,
-        is_free_bet: Boolean(b.is_free_bet),
-        winnings: toNumber(b.winnings),
-        cashout_value: toNumber(b.cashout_value),
-        cashout_at: b.cashout_at ? new Date(b.cashout_at).toISOString() : undefined,
-        settled_at: b.settled_at ? new Date(b.settled_at).toISOString() : undefined,
-        selection: first.selection ? String(first.selection) : '',
-        odd: toNumber(first.odd),
-        event_id: first.event_id != null ? first.event_id : null,
-        team_match: first.team_match ? String(first.team_match) : '',
-        league: first.league ? String(first.league) : '',
-        selections: arr,
-        created_at: b.created_at ? new Date(b.created_at).toISOString() : new Date().toISOString(),
-      };
-    });
+    const out = (r.rows || []).map((b: any) => serializeBetRecord(b, u.id));
 
     sendJson(res, 200, { bets: out });
     return true;
@@ -319,17 +326,6 @@ export async function handleBetRoutes(
         });
         return true;
       }
-      if (ctx.suspended) {
-        sendBetSelectionError(res, ctx.suspendedReason ? `Mercado suspenso: ${ctx.suspendedReason}` : 'Mercado suspenso', {
-          index,
-          event_id: eventId,
-          selection: requestedSelection,
-          market: requestedMarket,
-          code: 'MARKET_SUSPENDED',
-          reason: ctx.suspendedReason || 'Mercado suspenso no feed atual',
-        });
-        return true;
-      }
 
       const markets = ctx.odds?.markets && typeof ctx.odds.markets === 'object'
         ? ctx.odds.markets
@@ -343,6 +339,29 @@ export async function handleBetRoutes(
           market: requestedMarket,
           code: 'MARKET_UNAVAILABLE',
           reason: 'Mercado não encontrado nas odds atuais',
+        });
+        return true;
+      }
+
+      if (ctx.suspended) {
+        sendBetSelectionError(res, ctx.suspendedReason ? `Mercado suspenso: ${ctx.suspendedReason}` : 'Mercado suspenso', {
+          index,
+          event_id: eventId,
+          selection: requestedSelection,
+          market: requestedMarket,
+          code: 'MARKET_SUSPENDED',
+          reason: ctx.suspendedReason || 'Mercado suspenso no feed atual',
+        });
+        return true;
+      }
+      if (Array.isArray(ctx.suspendedMarkets) && ctx.suspendedMarkets.includes(pickedMarket.key)) {
+        sendBetSelectionError(res, ctx.suspendedReason ? `Mercado suspenso: ${ctx.suspendedReason}` : 'Mercado suspenso', {
+          index,
+          event_id: eventId,
+          selection: requestedSelection,
+          market: requestedMarket,
+          code: 'MARKET_SUSPENDED',
+          reason: ctx.suspendedReason || 'Mercado suspenso no feed atual',
         });
         return true;
       }
@@ -407,6 +426,12 @@ export async function handleBetRoutes(
         away_team: String((bet as any).away_team || ctx.event?.away_team || ''),
         sport: String(ctx.sport || ''),
         selection_label: matched.label,
+        combo_meta:
+          (bet as any).comboMeta && typeof (bet as any).comboMeta === 'object'
+            ? (bet as any).comboMeta
+            : (bet as any).combo_meta && typeof (bet as any).combo_meta === 'object'
+              ? (bet as any).combo_meta
+              : undefined,
       });
     }
 
@@ -450,9 +475,14 @@ export async function handleBetRoutes(
     if (!u) return unauthorized(res), true;
     await ensureAppBetsTable(pool);
     const betId = cashoutMatch[1] || '';
+    const body = await readJsonBody<any>(req).catch(() => ({}));
+    const requestedAmount = toNumber(body?.amount);
 
     const r = await pool.query(
-      `SELECT id, stake, status FROM ${APP_BETS_TABLE} WHERE id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT id, bet_type, stake, potential_win, total_odds, status, is_free_bet, winnings, selections, cashout_value, cashout_at, settled_at, created_at
+       FROM ${APP_BETS_TABLE}
+       WHERE id = $1 AND user_id = $2
+       LIMIT 1`,
       [betId, u.id],
     );
     const b = r.rows?.[0];
@@ -460,17 +490,30 @@ export async function handleBetRoutes(
     if (String(b.status) !== 'pending') return badRequest(res, 'Cashout indisponível'), true;
 
     const stake = toNumber(b.stake);
-    const cashoutValue = Math.max(0, stake * 0.8);
-    await pool.query(
+    const potentialWin = Math.max(stake, toNumber(b.potential_win));
+    const fallbackCashoutValue = Math.max(0, Math.min(potentialWin, stake * 0.8));
+    const cashoutValue = Math.max(
+      0,
+      Math.min(potentialWin, requestedAmount > 0 ? requestedAmount : fallbackCashoutValue),
+    );
+    if (!(cashoutValue > 0)) return badRequest(res, 'Valor inválido'), true;
+
+    const updated = await pool.query(
       `UPDATE ${APP_BETS_TABLE}
        SET status = 'cashed_out', cashout_value = $2, winnings = $2, cashout_at = NOW(), settled_at = NOW(), updated_at = NOW()
-       WHERE id = $1`,
+       WHERE id = $1
+       RETURNING id, bet_type, stake, potential_win, total_odds, status, is_free_bet, winnings, selections, cashout_value, cashout_at, settled_at, created_at`,
       [betId, cashoutValue],
     );
 
     const profile = await getProfile(pool, u.id);
     await updateProfile(pool, u.id, profile.balance + cashoutValue, profile.free_bet_balance);
-    sendJson(res, 200, { success: true, cashoutValue });
+    sendJson(res, 200, {
+      success: true,
+      amount: cashoutValue,
+      cashoutValue,
+      bet: serializeBetRecord(updated.rows?.[0], u.id),
+    });
     return true;
   }
 

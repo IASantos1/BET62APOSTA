@@ -68,7 +68,7 @@ function computeVarActive(incidents: any[]) {
   let lastVarKey = -1
   for (let i = 0; i < incidents.length; i++) {
     const inc = incidents[i]
-    if (String(inc?.type || '').toUpperCase() !== 'VAR') continue
+    if (String(inc?.type || '').trim().toLowerCase() !== 'var') continue
     const k = incidentTimeKey(inc, i)
     if (k >= lastVarKey) {
       lastVarKey = k
@@ -316,7 +316,7 @@ export function useBatchMarketSignals(params: {
     }
 
     tick()
-    intervalId = setInterval(tick, 7000)
+    intervalId = setInterval(tick, 3000)
     return () => {
       cancelled = true
       if (intervalId) clearInterval(intervalId)

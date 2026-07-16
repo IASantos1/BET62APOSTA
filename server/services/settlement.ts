@@ -1546,6 +1546,80 @@ export function recalculateMultiOdds(
   return combinedOdds;
 }
 
+function settleStoredSelection(
+  sel: any,
+  result: MatchResult,
+): { outcome: SelectionOutcome; note: string; effectiveOdd: number; settledSelection: any } {
+  const comboMeta = sel?.combo_meta && typeof sel.combo_meta === 'object' ? sel.combo_meta : null;
+
+  if (comboMeta && Array.isArray(comboMeta.legs) && comboMeta.legs.length > 0) {
+    const legOutcomes: SelectionOutcome[] = [];
+    const settledLegs = comboMeta.legs.map((leg: any) => {
+      const market = String(leg?.settlementKey || '').toLowerCase().trim();
+      const selectionLabel = String(leg?.selection || '');
+      const outcome = evaluateSelection(market, selectionLabel, result);
+      legOutcomes.push(outcome);
+
+      return {
+        ...leg,
+        settlement_outcome: outcome,
+        settlement_note: `[${market || '?'}] "${selectionLabel}" → ${outcome}`,
+      };
+    });
+
+    const comboOutcome = evaluateMultiBet(legOutcomes);
+    const effectiveOdd =
+      comboOutcome === 'won'
+        ? recalculateMultiOdds(
+            settledLegs.map((leg: any) => ({ odd: Number(leg.odd) || 1 })),
+            legOutcomes,
+          )
+        : Number(sel?.odd) || 1;
+    const comboNote = settledLegs
+      .map((leg: any) => leg.settlement_note)
+      .join(' | ');
+
+    return {
+      outcome: comboOutcome,
+      note: `SGC ${comboMeta.title || sel?.selection || ''} → ${comboOutcome}${comboNote ? ` | ${comboNote}` : ''}`,
+      effectiveOdd,
+      settledSelection: {
+        ...sel,
+        settlement_outcome: comboOutcome,
+        settlement_note: comboNote,
+        settled_odd: effectiveOdd,
+        combo_meta: {
+          ...comboMeta,
+          settlement_summary: {
+            outcome: comboOutcome,
+            effective_odd: effectiveOdd,
+            note: comboNote,
+            legs: settledLegs,
+          },
+          legs: settledLegs,
+        },
+      },
+    };
+  }
+
+  const market = String(sel.market || sel.market_key || '').toLowerCase();
+  const selectionLabel = String(sel.selection || '');
+  const outcome = evaluateSelection(market, selectionLabel, result);
+  const note = `[${market || '?'}] "${selectionLabel}" → ${outcome}`;
+
+  return {
+    outcome,
+    note,
+    effectiveOdd: Number(sel?.odd) || 1,
+    settledSelection: {
+      ...sel,
+      settlement_outcome: outcome,
+      settlement_note: note,
+      settled_odd: Number(sel?.odd) || 1,
+    },
+  };
+}
+
 // ── Fetch match result from SportsApiPro ─────────────────────────────────────
 
 async function fetchMatchResult(
@@ -1566,6 +1640,10 @@ async function fetchMatchResult(
     sub = 'hockey';
   } else if (sportLower === 'baseball') {
     sub = 'baseball';
+  } else if (sportLower === 'volleyball' || sportLower === 'voleibol' || sportLower === 'vôlei') {
+    sub = 'volleyball';
+  } else if (sportLower === 'mma') {
+    sub = 'mma';
   } else {
     sub = 'football'; // soccer/football default
   }
@@ -1775,7 +1853,7 @@ async function settleBet(
   pool: pg.Pool,
   bet: any,
   result: MatchResult,
-): Promise<{ outcome: 'won' | 'lost' | 'void'; winnings: number; note: string }> {
+): Promise<{ outcome: 'won' | 'lost' | 'void'; winnings: number; note: string; settledSelections: any[] }> {
   const selections: any[] = Array.isArray(bet.selections) ? bet.selections : [];
   const betType = String(bet.bet_type || 'single');
   const stake = Number(bet.stake) || 0;
@@ -1783,13 +1861,15 @@ async function settleBet(
 
   const outcomes: SelectionOutcome[] = [];
   const notes: string[] = [];
+  const settledSelections: any[] = [];
+  const pricedSelections: Array<{ odd: number }> = [];
 
   for (const sel of selections) {
-    const market = String(sel.market || sel.market_key || '').toLowerCase();
-    const selectionLabel = String(sel.selection || '');
-    const outcome = evaluateSelection(market, selectionLabel, result);
-    outcomes.push(outcome);
-    notes.push(`[${market || '?'}] "${selectionLabel}" → ${outcome}`);
+    const settled = settleStoredSelection(sel, result);
+    outcomes.push(settled.outcome);
+    notes.push(settled.note);
+    settledSelections.push(settled.settledSelection);
+    pricedSelections.push({ odd: settled.effectiveOdd });
   }
 
   let finalOutcome: 'won' | 'lost' | 'void';
@@ -1798,11 +1878,15 @@ async function settleBet(
   if (betType === 'multi') {
     finalOutcome = evaluateMultiBet(outcomes);
     if (finalOutcome === 'won') {
-      finalOdds = recalculateMultiOdds(selections, outcomes);
+      finalOdds = recalculateMultiOdds(pricedSelections, outcomes);
     }
   } else {
     finalOutcome = outcomes[0] ?? 'void';
-    if (finalOutcome !== 'won') finalOdds = 0;
+    if (finalOutcome === 'won') {
+      finalOdds = pricedSelections[0]?.odd || finalOdds;
+    } else {
+      finalOdds = 0;
+    }
   }
 
   let winnings = 0;
@@ -1816,7 +1900,7 @@ async function settleBet(
   }
 
   const note = notes.join(' | ');
-  return { outcome: finalOutcome, winnings, note };
+  return { outcome: finalOutcome, winnings, note, settledSelections };
 }
 
 // ── Credit winnings to user balance ──────────────────────────────────────────
@@ -1880,13 +1964,13 @@ export async function settleEventBets(
 
   for (const bet of r.rows) {
     try {
-      const { outcome, winnings, note } = await settleBet(pool, bet, result);
+      const { outcome, winnings, note, settledSelections } = await settleBet(pool, bet, result);
 
       await pool.query(
         `UPDATE ${APP_BETS_TABLE}
-         SET status = $2, winnings = $3, settled_at = NOW(), updated_at = NOW()
+         SET status = $2, winnings = $3, selections = $4::jsonb, settled_at = NOW(), updated_at = NOW()
          WHERE id = $1`,
-        [bet.id, outcome, winnings],
+        [bet.id, outcome, winnings, JSON.stringify(settledSelections)],
       );
 
       await creditWinnings(pool, bet.user_id, bet.id, winnings, outcome, result.eventId);

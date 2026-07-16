@@ -136,6 +136,8 @@ export default function EventDetails() {
   const [oddsSuspended, setOddsSuspended] = useState(false);
   const [oddsSuspendedReason, setOddsSuspendedReason] = useState<string>('');
   const [currentIncidents, setCurrentIncidents] = useState<any[]>([]);
+  const [suspendedMarkets, setSuspendedMarkets] = useState<{ eventId: number; marketId: string; reason: string }[]>([]);
+  const lastScoreUpdateIdRef = useRef<string>('');
 
   // --- Fetch Event (fallback: only when local events are ready but event not found) ---
   useEffect(() => {
@@ -188,16 +190,113 @@ export default function EventDetails() {
           if (data.markets && Object.keys(data.markets).length > 0) setRealtimeOdds(data.markets);
           setOddsSuspended(!!data.suspended);
           setOddsSuspendedReason(String(data.suspended_reason || ''));
+          if (Array.isArray((data as any).suspended_markets)) {
+            const eid = Number(id) || 0;
+            const reason = String((data as any).suspended_reason || '');
+            setSuspendedMarkets(
+              (data as any).suspended_markets
+                .map((marketId: any) => ({ eventId: eid, marketId: String(marketId), reason }))
+                .filter((x: any) => x.marketId),
+            );
+          }
         }
       } catch { /* silent */ }
       inflight = false;
       const st = String(((displayEvent as any)?.status?.short || (displayEvent as any)?.fixture?.status?.short || (displayEvent as any)?.status || '')).toUpperCase().trim();
       const stLong = String((displayEvent as any)?.fixture?.status?.long || (displayEvent as any)?.status_long || '').toUpperCase();
       const live = Number((displayEvent as any)?.is_live || 0) === 1 || ['LIVE','1H','2H','HT','ET','P','PEN','Q1','Q2','Q3','Q4','OT','P1','P2','P3','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(st) || /IN\s*PLAY|HALF|SET|QUARTER|INNING/.test(stLong);
-      timeoutId = setTimeout(tick, live ? 5000 : 60_000);
+      const sportKey = String((displayEvent as any)?.sport || '').toLowerCase();
+      const liveInterval =
+        sportKey.includes('tennis') || sportKey.includes('ténis') || sportKey.includes('tenis')
+          ? 3_000
+          : sportKey.includes('soccer') || sportKey.includes('football') || sportKey.includes('futebol')
+            ? 4_000
+            : 5_000;
+      timeoutId = setTimeout(tick, live ? liveInterval : 60_000);
     };
 
     tick();
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [id, displayEvent]);
+
+  useEffect(() => {
+    if (!id || !displayEvent) return;
+    let cancelled = false;
+    let inflight = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (inflight) {
+        timeoutId = setTimeout(tick, 300);
+        return;
+      }
+      inflight = true;
+      try {
+        const st = String(((displayEvent as any)?.status?.short || (displayEvent as any)?.status || '')).toUpperCase().trim();
+        const stLong = String((displayEvent as any)?.fixture?.status?.long || (displayEvent as any)?.status_long || '').toUpperCase();
+        const isLiveNow =
+          Number((displayEvent as any)?.is_live || 0) === 1 ||
+          ['LIVE','1H','2H','HT','ET','P','PEN','Q1','Q2','Q3','Q4','OT','P1','P2','P3','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(st) ||
+          /IN\s*PLAY|HALF|SET|QUARTER|INNING/.test(stLong);
+        if (!isLiveNow) return;
+
+        const sportParam = (displayEvent as any)?.sport ? `&sport=${encodeURIComponent(String((displayEvent as any).sport))}` : '';
+        const cursor = String(lastScoreUpdateIdRef.current || '').trim();
+        const cursorParam = cursor ? `&lastUpdateId=${encodeURIComponent(cursor)}` : '';
+        const data = await apiFetch<any>(`/api/events/${id}/score?realtime=1${sportParam}${cursorParam}`, { cache: 'no-store' });
+        if (!cancelled && data) {
+          if (data.lastUpdateId) lastScoreUpdateIdRef.current = String(data.lastUpdateId);
+
+          setEvent((prev: any) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              is_live: data.is_live ?? prev.is_live,
+              status: data.status ?? prev.status,
+              status_short: data.status_short ?? prev.status_short,
+              status_long: data.status_long ?? prev.status_long,
+              elapsed: typeof data.elapsed === 'number' ? data.elapsed : prev.elapsed,
+              timer: data.timer ?? prev.timer,
+              score: data.score ?? prev.score,
+              goals: data.goals ?? prev.goals,
+              suspended: data.suspended ?? prev.suspended,
+              suspended_reason: data.suspended_reason ?? prev.suspended_reason,
+            };
+          });
+
+          if (typeof data.suspended === 'boolean') setOddsSuspended(Boolean(data.suspended));
+          if (data.suspended_reason != null) setOddsSuspendedReason(String(data.suspended_reason || ''));
+          if (Array.isArray(data.suspended_markets)) {
+            const eid = Number(id) || 0;
+            const reason = String(data.suspended_reason || '');
+            setSuspendedMarkets(
+              data.suspended_markets
+                .map((marketId: any) => ({ eventId: eid, marketId: String(marketId), reason }))
+                .filter((x: any) => x.marketId),
+            );
+          } else {
+            setSuspendedMarkets([]);
+          }
+        }
+      } catch {
+        // Ignore transient live score fetch failures and retry on next tick.
+      } finally {
+        inflight = false;
+      }
+    };
+
+    const loop = () => {
+      if (cancelled) return;
+      void tick().finally(() => {
+        timeoutId = setTimeout(loop, 1000);
+      });
+    };
+
+    loop();
     return () => {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
@@ -220,12 +319,19 @@ export default function EventDetails() {
         try {
           const sportParam = (displayEvent as any)?.sport ? `?sport=${encodeURIComponent(String((displayEvent as any).sport))}` : '';
           const data = await apiFetch<any>(`/api/events/${id}/incidents${sportParam}`, { cache: 'no-store' });
-          if (!cancelled && Array.isArray(data?.incidents) && data.incidents.length > 0) {
-            setCurrentIncidents(data.incidents);
+          if (!cancelled) {
+            setCurrentIncidents(Array.isArray(data?.incidents) ? data.incidents : []);
           }
         } catch { /* silent */ }
       }
-      timeoutId = setTimeout(tick, isLiveNow ? 12_000 : 60_000);
+      const sportKey = String((displayEvent as any)?.sport || '').toLowerCase();
+      const liveInterval =
+        sportKey.includes('soccer') || sportKey.includes('football') || sportKey.includes('futebol')
+          ? 2_000
+          : sportKey.includes('tennis') || sportKey.includes('ténis') || sportKey.includes('tenis')
+            ? 4_000
+            : 12_000;
+      timeoutId = setTimeout(tick, isLiveNow ? liveInterval : 60_000);
     };
 
     tick();
@@ -235,13 +341,15 @@ export default function EventDetails() {
     };
   }, [id, displayEvent]);
 
-  const onSelect = useCallback((label: string, odd: number) => {
+  const onSelect = useCallback((label: string, odd: number, market?: string, comboMeta?: any) => {
     if (!displayEvent) return;
     addToBetSlip({
       id: String(Date.now() + Math.random()),
       event_id: Number(displayEvent.id),
       match: `${displayEvent.home_team} vs ${displayEvent.away_team}`,
       selection: label,
+      market: market || 'Resultado Final',
+      comboMeta,
       odd: odd,
       stake: 0,
       league: displayEvent.league_name || displayEvent.league || displayEvent.sport_title || 'Desporto'
@@ -490,7 +598,7 @@ export default function EventDetails() {
             onSelect={onSelect}
             labelOutcome={handleLabelOutcome}
             applyMarginClamp={applyMarginClamp}
-            suspendedMarkets={[]}
+            suspendedMarkets={suspendedMarkets}
             liveEvents={currentIncidents}
             liveTimer={liveTimer || (liveElapsed > 0 ? `${liveElapsed}` : '')}
             isLive={isLive}

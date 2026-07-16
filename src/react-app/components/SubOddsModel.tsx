@@ -297,12 +297,13 @@ export function SubOddsModel({
   };
 
   const toBadgeReason = (susp?: string) => {
-    if (!susp || susp === 'EVENT_FROZEN') return 'SUSPENSO'
-    if (susp === 'VAR') return 'VAR'
-    if (susp === 'GOAL') return 'GOAL'
-    if (susp === 'CHANCE') return 'CHANCE'
-    if (susp === 'PENALTY') return 'PENALTY'
-    if (susp === 'CARD') return 'CARD'
+    const reason = String(susp || '').trim().toUpperCase()
+    if (!reason || reason === 'EVENT_FROZEN') return 'SUSPENSO'
+    if (reason === 'VAR') return 'VAR'
+    if (reason === 'GOAL') return 'GOAL'
+    if (reason === 'CHANCE') return 'CHANCE'
+    if (reason === 'PENALTY') return 'PENALTY'
+    if (reason === 'CARD') return 'CARD'
     return 'SUSPENSO'
   }
 

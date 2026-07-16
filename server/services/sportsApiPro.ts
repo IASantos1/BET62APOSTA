@@ -23,6 +23,7 @@ export interface NormalizedEvent {
   fixture?: any;
   teams?: any;
   goals?: any;
+  provider_status?: any;
 }
 
 export interface OddsResult {
@@ -30,6 +31,11 @@ export interface OddsResult {
   draw: number;
   away: number;
   markets: Record<string, any[]>;
+}
+
+export interface V1AllScoresDelta {
+  events: NormalizedEvent[];
+  lastUpdateId: string | null;
 }
 
 function apiHeaders(apiKey: string): Record<string, string> {
@@ -84,6 +90,27 @@ function extractEvents(payload: any): any[] {
 function supportsV1AllScoresLive(sport: string): boolean {
   const s = normalizeSportKey(sport);
   return new Set(['football', 'soccer', 'tennis', 'basketball', 'hockey', 'ice-hockey', 'baseball']).has(s);
+}
+
+function ddmmyyyyUtc(d: Date): string {
+  const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = String(dt.getUTCFullYear());
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+function extractLastUpdateId(payload: any): string | null {
+  const v =
+    payload?.lastUpdateId ??
+    payload?.last_update_id ??
+    payload?.last_updateId ??
+    payload?.data?.lastUpdateId ??
+    payload?.data?.last_update_id ??
+    payload?.data?.last_updateId ??
+    null;
+  const s = String(v || '').trim();
+  return s ? s : null;
 }
 
 function num(v: any): number {
@@ -571,6 +598,12 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
     }
     return out;
   })();
+  const rawProviderStatus =
+    e?.status && typeof e?.status === 'object'
+      ? { ...e.status }
+      : e?.fixture?.status && typeof e?.fixture?.status === 'object'
+        ? { ...e.fixture.status }
+        : null;
   const fixture = {
     id,
     date,
@@ -579,6 +612,16 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
       long: status,
       elapsed: t.elapsed,
       timer: t.timer,
+      ...(rawProviderStatus && typeof rawProviderStatus === 'object'
+        ? {
+            blocked: rawProviderStatus.blocked,
+            stopped: rawProviderStatus.stopped,
+            reason: rawProviderStatus.reason ?? rawProviderStatus.description ?? rawProviderStatus.type,
+            type: rawProviderStatus.type,
+            description: rawProviderStatus.description,
+            raw: rawProviderStatus,
+          }
+        : {}),
     },
   };
   const teams = {
@@ -623,6 +666,7 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
     fixture,
     teams,
     goals,
+    provider_status: rawProviderStatus || undefined,
   };
 }
 
@@ -647,6 +691,32 @@ async function fetchJson(url: string, apiKey: string, timeoutMs: number = 15000)
 }
 
 const __live_cache = new Map<string, { ts: number; data: NormalizedEvent[] }>();
+
+export async function fetchSportsApiProV1AllScoresDelta(
+  apiKey: string,
+  sport: string,
+  lastUpdateId?: string | null,
+  date?: Date,
+): Promise<V1AllScoresDelta | null> {
+  const primarySub = toSubdomain(sport);
+  const liveSport = primarySub === 'soccer' ? 'football' : primarySub;
+  if (!supportsV1AllScoresLive(liveSport)) return null;
+
+  const d = date instanceof Date ? date : new Date();
+  const day = ddmmyyyyUtc(d);
+  let url = `https://v1.${liveSport}.sportsapipro.com/games/allscores?onlyLiveGames=true&startDate=${encodeURIComponent(day)}&endDate=${encodeURIComponent(day)}`;
+  const cursor = String(lastUpdateId || '').trim();
+  if (cursor) url += `&lastUpdateId=${encodeURIComponent(cursor)}`;
+
+  const json = await fetchJson(url, apiKey, 8000);
+  const items = extractEvents(json);
+  const out: NormalizedEvent[] = [];
+  for (const e of items) {
+    const n = normalizeEvent(sport, e);
+    if (n) out.push(n);
+  }
+  return { events: out, lastUpdateId: extractLastUpdateId(json) };
+}
 
 export async function fetchSportsApiProLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const primarySub = toSubdomain(sport);

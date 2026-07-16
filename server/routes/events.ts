@@ -2,6 +2,7 @@ import type http from 'http';
 import type pg from 'pg';
 import {
   fetchSportsApiProLive,
+  fetchSportsApiProV1AllScoresDelta,
   fetchSportsApiProMatchOddsAll,
   fetchSportsApiProMatchStatistics,
   fetchSportsApiProMatchIncidents,
@@ -20,13 +21,26 @@ type CacheEntry<T> = { ts: number; data: T };
 
 type AnyEvent = any;
 
-const SPORTS_DEFAULT = ['soccer', 'tennis'];
-const LIVE_SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'baseball', 'ice-hockey'];
+const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'baseball', 'ice-hockey', 'volleyball', 'mma'];
+const LIVE_SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'baseball', 'ice-hockey', 'volleyball', 'mma'];
 const RESOLVABLE_SPORTS = Array.from(new Set([...SPORTS_DEFAULT, ...LIVE_SPORTS_DEFAULT]));
 // Sports with a working /api/live endpoint on SportsApiPro / WS bootstrap
-const LIVE_CAPABLE = new Set(['soccer', 'football', 'futebol', 'tennis', 'basketball', 'baseball', 'ice-hockey', 'hockey']);
+const LIVE_CAPABLE = new Set([
+  'soccer',
+  'football',
+  'futebol',
+  'tennis',
+  'basketball',
+  'baseball',
+  'ice-hockey',
+  'hockey',
+  'volleyball',
+  'voleibol',
+  'vôlei',
+  'mma',
+]);
 const ODDS_FRESH_TTL_MS = 90_000;
-const LIVE_ODDS_FRESH_TTL_MS = 8_000;
+const LIVE_ODDS_FRESH_TTL_MS = 4_000;
 const ODDS_STALE_TTL_MS = 15 * 60_000;
 const LIVE_HOLD_MS = 75_000;
 
@@ -87,6 +101,7 @@ export type EventsService = {
     odds: any | null;
     suspended: boolean;
     suspendedReason: string;
+    suspendedMarkets: string[];
   }>;
 };
 
@@ -123,6 +138,245 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const lastEventById = new Map<string, CacheEntry<AnyEvent>>();
   const liveSeen = new Map<string, CacheEntry<{ sport: string; event: AnyEvent }>>();
   const overridesCache = new Map<string, CacheEntry<{ home_odd: number | null; draw_odd: number | null; away_odd: number | null }>>();
+  const v1AllScoresCursorBySport = new Map<string, CacheEntry<string>>();
+  const tennisFreezeByMatch = new Map<string, CacheEntry<{ until: number; reason: string }>>();
+  const criticalFreezeByMatch = new Map<string, CacheEntry<{ until: number; reason: string; sport: string }>>();
+  const lastCriticalIncidentKeyByMatch = new Map<string, CacheEntry<string>>();
+
+  const tennisSuspendedMarketKeys = (reason: string): string[] => {
+    const r = String(reason || '').toUpperCase().trim();
+    if (r === 'POINT') return ['game_winner', 'next_game_winner', 'first_serve_winner'];
+    if (r === 'GAME') return ['game_winner', 'next_game_winner', 'break_points', 'break_points_converted', 'first_serve_winner'];
+    if (r === 'SET_END') {
+      return [
+        'set_winner',
+        'current_set_winner',
+        'current_set_totals',
+        'first_set_winner',
+        'second_set_winner',
+        'third_set_winner',
+        'set_1_h2h',
+        'set_2_h2h',
+        'set_3_h2h',
+        'set_4_h2h',
+        'set_5_h2h',
+        'game_winner',
+        'next_game_winner',
+        'break_points',
+        'break_points_converted',
+        'first_serve_winner',
+      ];
+    }
+    return [];
+  };
+
+  const getTennisFreeze = (matchId: string): { until: number; reason: string } | null => {
+    const id = String(matchId || '').trim();
+    if (!id) return null;
+    const now = nowMs();
+    const freeze = tennisFreezeByMatch.get(id)?.data;
+    if (freeze && freeze.until > now) return freeze;
+    if (freeze) tennisFreezeByMatch.delete(id);
+    return null;
+  };
+
+  const isSoccerSport = (sport: string): boolean => {
+    const s = String(sport || '').toLowerCase().trim();
+    return s === 'soccer' || s === 'football' || s === 'futebol' || (s.includes('football') && !s.includes('american'));
+  };
+
+  const parseScoreState = (v: any): any | null => {
+    if (!v) return null;
+    if (typeof v === 'object') return v;
+    if (typeof v !== 'string') return null;
+    try {
+      return JSON.parse(v);
+    } catch {
+      return null;
+    }
+  };
+
+  const normalizeProviderFlag = (value: any): boolean => {
+    if (value === true || value === 1) return true;
+    const s = String(value ?? '').trim().toLowerCase();
+    return s === '1' || s === 'true' || s === 'yes' || s === 'blocked' || s === 'stopped';
+  };
+
+  const getProviderStatusObj = (event: any): any | null => {
+    if (event?.provider_status && typeof event.provider_status === 'object') return event.provider_status;
+    if (event?.fixture?.status?.raw && typeof event.fixture.status.raw === 'object') return event.fixture.status.raw;
+    if (event?.fixture?.status && typeof event.fixture.status === 'object') return event.fixture.status;
+    if (event?.status && typeof event.status === 'object') return event.status;
+    return null;
+  };
+
+  const getCriticalFreeze = (matchId: string): { until: number; reason: string; sport: string } | null => {
+    const id = String(matchId || '').trim();
+    if (!id) return null;
+    const now = nowMs();
+    const freeze = criticalFreezeByMatch.get(id)?.data;
+    if (freeze && freeze.until > now) return freeze;
+    if (freeze) criticalFreezeByMatch.delete(id);
+    return null;
+  };
+
+  const setCriticalFreeze = (matchId: string, sport: string, reason: string, ms: number) => {
+    const id = String(matchId || '').trim();
+    if (!id) return;
+    const until = nowMs() + Math.max(1000, Math.floor(ms));
+    criticalFreezeByMatch.set(id, {
+      ts: nowMs(),
+      data: {
+        until,
+        reason: String(reason || '').toUpperCase().trim(),
+        sport: String(sport || '').toLowerCase().trim(),
+      },
+    });
+  };
+
+  const applyScoreDrivenFreeze = (sportKey: string, matchId: string, prev: any, out: any, now: number) => {
+    const localSport = String(sportKey || '').toLowerCase().trim();
+    const liveNow = Number(out?.is_live || 0) === 1;
+    if (!liveNow) return;
+
+    if (localSport === 'tennis') {
+      const prevScore = parseScoreState((prev as any)?.score);
+      const nextScore = parseScoreState((out as any)?.score);
+      const prevPoint = prevScore?.point ? JSON.stringify(prevScore.point) : null;
+      const nextPoint = nextScore?.point ? JSON.stringify(nextScore.point) : null;
+      const prevSets = prevScore?.sets ? JSON.stringify(prevScore.sets) : null;
+      const nextSets = nextScore?.sets ? JSON.stringify(nextScore.sets) : null;
+      const prevHome = prevScore?.home ?? null;
+      const prevAway = prevScore?.away ?? null;
+      const nextHome = nextScore?.home ?? null;
+      const nextAway = nextScore?.away ?? null;
+
+      let reason: string | null = null;
+      if (prevSets !== null && nextSets !== null && prevSets !== nextSets) reason = 'SET_END';
+      else if (prevPoint !== null && nextPoint !== null && prevPoint !== nextPoint) reason = 'POINT';
+      else if ((prevHome !== null || prevAway !== null) && (nextHome !== null || nextAway !== null) && (prevHome !== nextHome || prevAway !== nextAway)) reason = 'GAME';
+
+      const freeze = getTennisFreeze(matchId);
+      if (freeze) {
+        out.suspended_reason = freeze.reason;
+      } else if (['POINT', 'GAME', 'SET_END'].includes(String(out.suspended_reason || '').toUpperCase().trim())) {
+        out.suspended_reason = undefined;
+      }
+      if (reason) {
+        const until = now + (reason === 'POINT' ? 1000 : reason === 'GAME' ? 2500 : 6000);
+        tennisFreezeByMatch.set(matchId, { ts: now, data: { until, reason } });
+        out.suspended_reason = reason;
+      }
+      return;
+    }
+
+    if (isSoccerSport(localSport)) {
+      const prevScore = parseScoreState((prev as any)?.score);
+      const nextScore = parseScoreState((out as any)?.score);
+      const prevHome = prevScore?.home ?? (prev as any)?.goals?.home ?? null;
+      const prevAway = prevScore?.away ?? (prev as any)?.goals?.away ?? null;
+      const nextHome = nextScore?.home ?? (out as any)?.goals?.home ?? null;
+      const nextAway = nextScore?.away ?? (out as any)?.goals?.away ?? null;
+      const scoreChanged =
+        (prevHome !== null || prevAway !== null) &&
+        (nextHome !== null || nextAway !== null) &&
+        (prevHome !== nextHome || prevAway !== nextAway);
+
+      const freeze = getCriticalFreeze(matchId);
+      if (freeze) {
+        out.suspended_reason = freeze.reason;
+      } else if (['GOAL', 'VAR', 'CARD', 'PENALTY'].includes(String(out.suspended_reason || '').toUpperCase().trim())) {
+        out.suspended_reason = undefined;
+      }
+
+      if (scoreChanged) {
+        setCriticalFreeze(matchId, localSport, 'GOAL', 20_000);
+        out.suspended_reason = 'GOAL';
+      }
+    }
+  };
+
+  const incidentTimeKey = (inc: any, idx: number) => {
+    const minute = Number(inc?.minute ?? 0) || 0;
+    const added = Number(inc?.addedTime ?? inc?.added_time ?? 0) || 0;
+    return minute * 1000 + added * 10 + (idx % 10);
+  };
+
+  const processCriticalIncidentFreeze = (matchId: string, sport: string, incidents: any[]) => {
+    if (!isSoccerSport(sport) || !Array.isArray(incidents) || incidents.length === 0) return;
+    let latest: any = null;
+    let latestIdx = -1;
+    let latestKey = -Infinity;
+    for (let i = 0; i < incidents.length; i++) {
+      const inc = incidents[i];
+      const k = incidentTimeKey(inc, i);
+      if (k >= latestKey) {
+        latest = inc;
+        latestIdx = i;
+        latestKey = k;
+      }
+    }
+    if (!latest) return;
+    const dedupeKey = [
+      String(latest?.id ?? ''),
+      String(latest?.type ?? '').toLowerCase(),
+      String(latest?.minute ?? ''),
+      String(latest?.addedTime ?? latest?.added_time ?? ''),
+      String(latest?.description ?? ''),
+      String(latestIdx),
+    ].join('|');
+    const prevKey = lastCriticalIncidentKeyByMatch.get(matchId)?.data;
+    if (prevKey === dedupeKey) return;
+    lastCriticalIncidentKeyByMatch.set(matchId, { ts: nowMs(), data: dedupeKey });
+
+    const type = String(latest?.type || '').toLowerCase();
+    if (type === 'var') {
+      setCriticalFreeze(matchId, sport, 'VAR', 20_000);
+      return;
+    }
+    if (type === 'goal' || type === 'own_goal' || type === 'disallowed_goal') {
+      setCriticalFreeze(matchId, sport, 'GOAL', 20_000);
+      return;
+    }
+    if (type === 'penalty' || type === 'penalty_awarded' || type === 'missed_penalty') {
+      setCriticalFreeze(matchId, sport, 'PENALTY', 18_000);
+      return;
+    }
+    if (type === 'red_card' || type === 'yellow_red') {
+      setCriticalFreeze(matchId, sport, 'CARD', 15_000);
+    }
+  };
+
+  const getSuspensionState = (matchId: string, sport: string, event: any, odds?: any) => {
+    const sportKey = String(sport || '').toLowerCase().trim();
+    const providerStatus = getProviderStatusObj(event);
+    const providerReason = String(
+      odds?.suspended_reason ||
+        providerStatus?.reason ||
+        providerStatus?.description ||
+        providerStatus?.type ||
+        event?.suspended_reason ||
+        '',
+    );
+    const providerSuspended = !!(
+      odds?.suspended === true ||
+      normalizeProviderFlag(providerStatus?.blocked) ||
+      normalizeProviderFlag(providerStatus?.stopped) ||
+      String(providerStatus?.short || providerStatus?.type || event?.status_short || event?.status || '').toUpperCase() === 'SUSPENDED'
+    );
+    const tennisFreeze = sportKey === 'tennis' ? getTennisFreeze(matchId) : null;
+    const criticalFreeze = isSoccerSport(sportKey) ? getCriticalFreeze(matchId) : null;
+    const activeFreeze = criticalFreeze || tennisFreeze;
+    const suspendedMarkets = tennisFreeze ? tennisSuspendedMarketKeys(tennisFreeze.reason) : [];
+    const suspendedReason = String((providerSuspended ? providerReason : '') || activeFreeze?.reason || '');
+    return {
+      providerSuspended,
+      suspended: providerSuspended || !!activeFreeze,
+      suspendedReason,
+      suspendedMarkets,
+      activeFreeze,
+    };
+  };
 
   const normalizeMatchId = (sport: string, rawId: string): string => {
     const id = String(rawId || '').trim();
@@ -294,14 +548,19 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const fetchLive = async (sport: string): Promise<AnyEvent[]> => {
     const key = sport;
     const cached = liveCache.get(key);
-    const liveFreshTtl = String(sport || '').toLowerCase() === 'tennis' ? 1_000 : 2_000;
+    const sLower = String(sport || '').toLowerCase();
+    const liveFreshTtl = sLower === 'tennis' || sLower === 'soccer' || sLower === 'football' ? 1_000 : 2_000;
     if (cached && ttlOk(cached.ts, liveFreshTtl)) return cached.data;
     if (cached && ttlOk(cached.ts, 2 * 60_000)) {
       fetchSportsApiProLive(apiKey, sport)
         .then((list) => {
           const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
             const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
-            const out = { ...e, id, sport };
+            const prev = lastEventById.get(id)?.data;
+            const out: any = { ...e, id, sport };
+            const now = nowMs();
+            const liveNow = Number(out?.is_live || 0) === 1;
+            applyScoreDrivenFreeze(String(sport || '').toLowerCase(), id, prev, out, now);
             rememberSport(id, sport);
             lastEventById.set(id, { ts: nowMs(), data: out });
             if (Number((out as any)?.is_live || 0) === 1) {
@@ -321,7 +580,11 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const list = await fetchSportsApiProLive(apiKey, sport).catch(() => []);
     const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
       const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
-      const out = { ...e, id, sport };
+      const prev = lastEventById.get(id)?.data;
+      const out: any = { ...e, id, sport };
+      const now = nowMs();
+      const liveNow = Number(out?.is_live || 0) === 1;
+      applyScoreDrivenFreeze(String(sport || '').toLowerCase(), id, prev, out, now);
       rememberSport(id, sport);
       lastEventById.set(id, { ts: nowMs(), data: out });
       if (Number((out as any)?.is_live || 0) === 1) {
@@ -1428,6 +1691,59 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
     }
 
+    const scoreMatch = path.match(/^\/api\/events\/([^/]+)\/score$/);
+    if (scoreMatch && req.method === 'GET') {
+      const idRaw = decodeURIComponent(scoreMatch[1] || '');
+      const id = normalizeIdLoose(idRaw);
+      const sportParam = String(url.searchParams.get('sport') || '').trim();
+      const sport = sportParam || await resolveSport(id);
+      if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
+
+      const sKey = String(sport || '').toLowerCase().trim();
+      const existingCursor = String(url.searchParams.get('lastUpdateId') || '').trim();
+      const cachedCursor = v1AllScoresCursorBySport.get(sKey);
+      const cursor = existingCursor || (cachedCursor && ttlOk(cachedCursor.ts, 20 * 60_000) ? cachedCursor.data : '');
+
+      const delta = await fetchSportsApiProV1AllScoresDelta(apiKey, sport, cursor || null).catch(() => null);
+      const nextCursor = delta?.lastUpdateId ? String(delta.lastUpdateId) : '';
+      if (nextCursor) v1AllScoresCursorBySport.set(sKey, { ts: nowMs(), data: nextCursor });
+
+      let found: any | null = null;
+      if (delta && Array.isArray(delta.events) && delta.events.length > 0) {
+        for (const e of delta.events) {
+          const eid =
+            String((e as any).id || '').trim() ||
+            String((e as any).external_event_id || '').split('_').pop() ||
+            '';
+          if (!eid) continue;
+          const out: any = { ...e, id: eid, sport };
+          const prev = lastEventById.get(eid)?.data;
+          const now = nowMs();
+          const liveNow = Number(out?.is_live || 0) === 1;
+          applyScoreDrivenFreeze(sKey, eid, prev, out, now);
+          rememberSport(eid, sport);
+          lastEventById.set(eid, { ts: nowMs(), data: out });
+          if (String(eid) === String(id)) found = out;
+        }
+      }
+
+      if (!found) {
+        const cached = lastEventById.get(id);
+        if (cached && ttlOk(cached.ts, 2 * 60_000)) found = cached.data;
+      }
+
+      if (!found) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
+      const suspension = getSuspensionState(id, sKey, found);
+      sendJson(res, 200, {
+        ...found,
+        lastUpdateId: nextCursor || cursor || undefined,
+        suspended: suspension.suspended,
+        suspended_reason: suspension.suspendedReason || undefined,
+        suspended_markets: suspension.suspendedMarkets,
+      });
+      return true;
+    }
+
     const oddsMatch = path.match(/^\/api\/events\/([^/]+)\/odds$/);
     if (oddsMatch && req.method === 'GET') {
       const idRaw = decodeURIComponent(oddsMatch[1] || '');
@@ -1438,25 +1754,17 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const odds = await fetchOddsStrict(sport, id, { forceAll: true }).catch(() => null);
       const markets = odds?.markets || {};
 
-      // Derive suspended status from live event cache
       const cachedEv = lastEventById.get(id)?.data;
-      const isSuspended = !!(
-        cachedEv?.suspended ||
-        cachedEv?.status?.blocked === '1' ||
-        cachedEv?.status?.stopped === '1' ||
-        String(cachedEv?.status?.short || '').toUpperCase() === 'SUSPENDED'
-      );
-      const suspendedReason = String(
-        cachedEv?.suspended_reason || cachedEv?.status?.reason || ''
-      );
+      const suspension = getSuspensionState(id, sport, cachedEv, odds);
 
       sendJson(res, 200, {
         home: odds?.home || 0,
         draw: odds?.draw || 0,
         away: odds?.away || 0,
         markets,
-        suspended: isSuspended,
-        suspended_reason: suspendedReason,
+        suspended: suspension.suspended,
+        suspended_reason: suspension.suspendedReason,
+        suspended_markets: suspension.suspendedMarkets,
       });
       return true;
     }
@@ -1669,7 +1977,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         7:  'own_goal',
         8:  'missed_penalty',
         9:  'disallowed_goal',
-        10: 'VAR',
+        10: 'var',
         11: 'penalty_awarded',
         12: 'injury',
         13: 'offside',
@@ -1707,14 +2015,19 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
 
       const buildPayloadFromRaw = (incidentsRaw: any, statsRaw: any) => {
         const rawIncidents = extractIncidents(incidentsRaw);
+        const cachedEvent = lastEventById.get(id)?.data;
+        const homeName = String(cachedEvent?.home_team || '').trim().toLowerCase();
+        const awayName = String(cachedEvent?.away_team || '').trim().toLowerCase();
         const incidents = rawIncidents.map((inc: any, i: number) => {
           const typeId = Number(inc.typeId ?? inc.type_id ?? inc.incident_type ?? 0);
           const canonicalType = TYPE_MAP[typeId] || inc.type || 'other';
           const minute = Number(inc.time ?? inc.minute ?? inc.elapsed ?? 0);
           const addedTime = Number(inc.addedTime ?? inc.added_time ?? inc.injuryTime ?? 0);
           const teamSide = String(inc.teamSide ?? inc.team_side ?? inc.team ?? '').toLowerCase();
-          const isHome = teamSide === 'home' || teamSide === '1';
-          const isAway = teamSide === 'away' || teamSide === '2';
+          const teamId = String(inc.team?.id ?? inc.teamId ?? '').trim();
+          const teamName = String(inc.team?.name ?? inc.teamName ?? '').trim().toLowerCase();
+          const isHome = teamSide === 'home' || teamSide === '1' || (!!teamName && teamName === homeName) || teamId === String(cachedEvent?.home_team_id ?? '');
+          const isAway = teamSide === 'away' || teamSide === '2' || (!!teamName && teamName === awayName) || teamId === String(cachedEvent?.away_team_id ?? '');
           const player = inc.player?.name ?? inc.playerName ?? inc.player ?? null;
           const assist = inc.player2?.name ?? inc.assistName ?? inc.assist ?? null;
           return {
@@ -1755,6 +2068,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
           .then(([incidentsRaw, statsRaw]) => buildPayloadFromRaw(incidentsRaw, statsRaw))
           .catch(() => buildPayloadFromRaw(null, null))
           .then((payload) => {
+            processCriticalIncidentFreeze(id, sportKey, payload?.incidents || []);
             incidentsCache.set(cacheKey, { ts: nowMs(), data: payload });
             return payload;
           })
@@ -1892,7 +2206,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const getBetValidationContext = async (eventId: string) => {
     const id = normalizeIdLoose(eventId);
     if (!id) {
-      return { event: null, sport: null, odds: null, suspended: false, suspendedReason: '' };
+      return { event: null, sport: null, odds: null, suspended: false, suspendedReason: '', suspendedMarkets: [] as string[] };
     }
 
     let event = lastEventById.get(id)?.data || null;
@@ -1902,7 +2216,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       sport = await resolveSport(id);
     }
     if (!sport) {
-      return { event: null, sport: null, odds: null, suspended: false, suspendedReason: '' };
+      return { event: null, sport: null, odds: null, suspended: false, suspendedReason: '', suspendedMarkets: [] as string[] };
     }
 
     if (!event) {
@@ -1916,21 +2230,15 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       awayTeam: String(event?.away_team || ''),
     }).catch(() => null);
 
-    const suspended = !!(
-      event?.suspended ||
-      odds?.suspended ||
-      event?.status?.blocked === '1' ||
-      event?.status?.stopped === '1' ||
-      String(event?.status?.short || event?.status || '').toUpperCase() === 'SUSPENDED'
-    );
-    const suspendedReason = String(
-      odds?.suspended_reason ||
-      event?.suspended_reason ||
-      event?.status?.reason ||
-      ''
-    );
-
-    return { event, sport, odds, suspended, suspendedReason };
+    const suspension = getSuspensionState(id, sport, event, odds);
+    return {
+      event,
+      sport,
+      odds,
+      suspended: suspension.suspended,
+      suspendedReason: suspension.suspendedReason,
+      suspendedMarkets: suspension.suspendedMarkets,
+    };
   };
 
   return { handleEventsRoutes, getAdminOddsEvents, setOddsOverride, getEventsCache, getBetValidationContext };

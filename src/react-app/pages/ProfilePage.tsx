@@ -258,6 +258,72 @@ const ProfilePage: React.FC = () => {
   }, [selectedItem, user]);
 
   const balance = wallets.find(w => w.currency === 'EUR')?.balance ?? 0;
+  const fullName =
+    String(
+      profile?.full_name ||
+      [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') ||
+      (user as any)?.username ||
+      'Utilizador'
+    ).trim() || 'Utilizador';
+  const email = String(profile?.email || (user as any)?.email || '').trim();
+  const completionChecks = [
+    Boolean(fullName && fullName !== 'Utilizador'),
+    Boolean(email),
+    Boolean(profile?.phone),
+    Boolean(profile?.birth_date),
+    kycStatus === 'verified',
+  ];
+  const completionPercent = Math.round((completionChecks.filter(Boolean).length / completionChecks.length) * 100);
+  const accountStatusLabel = selfExclude ? 'Restrições Ativas' : 'Conta operacional';
+  const accountStatusDescription = selfExclude
+    ? `Autoexclusão ativa${selfExcludeUntil ? ` até ${new Date(selfExcludeUntil).toLocaleDateString('pt-PT')}` : ''}.`
+    : 'Sem bloqueios manuais ativos neste momento.';
+  const heroBadges = [
+    {
+      key: 'kyc',
+      label: kycStatus === 'verified' ? 'KYC Verificado' : 'KYC Pendente',
+      className: kycStatus === 'verified'
+        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
+        : 'bg-amber-500/15 text-amber-300 border border-amber-500/25',
+    },
+    {
+      key: 'theme',
+      label: darkMode ? 'Modo Escuro' : 'Modo Claro',
+      className: 'bg-white/10 text-white border border-white/10',
+    },
+    {
+      key: 'status',
+      label: selfExclude ? 'Autoexclusão' : 'Conta Ativa',
+      className: selfExclude
+        ? 'bg-red-500/15 text-red-300 border border-red-500/25'
+        : 'bg-teal-500/15 text-teal-300 border border-teal-500/25',
+    },
+  ];
+  const walletStats = [
+    {
+      label: 'Saldo',
+      value: `${balance.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`,
+      tone: 'text-white',
+    },
+    {
+      label: 'FreeBets',
+      value: '0,00 €',
+      tone: 'text-amber-300',
+    },
+    {
+      label: 'Bónus',
+      value: '0,00 €',
+      tone: 'text-teal-300',
+    },
+  ];
+  const quickActions = [
+    { label: 'A minha conta', icon: User, action: () => setSelectedItem('A minha conta'), accent: 'bg-blue-500/15 text-blue-300' },
+    { label: 'Pagamentos', icon: CreditCard, action: () => setSelectedItem('Métodos de Pagamento'), accent: 'bg-emerald-500/15 text-emerald-300' },
+    { label: 'Documentos', icon: FileText, action: () => setSelectedItem('Documentos'), accent: 'bg-amber-500/15 text-amber-300' },
+    { label: 'Operações', icon: History, action: () => setSelectedItem('Operações'), accent: 'bg-violet-500/15 text-violet-300' },
+    { label: 'Ajuda', icon: MessageCircle, action: () => setSelectedItem('Preciso de ajuda'), accent: 'bg-pink-500/15 text-pink-300' },
+    { label: 'Limites', icon: ShieldAlert, action: () => setSelectedItem('Definir os meus limites'), accent: 'bg-orange-500/15 text-orange-300' },
+  ];
 
   const DocBadge = ({ type }: { type: string }) => {
     const doc = latestDocByType(type);
@@ -340,14 +406,27 @@ const ProfilePage: React.FC = () => {
 
   // ── Content panel header (back button) ────────────────────────────
   const ContentHeader = ({ title }: { title: string }) => (
-    <div className={`flex items-center gap-3 px-4 py-4 border-b ${t.border(darkMode)}`}>
-      <button
-        onClick={() => setSelectedItem(null)}
-        className={`flex items-center justify-center w-9 h-9 rounded-xl transition hover:opacity-70 ${darkMode ? 'bg-white/8 text-white' : 'bg-gray-100 text-gray-700'}`}
-      >
-        <ArrowLeft className="w-4 h-4" />
-      </button>
-      <h2 className={`text-[16px] font-bold ${t.heading(darkMode)}`}>{title}</h2>
+    <div className="px-4 pt-4">
+      <div className={`max-w-3xl mx-auto rounded-[28px] overflow-hidden ${t.card(darkMode)}`}>
+        <div className="relative px-5 py-5">
+          <div className="absolute inset-0 opacity-20 pointer-events-none">
+            <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-red-500 blur-3xl -translate-y-1/2 translate-x-1/3"></div>
+            <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full bg-blue-500 blur-3xl translate-y-1/2 -translate-x-1/3"></div>
+          </div>
+          <div className="relative flex items-center gap-3">
+            <button
+              onClick={() => setSelectedItem(null)}
+              className={`flex items-center justify-center w-10 h-10 rounded-2xl transition hover:opacity-80 ${darkMode ? 'bg-white/10 text-white border border-white/10' : 'bg-gray-100 text-gray-700 border border-gray-200'}`}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div className="min-w-0">
+              <p className={`text-[11px] uppercase tracking-[0.18em] mb-1 ${t.label(darkMode)}`}>Centro de Perfil</p>
+              <h2 className={`text-[18px] font-bold truncate ${t.heading(darkMode)}`}>{title}</h2>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 
@@ -389,78 +468,135 @@ const ProfilePage: React.FC = () => {
 
   // ── Main menu view ─────────────────────────────────────────────────
   const renderMenu = () => (
-    <div className="max-w-lg mx-auto px-4 pb-12">
-
-      {/* Avatar + name */}
-      <div className="flex flex-col items-center pt-8 pb-6 gap-3">
-        <div className="relative">
-          <div className="w-24 h-24 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
-            {initials}
-          </div>
-          {kycStatus === 'verified' && (
-            <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center border-2 border-white">
-              <BadgeCheck className="w-4 h-4 text-white" />
-            </div>
-          )}
+    <div className="max-w-3xl mx-auto px-4 pb-12 pt-4">
+      <div className="relative rounded-[28px] p-6 mb-6 overflow-hidden bg-gradient-to-br from-[#0f1726] via-[#121d2d] to-[#18253a] shadow-2xl shadow-black/20 border border-white/5">
+        <div className="absolute inset-0 opacity-20">
+          <div className="absolute top-0 right-0 w-72 h-72 rounded-full bg-red-500 blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+          <div className="absolute bottom-0 left-0 w-56 h-56 rounded-full bg-cyan-500 blur-3xl translate-y-1/2 -translate-x-1/2"></div>
         </div>
-        <div className="text-center">
-          <p className={`text-[20px] font-bold ${t.heading(darkMode)}`}>{firstName}</p>
-          {profile?.email && <p className={`text-[13px] mt-0.5 ${t.sub(darkMode)}`}>{profile.email}</p>}
+        <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
+          <div>
+            <div className="flex items-start gap-4">
+              <div className="relative shrink-0">
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-red-400 to-red-700 flex items-center justify-center text-white text-2xl font-bold shadow-lg ring-4 ring-white/10">
+                  {initials}
+                </div>
+                {kycStatus === 'verified' && (
+                  <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center border-2 border-[#101826]">
+                    <BadgeCheck className="w-4 h-4 text-white" />
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-200 border border-white/10">
+                    <UserCheck className="w-3.5 h-3.5" />
+                    Centro de Perfil
+                  </span>
+                  {heroBadges.map((badge) => (
+                    <span key={badge.key} className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium ${badge.className}`}>
+                      {badge.label}
+                    </span>
+                  ))}
+                </div>
+                <h1 className="text-[28px] sm:text-[32px] leading-tight font-bold text-white">{fullName}</h1>
+                {email && <p className="text-gray-300 text-[14px] mt-1 break-all">{email}</p>}
+                <p className="text-gray-400 text-[13px] mt-3 max-w-2xl">
+                  Gere dados pessoais, pagamentos, segurança, documentos e jogo responsável num painel único mais claro e organizado.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {walletStats.map((stat) => (
+                <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-4">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 mb-1">{stat.label}</p>
+                  <p className={`text-[22px] font-bold ${stat.tone}`}>{stat.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:max-w-md">
+              <button
+                onClick={() => setSelectedItem('Métodos de Pagamento')}
+                className="py-3 rounded-2xl text-[14px] font-bold text-white bg-white/10 hover:bg-white/15 border border-white/10 transition"
+              >
+                Levantar
+              </button>
+              <button
+                onClick={() => setSelectedItem('Métodos de Pagamento')}
+                className="py-3 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-[14px] font-bold transition"
+              >
+                Depositar
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/6 backdrop-blur-md p-5 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[14px] font-semibold text-white">Conclusão do Perfil</p>
+                <span className="text-[12px] font-semibold text-red-200">{completionPercent}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-white/10 overflow-hidden mb-4">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-red-400 to-cyan-400 transition-all duration-500"
+                  style={{ width: `${completionPercent}%` }}
+                ></div>
+              </div>
+              <div className="space-y-2">
+                {[
+                  { label: 'Nome completo', done: Boolean(fullName && fullName !== 'Utilizador') },
+                  { label: 'Email', done: Boolean(email) },
+                  { label: 'Telefone', done: Boolean(profile?.phone) },
+                  { label: 'Nascimento', done: Boolean(profile?.birth_date) },
+                  { label: 'KYC', done: kycStatus === 'verified' },
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center justify-between text-[13px]">
+                    <span className="text-gray-300">{item.label}</span>
+                    <span className={`inline-flex items-center gap-1 ${item.done ? 'text-emerald-300' : 'text-gray-400'}`}>
+                      {item.done ? <Check className="w-3.5 h-3.5" /> : <History className="w-3.5 h-3.5" />}
+                      {item.done ? 'Completo' : 'Pendente'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-5 rounded-2xl border border-white/10 bg-black/15 p-4">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 mb-1">Estado da Conta</p>
+              <p className="text-white font-semibold mb-1">{accountStatusLabel}</p>
+              <p className="text-[12px] text-gray-400">{accountStatusDescription}</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Balance card */}
-      <div className={`rounded-2xl p-5 mb-6 ${t.card(darkMode)}`}>
-        <div className="flex items-start justify-between mb-1">
-          <p className={`text-[13px] ${t.sub(darkMode)}`}>Saldo disponível</p>
+      <div className={`rounded-[28px] p-5 mb-6 ${t.card(darkMode)}`}>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h2 className={`text-[15px] font-bold ${t.heading(darkMode)}`}>Ações rápidas</h2>
+          <span className={`text-[12px] ${t.sub(darkMode)}`}>Acessos principais da conta</span>
         </div>
-        <p className={`text-[32px] font-bold tracking-tight mb-4 ${t.heading(darkMode)}`}>
-          {balance.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
-        </p>
-
-        {/* Freebets + Bonus rows */}
-        <div className={`border-t border-b py-3 mb-4 space-y-2.5 ${t.border(darkMode)}`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-5 h-5 rounded-full bg-red-600 flex items-center justify-center">
-                <span className="text-white text-[9px] font-bold">F</span>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {quickActions.map(({ label, icon: Icon, action, accent }) => (
+            <button
+              key={label}
+              onClick={action}
+              className={`rounded-2xl border p-4 text-left transition hover:opacity-85 ${darkMode ? 'border-white/8 bg-white/[0.03]' : 'border-gray-100 bg-gray-50/80'}`}
+            >
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center mb-3 ${accent}`}>
+                <Icon className="w-5 h-5" />
               </div>
-              <span className={`text-[13px] font-semibold ${t.heading(darkMode)}`}>FREEBETS</span>
-            </div>
-            <span className={`text-[13px] font-medium ${t.sub(darkMode)}`}>0,00 €</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center">
-                <span className="text-white text-[9px] font-bold">C</span>
-              </div>
-              <span className={`text-[13px] font-semibold ${t.heading(darkMode)}`}>BÓNUS DE CASINO</span>
-            </div>
-            <span className={`text-[13px] font-medium ${t.sub(darkMode)}`}>0,00 €</span>
-          </div>
-        </div>
-
-        {/* Action buttons */}
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={() => setSelectedItem('Métodos de Pagamento')}
-            className={`py-3 rounded-xl text-[15px] font-bold transition active:scale-95 ${darkMode ? 'bg-white/10 text-white hover:bg-white/15' : 'bg-gray-900 text-white hover:bg-gray-800'}`}
-          >
-            Levantar
-          </button>
-          <button
-            onClick={() => setSelectedItem('Métodos de Pagamento')}
-            className="py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-[15px] font-bold transition active:scale-95"
-          >
-            Depositar
-          </button>
+              <p className={`text-[14px] font-semibold ${t.heading(darkMode)}`}>{label}</p>
+              <p className={`text-[12px] mt-1 ${t.sub(darkMode)}`}>Abrir secção</p>
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Section: Agora */}
       <div className="mb-6">
         <SectionTitle>Agora</SectionTitle>
-        <div className={`rounded-2xl overflow-hidden ${t.card(darkMode)}`}>
+        <div className={`rounded-[24px] overflow-hidden ${t.card(darkMode)}`}>
           <MenuItem icon={Bell} label="Novidades" onClick={() => {}} badge="676" badgeColor="bg-gray-900 text-white" />
           <MenuItem icon={Percent} label="Código promocional" onClick={() => {}} />
           <MenuItem icon={Gift} label="Convida um amigo" onClick={() => {}}
@@ -474,7 +610,7 @@ const ProfilePage: React.FC = () => {
       {/* Section: Gerir conta */}
       <div className="mb-6">
         <SectionTitle>Gerir conta</SectionTitle>
-        <div className={`rounded-2xl overflow-hidden ${t.card(darkMode)}`}>
+        <div className={`rounded-[24px] overflow-hidden ${t.card(darkMode)}`}>
           <MenuItem icon={User} label="A minha conta" onClick={() => setSelectedItem('A minha conta')} />
           <MenuItem icon={CreditCard} label="Métodos de pagamento" onClick={() => setSelectedItem('Métodos de Pagamento')} />
           <MenuItem icon={History} label="Operações" onClick={() => setSelectedItem('Operações')} />
@@ -489,7 +625,7 @@ const ProfilePage: React.FC = () => {
       {/* Section: Jogo Responsável */}
       <div className="mb-6">
         <SectionTitle>Jogo Responsável</SectionTitle>
-        <div className={`rounded-2xl overflow-hidden ${t.card(darkMode)}`}>
+        <div className={`rounded-[24px] overflow-hidden ${t.card(darkMode)}`}>
           <MenuItem icon={Phone} label="Definir os meus limites" onClick={() => setSelectedItem('Definir os meus limites')} />
           <MenuItem icon={ShieldAlert} label="Autoexclusão" onClick={() => setSelectedItem('Autoexclusão')} />
           <MenuItem icon={Info} label="Informação" onClick={() => setSelectedItem('Informação')} isLast />
@@ -499,7 +635,7 @@ const ProfilePage: React.FC = () => {
       {/* Section: Ajuda e informação legal */}
       <div className="mb-8">
         <SectionTitle>Ajuda e informação legal</SectionTitle>
-        <div className={`rounded-2xl overflow-hidden ${t.card(darkMode)}`}>
+        <div className={`rounded-[24px] overflow-hidden ${t.card(darkMode)}`}>
           <MenuItem icon={HelpCircle} label="Precisas de ajuda?" onClick={() => setSelectedItem('Preciso de ajuda')} />
           <MenuItem icon={ClipboardList} label="Termos e condições gerais" onClick={() => setSelectedItem('Termos e condições gerais')} />
           <MenuItem icon={Shield} label="Política de privacidade e cookies" onClick={() => setSelectedItem('Políticas e privacidade')} />
