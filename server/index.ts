@@ -137,8 +137,10 @@ async function tryServeStatic(req: http.IncomingMessage, res: http.ServerRespons
     }
   }
 
-  // 2. Fallback: serve from public/ directly (images, team banners, etc. — works on Railway without build)
+  // 2. Fallback: serve static assets from public/ directly.
+  // Never serve an app shell from public/ again, to avoid reviving a stale UI.
   if (hasPublic) {
+    if (normalized === '/index.html') return false;
     const pubPath = path.join(publicDir, normalized);
     if (fs.existsSync(pubPath) && fs.statSync(pubPath).isFile()) {
       res.statusCode = 200;
