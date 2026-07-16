@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { apiFetch } from '@/react-app/utils/api';
 import { TwoFactor } from '@/react-app/components/TwoFactorSetup';
@@ -63,6 +64,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 
 // ── Main component ─────────────────────────────────────────────────
 const ProfilePage: React.FC = () => {
+  const navigate = useNavigate();
   const { darkMode, toggleDarkMode, autoTheme, setAutoTheme, addNotification, user, signOut, selfExclude, selfExcludeUntil, setSelfExclude } = useApp();
   const [wallets, setWallets] = useState<WalletEntry[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -74,6 +76,15 @@ const ProfilePage: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
+    if (tab === 'deposit') {
+      navigate('/deposit');
+      return;
+    }
+    if (tab === 'withdraw') {
+      setSelectedItem('Métodos de Pagamento');
+      setActivePaymentTab('withdrawals');
+      return;
+    }
     if (tab) setSelectedItem(tab);
   }, []);
 
@@ -90,13 +101,15 @@ const ProfilePage: React.FC = () => {
   const [supportMessages, setSupportMessages] = useState<{ sender: string; content: string; created_at: string }[]>([]);
   const [supportText, setSupportText] = useState('');
   const [supportLoading, setSupportLoading] = useState(false);
-  const [activePaymentTab, setActivePaymentTab] = useState<'withdrawals'|'security'>('withdrawals');
-  const [withdrawAmount, setWithdrawAmount] = useState<number>(10);
+  const [activePaymentTab, setActivePaymentTab] = useState<'deposits'|'withdrawals'|'security'>('withdrawals');
+  const [withdrawAmount, setWithdrawAmount] = useState<number>(20);
   const [hasIban, setHasIban] = useState<boolean | null>(null);
   const [savedIban, setSavedIban] = useState<string>('');
   const [savedHolder, setSavedHolder] = useState<string>('');
+  const [savedNif, setSavedNif] = useState<string>('');
   const [newIban, setNewIban] = useState('');
   const [holderName, setHolderName] = useState('');
+  const [withdrawNif, setWithdrawNif] = useState('');
   const [withdrawLoading, setWithdrawLoading] = useState(false);
 
   useEffect(() => {
@@ -104,25 +117,45 @@ const ProfilePage: React.FC = () => {
       if (hasIban === null) {
         apiFetch('/api/users/iban')
           .then((data: any) => {
-            if (data.has_iban) { setHasIban(true); setSavedIban(data.iban_masked); setSavedHolder(data.holder_name); }
-            else setHasIban(false);
+            if (data.has_iban) {
+              setHasIban(true);
+              setSavedIban(data.iban_masked);
+              setSavedHolder(data.holder_name || '');
+              setSavedNif(data.nif || '');
+              setHolderName(data.holder_name || '');
+              setWithdrawNif(data.nif || '');
+            } else {
+              setHasIban(false);
+            }
           })
           .catch(() => setHasIban(false));
       }
     }
-  }, [selectedItem, activePaymentTab, user]);
+  }, [selectedItem, activePaymentTab, user, hasIban]);
 
   const handleWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (withdrawAmount < 10) return addNotification({ type: 'error', message: 'Mínimo €10' });
-    if (!hasIban && (!newIban || !holderName)) return addNotification({ type: 'error', message: 'Preencha o IBAN e Titular' });
+    if (withdrawAmount < 20) return addNotification({ type: 'error', message: 'Mínimo €20' });
+    const iban = hasIban ? savedIban : newIban;
+    const holder = hasIban ? savedHolder : holderName;
+    const nif = (hasIban ? savedNif : withdrawNif).replace(/\D+/g, '');
+    if (!iban || !holder || !nif) return addNotification({ type: 'error', message: 'Preencha IBAN, nome completo e número do contribuinte' });
     setWithdrawLoading(true);
     try {
-      const payload: any = { amount: withdrawAmount };
-      if (!hasIban) { payload.iban = newIban; payload.holder_name = holderName; }
-      const data = await apiFetch('/api/withdrawals', { method: 'POST', body: JSON.stringify(payload) }) as { iban?: string; message?: string };
+      const payload: any = {
+        amount: withdrawAmount,
+        iban,
+        holder_name: holder,
+        full_name: fullName,
+        nif,
+        payment_method: 'bank_transfer',
+      };
+      const data = await apiFetch('/api/wallet/withdraw', { method: 'POST', body: JSON.stringify(payload) }) as { iban?: string; message?: string };
       addNotification({ type: 'success', message: data.message || 'Levantamento solicitado com sucesso!' });
-      if (!hasIban) { setHasIban(true); setSavedIban(data.iban || newIban); setSavedHolder(holderName); }
+      setHasIban(true);
+      setSavedIban(data.iban || iban);
+      setSavedHolder(holder);
+      setSavedNif(nif);
     } catch (err: any) {
       addNotification({ type: 'error', message: err.message || 'Erro ao solicitar levantamento' });
     } finally { setWithdrawLoading(false); }
@@ -130,12 +163,15 @@ const ProfilePage: React.FC = () => {
 
   const handleSaveIban = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newIban || !holderName) return addNotification({ type: 'error', message: 'Preencha todos os campos' });
+    if (!newIban || !holderName || !withdrawNif) return addNotification({ type: 'error', message: 'Preencha IBAN, nome completo e contribuinte' });
     setWithdrawLoading(true);
     try {
-      const data = await apiFetch('/api/users/iban', { method: 'POST', body: JSON.stringify({ iban: newIban, holder_name: holderName }) }) as any;
+      const data = await apiFetch('/api/users/iban', {
+        method: 'POST',
+        body: JSON.stringify({ iban: newIban, holder_name: holderName, full_name: fullName, nif: withdrawNif })
+      }) as any;
       addNotification({ type: 'success', message: 'IBAN guardado com sucesso' });
-      setHasIban(true); setSavedIban(data.iban); setSavedHolder(holderName);
+      setHasIban(true); setSavedIban(data.iban); setSavedHolder(holderName); setSavedNif(withdrawNif.replace(/\D+/g, ''));
     } catch (err: any) {
       addNotification({ type: 'error', message: err.message || 'Erro ao guardar IBAN' });
     } finally { setWithdrawLoading(false); }
@@ -467,6 +503,15 @@ const ProfilePage: React.FC = () => {
   );
 
   // ── Main menu view ─────────────────────────────────────────────────
+  const openWithdrawPanel = () => {
+    setSelectedItem('Métodos de Pagamento');
+    setActivePaymentTab('withdrawals');
+  };
+
+  const openDepositFlow = () => {
+    navigate('/deposit');
+  };
+
   const renderMenu = () => (
     <div className="max-w-3xl mx-auto px-4 pb-12 pt-4">
       <div className={`relative overflow-hidden rounded-[28px] p-5 mb-6 shadow-sm ${darkMode ? 'bg-gradient-to-br from-[#0f1726] via-[#121d2d] to-[#18253a] border border-white/5 shadow-black/20' : 'bg-white border border-gray-200'}`}>
@@ -515,7 +560,7 @@ const ProfilePage: React.FC = () => {
                     </span>
                   ))}
                 </div>
-                <h1 className={`text-[30px] sm:text-[32px] leading-tight font-black ${darkMode ? 'text-white' : 'text-gray-950'}`}>{fullName}</h1>
+                <h1 className={`max-w-full break-words text-[24px] sm:text-[30px] leading-tight font-black ${darkMode ? 'text-white' : 'text-gray-950'}`}>{fullName}</h1>
                 {email && <p className={`text-[14px] mt-1 break-all ${darkMode ? 'text-gray-300' : 'text-gray-500'}`}>{email}</p>}
                 <p className={`text-[13px] mt-3 max-w-2xl ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                   Gere conta, pagamentos, documentos, segurança e preferências num painel único mais limpo.
@@ -542,16 +587,16 @@ const ProfilePage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex flex-col justify-end gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-1">
                   <button
-                    onClick={() => setSelectedItem('Métodos de Pagamento')}
-                    className={`min-w-[180px] rounded-2xl px-6 py-3 text-[16px] font-black transition ${darkMode ? 'bg-slate-950 text-white hover:bg-black' : 'bg-slate-950 text-white hover:bg-slate-800'}`}
+                    onClick={openWithdrawPanel}
+                    className={`w-full min-w-0 rounded-2xl px-4 py-3 text-[15px] font-black transition ${darkMode ? 'bg-slate-950 text-white hover:bg-black' : 'bg-slate-950 text-white hover:bg-slate-800'}`}
                   >
                     Levantar
                   </button>
                   <button
-                    onClick={() => setSelectedItem('Métodos de Pagamento')}
-                    className="min-w-[180px] rounded-2xl bg-red-600 px-6 py-3 text-[16px] font-black text-white transition hover:bg-red-700"
+                    onClick={openDepositFlow}
+                    className="w-full min-w-0 rounded-2xl bg-red-600 px-4 py-3 text-[15px] font-black text-white transition hover:bg-red-700"
                   >
                     Depositar
                   </button>
@@ -618,20 +663,6 @@ const ProfilePage: React.FC = () => {
               <p className={`text-[12px] mt-1 ${t.sub(darkMode)}`}>Abrir secção</p>
             </button>
           ))}
-        </div>
-      </div>
-
-      {/* Section: Agora */}
-      <div className="mb-6">
-        <SectionTitle>Agora</SectionTitle>
-        <div className={`rounded-[24px] overflow-hidden ${t.card(darkMode)}`}>
-          <MenuItem icon={Bell} label="Novidades" onClick={() => {}} badge="676" badgeColor="bg-gray-900 text-white" />
-          <MenuItem icon={Percent} label="Código promocional" onClick={() => {}} />
-          <MenuItem icon={Gift} label="Convida um amigo" onClick={() => {}}
-            badge={<span className="flex items-center gap-1"><span className="w-3.5 h-3.5 rounded-full bg-red-600 inline-flex items-center justify-center text-[8px] font-bold text-white">F</span> 10 €</span>}
-            badgeColor="bg-gray-900 text-white"
-            isLast
-          />
         </div>
       </div>
 
@@ -802,14 +833,36 @@ const ProfilePage: React.FC = () => {
     // ── MÉTODOS DE PAGAMENTO ───────────────────────────────────────
     if (selectedItem === 'Métodos de Pagamento') return (
       <div className="p-4 space-y-4 max-w-lg mx-auto">
-        <div className="flex gap-2">
-          {(['withdrawals', 'security'] as const).map(tab => (
+        <div className="flex flex-wrap gap-2">
+          {(['deposits', 'withdrawals', 'security'] as const).map(tab => (
             <button key={tab} onClick={() => setActivePaymentTab(tab)}
               className={`px-5 py-2.5 rounded-xl text-[13px] font-semibold transition ${activePaymentTab === tab ? 'bg-red-600 text-white' : `${t.card(darkMode)} ${t.sub(darkMode)}`}`}>
-              {tab === 'withdrawals' ? 'Levantamentos' : 'Segurança'}
+              {tab === 'deposits' ? 'Depósitos' : tab === 'withdrawals' ? 'Levantamentos' : 'Segurança'}
             </button>
           ))}
         </div>
+        {activePaymentTab === 'deposits' && (
+          <div className="space-y-4">
+            <Card title="Depósitos">
+              <div className="space-y-4">
+                <div className={`rounded-2xl border p-4 ${darkMode ? 'border-white/10 bg-white/5' : 'border-gray-200 bg-gray-50'}`}>
+                  <p className={`text-[13px] font-semibold mb-2 ${t.heading(darkMode)}`}>Regras de depósito</p>
+                  <ul className={`space-y-1 text-[12px] ${t.sub(darkMode)}`}>
+                    <li>• Valor mínimo por depósito: €20</li>
+                    <li>• Máximo por operação: €20.000</li>
+                    <li>• Métodos disponíveis: Cartão, MB Way e Multibanco</li>
+                  </ul>
+                </div>
+                <button
+                  onClick={() => navigate('/deposit')}
+                  className="w-full rounded-2xl bg-red-600 px-5 py-3 text-[14px] font-black text-white transition hover:bg-red-700"
+                >
+                  Ir para depósito
+                </button>
+              </div>
+            </Card>
+          </div>
+        )}
         {activePaymentTab === 'withdrawals' && (
           <div className="space-y-4">
             <Card>
@@ -820,9 +873,10 @@ const ProfilePage: React.FC = () => {
                 <div>
                   <p className={`text-[13px] font-semibold mb-2 ${t.heading(darkMode)}`}>Regras de levantamento</p>
                   <ul className={`space-y-1 text-[12px] ${t.sub(darkMode)}`}>
-                    <li>• &lt; €10 — rejeitado automaticamente</li>
-                    <li>• €10 – €300 — processamento automático</li>
-                    <li>• &gt; €300 — agendado 24h (verificação manual)</li>
+                    <li>• Valor mínimo por levantamento: €20</li>
+                    <li>• Limite máximo diário: €300</li>
+                    <li>• Limite máximo mensal: €10.000</li>
+                    <li>• Levantamento automático apenas com KYC e documentos verificados</li>
                   </ul>
                 </div>
               </div>
@@ -845,32 +899,34 @@ const ProfilePage: React.FC = () => {
             )}
             {kycStatus === 'verified' && (
               <Card title="Solicitar levantamento">
-                {hasIban ? (
-                  <div className="space-y-4">
-                    <div className={`flex items-center justify-between p-4 rounded-xl border ${t.border(darkMode)} ${darkMode ? 'bg-white/3' : 'bg-gray-50'}`}>
-                      <div>
-                        <p className={`text-[11px] uppercase tracking-wide mb-1 ${t.label(darkMode)}`}>Conta de destino</p>
-                        <p className={`font-mono text-[14px] font-bold ${t.heading(darkMode)}`}>{savedIban}</p>
-                        <p className={`text-[12px] mt-0.5 ${t.sub(darkMode)}`}>{savedHolder}</p>
-                      </div>
-                      <div className="w-8 h-8 rounded-full bg-emerald-500/15 flex items-center justify-center">
-                        <Check className="w-4 h-4 text-emerald-500" />
-                      </div>
+                <div className="space-y-4">
+                  {hasIban ? (
+                    <div className={`p-4 rounded-xl border ${t.border(darkMode)} ${darkMode ? 'bg-white/3' : 'bg-gray-50'}`}>
+                      <p className={`text-[11px] uppercase tracking-wide mb-1 ${t.label(darkMode)}`}>Conta de destino validada</p>
+                      <p className={`font-mono text-[14px] font-bold ${t.heading(darkMode)}`}>{savedIban}</p>
+                      <p className={`text-[12px] mt-0.5 ${t.sub(darkMode)}`}>{savedHolder}</p>
+                      {savedNif && <p className={`text-[12px] mt-0.5 ${t.sub(darkMode)}`}>NIF: {savedNif}</p>}
                     </div>
-                    <InputField label="Valor a levantar (€)" type="number" value={withdrawAmount} onChange={e => setWithdrawAmount(Number(e.target.value))} min={10} />
-                    <button onClick={handleWithdraw} disabled={withdrawLoading} className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-[14px] transition">
-                      {withdrawLoading ? 'A processar...' : 'Confirmar levantamento'}
-                    </button>
-                  </div>
-                ) : (
-                  <form onSubmit={handleSaveIban} className="space-y-4">
-                    <InputField label="IBAN (PT50...)" value={newIban} onChange={e => setNewIban(e.target.value.toUpperCase())} placeholder="PT50 0000 0000 0000 0000 0000 0" />
-                    <InputField label="Nome do titular" value={holderName} onChange={e => setHolderName(e.target.value)} placeholder="Nome completo" />
-                    <button type="submit" disabled={withdrawLoading} className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-[14px] transition">
-                      {withdrawLoading ? 'A guardar...' : 'Guardar IBAN'}
-                    </button>
-                  </form>
-                )}
+                  ) : (
+                    <form onSubmit={handleSaveIban} className="space-y-4">
+                      <InputField label="Nome completo" value={holderName || fullName} onChange={e => setHolderName(e.target.value)} placeholder="Nome completo" />
+                      <InputField label="Número do contribuinte" value={withdrawNif} onChange={e => setWithdrawNif(e.target.value.replace(/\D+/g, '').slice(0, 9))} placeholder="123456789" />
+                      <InputField label="IBAN (PT50...)" value={newIban} onChange={e => setNewIban(e.target.value.toUpperCase())} placeholder="PT50 0000 0000 0000 0000 0000 0" />
+                      <button type="submit" disabled={withdrawLoading} className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-[14px] transition">
+                        {withdrawLoading ? 'A guardar...' : 'Guardar dados bancários'}
+                      </button>
+                    </form>
+                  )}
+                  {hasIban && (
+                    <>
+                      <InputField label="Valor a levantar (€)" type="number" value={withdrawAmount} onChange={e => setWithdrawAmount(Number(e.target.value))} min={20} />
+                      <p className={`text-[12px] ${t.sub(darkMode)}`}>Mínimo €20 · Máximo diário €300 · Máximo mensal €10.000</p>
+                      <button onClick={handleWithdraw} disabled={withdrawLoading} className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-[14px] transition">
+                        {withdrawLoading ? 'A processar...' : 'Confirmar levantamento'}
+                      </button>
+                    </>
+                  )}
+                </div>
               </Card>
             )}
           </div>
@@ -1139,7 +1195,7 @@ const ProfilePage: React.FC = () => {
             {[
               { n: '1', title: 'Regras de utilização', items: ['A plataforma é destinada exclusivamente a utilizadores maiores de 18 anos.', 'Cada conta é pessoal, individual e intransmissível.', 'É proibida a utilização de bots, scripts ou automações.', 'As odds podem ser ajustadas; quando necessário, será solicitada confirmação do utilizador.', 'Reservamo-nos o direito de suspender ou encerrar contas em caso de conduta indevida.'] },
               { n: '2', title: 'Jogo responsável', items: ['Disponibilizamos ferramentas de limites, notificações e autoexclusão.', 'A autoexclusão impede depósitos, apostas e criação de novos boletins.'] },
-              { n: '3', title: 'Depósitos e levantamentos', items: ['Depósito mínimo: €10 | Máximo por operação: €20.000.', 'O levantamento mínimo é de €10.', 'Todos os levantamentos requerem IBAN válido e verificação da identidade.'] },
+              { n: '3', title: 'Depósitos e levantamentos', items: ['Depósito mínimo: €20 | Máximo por operação: €20.000.', 'O levantamento mínimo é de €20.', 'O limite máximo de levantamento é de €300 por dia e €10.000 por mês.', 'Todos os levantamentos requerem IBAN, nome completo, número do contribuinte, KYC e documentos verificados.'] },
               { n: '4', title: 'Suporte e reclamações', items: ['Contacto: atendimentoaoclientebet62@gmail.com', 'Todas as reclamações serão analisadas caso a caso.'] },
             ].map(sec => (
               <div key={sec.n}>

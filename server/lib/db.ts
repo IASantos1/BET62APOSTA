@@ -83,6 +83,10 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
       email            TEXT          NOT NULL,
       full_name        TEXT,
       phone            TEXT,
+      country          TEXT,
+      nif              TEXT,
+      iban             TEXT,
+      iban_holder_name TEXT,
       balance          NUMERIC(18,2) NOT NULL DEFAULT 0,
       free_bet_balance NUMERIC(18,2) NOT NULL DEFAULT 0,
       kyc_verified     BOOLEAN       NOT NULL DEFAULT FALSE,
@@ -204,6 +208,10 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
   try {
     await client.query('BEGIN');
     for (const q of sql) await client.query(q);
+    await client.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS country TEXT`);
+    await client.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS nif TEXT`);
+    await client.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS iban TEXT`);
+    await client.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS iban_holder_name TEXT`);
     await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK');

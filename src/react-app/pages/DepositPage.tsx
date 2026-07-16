@@ -4,7 +4,7 @@ import { apiFetch } from '@/react-app/utils/api';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
-const QUICK_AMOUNTS = [10, 25, 50, 100, 200, 500];
+const QUICK_AMOUNTS = [20, 25, 50, 100, 200, 500];
 
 type Method = 'mbway' | 'multibanco' | 'cartao';
 
@@ -491,7 +491,7 @@ export default function DepositPage() {
 
   const numAmount = parseFloat(amount) || 0;
   const isAdmin = !!(user as any)?.is_operator;
-  const minDeposit = isAdmin ? 0.5 : 10;
+  const minDeposit = isAdmin ? 0.5 : 20;
 
   const handleAmountChange = (e: ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;

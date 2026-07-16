@@ -7,7 +7,7 @@ export function WithdrawForm() {
   const { addNotification, user } = useApp();
   
   // Withdraw State
-  const [withdrawAmount, setWithdrawAmount] = useState<number>(10);
+  const [withdrawAmount, setWithdrawAmount] = useState<number>(20);
   const [hasIban, setHasIban] = useState<boolean | null>(null); // null = loading
   const [savedIban, setSavedIban] = useState<string>('');
   const [savedHolder, setSavedHolder] = useState<string>('');
@@ -38,7 +38,7 @@ export function WithdrawForm() {
 
   const handleWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (withdrawAmount < 10) return addNotification({ type: 'error', message: 'Mínimo €10' });
+    if (withdrawAmount < 20) return addNotification({ type: 'error', message: 'Mínimo €20' });
     if (!hasIban && (!newIban || !holderName)) return addNotification({ type: 'error', message: 'Preencha o IBAN e Titular' });
 
     setWithdrawLoading(true);
@@ -172,9 +172,9 @@ export function WithdrawForm() {
               value={withdrawAmount}
               onChange={(e) => setWithdrawAmount(Number(e.target.value))}
               className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-transparent focus:ring-2 focus:ring-blue-500 outline-none"
-              min="10"
+              min="20"
             />
-            <p className="text-xs text-gray-500 mt-1">Mínimo: €10.00</p>
+            <p className="text-xs text-gray-500 mt-1">Mínimo: €20.00</p>
           </div>
 
           <button
