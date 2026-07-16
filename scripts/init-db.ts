@@ -78,13 +78,11 @@ async function initDb(): Promise<void> {
         kyc_verified          BOOLEAN     NOT NULL DEFAULT FALSE,
         email_verified        BOOLEAN     NOT NULL DEFAULT FALSE,
         birth_date            TEXT,
+        self_exclude          BOOLEAN     NOT NULL DEFAULT FALSE,
+        self_exclude_until    TIMESTAMPTZ,
+        is_operator           BOOLEAN     NOT NULL DEFAULT FALSE,
         created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        self_exclusion_until  TIMESTAMPTZ,
-        cooling_off_until     TIMESTAMPTZ,
-        saved_iban            TEXT,
-        saved_account_holder  TEXT,
-        self_exclusion_reason TEXT
+        updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`,
     );
 
@@ -286,6 +284,26 @@ async function initDb(): Promise<void> {
     // ── kyc_documents ──────────────────────────────────────────────────────
     await run(
       client,
+      'user_documents',
+      `CREATE TABLE IF NOT EXISTS user_documents (
+        id             TEXT        PRIMARY KEY,
+        user_id        TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        doc_type       TEXT        NOT NULL,
+        filename       TEXT        NOT NULL,
+        mime_type      TEXT        NOT NULL,
+        size_bytes     BIGINT      NOT NULL DEFAULT 0,
+        content_base64 TEXT,
+        status         TEXT        NOT NULL DEFAULT 'SUBMITTED',
+        storage_disk   TEXT,
+        storage_path   TEXT,
+        storage_sha256 TEXT,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`,
+    );
+
+    await run(
+      client,
       'kyc_documents',
       `CREATE TABLE IF NOT EXISTS kyc_documents (
         id               TEXT        PRIMARY KEY,
@@ -412,6 +430,7 @@ async function initDb(): Promise<void> {
       ['idx_transactions_type',         'CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type)'],
       ['idx_transactions_status',       'CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status)'],
       ['idx_transactions_created_at',   'CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at DESC)'],
+      ['idx_user_documents_user_id',    'CREATE INDEX IF NOT EXISTS idx_user_documents_user_id ON user_documents(user_id)'],
       ['idx_kyc_documents_user_id',     'CREATE INDEX IF NOT EXISTS idx_kyc_documents_user_id ON kyc_documents(user_id)'],
       ['idx_audit_logs_user_id',        'CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)'],
       ['idx_audit_logs_email',          'CREATE INDEX IF NOT EXISTS idx_audit_logs_email ON audit_logs(email)'],

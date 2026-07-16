@@ -23,6 +23,15 @@ function toSub(sport: string): string {
   return s || 'football';
 }
 
+function detectSportsApiEnvSource(): string {
+  if (process.env.SPORTS_API_PRO_KEY) return 'SPORTS_API_PRO_KEY';
+  if (process.env.SPORTSAPIPRO_KEY) return 'SPORTSAPIPRO_KEY';
+  if (process.env.SPORTSAPI_PRO_KEY) return 'SPORTSAPI_PRO_KEY';
+  if (process.env.SPORTS_API_KEY) return 'SPORTS_API_KEY';
+  if (process.env.STATPAL_KEY) return 'STATPAL_KEY';
+  return '';
+}
+
 async function probeUrl(url: string, key: string): Promise<{ url: string; status: number; ok: boolean; ms: number; keys: string[]; sample: string; error?: string }> {
   const t0 = Date.now();
   try {
@@ -361,6 +370,32 @@ export async function handleAdminRoutes(
     return true;
   }
 
+  if (req.method === 'GET' && path === '/api/admin/sports-provider-status') {
+    const [adminOddsEvents, eventsCache] = await Promise.all([
+      events.getAdminOddsEvents().catch(() => []),
+      Promise.resolve(events.getEventsCache?.() ?? new Map()),
+    ]);
+    const providerMetrics = events.getProviderMetrics?.() ?? { operations: [] };
+    const providerConfig = events.getProviderConfig?.() ?? {};
+    sendJson(res, 200, {
+      provider: 'SportsAPIPro',
+      configured: Boolean(apiKey),
+      envSource: detectSportsApiEnvSource(),
+      debugTokenConfigured: Boolean(String(process.env.ODDS_DEBUG_TOKEN || '').trim()),
+      oddsEvents: Array.isArray(adminOddsEvents) ? adminOddsEvents.length : 0,
+      eventsCacheEntries: typeof (eventsCache as any)?.size === 'number' ? (eventsCache as any).size : 0,
+      config: providerConfig,
+      metrics: providerMetrics,
+      warnings: [
+        !apiKey ? 'SPORTS_API_PRO_KEY ausente' : '',
+        detectSportsApiEnvSource() && detectSportsApiEnvSource() !== 'SPORTS_API_PRO_KEY'
+          ? `alias legado em uso: ${detectSportsApiEnvSource()}`
+          : '',
+      ].filter(Boolean),
+    });
+    return true;
+  }
+
   // ── Odds management ──────────────────────────────────────────────────────────
   if (req.method === 'GET' && path === '/api/admin/odds') {
     const list = await events.getAdminOddsEvents().catch(() => []);
@@ -394,6 +429,19 @@ export async function handleAdminRoutes(
     const eventsCount = eventsList.length;
     const withH2h = eventsList.filter((e: any) => Number(e.home_odd || 0) > 1 && Number(e.away_odd || 0) > 1).length;
     sendJson(res, 200, { events: eventsCount, imported_odds: withH2h, live: eventsList.filter((e: any) => Number(e.is_live || 0) === 1).length, bets: 0 });
+    return true;
+  }
+
+  if (req.method === 'GET' && path === '/api/metrics/sports') {
+    const metrics = events.getProviderMetrics?.() ?? { operations: [] };
+    const config = events.getProviderConfig?.() ?? {};
+    sendJson(res, 200, {
+      provider: 'SportsAPIPro',
+      configured: Boolean(apiKey),
+      envSource: detectSportsApiEnvSource(),
+      config,
+      ...(metrics || {}),
+    });
     return true;
   }
 

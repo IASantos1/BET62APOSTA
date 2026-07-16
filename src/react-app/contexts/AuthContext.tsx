@@ -55,6 +55,18 @@ type SignUpResult = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+function markCookieSessionActive(): void {
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('refresh_token');
+  localStorage.setItem('auth_session', '1');
+}
+
+function clearLegacyAuthStorage(): void {
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('refresh_token');
+  localStorage.removeItem('auth_session');
+}
+
 function mapAuthTechnicalError(err: any, fallbackMessage: string): { error: string; errorCode: 'timeout' | 'network' | 'server' } {
   const status = Number(err?.status || 0);
   const message = String(err?.message || '').trim();
@@ -129,7 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /* ================================
      SIGN IN (SUPPORTS 2FA)
   ================================= */
-  const signIn = async (
+  const signIn: AuthContextType['signIn'] = async (
     username: string,
     password: string,
     twoFactorCode?: string
@@ -142,14 +154,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ username, password }),
         timeout: 12_000,
       });
-
-      // Save Token if present
-      if (data.token) {
-        localStorage.setItem('auth_token', data.token);
-      }
-      if (data.refreshToken) {
-        localStorage.setItem('refresh_token', data.refreshToken);
-      }
 
       // Requires 2FA
       if (data.requires2fa) {
@@ -171,8 +175,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }),
           timeout: 12_000,
         });
-        if (two?.token) localStorage.setItem('auth_token', two.token);
-        if (two?.refreshToken) localStorage.setItem('refresh_token', two.refreshToken);
+        if (two?.success !== false) {
+          markCookieSessionActive();
+        }
+      } else {
+        markCookieSessionActive();
       }
 
       await refreshUser();
@@ -201,30 +208,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /* ================================
      SIGN UP
   ================================= */
-  const signUp = async (data: {
-    email: string;
-    password: string;
-    firstName: string;
-    lastName: string;
-    phone?: string;
-    nif?: string;
-    dob: string;
-    country: string;
-  }) => {
+  const signUp: AuthContextType['signUp'] = async (data) => {
     try {
-      const res = await apiFetch<any>('/api/auth/signup', {
+      await apiFetch<any>('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
         timeout: 15_000,
       });
 
-      if (res.token) {
-        localStorage.setItem('auth_token', res.token);
-      }
-      if (res.refreshToken) {
-        localStorage.setItem('refresh_token', res.refreshToken);
-      }
+      markCookieSessionActive();
 
       await refreshUser();
       return { success: true };
@@ -246,8 +239,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
      LOCAL LOGOUT HELPER
   ================================= */
   const localLogout = () => {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('refresh_token');
+    clearLegacyAuthStorage();
     setUser(null);
   };
 
@@ -302,18 +294,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // --- SILENT REFRESH (Every 5 Minutes) ---
     const refreshInterval = setInterval(async () => {
-       const refreshToken = localStorage.getItem('refresh_token');
-       if (!refreshToken) return;
-
        try {
-         const res = await apiFetch<any>('/api/auth/refresh', {
+         const refresh = await apiFetch<any>('/api/auth/refresh', {
            method: 'POST',
            headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ refreshToken })
+           body: JSON.stringify({})
          });
-
-         if (res.token) localStorage.setItem('auth_token', res.token);
-         if (res.refreshToken) localStorage.setItem('refresh_token', res.refreshToken);
+         if (refresh?.token || refresh?.refreshToken || user) {
+           markCookieSessionActive();
+         }
          
          console.log('[Auth] Token renovado com sucesso.');
        } catch (err) {

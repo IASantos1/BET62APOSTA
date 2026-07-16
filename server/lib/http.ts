@@ -1,9 +1,13 @@
 import type http from 'http';
 
-export async function readJsonBody<T = any>(req: http.IncomingMessage): Promise<T> {
+export async function readJsonBody<T = any>(req: http.IncomingMessage, maxBytes = 0): Promise<T> {
   const chunks: Buffer[] = [];
+  let total = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buf.length;
+    if (maxBytes > 0 && total > maxBytes) throw new Error('Payload too large');
+    chunks.push(buf);
   }
   if (chunks.length === 0) return {} as T;
   const raw = Buffer.concat(chunks).toString('utf-8').trim();
@@ -36,6 +40,10 @@ export function methodNotAllowed(res: http.ServerResponse): void {
 
 export function badRequest(res: http.ServerResponse, message: string): void {
   sendJson(res, 400, { error: message });
+}
+
+export function payloadTooLarge(res: http.ServerResponse, message = 'Payload too large'): void {
+  sendJson(res, 413, { error: message });
 }
 
 export function unauthorized(res: http.ServerResponse): void {

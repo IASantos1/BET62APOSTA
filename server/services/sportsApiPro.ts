@@ -45,6 +45,16 @@ function apiHeaders(apiKey: string): Record<string, string> {
   };
 }
 
+function envInt(name: string, fallback: number, min: number, max: number): number {
+  const raw = Number(process.env[name] || '');
+  if (!Number.isFinite(raw)) return fallback;
+  const value = Math.floor(raw);
+  return Math.max(min, Math.min(max, value));
+}
+
+const PROVIDER_TIMEOUT_MS = envInt('SPORTS_PROVIDER_TIMEOUT_MS', 15_000, 1_000, 60_000);
+const PROVIDER_LIVE_TIMEOUT_MS = envInt('SPORTS_PROVIDER_LIVE_TIMEOUT_MS', 8_000, 1_000, 30_000);
+
 function normalizeSportKey(sport: string): string {
   const raw = String(sport || '').toLowerCase().trim();
   const primary = raw.split(',')[0]?.split('|')[0] ?? '';
@@ -670,7 +680,7 @@ function normalizeEvent(sport: string, e: any): NormalizedEvent | null {
   };
 }
 
-async function fetchJson(url: string, apiKey: string, timeoutMs: number = 15000): Promise<any | null> {
+async function fetchJson(url: string, apiKey: string, timeoutMs: number = PROVIDER_TIMEOUT_MS): Promise<any | null> {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs));
   try {
@@ -708,7 +718,7 @@ export async function fetchSportsApiProV1AllScoresDelta(
   const cursor = String(lastUpdateId || '').trim();
   if (cursor) url += `&lastUpdateId=${encodeURIComponent(cursor)}`;
 
-  const json = await fetchJson(url, apiKey, 8000);
+  const json = await fetchJson(url, apiKey, PROVIDER_LIVE_TIMEOUT_MS);
   const items = extractEvents(json);
   const out: NormalizedEvent[] = [];
   for (const e of items) {
@@ -726,13 +736,13 @@ export async function fetchSportsApiProLive(apiKey: string, sport: string): Prom
 
   if (supportsV1AllScoresLive(liveSport)) {
     const v1Url = `https://v1.${liveSport}.sportsapipro.com/games/allscores?onlyLiveGames=true`;
-    jsonPrimary = await fetchJson(v1Url, apiKey, 8000);
+    jsonPrimary = await fetchJson(v1Url, apiKey, PROVIDER_LIVE_TIMEOUT_MS);
     items = extractEvents(jsonPrimary);
   }
 
   if (items.length === 0) {
     const primaryUrl = `https://v2.${primarySub}.sportsapipro.com/api/live`;
-    jsonPrimary = await fetchJson(primaryUrl, apiKey, 8000);
+    jsonPrimary = await fetchJson(primaryUrl, apiKey, PROVIDER_LIVE_TIMEOUT_MS);
     items = extractEvents(jsonPrimary);
   }
 
@@ -741,12 +751,12 @@ export async function fetchSportsApiProLive(apiKey: string, sport: string): Prom
     const liveFallbackSub = fallbackSub === 'soccer' ? 'football' : fallbackSub;
     if (supportsV1AllScoresLive(liveFallbackSub)) {
       const fallbackV1Url = `https://v1.${liveFallbackSub}.sportsapipro.com/games/allscores?onlyLiveGames=true`;
-      const jsonFallbackV1 = await fetchJson(fallbackV1Url, apiKey, 8000);
+      const jsonFallbackV1 = await fetchJson(fallbackV1Url, apiKey, PROVIDER_LIVE_TIMEOUT_MS);
       items = extractEvents(jsonFallbackV1);
     }
     if (items.length === 0) {
       const fallbackUrl = `https://v2.${fallbackSub}.sportsapipro.com/api/live`;
-      const jsonFallback = await fetchJson(fallbackUrl, apiKey, 8000);
+      const jsonFallback = await fetchJson(fallbackUrl, apiKey, PROVIDER_LIVE_TIMEOUT_MS);
       items = extractEvents(jsonFallback);
     }
   }

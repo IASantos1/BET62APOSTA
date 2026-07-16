@@ -24,6 +24,22 @@ async function setBalance(pool: pg.Pool, userId: string, newBalance: number): Pr
   );
 }
 
+type Queryable = pg.Pool | pg.PoolClient;
+
+async function getLockedBalance(client: Queryable, userId: string): Promise<number> {
+  const r = await client.query(`SELECT balance FROM profiles WHERE user_id = $1 FOR UPDATE`, [userId]);
+  const v = r.rows?.[0]?.balance;
+  const n = v == null ? 0 : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function setLockedBalance(client: Queryable, userId: string, newBalance: number): Promise<void> {
+  await client.query(
+    `UPDATE profiles SET balance = $2, updated_at = NOW() WHERE user_id = $1`,
+    [userId, newBalance],
+  );
+}
+
 async function getTransactions(pool: pg.Pool, userId: string) {
   await ensureAppTransactionsTable(pool);
   const r = await pool.query(
@@ -160,29 +176,43 @@ export async function handleWalletRoutes(
     const amount = toNumber(body.amount ?? body.amount_eur);
     if (!amount || amount < 20) return badRequest(res, 'Valor mínimo de levantamento é €20'), true;
 
-    const current = await getBalance(pool, u.id);
-    if (current < amount) return badRequest(res, 'Saldo insuficiente'), true;
-
     const txId = randomId(16);
     const iban = String(body.iban || body.account_details?.iban || body.accountDetails?.iban || '').trim();
     const maskedIban = iban ? `${iban.slice(0, 8)}...${iban.slice(-4)}` : '';
     const description = String(body.description || `Levantamento para ${maskedIban || 'IBAN informado'}`);
     const paymentMethod = String(body.payment_method || 'bank_transfer');
+    let newBalance = 0;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await getLockedBalance(client, u.id);
+      if (current < amount) {
+        await client.query('ROLLBACK');
+        return badRequest(res, 'Saldo insuficiente'), true;
+      }
 
-    await pool.query(
-      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
-       VALUES ($1, $2, 'withdrawal', $3, 'pending', $4, $5, NOW(), NOW())`,
-      [txId, u.id, amount, paymentMethod, description],
-    );
+      await client.query(
+        `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
+         VALUES ($1, $2, 'withdrawal', $3, 'pending', $4, $5, NOW(), NOW())`,
+        [txId, u.id, amount, paymentMethod, description],
+      );
 
-    await setBalance(pool, u.id, current - amount);
+      newBalance = current - amount;
+      await setLockedBalance(client, u.id, newBalance);
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => null);
+      throw e;
+    } finally {
+      client.release();
+    }
     sendJson(res, 200, {
       success: true,
       id: txId,
       transactionId: txId,
       message: `Levantamento de €${amount.toFixed(2)} solicitado com sucesso!`,
       processingTime: '1-3 dias úteis',
-      newBalance: current - amount,
+      newBalance,
     });
     return true;
   }
@@ -198,22 +228,34 @@ export async function handleWalletRoutes(
     const amount = toNumber(body.amount_eur ?? body.amount);
     if (!amount || amount < 20) return badRequest(res, 'Valor inválido'), true;
 
-    const current = await getBalance(pool, u.id);
-    if (current < amount) return badRequest(res, 'Saldo insuficiente'), true;
-
     const txId = randomId(16);
     const iban = String(body.iban || body.account_details?.iban || '').trim();
     const maskedIban = iban ? `${iban.slice(0, 8)}...${iban.slice(-4)}` : '';
     const description = String(body.description || `Levantamento para ${maskedIban || 'IBAN informado'}`);
     const paymentMethod = String(body.payment_method || 'bank_transfer');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await getLockedBalance(client, u.id);
+      if (current < amount) {
+        await client.query('ROLLBACK');
+        return badRequest(res, 'Saldo insuficiente'), true;
+      }
 
-    await pool.query(
-      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
-       VALUES ($1, $2, 'withdrawal', $3, 'pending', $4, $5, NOW(), NOW())`,
-      [txId, u.id, amount, paymentMethod, description],
-    );
+      await client.query(
+        `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
+         VALUES ($1, $2, 'withdrawal', $3, 'pending', $4, $5, NOW(), NOW())`,
+        [txId, u.id, amount, paymentMethod, description],
+      );
 
-    await setBalance(pool, u.id, current - amount);
+      await setLockedBalance(client, u.id, current - amount);
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => null);
+      throw e;
+    } finally {
+      client.release();
+    }
     sendJson(res, 200, { success: true, id: txId });
     return true;
   }
@@ -227,21 +269,39 @@ export async function handleWalletRoutes(
     const body = await readJsonBody<any>(req).catch(() => null);
     if (!body?.id) return badRequest(res, 'ID em falta'), true;
 
-    const r = await pool.query(
-      `SELECT id, amount FROM ${APP_TRANSACTIONS_TABLE} WHERE id = $1 AND user_id = $2 AND type = 'withdrawal' AND status = 'pending' LIMIT 1`,
-      [String(body.id), u.id],
-    );
-    if (!r.rows[0]) return badRequest(res, 'Transação não encontrada ou já processada'), true;
+    let newBalance = 0;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const r = await client.query(
+        `SELECT id, amount
+         FROM ${APP_TRANSACTIONS_TABLE}
+         WHERE id = $1 AND user_id = $2 AND type = 'withdrawal' AND status = 'pending'
+         FOR UPDATE`,
+        [String(body.id), u.id],
+      );
+      if (!r.rows[0]) {
+        await client.query('ROLLBACK');
+        return badRequest(res, 'Transação não encontrada ou já processada'), true;
+      }
 
-    const amount = Number(r.rows[0].amount);
-    await pool.query(
-      `UPDATE ${APP_TRANSACTIONS_TABLE} SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
-      [String(body.id)],
-    );
+      const amount = Number(r.rows[0].amount);
+      await client.query(
+        `UPDATE ${APP_TRANSACTIONS_TABLE} SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+        [String(body.id)],
+      );
 
-    const current = await getBalance(pool, u.id);
-    await setBalance(pool, u.id, current + amount);
-    sendJson(res, 200, { ok: true, newBalance: current + amount });
+      const current = await getLockedBalance(client, u.id);
+      newBalance = current + amount;
+      await setLockedBalance(client, u.id, newBalance);
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => null);
+      throw e;
+    } finally {
+      client.release();
+    }
+    sendJson(res, 200, { ok: true, newBalance });
     return true;
   }
 
@@ -256,11 +316,25 @@ export async function handleWalletRoutes(
     const amount = toNumber(body.amount ?? body.stake);
     if (!amount || amount <= 0) return badRequest(res, 'Valor inválido'), true;
 
-    const current = await getBalance(pool, u.id);
-    if (current < amount) return badRequest(res, 'Saldo insuficiente'), true;
-
-    await setBalance(pool, u.id, current - amount);
-    sendJson(res, 200, { ok: true, balance: current - amount });
+    let newBalance = 0;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await getLockedBalance(client, u.id);
+      if (current < amount) {
+        await client.query('ROLLBACK');
+        return badRequest(res, 'Saldo insuficiente'), true;
+      }
+      newBalance = current - amount;
+      await setLockedBalance(client, u.id, newBalance);
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => null);
+      throw e;
+    } finally {
+      client.release();
+    }
+    sendJson(res, 200, { ok: true, balance: newBalance });
     return true;
   }
 
@@ -268,17 +342,9 @@ export async function handleWalletRoutes(
   if (req.method === 'POST' && path === '/api/wallet/win') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
-
-    const body = await readJsonBody<any>(req).catch(() => null);
-    if (!body) return badRequest(res, 'Invalid JSON'), true;
-
-    const amount = toNumber(body.amount);
-    if (!amount || amount <= 0) return badRequest(res, 'Valor inválido'), true;
-
-    const current = await getBalance(pool, u.id);
-    const newBalance = current + amount;
-    await setBalance(pool, u.id, newBalance);
-    sendJson(res, 200, { ok: true, balance: newBalance });
+    sendJson(res, 410, {
+      error: 'Endpoint legado desativado. Ganhos devem ser creditados apenas pelo fluxo interno de liquidação.',
+    });
     return true;
   }
 
@@ -286,16 +352,9 @@ export async function handleWalletRoutes(
   if (req.method === 'POST' && path === '/api/wallet/cashout') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
-
-    const body = await readJsonBody<any>(req).catch(() => null);
-    if (!body) return badRequest(res, 'Invalid JSON'), true;
-
-    const amount = toNumber(body.amount);
-    if (!amount || amount <= 0) return badRequest(res, 'Valor inválido'), true;
-
-    const current = await getBalance(pool, u.id);
-    await setBalance(pool, u.id, current + amount);
-    sendJson(res, 200, { ok: true, balance: current + amount });
+    sendJson(res, 410, {
+      error: 'Endpoint legado desativado. Usa /api/bets/:id/cashout com validação server-side.',
+    });
     return true;
   }
 

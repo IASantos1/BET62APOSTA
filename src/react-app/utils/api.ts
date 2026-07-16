@@ -56,21 +56,13 @@ export async function apiFetch<T = any>(
     console.log(`[API] Fetching ${url}`);
   }
 
-  // 1. Get Token (Scoped outside try/catch for fallback)
-  const token = localStorage.getItem('auth_token');
+  const sessionMarker = localStorage.getItem('auth_session');
   const method = String((rest.method || 'GET')).toUpperCase();
   const isGet = method === 'GET';
   const urlStr = typeof url === 'string' ? url : String(url);
           const isRealtime = /[?&]realtime=1(?:&|$)/.test(urlStr);
   // Collision-resistant cache key
   const key = `${method}:${urlStr}`;
-  const rawPath = typeof input === 'string' ? input : urlStr;
-  const isPublicApi =
-    typeof rawPath === 'string' &&
-    (rawPath.startsWith('/api/events') ||
-      rawPath.startsWith('/api/sports') ||
-      rawPath.startsWith('/api/health') ||
-      rawPath.startsWith('/api/dev'));
 
   try {
             const noCache = isRealtime || rest.cache === 'no-store' || rest.cache === 'no-cache';
@@ -91,7 +83,6 @@ export async function apiFetch<T = any>(
     // Headers merging logic (respect user's Content-Type)
     const headers = {
         ...(rest.headers || {}),
-        ...(!isPublicApi && token ? { 'Authorization': `Bearer ${token}` } : {}),
         // Only add Content-Type: application/json if body exists AND user didn't set Content-Type (e.g. multipart/form-data)
         ...(rest.body && !(rest.headers as any)?.['Content-Type'] ? { 'Content-Type': 'application/json' } : {}),
         // Avoid forcing Content-Type on GET (causes unnecessary CORS preflight); prefer Accept
@@ -111,7 +102,7 @@ export async function apiFetch<T = any>(
             const response = await fetchPromise;
             if (!response.ok) {
                 if (response.status === 401) {
-                    if (token) window.dispatchEvent(new Event('auth:unauthorized'));
+                    if (sessionMarker) window.dispatchEvent(new Event('auth:unauthorized'));
                 }
                 let errorMessage = response.statusText;
                 let errorPayload: any = null;
@@ -155,7 +146,7 @@ export async function apiFetch<T = any>(
 
     if (!response.ok) {
       if (response.status === 401) {
-        if (token) window.dispatchEvent(new Event('auth:unauthorized'));
+        if (sessionMarker) window.dispatchEvent(new Event('auth:unauthorized'));
       }
       let errorMessage = response.statusText;
       let errorPayload: any = null;

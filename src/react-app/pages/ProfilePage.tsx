@@ -4,10 +4,10 @@ import { apiFetch } from '@/react-app/utils/api';
 import { TwoFactor } from '@/react-app/components/TwoFactorSetup';
 import {
   Shield, AlertTriangle, Check, History, Banknote, CreditCard,
-  User, Wallet, FileText, HelpCircle, LogOut, Settings,
-  Lock, ChevronRight, Bell, Eye, BarChart3, BadgeCheck,
-  ClipboardList, BookOpen, Globe, ShieldAlert, ArrowLeft,
-  MessageCircle, Gift, Info, Tag, Phone, Cookie, UserCheck,
+  User, FileText, HelpCircle, Settings,
+  Lock, ChevronRight, Bell, Eye, BadgeCheck,
+  ClipboardList, ShieldAlert, ArrowLeft,
+  MessageCircle, Gift, Info, Phone, Cookie, UserCheck,
   Percent,
 } from 'lucide-react';
 
@@ -157,11 +157,6 @@ const ProfilePage: React.FC = () => {
     return () => { ac.abort('dev-strict'); };
   }, [user, selfExclude]);
 
-  const firstName = useMemo(() => {
-    const name = (user && (user as any).username) ? String((user as any).username) : '';
-    return name.split(' ')[0] || name || 'Utilizador';
-  }, [user]);
-
   const initials = useMemo(() => {
     const name = (user && (user as any).username) ? String((user as any).username) : 'U';
     return name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase();
@@ -194,13 +189,6 @@ const ProfilePage: React.FC = () => {
     return () => { ac.abort('dev-strict'); };
   }, [user]);
 
-  const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => { const res = String(reader.result || ''); resolve(res.includes(',') ? res.split(',')[1] : res); };
-    reader.onerror = () => reject(new Error('Falha ao ler ficheiro'));
-    reader.readAsDataURL(file);
-  });
-
   const latestDocByType = (type: string) => {
     const list = documents.filter((d: any) => String(d.type) === type).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     return list[0] || null;
@@ -208,20 +196,23 @@ const ProfilePage: React.FC = () => {
 
   const uploadSingleDoc = async (type: 'iban_proof'|'id_card'|'bank_statement', file: File) => {
     try {
-      const base64 = await fileToBase64(file);
-      const res = await fetch('/api/users/documents', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-        body: JSON.stringify({ documents: [{ type, filename: file.name, mime_type: file.type, size: file.size, content_base64: base64 }] }),
+      const res = await fetch(`/api/users/documents/upload?type=${encodeURIComponent(type)}&filename=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        credentials: 'same-origin',
+        body: file,
       });
       if (res.ok) {
-        const ud = await fetch('/api/users/documents', { credentials: 'same-origin' });
-        if (ud.ok) { const d = await ud.json(); setDocuments(Array.isArray(d) ? d : []); }
+        const d = await apiFetch<any[]>('/api/users/documents', { cache: 'no-store' }).catch(() => []);
+        setDocuments(Array.isArray(d) ? d : []);
         addNotification({ type: 'success', message: 'Documento enviado' });
       } else {
         const err = await res.json().catch(() => null) as any;
         addNotification({ type: 'error', message: (err?.error as string) || 'Falha ao enviar documento' });
       }
-    } catch { addNotification({ type: 'error', message: 'Erro ao ler ficheiro' }); }
+    } catch {
+      addNotification({ type: 'error', message: 'Erro ao enviar ficheiro' });
+    }
   };
 
   const saveCookies = () => {
@@ -246,6 +237,28 @@ const ProfilePage: React.FC = () => {
       const r = await fetch('/api/support/chat/messages', { credentials: 'same-origin' });
       if (r.ok) { const j = await r.json() as { sender: string; content: string; created_at: string }[]; setSupportMessages(Array.isArray(j) ? j : []); }
     } catch { void 0; }
+  };
+
+  const sendSupportMessage = async () => {
+    const content = supportText.trim();
+    if (!content) return;
+    setSupportLoading(true);
+    try {
+      const r = await fetch('/api/support/chat/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ content }),
+      });
+      if (!r.ok) throw new Error('Falha ao enviar mensagem');
+      setSupportText('');
+      await fetchSupportMessages();
+      addNotification({ type: 'success', message: 'Mensagem enviada ao suporte' });
+    } catch (err: any) {
+      addNotification({ type: 'error', message: err?.message || 'Falha ao enviar mensagem ao suporte' });
+    } finally {
+      setSupportLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -297,23 +310,6 @@ const ProfilePage: React.FC = () => {
       className: selfExclude
         ? 'bg-red-500/15 text-red-300 border border-red-500/25'
         : 'bg-teal-500/15 text-teal-300 border border-teal-500/25',
-    },
-  ];
-  const walletStats = [
-    {
-      label: 'Saldo',
-      value: `${balance.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`,
-      tone: 'text-white',
-    },
-    {
-      label: 'FreeBets',
-      value: '0,00 €',
-      tone: 'text-amber-300',
-    },
-    {
-      label: 'Bónus',
-      value: '0,00 €',
-      tone: 'text-teal-300',
     },
   ];
   const quickActions = [
@@ -399,7 +395,14 @@ const ProfilePage: React.FC = () => {
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShow2faSetup(false)} />
       <div className={`relative rounded-2xl p-6 w-full max-w-sm shadow-2xl ${darkMode ? 'bg-[#151e2d]' : 'bg-white'}`}>
         <button onClick={() => setShow2faSetup(false)} className={`absolute top-4 right-4 ${t.sub(darkMode)} hover:opacity-70`}>✕</button>
-        <TwoFactor onEnabled={() => { setTwoFactorEnabled(true); setShow2faSetup(false); }} />
+        <TwoFactor
+          mode="setup"
+          onSuccess={() => {
+            setTwoFactorEnabled(true);
+            setShow2faSetup(false);
+          }}
+          onCancel={() => setShow2faSetup(false)}
+        />
       </div>
     </div>
   );
@@ -731,7 +734,7 @@ const ProfilePage: React.FC = () => {
               <table className="w-full text-[13px]">
                 <thead>
                   <tr className={`border-b ${t.border(darkMode)}`}>
-                    {['Data', 'Tipo', 'Estado', 'Valor'].map((h, i) => (
+                    {['Data', 'Tipo', 'Estado', 'Valor'].map((h) => (
                       <th key={h} className={`py-2 font-medium text-left last:text-right ${t.label(darkMode)}`}>{h}</th>
                     ))}
                   </tr>
@@ -958,7 +961,7 @@ const ProfilePage: React.FC = () => {
             </div>
             <label className="flex items-center gap-3 cursor-pointer group">
               <div className={`flex-1 rounded-xl border border-dashed px-4 py-3 transition ${darkMode ? 'border-white/15 bg-white/3 group-hover:bg-white/5' : 'border-gray-300 bg-gray-50 group-hover:bg-gray-100'}`}>
-                <p className={`text-[12px] ${t.sub(darkMode)}`}>Clique para selecionar ficheiro <span className={t.label(darkMode)}>· JPG, PNG, PDF (máx. 5 MB)</span></p>
+                <p className={`text-[12px] ${t.sub(darkMode)}`}>Clique para selecionar ficheiro <span className={t.label(darkMode)}>· JPG, PNG, PDF (máx. 8 MB)</span></p>
               </div>
               <input type="file" accept=".jpg,.jpeg,.png,.pdf" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) uploadSingleDoc(d.type as any, f); }} />

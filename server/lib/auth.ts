@@ -1,5 +1,7 @@
 import type http from 'http';
 import type pg from 'pg';
+import { APP_SESSIONS_TABLE, ensureAppAuthTables } from './appAuthTables';
+import { getSessionCookieToken } from './authCookies';
 
 export type AuthedUser = {
   id: string;
@@ -9,19 +11,17 @@ export type AuthedUser = {
   kyc_verified?: boolean;
 };
 
-const APP_SESSIONS_TABLE = 'bet62_sessions';
-
 export function getBearerToken(req: http.IncomingMessage): string {
   const h = String(req.headers['authorization'] || '').trim();
-  if (!h) return '';
-  const m = h.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1].trim() : '';
+  if (h) {
+    const m = h.match(/^Bearer\s+(.+)$/i);
+    if (m) return m[1].trim();
+  }
+  return getSessionCookieToken(req);
 }
 
 type SessionExpiresMode = 'ms' | 'ts';
 let __sessions_expires_mode: SessionExpiresMode | null = null;
-let __app_sessions_ready = false;
-
 async function detectSessionsExpiresMode(pool: pg.Pool): Promise<SessionExpiresMode> {
   if (__sessions_expires_mode) return __sessions_expires_mode;
   try {
@@ -37,20 +37,6 @@ async function detectSessionsExpiresMode(pool: pg.Pool): Promise<SessionExpiresM
     __sessions_expires_mode = 'ms';
   }
   return __sessions_expires_mode;
-}
-
-async function ensureAppSessionsTable(pool: pg.Pool): Promise<void> {
-  if (__app_sessions_ready) return;
-  await pool.query(
-    `CREATE TABLE IF NOT EXISTS ${APP_SESSIONS_TABLE} (
-      token TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      issued_at BIGINT NOT NULL,
-      expires_at BIGINT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`,
-  );
-  __app_sessions_ready = true;
 }
 
 type ColInfo = { name: string; dataType: string };
@@ -129,7 +115,7 @@ export async function requireUser(pool: pg.Pool, req: http.IncomingMessage): Pro
   if (!token) return null;
 
   try {
-    await ensureAppSessionsTable(pool);
+    await ensureAppAuthTables(pool);
     const appSession = await pool.query(
       `SELECT user_id
        FROM ${APP_SESSIONS_TABLE}

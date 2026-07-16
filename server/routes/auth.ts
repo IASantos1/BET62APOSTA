@@ -2,9 +2,12 @@ import type http from 'http';
 import type pg from 'pg';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
-import { randomId, hashPassword, verifyPassword, sha256Hex } from '../lib/crypto';
+import { randomId, hashPassword, verifyPassword, sha256Hex, encryptText, decryptText } from '../lib/crypto';
 import { readJsonBody, sendJson, badRequest, unauthorized } from '../lib/http';
 import { getBearerToken, requireUser } from '../lib/auth';
+import { APP_REFRESH_TOKENS_TABLE, APP_SESSIONS_TABLE, ensureAppAuthTables } from '../lib/appAuthTables';
+import { hitRateLimit, clearRateLimit } from '../lib/rateLimit';
+import { clearAuthCookies, getRefreshCookieToken, setAuthCookies } from '../lib/authCookies';
 
 type SignUpBody = {
   email?: string;
@@ -33,39 +36,27 @@ type TwoFactorConfirmBody = {
   token?: string;
 };
 
-const APP_SESSIONS_TABLE = 'bet62_sessions';
-const APP_REFRESH_TOKENS_TABLE = 'bet62_refresh_tokens';
-let __app_auth_tables_ready = false;
-
 function ipOf(req: http.IncomingMessage): string {
   const raw = String(req.headers['x-forwarded-for'] || '').split(',')[0]?.trim();
   return raw || String(req.socket.remoteAddress || '');
 }
 
-async function ensureAppAuthTables(pool: pg.Pool): Promise<void> {
-  if (__app_auth_tables_ready) return;
-  await pool.query(
-    `CREATE TABLE IF NOT EXISTS ${APP_SESSIONS_TABLE} (
-      token TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      issued_at BIGINT NOT NULL,
-      expires_at BIGINT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`,
-  );
-  await pool.query(
-    `CREATE TABLE IF NOT EXISTS ${APP_REFRESH_TOKENS_TABLE} (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      token_hash TEXT NOT NULL UNIQUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      expires_at TIMESTAMPTZ NOT NULL,
-      revoked BOOLEAN NOT NULL DEFAULT FALSE,
-      user_agent TEXT,
-      ip TEXT
-    )`,
-  );
-  __app_auth_tables_ready = true;
+function authRateLimit(
+  res: http.ServerResponse,
+  action: string,
+  keys: string[],
+  limit: number,
+  windowMs: number,
+): boolean {
+  for (const key of keys) {
+    const hit = hitRateLimit(`${action}:${key}`, limit, windowMs);
+    if (!hit.allowed) {
+      res.setHeader('retry-after', String(Math.max(1, Math.ceil(hit.retryAfterMs / 1000))));
+      sendJson(res, 429, { error: 'Too many attempts. Try again later.' });
+      return true;
+    }
+  }
+  return false;
 }
 
 type ColInfo = { name: string; dataType: string };
@@ -283,7 +274,7 @@ async function getTwoFactorSecret(pool: pg.Pool, userId: string): Promise<string
   try {
     const r = await pool.query(`SELECT secret FROM user_two_factor WHERE user_id = $1 LIMIT 1`, [userId]);
     const s = r.rows?.[0]?.secret;
-    return s ? String(s) : null;
+    return s ? decryptText(String(s)) : null;
   } catch {
     return null;
   }
@@ -299,11 +290,14 @@ export async function handleAuthRoutes(
 
   if (req.method === 'POST' && path === '/api/auth/signup') {
     try {
-      const body = await readJsonBody<SignUpBody>(req).catch(() => null);
+      const remoteIp = ipOf(req);
+      if (authRateLimit(res, 'signup-ip', [remoteIp], 20, 10 * 60_000)) return true;
+      const body = await readJsonBody<SignUpBody>(req, 32 * 1024).catch(() => null);
       if (!body) return badRequest(res, 'Invalid JSON'), true;
       const email = String(body.email || '').trim().toLowerCase();
       const password = String(body.password || '');
       if (!email || password.length < 6) return badRequest(res, 'Invalid credentials'), true;
+      if (authRateLimit(res, 'signup-email', [email], 8, 10 * 60_000)) return true;
 
       const userCols = await getTableCols(pool, 'users').catch(() => []);
       const loginCol = firstExistingCol(userCols, 'email', 'username');
@@ -316,6 +310,7 @@ export async function handleAuthRoutes(
       await createProfileRecord(pool, userId, email, name || null, body.dob || null);
 
       const tokens = await issueTokens(pool, userId, req);
+      setAuthCookies(req, res, tokens);
       sendJson(res, 200, { token: tokens.token, refreshToken: tokens.refreshToken });
       return true;
     } catch (e: any) {
@@ -326,15 +321,19 @@ export async function handleAuthRoutes(
 
   if (req.method === 'POST' && path === '/api/auth/signin') {
     try {
-      const body = await readJsonBody<SignInBody>(req).catch(() => null);
+      const remoteIp = ipOf(req);
+      const body = await readJsonBody<SignInBody>(req, 16 * 1024).catch(() => null);
       if (!body) return badRequest(res, 'Invalid JSON'), true;
       const email = String(body.username || '').trim().toLowerCase();
       const password = String(body.password || '');
       if (!email || !password) return badRequest(res, 'Invalid credentials'), true;
+      if (authRateLimit(res, 'signin', [remoteIp, email], 10, 15 * 60_000)) return true;
 
       const u = await loadUserForSignin(pool, email);
       if (!u) return unauthorized(res), true;
       if (!verifyUserPassword(password, u)) return unauthorized(res), true;
+      clearRateLimit(`signin:${remoteIp}`);
+      clearRateLimit(`signin:${email}`);
 
       const enabled = await isTwoFactorEnabled(pool, String(u.id));
       if (enabled) {
@@ -343,6 +342,7 @@ export async function handleAuthRoutes(
       }
 
       const tokens = await issueTokens(pool, String(u.id), req);
+      setAuthCookies(req, res, tokens);
       sendJson(res, 200, { token: tokens.token, refreshToken: tokens.refreshToken });
       return true;
     } catch (e: any) {
@@ -352,9 +352,10 @@ export async function handleAuthRoutes(
   }
 
   if (req.method === 'POST' && path === '/api/auth/refresh') {
-    const body = await readJsonBody<RefreshBody>(req).catch(() => null);
-    if (!body) return badRequest(res, 'Invalid JSON'), true;
-    const refreshToken = String(body.refreshToken || '').trim();
+    const remoteIp = ipOf(req);
+    if (authRateLimit(res, 'refresh-ip', [remoteIp], 20, 15 * 60_000)) return true;
+    const body = await readJsonBody<RefreshBody>(req, 16 * 1024).catch(() => ({} as RefreshBody));
+    const refreshToken = String(body.refreshToken || getRefreshCookieToken(req) || '').trim();
     if (!refreshToken) return unauthorized(res), true;
 
     try {
@@ -375,6 +376,7 @@ export async function handleAuthRoutes(
 
       await pool.query(`UPDATE ${APP_REFRESH_TOKENS_TABLE} SET revoked = TRUE WHERE id = $1`, [String(row.id)]);
       const tokens = await issueTokens(pool, String(row.user_id), req);
+      setAuthCookies(req, res, tokens);
       sendJson(res, 200, { token: tokens.token, refreshToken: tokens.refreshToken });
       return true;
     } catch (e: any) {
@@ -385,10 +387,21 @@ export async function handleAuthRoutes(
 
   if (req.method === 'POST' && path === '/api/auth/logout') {
     const token = getBearerToken(req);
+    const user = token ? await requireUser(pool, req).catch(() => null) : null;
     if (token) {
       await ensureAppAuthTables(pool).catch(() => null);
       await pool.query(`DELETE FROM ${APP_SESSIONS_TABLE} WHERE token = $1`, [token]).catch(() => null);
     }
+    if (user?.id) {
+      await ensureAppAuthTables(pool).catch(() => null);
+      await pool.query(
+        `UPDATE ${APP_REFRESH_TOKENS_TABLE}
+         SET revoked = TRUE
+         WHERE user_id = $1 AND revoked = FALSE`,
+        [user.id],
+      ).catch(() => null);
+    }
+    clearAuthCookies(req, res);
     sendJson(res, 200, { success: true });
     return true;
   }
@@ -424,11 +437,12 @@ export async function handleAuthRoutes(
     if (!u) return unauthorized(res), true;
 
     const secret = authenticator.generateSecret();
+    const secretCipher = encryptText(secret);
     await pool.query(
       `INSERT INTO user_two_factor (user_id, secret, enabled)
        VALUES ($1, $2, FALSE)
        ON CONFLICT (user_id) DO UPDATE SET secret = EXCLUDED.secret, enabled = FALSE, updated_at = NOW()`,
-      [u.id, secret],
+      [u.id, secretCipher],
     );
 
     const label = encodeURIComponent(String(u.email || 'user'));
@@ -443,7 +457,8 @@ export async function handleAuthRoutes(
   if (req.method === 'POST' && path === '/api/auth/2fa/confirm') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
-    const body = await readJsonBody<TwoFactorConfirmBody>(req).catch(() => null);
+    if (authRateLimit(res, '2fa-confirm', [u.id, ipOf(req)], 8, 10 * 60_000)) return true;
+    const body = await readJsonBody<TwoFactorConfirmBody>(req, 8 * 1024).catch(() => null);
     if (!body) return badRequest(res, 'Invalid JSON'), true;
     const token = String(body.token || '').trim();
     if (!/^\d{6}$/.test(token)) return badRequest(res, 'Invalid token'), true;
@@ -458,11 +473,13 @@ export async function handleAuthRoutes(
   }
 
   if (req.method === 'POST' && path === '/api/auth/2fa/login') {
-    const body = await readJsonBody<TwoFactorLoginBody>(req).catch(() => null);
+    const remoteIp = ipOf(req);
+    const body = await readJsonBody<TwoFactorLoginBody>(req, 8 * 1024).catch(() => null);
     if (!body) return badRequest(res, 'Invalid JSON'), true;
     const userId = String(body.userId || '').trim();
     const token = String(body.token || '').trim();
     if (!userId || !/^\d{6}$/.test(token)) return unauthorized(res), true;
+    if (authRateLimit(res, '2fa-login', [remoteIp, userId], 10, 10 * 60_000)) return true;
 
     const secret = await getTwoFactorSecret(pool, userId);
     if (!secret) return unauthorized(res), true;
@@ -470,8 +487,11 @@ export async function handleAuthRoutes(
     if (!enabled) return unauthorized(res), true;
     const ok = authenticator.check(token, secret);
     if (!ok) return sendJson(res, 200, { success: false }), true;
+    clearRateLimit(`2fa-login:${remoteIp}`);
+    clearRateLimit(`2fa-login:${userId}`);
 
     const tokens = await issueTokens(pool, userId, req);
+    setAuthCookies(req, res, tokens);
     sendJson(res, 200, { success: true, token: tokens.token, refreshToken: tokens.refreshToken });
     return true;
   }

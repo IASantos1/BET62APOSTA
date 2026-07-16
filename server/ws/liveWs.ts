@@ -1,4 +1,5 @@
 import type http from 'http';
+import process from 'node:process';
 import type { Duplex } from 'stream';
 import WebSocket, { WebSocketServer } from 'ws';
 import {
@@ -36,6 +37,13 @@ type CriticalIncidentEntry = {
   lastKey: string;
 };
 
+function envInt(name: string, fallback: number, min: number, max: number): number {
+  const raw = Number(process.env[name] || '');
+  if (!Number.isFinite(raw)) return fallback;
+  const value = Math.floor(raw);
+  return Math.max(min, Math.min(max, value));
+}
+
 export function createLiveWs(apiKey: string) {
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<ClientInfo>();
@@ -44,8 +52,13 @@ export function createLiveWs(apiKey: string) {
   const upstreams = new Map<string, UpstreamInfo>();
   const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball', 'volleyball', 'mma'];
   // V2 mercados: cache fresco por 3.5s → atualiza entre 3-5s automaticamente
-  const ODDS_FRESH_TTL_MS = 3_500;
-  const ODDS_STALE_TTL_MS = 15 * 60_000;
+  const ODDS_FRESH_TTL_MS = envInt('SPORTS_WS_LIVE_ODDS_TTL_MS', 3_500, 1_000, 15_000);
+  const ODDS_STALE_TTL_MS = envInt('SPORTS_WS_ODDS_STALE_TTL_MS', 15 * 60_000, 60_000, 24 * 60 * 60_000);
+  const SNAPSHOT_THROTTLE_MS = envInt('SPORTS_WS_SNAPSHOT_THROTTLE_MS', 1_000, 250, 10_000);
+  const SNAPSHOT_CACHE_TTL_MS = envInt('SPORTS_WS_SNAPSHOT_CACHE_TTL_MS', 2_000, 500, 15_000);
+  const SNAPSHOT_TENNIS_CACHE_TTL_MS = envInt('SPORTS_WS_SNAPSHOT_TENNIS_CACHE_TTL_MS', 1_000, 500, 10_000);
+  const WS_RECONNECT_MIN_MS = envInt('SPORTS_WS_RECONNECT_MIN_MS', 1_000, 250, 10_000);
+  const WS_RECONNECT_MAX_MS = envInt('SPORTS_WS_RECONNECT_MAX_MS', 20_000, 1_000, 60_000);
   const oddsCache = new Map<string, { ts: number; data: any | null }>();
   const oddsInflight = new Map<string, Promise<any | null>>();
   const snapshotCache = new Map<string, { ts: number; live: any[] }>();
@@ -660,12 +673,93 @@ export function createLiveWs(apiKey: string) {
       .filter((e: any) => !isBlockedLeague(String(e?.league || ''), String(e?.country || '')));
   };
 
+  const broadcastIncident = (sport: string, payload: any) => {
+    const msg = JSON.stringify({ type: 'incident', sport, data: payload });
+    for (const c of clients) {
+      if (c.sport !== 'all' && c.sport !== sport) continue;
+      if (c.ws.readyState !== WebSocket.OPEN) continue;
+      try {
+        c.ws.send(msg);
+      } catch {
+        void 0;
+      }
+    }
+  };
+
+  function pollCriticalIncidentsFor(sport: string, liveList: any[]): void {
+    const sportKey = String(sport || '').trim().toLowerCase();
+    const now = Date.now();
+    const lastAt = lastIncidentSweepAt.get(sportKey) || 0;
+    if (now - lastAt < 2000) return;
+    lastIncidentSweepAt.set(sportKey, now);
+
+    const targets = (Array.isArray(liveList) ? liveList : [])
+      .filter((ev: any) => isSoccerSport(String(ev?.sport || sportKey)))
+      .map((ev: any) => {
+        const id = String(ev?.id || '').trim();
+        if (!id) return null;
+        return {
+          id,
+          sport: String(ev?.sport || sportKey || 'soccer').trim().toLowerCase(),
+          homeTeam: String(ev?.home_team || ev?.teams?.home?.name || '').trim(),
+          awayTeam: String(ev?.away_team || ev?.teams?.away?.name || '').trim(),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 12) as Array<{ id: string; sport: string; homeTeam: string; awayTeam: string }>;
+
+    for (const target of targets) {
+      const cacheKey = `${target.sport}:${target.id}`;
+      const cached = criticalIncidentCache.get(cacheKey);
+      if (cached && now - cached.ts < 1500) continue;
+      if (criticalIncidentInflight.has(cacheKey)) continue;
+
+      const task = (async () => {
+        const raw = await fetchSportsApiProMatchIncidents(apiKey, target.sport, target.id).catch(() => null);
+        const normalized = normalizeCriticalIncidents(target.id, target.sport, raw, {
+          homeTeam: target.homeTeam,
+          awayTeam: target.awayTeam,
+        });
+        const latest = latestCriticalIncident(normalized);
+        const lastKey = latest?.lastKey || '';
+        const prevKey = criticalIncidentCache.get(cacheKey)?.lastKey || '';
+        criticalIncidentCache.set(cacheKey, { ts: Date.now(), lastKey });
+        if (!latest || !lastKey || lastKey === prevKey) return;
+
+        const suspendReason = incidentToSuspendReason(latest.incident?.type);
+        if (suspendReason && suspendReason !== 'SUSPENSO') {
+          const ttlMs =
+            suspendReason === 'VAR'
+              ? 30_000
+              : suspendReason === 'PENALTY'
+                ? 25_000
+                : suspendReason === 'CARD'
+                  ? 10_000
+                  : 20_000;
+          criticalFreezeByMatch.set(target.id, { until: Date.now() + ttlMs, reason: suspendReason });
+        }
+
+        broadcastIncident(target.sport, {
+          id: target.id,
+          sport: target.sport,
+          incident: latest.incident,
+          incidents: normalized.slice(-8),
+          suspendReason,
+        });
+      })()
+        .catch(() => void 0)
+        .finally(() => criticalIncidentInflight.delete(cacheKey));
+
+      criticalIncidentInflight.set(cacheKey, task);
+    }
+  }
+
   const sendSnapshot = async (sport: string) => {
     const now = Date.now();
     const prev = lastSent.get(sport) || 0;
     // Mantém snapshots curtos para todos os esportes ao vivo; o upstream WS
     // já traz os deltas de placar em tempo real e o snapshot serve de bootstrap.
-    const throttleMs = 1000;
+    const throttleMs = SNAPSHOT_THROTTLE_MS;
     if (now - prev < throttleMs) return;
     lastSent.set(sport, now);
 
@@ -688,7 +782,7 @@ export function createLiveWs(apiKey: string) {
     const cached = snapshotCache.get(sport);
     // O snapshot serve só de bootstrap/recovery; para tênis mantemos cache bem
     // curto para o cliente recuperar score/sets quase em tempo real.
-    const snapshotTtlMs = sport === 'tennis' ? 1_000 : 2_000;
+    const snapshotTtlMs = sport === 'tennis' ? SNAPSHOT_TENNIS_CACHE_TTL_MS : SNAPSHOT_CACHE_TTL_MS;
     if (cached && now - cached.ts < snapshotTtlMs) {
       const livePatched = normalizeAndFilterLive(sport, cached.live);
       const msg = JSON.stringify({ type: 'snapshot', live: livePatched });
@@ -967,87 +1061,6 @@ export function createLiveWs(apiKey: string) {
       }
     };
 
-    const broadcastIncident = (sport: string, payload: any) => {
-      const msg = JSON.stringify({ type: 'incident', sport, data: payload });
-      for (const c of clients) {
-        if (c.sport !== 'all' && c.sport !== sport) continue;
-        if (c.ws.readyState !== WebSocket.OPEN) continue;
-        try {
-          c.ws.send(msg);
-        } catch {
-          void 0;
-        }
-      }
-    };
-
-    const pollCriticalIncidentsFor = (sport: string, liveList: any[]) => {
-      const sportKey = String(sport || '').trim().toLowerCase();
-      const now = Date.now();
-      const lastAt = lastIncidentSweepAt.get(sportKey) || 0;
-      if (now - lastAt < 2000) return;
-      lastIncidentSweepAt.set(sportKey, now);
-
-      const targets = (Array.isArray(liveList) ? liveList : [])
-        .filter((ev: any) => isSoccerSport(String(ev?.sport || sportKey)))
-        .map((ev: any) => {
-          const id = String(ev?.id || '').trim();
-          if (!id) return null;
-          return {
-            id,
-            sport: String(ev?.sport || sportKey || 'soccer').trim().toLowerCase(),
-            homeTeam: String(ev?.home_team || ev?.teams?.home?.name || '').trim(),
-            awayTeam: String(ev?.away_team || ev?.teams?.away?.name || '').trim(),
-          };
-        })
-        .filter(Boolean)
-        .slice(0, 12) as Array<{ id: string; sport: string; homeTeam: string; awayTeam: string }>;
-
-      for (const target of targets) {
-        const cacheKey = `${target.sport}:${target.id}`;
-        const cached = criticalIncidentCache.get(cacheKey);
-        if (cached && now - cached.ts < 1500) continue;
-        if (criticalIncidentInflight.has(cacheKey)) continue;
-
-        const task = (async () => {
-          const raw = await fetchSportsApiProMatchIncidents(apiKey, target.sport, target.id).catch(() => null);
-          const normalized = normalizeCriticalIncidents(target.id, target.sport, raw, {
-            homeTeam: target.homeTeam,
-            awayTeam: target.awayTeam,
-          });
-          const latest = latestCriticalIncident(normalized);
-          const lastKey = latest?.lastKey || '';
-          const prevKey = criticalIncidentCache.get(cacheKey)?.lastKey || '';
-          criticalIncidentCache.set(cacheKey, { ts: Date.now(), lastKey });
-          if (!latest || !lastKey || lastKey === prevKey) return;
-
-          const suspendReason = incidentToSuspendReason(latest.incident?.type);
-          if (suspendReason && suspendReason !== 'SUSPENSO') {
-            const ttlMs =
-              suspendReason === 'VAR'
-                ? 30_000
-                : suspendReason === 'PENALTY'
-                  ? 25_000
-                  : suspendReason === 'CARD'
-                    ? 10_000
-                    : 20_000;
-            criticalFreezeByMatch.set(target.id, { until: Date.now() + ttlMs, reason: suspendReason });
-          }
-
-          broadcastIncident(target.sport, {
-            id: target.id,
-            sport: target.sport,
-            incident: latest.incident,
-            incidents: normalized.slice(-8),
-            suspendReason,
-          });
-        })()
-          .catch(() => void 0)
-          .finally(() => criticalIncidentInflight.delete(cacheKey));
-
-        criticalIncidentInflight.set(cacheKey, task);
-      }
-    };
-
     ws.on('message', (raw) => {
       u.lastMessageAt = Date.now();
       try {
@@ -1179,8 +1192,8 @@ export function createLiveWs(apiKey: string) {
         clearInterval(u.pingTimer);
         u.pingTimer = null;
       }
-      const delay = Math.min(20_000, Math.max(1000, u.backoffMs));
-      u.backoffMs = Math.min(20_000, u.backoffMs * 2);
+      const delay = Math.min(WS_RECONNECT_MAX_MS, Math.max(WS_RECONNECT_MIN_MS, u.backoffMs));
+      u.backoffMs = Math.min(WS_RECONNECT_MAX_MS, Math.max(WS_RECONNECT_MIN_MS, u.backoffMs * 2));
       setTimeout(() => {
         const stillNeeded = Array.from(clients).some((c) => c.sport === localSport || c.sport === 'all');
         if (!stillNeeded) return;

@@ -49,11 +49,12 @@ try {
     console.warn('[server] WARNING: DATABASE_URL is not set. Auth/bets/wallet/admin routes are disabled.');
   } else {
     await pool.query('SELECT 1');
-    dbReady = true;
     try {
       await ensureSchema(pool);
+      dbReady = true;
       dbInitError = null;
     } catch (e: any) {
+      dbReady = false;
       dbInitError = String(e?.message || e);
       console.error('[server] DB schema ensure failed:', dbInitError);
     }
@@ -63,6 +64,10 @@ try {
   pool = null;
   dbReady = false;
   dbInitError = String(e?.message || e);
+}
+
+if (process.env.NODE_ENV === 'production' && dbInitError) {
+  throw new Error(`[server] Refusing to start with invalid database schema: ${dbInitError}`);
 }
 
 const safePool: any =
@@ -75,17 +80,23 @@ const safePool: any =
     }),
   } as any);
 
+const sportsApiKeyEnv =
+  (process.env.SPORTS_API_PRO_KEY && 'SPORTS_API_PRO_KEY') ||
+  (process.env.SPORTSAPIPRO_KEY && 'SPORTSAPIPRO_KEY') ||
+  (process.env.SPORTSAPI_PRO_KEY && 'SPORTSAPI_PRO_KEY') ||
+  (process.env.SPORTS_API_KEY && 'SPORTS_API_KEY') ||
+  (process.env.STATPAL_KEY && 'STATPAL_KEY') ||
+  '';
 const sportsApiKey = String(
-  process.env.SPORTS_API_PRO_KEY ||
-    process.env.SPORTSAPIPRO_KEY ||
-    process.env.SPORTSAPI_PRO_KEY ||
-    process.env.SPORTS_API_KEY ||
-    process.env.STATPAL_KEY ||
-    '',
+  process.env[sportsApiKeyEnv as keyof NodeJS.ProcessEnv] || '',
 ).trim();
 if (!sportsApiKey) {
   console.warn(
-    '[server] WARNING: No SportsAPI Pro key found. Sports data endpoints will return empty. Set SPORTS_API_KEY to enable.',
+    '[server] WARNING: No SportsAPI Pro key found. Sports data endpoints will return empty. Set SPORTS_API_PRO_KEY to enable.',
+  );
+} else if (sportsApiKeyEnv && sportsApiKeyEnv !== 'SPORTS_API_PRO_KEY') {
+  console.warn(
+    `[server] WARNING: Using legacy sports key env "${sportsApiKeyEnv}". Prefer SPORTS_API_PRO_KEY.`,
   );
 }
 
@@ -188,12 +199,12 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === 'GET' && url.pathname === '/health') {
-      sendJson(res, 200, {
-        ok: true,
+    if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/api/health')) {
+      const healthy = Boolean(pool) && dbReady;
+      sendJson(res, healthy ? 200 : 503, {
+        ok: healthy,
         db: dbReady,
         dbConfigured: Boolean(pool),
-        dbInitError,
       });
       return;
     }

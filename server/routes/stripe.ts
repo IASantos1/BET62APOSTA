@@ -5,6 +5,7 @@ import { randomId } from '../lib/crypto';
 import { sendJson, badRequest, unauthorized } from '../lib/http';
 import { requireUser } from '../lib/auth';
 import { APP_TRANSACTIONS_TABLE, ensureAppTransactionsTable } from '../lib/appTables';
+import { hitRateLimit } from '../lib/rateLimit';
 
 function getRawBody(req: http.IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -19,6 +20,29 @@ function getStripe(): Stripe | null {
   const key = process.env.STRIPE_SECRET_KEY || '';
   if (!key || !key.startsWith('sk_')) return null;
   return new Stripe(key, { apiVersion: '2025-09-30.clover' as any });
+}
+
+function ipOf(req: http.IncomingMessage): string {
+  const raw = String(req.headers['x-forwarded-for'] || '').split(',')[0]?.trim();
+  return raw || String(req.socket.remoteAddress || '');
+}
+
+function stripeRateLimit(
+  res: http.ServerResponse,
+  action: string,
+  keys: string[],
+  limit: number,
+  windowMs: number,
+): boolean {
+  for (const key of keys) {
+    const hit = hitRateLimit(`stripe:${action}:${key}`, limit, windowMs);
+    if (!hit.allowed) {
+      res.setHeader('retry-after', String(Math.max(1, Math.ceil(hit.retryAfterMs / 1000))));
+      sendJson(res, 429, { error: 'Muitas tentativas de pagamento. Tente novamente em instantes.' });
+      return true;
+    }
+  }
+  return false;
 }
 
 type AppStripeMethod = 'card' | 'mbway' | 'multibanco';
@@ -230,6 +254,15 @@ export async function handleStripeRoutes(
   if (req.method === 'POST' && path === '/api/stripe/create-payment-intent') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    if (
+      stripeRateLimit(
+        res,
+        'create-intent',
+        [`ip:${ipOf(req)}`, `user:${String(u.id)}`],
+        8,
+        10 * 60_000,
+      )
+    ) return true;
 
     const stripe = getStripe();
     if (!stripe) {
@@ -256,19 +289,26 @@ export async function handleStripeRoutes(
 
     try {
       const methodType = stripePaymentMethodType(paymentMethod);
-      const intent = await stripe.paymentIntents.create({
-        amount,
-        currency: 'eur',
-        metadata: {
-          user_id: String(u.id),
-          user_email: String((u as any).email || ''),
-          deposit_method: paymentMethod,
+      const requestIp = ipOf(req);
+      const idempotencyKey = String(req.headers['idempotency-key'] || '').trim();
+      const intent = await stripe.paymentIntents.create(
+        {
+          amount,
+          currency: 'eur',
+          metadata: {
+            user_id: String(u.id),
+            user_email: String((u as any).email || ''),
+            deposit_method: paymentMethod,
+            request_ip: requestIp.slice(0, 64),
+            user_agent: String(req.headers['user-agent'] || '').slice(0, 120),
+          },
+          description: `BET62 depósito — ${(u as any).username || u.id}`,
+          ...(paymentMethod === 'card'
+            ? { automatic_payment_methods: { enabled: true } }
+            : { payment_method_types: [methodType] }),
         },
-        description: `BET62 depósito — ${(u as any).username || u.id}`,
-        ...(paymentMethod === 'card'
-          ? { automatic_payment_methods: { enabled: true } }
-          : { payment_method_types: [methodType] }),
-      });
+        idempotencyKey ? { idempotencyKey: `deposit:${u.id}:${idempotencyKey.slice(0, 120)}` } : undefined,
+      );
 
       if (paymentMethod !== 'card') {
         await createPendingDepositTransaction(pool, {
@@ -295,6 +335,15 @@ export async function handleStripeRoutes(
   if (req.method === 'GET' && path === '/api/stripe/payment-intent-status') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    if (
+      stripeRateLimit(
+        res,
+        'status',
+        [`ip:${ipOf(req)}`, `user:${String(u.id)}`],
+        40,
+        5 * 60_000,
+      )
+    ) return true;
 
     const stripe = getStripe();
     if (!stripe) {
@@ -335,6 +384,15 @@ export async function handleStripeRoutes(
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
     await ensureAppTransactionsTable(pool);
+    if (
+      stripeRateLimit(
+        res,
+        'confirm',
+        [`ip:${ipOf(req)}`, `user:${String(u.id)}`],
+        20,
+        5 * 60_000,
+      )
+    ) return true;
 
     const stripe = getStripe();
     if (!stripe) {

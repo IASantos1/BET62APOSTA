@@ -7,8 +7,7 @@ export function useFavorites() {
   const [favorites, setFavorites] = useState<number[]>([]); 
 
   const fetchFavorites = useCallback(async (signal?: AbortSignal) => { 
-    const token = localStorage.getItem('auth_token');
-    if (!user || !token) {
+    if (!user) {
         setFavorites([]);
         return;
     }
@@ -41,8 +40,7 @@ export function useFavorites() {
   }, [fetchFavorites]); 
 
   const toggleFavorite = async (eventId: number) => { 
-    const token = localStorage.getItem('auth_token');
-    if (!user || !token) return; 
+    if (!user) return; 
 
      const isFavorite = favorites.includes(eventId); 
 

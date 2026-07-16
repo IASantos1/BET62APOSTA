@@ -198,6 +198,30 @@ async function updateProfile(pool: pg.Pool, userId: string, balance: number, fre
   );
 }
 
+type Queryable = pg.Pool | pg.PoolClient;
+
+async function getLockedProfile(client: Queryable, userId: string): Promise<{ balance: number; free_bet_balance: number }> {
+  const r = await client.query(
+    `SELECT balance, free_bet_balance
+     FROM profiles
+     WHERE user_id = $1
+     FOR UPDATE`,
+    [userId],
+  );
+  const row = r.rows?.[0] || {};
+  return {
+    balance: toNumber(row.balance),
+    free_bet_balance: toNumber(row.free_bet_balance),
+  };
+}
+
+async function updateLockedProfile(client: Queryable, userId: string, balance: number, freeBet: number): Promise<void> {
+  await client.query(
+    `UPDATE profiles SET balance = $2, free_bet_balance = $3, updated_at = NOW() WHERE user_id = $1`,
+    [userId, balance, freeBet],
+  );
+}
+
 function serializeBetRecord(row: any, userId: string) {
   const selections = row?.selections && typeof row.selections === 'object' ? row.selections : [];
   const arr = Array.isArray(selections) ? selections : [];
@@ -443,26 +467,40 @@ export async function handleBetRoutes(
         : Math.max(0, toNumber(body.stake));
     if (!stake || stake <= 0) return badRequest(res, 'Invalid stake'), true;
 
-    const profile = await getProfile(pool, u.id);
-    const useFree = Boolean(body.use_freebet);
-    if (useFree) {
-      if (profile.free_bet_balance < stake) return badRequest(res, 'Saldo freebet insuficiente'), true;
-    } else {
-      if (profile.balance < stake) return badRequest(res, 'Saldo insuficiente'), true;
-    }
-
     const potentialWin = stake * totalOdds;
     const betId = randomId(16);
-    await pool.query(
-      `INSERT INTO ${APP_BETS_TABLE} (id, user_id, bet_type, stake, potential_win, total_odds, status, is_free_bet, winnings, selections, total_stake, potential_return, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, NULL, $8::jsonb, $9, $10, NOW(), NOW())`,
-      [betId, u.id, type, stake, potentialWin, totalOdds, useFree, JSON.stringify(payloadSelections), stake, potentialWin],
-    );
+    const useFree = Boolean(body.use_freebet);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const profile = await getLockedProfile(client, u.id);
+      if (useFree) {
+        if (profile.free_bet_balance < stake) {
+          await client.query('ROLLBACK');
+          return badRequest(res, 'Saldo freebet insuficiente'), true;
+        }
+      } else if (profile.balance < stake) {
+        await client.query('ROLLBACK');
+        return badRequest(res, 'Saldo insuficiente'), true;
+      }
 
-    if (useFree) {
-      await updateProfile(pool, u.id, profile.balance, profile.free_bet_balance - stake);
-    } else {
-      await updateProfile(pool, u.id, profile.balance - stake, profile.free_bet_balance);
+      await client.query(
+        `INSERT INTO ${APP_BETS_TABLE} (id, user_id, bet_type, stake, potential_win, total_odds, status, is_free_bet, winnings, selections, total_stake, potential_return, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, NULL, $8::jsonb, $9, $10, NOW(), NOW())`,
+        [betId, u.id, type, stake, potentialWin, totalOdds, useFree, JSON.stringify(payloadSelections), stake, potentialWin],
+      );
+
+      if (useFree) {
+        await updateLockedProfile(client, u.id, profile.balance, profile.free_bet_balance - stake);
+      } else {
+        await updateLockedProfile(client, u.id, profile.balance - stake, profile.free_bet_balance);
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => null);
+      throw e;
+    } finally {
+      client.release();
     }
 
     sendJson(res, 200, { success: true, id: betId });
@@ -478,41 +516,67 @@ export async function handleBetRoutes(
     const body = await readJsonBody<any>(req).catch(() => ({}));
     const requestedAmount = toNumber(body?.amount);
 
-    const r = await pool.query(
-      `SELECT id, bet_type, stake, potential_win, total_odds, status, is_free_bet, winnings, selections, cashout_value, cashout_at, settled_at, created_at
-       FROM ${APP_BETS_TABLE}
-       WHERE id = $1 AND user_id = $2
-       LIMIT 1`,
-      [betId, u.id],
-    );
-    const b = r.rows?.[0];
-    if (!b) return badRequest(res, 'Bet not found'), true;
-    if (String(b.status) !== 'pending') return badRequest(res, 'Cashout indisponível'), true;
+    let cashoutValue = 0;
+    let updatedRow: any = null;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const r = await client.query(
+        `SELECT id, bet_type, stake, potential_win, total_odds, status, is_free_bet, winnings, selections, cashout_value, cashout_at, settled_at, created_at
+         FROM ${APP_BETS_TABLE}
+         WHERE id = $1 AND user_id = $2
+         FOR UPDATE`,
+        [betId, u.id],
+      );
+      const b = r.rows?.[0];
+      if (!b) {
+        await client.query('ROLLBACK');
+        return badRequest(res, 'Bet not found'), true;
+      }
+      if (String(b.status) !== 'pending') {
+        await client.query('ROLLBACK');
+        return badRequest(res, 'Cashout indisponível'), true;
+      }
 
-    const stake = toNumber(b.stake);
-    const potentialWin = Math.max(stake, toNumber(b.potential_win));
-    const fallbackCashoutValue = Math.max(0, Math.min(potentialWin, stake * 0.8));
-    const cashoutValue = Math.max(
-      0,
-      Math.min(potentialWin, requestedAmount > 0 ? requestedAmount : fallbackCashoutValue),
-    );
-    if (!(cashoutValue > 0)) return badRequest(res, 'Valor inválido'), true;
+      const stake = toNumber(b.stake);
+      const potentialWin = Math.max(stake, toNumber(b.potential_win));
+      const fallbackCashoutValue = Math.max(0, Math.min(potentialWin, stake * 0.8));
+      cashoutValue = Math.max(
+        0,
+        Math.min(fallbackCashoutValue, requestedAmount > 0 ? requestedAmount : fallbackCashoutValue),
+      );
+      if (!(cashoutValue > 0)) {
+        await client.query('ROLLBACK');
+        return badRequest(res, 'Valor inválido'), true;
+      }
 
-    const updated = await pool.query(
-      `UPDATE ${APP_BETS_TABLE}
-       SET status = 'cashed_out', cashout_value = $2, winnings = $2, cashout_at = NOW(), settled_at = NOW(), updated_at = NOW()
-       WHERE id = $1
-       RETURNING id, bet_type, stake, potential_win, total_odds, status, is_free_bet, winnings, selections, cashout_value, cashout_at, settled_at, created_at`,
-      [betId, cashoutValue],
-    );
+      const updated = await client.query(
+        `UPDATE ${APP_BETS_TABLE}
+         SET status = 'cashed_out', cashout_value = $2, winnings = $2, cashout_at = NOW(), settled_at = NOW(), updated_at = NOW()
+         WHERE id = $1 AND status = 'pending'
+         RETURNING id, bet_type, stake, potential_win, total_odds, status, is_free_bet, winnings, selections, cashout_value, cashout_at, settled_at, created_at`,
+        [betId, cashoutValue],
+      );
+      updatedRow = updated.rows?.[0];
+      if (!updatedRow) {
+        await client.query('ROLLBACK');
+        return badRequest(res, 'Cashout indisponível'), true;
+      }
 
-    const profile = await getProfile(pool, u.id);
-    await updateProfile(pool, u.id, profile.balance + cashoutValue, profile.free_bet_balance);
+      const profile = await getLockedProfile(client, u.id);
+      await updateLockedProfile(client, u.id, profile.balance + cashoutValue, profile.free_bet_balance);
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => null);
+      throw e;
+    } finally {
+      client.release();
+    }
     sendJson(res, 200, {
       success: true,
       amount: cashoutValue,
       cashoutValue,
-      bet: serializeBetRecord(updated.rows?.[0], u.id),
+      bet: serializeBetRecord(updatedRow, u.id),
     });
     return true;
   }

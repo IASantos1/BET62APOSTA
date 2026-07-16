@@ -1,18 +1,9 @@
 import type http from 'http';
 import type pg from 'pg';
 import { randomId } from '../lib/crypto';
-import { readJsonBody, sendJson, badRequest, unauthorized } from '../lib/http';
+import { readJsonBody, sendJson, badRequest, unauthorized, payloadTooLarge } from '../lib/http';
 import { requireUser } from '../lib/auth';
-
-type UploadDocumentsBody = {
-  documents?: Array<{
-    type?: string;
-    filename?: string;
-    mime_type?: string;
-    size?: number;
-    content_base64?: string;
-  }>;
-};
+import { storeKycDocument } from '../lib/kycStorage';
 
 type SelfExcludeBody = {
   self_exclude?: boolean;
@@ -26,6 +17,65 @@ function toBooleanInt(v: any): number {
   if (s === '1' || s === 'true' || s === 'yes') return 1;
   if (s === '0' || s === 'false' || s === 'no') return 0;
   return 0;
+}
+
+const KYC_ALLOWED_TYPES = new Set([
+  'identity_front',
+  'identity_back',
+  'passport',
+  'selfie',
+  'proof_of_address',
+  'id_card',
+  'iban_proof',
+  'bank_statement',
+]);
+const KYC_ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'application/pdf']);
+const KYC_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const KYC_MAX_TOTAL_BYTES = 20 * 1024 * 1024;
+
+const KYC_ALLOWED_EXTENSIONS_BY_MIME: Record<string, string[]> = {
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'application/pdf': ['.pdf'],
+};
+
+function firstHeaderValue(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return String(value[0] || '');
+  return String(value || '');
+}
+
+function fileExtensionOf(filename: string): string {
+  const clean = String(filename || '').trim().toLowerCase();
+  const idx = clean.lastIndexOf('.');
+  return idx >= 0 ? clean.slice(idx) : '';
+}
+
+function decodeUrlValue(value: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function isAllowedExtension(filename: string, mimeType: string): boolean {
+  const ext = fileExtensionOf(filename);
+  const allowed = KYC_ALLOWED_EXTENSIONS_BY_MIME[mimeType] || [];
+  return allowed.includes(ext);
+}
+
+async function readBinaryBody(req: http.IncomingMessage, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of req) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buf.length;
+    if (maxBytes > 0 && total > maxBytes) throw new Error('Payload too large');
+    chunks.push(buf);
+  }
+  return Buffer.concat(chunks);
 }
 
 export async function handleUsersRoutes(
@@ -133,7 +183,7 @@ export async function handleUsersRoutes(
     if (!u) return unauthorized(res), true;
 
     const r = await pool.query(
-      `SELECT id, doc_type, filename, mime_type, size_bytes, status, created_at
+      `SELECT id, doc_type, filename, mime_type, size_bytes, status, storage_path, created_at
        FROM user_documents
        WHERE user_id = $1
        ORDER BY created_at DESC
@@ -147,37 +197,79 @@ export async function handleUsersRoutes(
       mime_type: String(x.mime_type || ''),
       size: Number(x.size_bytes || 0),
       status: String(x.status || 'SUBMITTED'),
+      stored: Boolean(x.storage_path),
       created_at: x.created_at ? new Date(x.created_at).toISOString() : new Date().toISOString(),
     }));
     sendJson(res, 200, out);
     return true;
   }
 
-  if (req.method === 'POST' && path === '/api/users/documents') {
+  if (
+    req.method === 'POST' &&
+    (path === '/api/users/documents' || path === '/api/users/documents/upload')
+  ) {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
 
-    const body = await readJsonBody<UploadDocumentsBody>(req).catch(() => null);
-    if (!body) return badRequest(res, 'Invalid JSON'), true;
-    const docs = Array.isArray(body.documents) ? body.documents : [];
-    if (docs.length === 0) return badRequest(res, 'No documents'), true;
-
-    for (const d of docs) {
-      const type = String(d?.type || '').trim();
-      const filename = String(d?.filename || '').trim();
-      const mimeType = String(d?.mime_type || '').trim();
-      const size = Number(d?.size || 0);
-      const content = String(d?.content_base64 || '').trim();
-      if (!type || !filename || !mimeType || !content) continue;
-
-      await pool.query(
-        `INSERT INTO user_documents (id, user_id, doc_type, filename, mime_type, size_bytes, content_base64, status, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'SUBMITTED', NOW(), NOW())`,
-        [randomId(16), u.id, type, filename, mimeType, Number.isFinite(size) ? size : 0, content],
-      );
+    const contentTypeHeader = String(req.headers['content-type'] || '').trim().toLowerCase();
+    if (!contentTypeHeader || contentTypeHeader.includes('application/json')) {
+      return badRequest(res, 'Envio JSON/base64 desativado. Envie o ficheiro binário diretamente.'), true;
     }
 
-    sendJson(res, 200, { ok: true });
+    const type = String(url.searchParams.get('type') || firstHeaderValue(req.headers['x-document-type'])).trim();
+    const filename = decodeUrlValue(
+      String(url.searchParams.get('filename') || firstHeaderValue(req.headers['x-file-name'])).trim(),
+    );
+    const mimeType = contentTypeHeader.split(';')[0]?.trim().toLowerCase() || '';
+
+    if (!type || !filename || !mimeType) return badRequest(res, 'Documento inválido'), true;
+    if (!KYC_ALLOWED_TYPES.has(type)) return badRequest(res, `Tipo de documento não permitido: ${type}`), true;
+    if (!KYC_ALLOWED_MIME.has(mimeType)) return badRequest(res, `Mime type não permitido: ${mimeType}`), true;
+    if (!isAllowedExtension(filename, mimeType)) {
+      return badRequest(res, `Extensão não permitida: ${fileExtensionOf(filename) || 'desconhecida'}`), true;
+    }
+
+    const binary = await readBinaryBody(req, KYC_MAX_FILE_BYTES).catch((e: any) => {
+      if (String(e?.message || e) === 'Payload too large') return 'too_large' as any;
+      return null;
+    });
+    if (binary === 'too_large') {
+      return payloadTooLarge(res, `Cada documento pode ter no máximo ${Math.floor(KYC_MAX_FILE_BYTES / (1024 * 1024))}MB`), true;
+    }
+    if (!binary || binary.length === 0) return badRequest(res, 'Documento sem conteúdo válido'), true;
+    if (binary.length > KYC_MAX_TOTAL_BYTES) {
+      return payloadTooLarge(res, `O envio total de documentos pode ter no máximo ${Math.floor(KYC_MAX_TOTAL_BYTES / (1024 * 1024))}MB`), true;
+    }
+
+    const docId = randomId(16);
+    const stored = await storeKycDocument({
+      userId: String(u.id),
+      docId,
+      filename,
+      bytes: binary,
+    });
+
+    await pool.query(
+      `INSERT INTO user_documents (
+         id,
+         user_id,
+         doc_type,
+         filename,
+         mime_type,
+         size_bytes,
+         content_base64,
+         status,
+         storage_disk,
+         storage_path,
+         storage_sha256,
+         created_at,
+         updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, NULL, 'SUBMITTED', $7, $8, $9, NOW(), NOW())`,
+      [docId, u.id, type, filename, mimeType, stored.sizeBytes, stored.disk, stored.storagePath, stored.sha256],
+    );
+
+    sendJson(res, 200, { ok: true, inserted: 1, id: docId });
     return true;
   }
 

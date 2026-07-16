@@ -21,6 +21,13 @@ type CacheEntry<T> = { ts: number; data: T };
 
 type AnyEvent = any;
 
+function envInt(name: string, fallback: number, min: number, max: number): number {
+  const raw = Number(process.env[name] || '');
+  if (!Number.isFinite(raw)) return fallback;
+  const value = Math.floor(raw);
+  return Math.max(min, Math.min(max, value));
+}
+
 const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'baseball', 'ice-hockey', 'volleyball', 'mma'];
 const LIVE_SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'baseball', 'ice-hockey', 'volleyball', 'mma'];
 const RESOLVABLE_SPORTS = Array.from(new Set([...SPORTS_DEFAULT, ...LIVE_SPORTS_DEFAULT]));
@@ -39,10 +46,17 @@ const LIVE_CAPABLE = new Set([
   'vôlei',
   'mma',
 ]);
-const ODDS_FRESH_TTL_MS = 90_000;
-const LIVE_ODDS_FRESH_TTL_MS = 4_000;
-const ODDS_STALE_TTL_MS = 15 * 60_000;
-const LIVE_HOLD_MS = 75_000;
+const ODDS_FRESH_TTL_MS = envInt('SPORTS_PREMATCH_ODDS_TTL_MS', 90_000, 5_000, 10 * 60_000);
+const LIVE_ODDS_FRESH_TTL_MS = envInt('SPORTS_LIVE_ODDS_TTL_MS', 4_000, 1_000, 15_000);
+const ODDS_STALE_TTL_MS = envInt('SPORTS_ODDS_STALE_TTL_MS', 15 * 60_000, 60_000, 24 * 60 * 60_000);
+const LIVE_HOLD_MS = envInt('SPORTS_LIVE_HOLD_MS', 75_000, 5_000, 5 * 60_000);
+const REALTIME_CACHE_TTL_MS = envInt('SPORTS_REALTIME_CACHE_TTL_MS', 2_000, 500, 15_000);
+const REALTIME_TENNIS_CACHE_TTL_MS = envInt('SPORTS_REALTIME_TENNIS_CACHE_TTL_MS', 1_000, 500, 10_000);
+const REALTIME_STALE_TTL_MS = envInt('SPORTS_REALTIME_STALE_TTL_MS', 5_000, 1_000, 30_000);
+const REALTIME_TENNIS_STALE_TTL_MS = envInt('SPORTS_REALTIME_TENNIS_STALE_TTL_MS', 2_000, 1_000, 15_000);
+const REALTIME_COLD_TIMEOUT_MS = envInt('SPORTS_REALTIME_COLD_TIMEOUT_MS', 8_000, 2_000, 30_000);
+const ODDS_COLD_TIMEOUT_MS = envInt('SPORTS_ODDS_COLD_TIMEOUT_MS', 20_000, 5_000, 60_000);
+const PREGAME_COLD_TIMEOUT_MS = envInt('SPORTS_PREGAME_COLD_TIMEOUT_MS', 35_000, 10_000, 90_000);
 
 function nowMs(): number {
   return Date.now();
@@ -95,6 +109,8 @@ export type EventsService = {
   getAdminOddsEvents: () => Promise<any[]>;
   setOddsOverride: (eventId: string, odds: { home_odd?: number; draw_odd?: number; away_odd?: number }) => Promise<void>;
   getEventsCache: () => Map<string, any>;
+  getProviderMetrics: () => any;
+  getProviderConfig: () => any;
   getBetValidationContext: (eventId: string) => Promise<{
     event: any | null;
     sport: string | null;
@@ -142,6 +158,69 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const tennisFreezeByMatch = new Map<string, CacheEntry<{ until: number; reason: string }>>();
   const criticalFreezeByMatch = new Map<string, CacheEntry<{ until: number; reason: string; sport: string }>>();
   const lastCriticalIncidentKeyByMatch = new Map<string, CacheEntry<string>>();
+  const providerMetrics = new Map<string, {
+    requests: number;
+    success: number;
+    failures: number;
+    cacheFreshHits: number;
+    cacheStaleHits: number;
+    cacheMisses: number;
+    totalLatencyMs: number;
+    lastLatencyMs: number;
+    lastSuccessAt: number;
+    lastFailureAt: number;
+    lastError: string;
+  }>();
+
+  const ensureProviderMetric = (operation: string) => {
+    const key = String(operation || '').trim().toLowerCase() || 'unknown';
+    let metric = providerMetrics.get(key);
+    if (!metric) {
+      metric = {
+        requests: 0,
+        success: 0,
+        failures: 0,
+        cacheFreshHits: 0,
+        cacheStaleHits: 0,
+        cacheMisses: 0,
+        totalLatencyMs: 0,
+        lastLatencyMs: 0,
+        lastSuccessAt: 0,
+        lastFailureAt: 0,
+        lastError: '',
+      };
+      providerMetrics.set(key, metric);
+    }
+    return metric;
+  };
+
+  const recordProviderCache = (operation: string, kind: 'fresh' | 'stale' | 'miss') => {
+    const metric = ensureProviderMetric(operation);
+    if (kind === 'fresh') metric.cacheFreshHits += 1;
+    if (kind === 'stale') metric.cacheStaleHits += 1;
+    if (kind === 'miss') metric.cacheMisses += 1;
+  };
+
+  const callProvider = async <T>(operation: string, loader: () => Promise<T>): Promise<T> => {
+    const metric = ensureProviderMetric(operation);
+    const startedAt = nowMs();
+    metric.requests += 1;
+    try {
+      const result = await loader();
+      metric.success += 1;
+      metric.lastLatencyMs = Math.max(0, nowMs() - startedAt);
+      metric.totalLatencyMs += metric.lastLatencyMs;
+      metric.lastSuccessAt = nowMs();
+      metric.lastError = '';
+      return result;
+    } catch (error: any) {
+      metric.failures += 1;
+      metric.lastLatencyMs = Math.max(0, nowMs() - startedAt);
+      metric.lastFailureAt = nowMs();
+      metric.lastError = String(error?.message || error || 'provider_error');
+      throw error;
+    }
+  };
 
   const tennisSuspendedMarketKeys = (reason: string): string[] => {
     const r = String(reason || '').toUpperCase().trim();
@@ -550,9 +629,13 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const cached = liveCache.get(key);
     const sLower = String(sport || '').toLowerCase();
     const liveFreshTtl = sLower === 'tennis' || sLower === 'soccer' || sLower === 'football' ? 1_000 : 2_000;
-    if (cached && ttlOk(cached.ts, liveFreshTtl)) return cached.data;
+    if (cached && ttlOk(cached.ts, liveFreshTtl)) {
+      recordProviderCache('live', 'fresh');
+      return cached.data;
+    }
     if (cached && ttlOk(cached.ts, 2 * 60_000)) {
-      fetchSportsApiProLive(apiKey, sport)
+      recordProviderCache('live', 'stale');
+      callProvider('live', () => fetchSportsApiProLive(apiKey, sport))
         .then((list) => {
           const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
             const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
@@ -577,7 +660,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         .catch(() => void 0);
       return cached.data;
     }
-    const list = await fetchSportsApiProLive(apiKey, sport).catch(() => []);
+    recordProviderCache('live', 'miss');
+    const list = await callProvider('live', () => fetchSportsApiProLive(apiKey, sport)).catch(() => []);
     const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
       const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
       const prev = lastEventById.get(id)?.data;
@@ -613,10 +697,14 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const key = `${sport}:${date}`;
     const cached = scheduleCache.get(key);
     // Fresh cache: serve immediately
-    if (cached && ttlOk(cached.ts, 20 * 60_000)) return cached.data;
+    if (cached && ttlOk(cached.ts, 20 * 60_000)) {
+      recordProviderCache('schedule', 'fresh');
+      return cached.data;
+    }
     // Stale-while-revalidate (up to 3h): serve stale, refresh in background
     if (cached && ttlOk(cached.ts, 3 * 60 * 60 * 1000)) {
-      fetchSportsApiProSchedule(apiKey, sport, date)
+      recordProviderCache('schedule', 'stale');
+      callProvider('schedule', () => fetchSportsApiProSchedule(apiKey, sport, date))
         .then((list) => {
           if (list && list.length > 0) {
             scheduleCache.set(key, { ts: nowMs(), data: normalizeScheduleList(list, sport) });
@@ -626,7 +714,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       return cached.data;
     }
     // Very stale (>3h) or cold: try fresh fetch; on failure keep/return any stale data
-    const list = await fetchSportsApiProSchedule(apiKey, sport, date).catch(() => null);
+    recordProviderCache('schedule', 'miss');
+    const list = await callProvider('schedule', () => fetchSportsApiProSchedule(apiKey, sport, date)).catch(() => null);
     if (list === null) {
       // API failed (timeout/rate-limit): return stale data if available, otherwise empty
       if (cached) return cached.data;
@@ -736,7 +825,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const p = (async () => {
       const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam };
       // Single 'all' endpoint returns live + prematch odds in one call — no need to call all 3
-      const allResult = await fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts).catch(() => null);
+      const allResult = await callProvider('odds', () => fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts)).catch(() => null);
       const merged = allResult ?? null;
       if (merged && merged.markets && typeof merged.markets === 'object') {
         const derived = deriveAdditionalMarkets(
@@ -773,10 +862,12 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
 
     const freshTtl = ctx.isLive ? LIVE_ODDS_FRESH_TTL_MS : ODDS_FRESH_TTL_MS;
     if (cached && cached.data != null && ttlOk(cached.ts, freshTtl)) {
+      recordProviderCache('odds', 'fresh');
       return cached.data;
     }
 
     if (cached && cached.data != null && ttlOk(cached.ts, ODDS_STALE_TTL_MS)) {
+      recordProviderCache('odds', 'stale');
       if (refreshBudget && refreshBudget.remaining > 0 && !oddsInflight.has(key)) {
         refreshBudget.remaining -= 1;
         fetchOddsStrict(sport, matchId, ctx).catch(() => null);
@@ -795,6 +886,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       return cached ? cached.data : null;
     }
 
+    recordProviderCache('odds', 'miss');
     if (refreshBudget) refreshBudget.remaining -= 1;
     return fetchOddsStrict(sport, matchId, ctx);
   };
@@ -1436,8 +1528,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const isTennisOnlyRealtime = realtime && (sportsKey === 'tennis' || sportsKey === 'sport=tennis');
       const cacheKey = `bySport:${String(sports || 'all')}|league:${String(league || '')}|includeOdds:${includeOdds ? '1' : '0'}|realtime:${realtime ? '1' : '0'}|fullMarkets:${fullMarkets ? '1' : '0'}|only:${only}|days:${daysAhead}|requireOdds:${requireOdds ? '1' : '0'}|allowBlocked:${allowBlocked ? '1' : '0'}`;
       const cached = bySportCache.get(cacheKey);
-      const ttl = realtime ? (isTennisOnlyRealtime ? 1_000 : 2_000) : includeOdds ? 12_000 : 25_000;
-      const staleTtl = realtime ? (isTennisOnlyRealtime ? 2_000 : 5_000) : 5 * 60_000;
+      const ttl = realtime ? (isTennisOnlyRealtime ? REALTIME_TENNIS_CACHE_TTL_MS : REALTIME_CACHE_TTL_MS) : includeOdds ? 12_000 : 25_000;
+      const staleTtl = realtime ? (isTennisOnlyRealtime ? REALTIME_TENNIS_STALE_TTL_MS : REALTIME_STALE_TTL_MS) : 5 * 60_000;
       // ── 1. Fresh cache hit ──────────────────────────────────────────────────
       if (cached && ttlOk(cached.ts, ttl)) {
         sendJson(res, 200, cached.data);
@@ -1467,7 +1559,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
 
       // ── 3. Cold start: wait for the build (deduped) with a hard timeout ─────
       const inFlight = ensureBuild();
-      const timeoutMs = realtime ? 8_000 : includeOdds ? 20_000 : 35_000;
+      const timeoutMs = realtime ? REALTIME_COLD_TIMEOUT_MS : includeOdds ? ODDS_COLD_TIMEOUT_MS : PREGAME_COLD_TIMEOUT_MS;
       const timeoutPromise = new Promise<{ live: AnyEvent[]; pregame: AnyEvent[] }>(resolve =>
         setTimeout(() => resolve(cached?.data ?? { live: [], pregame: [] }), timeoutMs)
       );
@@ -1803,7 +1895,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const sportParam = String(url.searchParams.get('sport') || '').trim();
       const sport = sportParam || await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
-      const statsRaw = await fetchSportsApiProMatchStatistics(apiKey, sport, id).catch(() => null);
+      recordProviderCache('statistics', 'miss');
+      const statsRaw = await callProvider('statistics', () => fetchSportsApiProMatchStatistics(apiKey, sport, id)).catch(() => null);
 
       // Normalise a SportsApiPro v2 home/away object into API-Football statistics array
       const normalizeStatsObject = (obj: any, teamLabel: string): any[] => {
@@ -2089,8 +2182,10 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         if (existing) return existing;
         const needStats = sportKey === 'soccer' || sportKey === 'football';
         const p = Promise.all([
-          fetchSportsApiProMatchIncidents(apiKey, sport, id).catch(() => null),
-          needStats ? fetchSportsApiProMatchStatistics(apiKey, sport, id).catch(() => null) : Promise.resolve(null),
+          callProvider('incidents', () => fetchSportsApiProMatchIncidents(apiKey, sport, id)).catch(() => null),
+          needStats
+            ? callProvider('statistics', () => fetchSportsApiProMatchStatistics(apiKey, sport, id)).catch(() => null)
+            : Promise.resolve(null),
         ])
           .then(([incidentsRaw, statsRaw]) => buildPayloadFromRaw(incidentsRaw, statsRaw))
           .catch(() => buildPayloadFromRaw(null, null))
@@ -2128,40 +2223,11 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       return true;
     }
 
-    // GET /api/events/proxy — server-side proxy for API-Football requests (keeps API key off client)
+    // Legacy API-Sports proxy disabled: this backend is standardized on SportsAPIPro.
     if (req.method === 'GET' && path === '/api/events/proxy') {
-      const sport = url.searchParams.get('sport') || 'football';
-      const endpoint = url.searchParams.get('endpoint');
-      if (!endpoint) {
-        sendJson(res, 400, { error: 'endpoint param required' });
-        return true;
-      }
-      if (!apiKey) {
-        sendJson(res, 200, { response: [], results: 0 });
-        return true;
-      }
-      const API_ENDPOINTS: Record<string, string> = {
-        football: 'https://v3.football.api-sports.io',
-        basketball: 'https://v1.basketball.api-sports.io',
-        baseball: 'https://v1.baseball.api-sports.io',
-        hockey: 'https://v1.hockey.api-sports.io',
-      };
-      const base = API_ENDPOINTS[sport] || API_ENDPOINTS['football'];
-      const apiUrl = new URL(`${base}/${endpoint}`);
-      url.searchParams.forEach((value, key) => {
-        if (key !== 'sport' && key !== 'endpoint') {
-          apiUrl.searchParams.append(key, value);
-        }
+      sendJson(res, 410, {
+        error: 'Endpoint legado desativado. Usa os endpoints /api/events/* baseados em SportsAPIPro.',
       });
-      try {
-        const resp = await fetch(apiUrl.toString(), {
-          headers: { 'x-apisports-key': apiKey },
-        });
-        const data = await resp.json();
-        sendJson(res, resp.ok ? 200 : resp.status, data);
-      } catch (e: any) {
-        sendJson(res, 500, { error: String(e?.message || e), response: [] });
-      }
       return true;
     }
 
@@ -2212,6 +2278,45 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     }
     return combined;
   };
+
+  const getProviderMetrics = () => {
+    const operations = Array.from(providerMetrics.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([operation, metric]) => ({
+        operation,
+        requests: metric.requests,
+        success: metric.success,
+        failures: metric.failures,
+        cacheFreshHits: metric.cacheFreshHits,
+        cacheStaleHits: metric.cacheStaleHits,
+        cacheMisses: metric.cacheMisses,
+        avgLatencyMs: metric.success > 0 ? Math.round(metric.totalLatencyMs / metric.success) : 0,
+        lastLatencyMs: metric.lastLatencyMs,
+        lastSuccessAt: metric.lastSuccessAt || null,
+        lastFailureAt: metric.lastFailureAt || null,
+        lastError: metric.lastError || '',
+      }));
+    return {
+      since: new Date(process.uptime() > 0 ? Date.now() - Math.floor(process.uptime() * 1000) : Date.now()).toISOString(),
+      operations,
+    };
+  };
+
+  const getProviderConfig = () => ({
+    rest: {
+      prematchOddsTtlMs: ODDS_FRESH_TTL_MS,
+      liveOddsTtlMs: LIVE_ODDS_FRESH_TTL_MS,
+      oddsStaleTtlMs: ODDS_STALE_TTL_MS,
+      liveHoldMs: LIVE_HOLD_MS,
+      realtimeCacheTtlMs: REALTIME_CACHE_TTL_MS,
+      realtimeTennisCacheTtlMs: REALTIME_TENNIS_CACHE_TTL_MS,
+      realtimeStaleTtlMs: REALTIME_STALE_TTL_MS,
+      realtimeTennisStaleTtlMs: REALTIME_TENNIS_STALE_TTL_MS,
+      realtimeColdTimeoutMs: REALTIME_COLD_TIMEOUT_MS,
+      oddsColdTimeoutMs: ODDS_COLD_TIMEOUT_MS,
+      pregameColdTimeoutMs: PREGAME_COLD_TIMEOUT_MS,
+    },
+  });
 
   const findEventById = async (sport: string, id: string): Promise<any | null> => {
     const live = await fetchLive(sport).catch(() => []);
@@ -2268,5 +2373,13 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     };
   };
 
-  return { handleEventsRoutes, getAdminOddsEvents, setOddsOverride, getEventsCache, getBetValidationContext };
+  return {
+    handleEventsRoutes,
+    getAdminOddsEvents,
+    setOddsOverride,
+    getEventsCache,
+    getProviderMetrics,
+    getProviderConfig,
+    getBetValidationContext,
+  };
 }

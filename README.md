@@ -4,6 +4,128 @@ Plataforma completa de apostas esportivas.
 
 ## Deploy no Railway
 
-1. Conecte o repositório
-2. Adicione as variáveis de ambiente (DATABASE_URL, etc.)
-3. Railway detecta automaticamente com railway.json
+`railway.json` já define:
+
+- `buildCommand`: `npm run build`
+- `startCommand`: `npm start`
+- `NODE_ENV=production`
+
+### Variáveis obrigatórias
+
+- `DATABASE_URL`
+- `LUCIA_SECRET_KEY`
+- `TOTP_ENCRYPTION_KEY`
+- `SPORTS_API_PRO_KEY`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_PUBLISHABLE_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `VITE_APP_URL`
+- `KYC_STORAGE_DIR`
+
+### Variáveis opcionais
+
+- `ODDS_DEBUG_TOKEN`
+- `PAYPAL_CLIENT_ID`
+
+### Latência e delay da Sports API
+
+O backend agora aceita tuning fino por ambiente para `timeout`, `cache realtime`, `odds live`, `hold` visual de eventos e reconnect do WebSocket.
+
+Knobs principais:
+
+- `SPORTS_PROVIDER_TIMEOUT_MS`: timeout HTTP padrão do provider
+- `SPORTS_PROVIDER_LIVE_TIMEOUT_MS`: timeout para chamadas live
+- `SPORTS_PREMATCH_ODDS_TTL_MS`: cache de odds prematch
+- `SPORTS_LIVE_ODDS_TTL_MS`: cache fresco de odds live no REST
+- `SPORTS_LIVE_HOLD_MS`: quanto tempo um evento live recente pode ser mantido para evitar flicker/sumiço
+- `SPORTS_REALTIME_CACHE_TTL_MS`: cache fresco do agregado realtime
+- `SPORTS_REALTIME_STALE_TTL_MS`: stale-while-revalidate do agregado realtime
+- `SPORTS_WS_LIVE_ODDS_TTL_MS`: cache de odds live no WebSocket
+- `SPORTS_WS_RECONNECT_MIN_MS`
+- `SPORTS_WS_RECONNECT_MAX_MS`
+
+Preset recomendado para produção com baixo delay e segurança:
+
+```env
+SPORTS_PROVIDER_TIMEOUT_MS=15000
+SPORTS_PROVIDER_LIVE_TIMEOUT_MS=8000
+SPORTS_PREMATCH_ODDS_TTL_MS=90000
+SPORTS_LIVE_ODDS_TTL_MS=2000
+SPORTS_ODDS_STALE_TTL_MS=900000
+SPORTS_LIVE_HOLD_MS=30000
+SPORTS_REALTIME_CACHE_TTL_MS=2000
+SPORTS_REALTIME_TENNIS_CACHE_TTL_MS=1000
+SPORTS_REALTIME_STALE_TTL_MS=5000
+SPORTS_REALTIME_TENNIS_STALE_TTL_MS=2000
+SPORTS_REALTIME_COLD_TIMEOUT_MS=8000
+SPORTS_ODDS_COLD_TIMEOUT_MS=20000
+SPORTS_PREGAME_COLD_TIMEOUT_MS=35000
+SPORTS_WS_LIVE_ODDS_TTL_MS=2500
+SPORTS_WS_ODDS_STALE_TTL_MS=900000
+SPORTS_WS_SNAPSHOT_THROTTLE_MS=1000
+SPORTS_WS_SNAPSHOT_CACHE_TTL_MS=2000
+SPORTS_WS_SNAPSHOT_TENNIS_CACHE_TTL_MS=1000
+SPORTS_WS_RECONNECT_MIN_MS=1000
+SPORTS_WS_RECONNECT_MAX_MS=20000
+```
+
+Notas práticas:
+
+- Para reduzir atraso percebido, mexa primeiro em `SPORTS_LIVE_HOLD_MS` e `SPORTS_LIVE_ODDS_TTL_MS`.
+- Para falhar mais rápido quando o provider estiver lento, reduza `SPORTS_PROVIDER_LIVE_TIMEOUT_MS`.
+- Não reduza agressivamente os freezes de mercado críticos sem validação operacional, porque eles protegem contra odds desatualizadas em `goal`, `var`, `penalty` e eventos equivalentes.
+
+### Storage persistente KYC
+
+Os documentos KYC já não ficam em `base64` no Postgres como fluxo principal. O backend grava os ficheiros num diretório local estruturado e guarda apenas metadados no banco.
+
+No Railway, monte um volume persistente e use um caminho Linux estável, por exemplo:
+
+```env
+KYC_STORAGE_DIR=/data/kyc
+```
+
+Se `KYC_STORAGE_DIR` apontar para filesystem efémero, os documentos podem desaparecer após restart ou novo deploy.
+
+### Stripe webhook
+
+Configure no Stripe o endpoint:
+
+```text
+https://SEU_DOMINIO_OU_URL_RAILWAY/api/stripe/webhook
+```
+
+Eventos mínimos:
+
+- `payment_intent.processing`
+- `payment_intent.requires_action`
+- `payment_intent.succeeded`
+- `payment_intent.payment_failed`
+- `payment_intent.canceled`
+
+### Ordem recomendada de rollout
+
+1. Provisionar o PostgreSQL no Railway e preencher `DATABASE_URL`.
+2. Criar um volume persistente e definir `KYC_STORAGE_DIR=/data/kyc`.
+3. Configurar as variáveis de auth, Stripe e Sports API.
+4. Fazer deploy do backend.
+5. Confirmar que `/health` responde `200`.
+6. Confirmar que `/api/admin/sports-provider-status` mostra `configured: true` para a Sports API.
+7. Confirmar que `/api/metrics/sports` começa a expor métricas de provider.
+8. Confirmar que o webhook Stripe chega com assinatura válida.
+9. Testar login, refresh por cookie, upload KYC e um depósito real/de teste controlado.
+
+### Nota de migração
+
+O servidor em produção recusa startup se `ensureSchema` falhar. Se o ambiente Railway já existia com drift antigo, aplique também a migration:
+
+- `migrations/0018_repair_railway_postgres_schema.sql`
+
+### Checklist rápido pós-deploy
+
+- `GET /health` devolve `200`
+- `GET /api/auth/me` com sessão válida devolve utilizador
+- `POST /api/users/documents/upload?...` aceita ficheiro binário
+- `GET /api/users/documents` devolve `stored: true` nos novos uploads
+- `GET /api/admin/sports-provider-status` mostra métricas e sem warning de chave ausente
+- `POST /api/stripe/create-payment-intent` funciona com rate limit e metadata
