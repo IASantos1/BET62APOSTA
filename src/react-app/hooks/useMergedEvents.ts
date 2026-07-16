@@ -115,6 +115,21 @@ const hasAnyOdds = (e: any) => {
   return isNonEmptyMarkets(mk);
 };
 
+const hasLiveSignal = (e: any) => {
+  const goals = e?.goals;
+  const hasGoals =
+    goals &&
+    ((goals.home != null && goals.home !== '') || (goals.away != null && goals.away !== ''));
+  const hasScore = parseScoreObject(e?.score) || isNonEmptyString(e?.score);
+  const hasTimer = isNonEmptyString(e?.timer) || isNonEmptyString(e?.fixture?.status?.timer);
+  const elapsed = Number(e?.elapsed ?? e?.fixture?.status?.elapsed);
+  const hasElapsed = Number.isFinite(elapsed) && elapsed > 0;
+  const hasIncidents =
+    (Array.isArray(e?.events) && e.events.length > 0) ||
+    (Array.isArray(e?.fixture?.events) && e.fixture.events.length > 0);
+  return Boolean(hasGoals || hasScore || hasTimer || hasElapsed || hasIncidents || e?.suspended);
+};
+
 const pickTimer = (wsTimer: any, httpTimer: any) => {
   if (isNonEmptyString(wsTimer)) return String(wsTimer).trim();
   if (isNonEmptyString(httpTimer)) return String(httpTimer).trim();
@@ -248,7 +263,7 @@ export function useMergedEvents(
           Number((e as any).is_live) === 1 ||
           status === 'LIVE' ||
           ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(status);
-        if (isLiveLike && !hasAnyOdds(e)) return false;
+        if (isLiveLike && !hasAnyOdds(e) && !hasLiveSignal(e)) return false;
 
         return true;
     }).sort((a, b) => {

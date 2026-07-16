@@ -68,6 +68,53 @@ function parseHalfTimeScore(htStr: string | undefined | null): { home: number; a
   return parseScore(String(htStr));
 }
 
+function parseScoreValue(value: any): { home: number; away: number } | null {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    const raw = value.trim();
+    if (!raw) return null;
+    if (raw.startsWith('{') || raw.startsWith('[')) {
+      try {
+        return parseScoreValue(JSON.parse(raw));
+      } catch {
+        return null;
+      }
+    }
+    return parseScore(raw);
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) return null;
+  const home = value.home?.total ?? value.home?.score ?? value.home;
+  const away = value.away?.total ?? value.away?.score ?? value.away;
+  const homeNum = home == null || home === '' ? null : Number(home);
+  const awayNum = away == null || away === '' ? null : Number(away);
+  if (!Number.isFinite(homeNum) || !Number.isFinite(awayNum)) return null;
+  return { home: Number(homeNum), away: Number(awayNum) };
+}
+
+function readSelectionOutcome(sel: any): SelectionOutcome | null {
+  const direct = String(sel?.settlement_outcome || '').trim().toLowerCase();
+  if (direct === 'won' || direct === 'lost' || direct === 'void') return direct;
+  const combo = String(sel?.combo_meta?.settlement_summary?.outcome || '').trim().toLowerCase();
+  if (combo === 'won' || combo === 'lost' || combo === 'void') return combo;
+  return null;
+}
+
+function selectionTargetsEvent(sel: any, eventId: string): boolean {
+  const target = String(eventId || '').trim();
+  if (!target) return false;
+  const refs = [
+    sel?.event_id,
+    sel?.external_event_id,
+    sel?.id,
+    sel?.fixture_id,
+    sel?.combo_meta?.event_id,
+    sel?.combo_meta?.external_event_id,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  return refs.includes(target);
+}
+
 // ── Selection normalisation ───────────────────────────────────────────────────
 
 function normSel(s: string): string {
@@ -1816,17 +1863,24 @@ export function resultFromCachedEvent(ev: any): MatchResult | null {
   const isCancelled = /CANCEL|POSTPON|ABANDON/.test(statusRaw);
   const isFinished = /FT|FINAL|FINISH|ENDED|END|FULL_TIME|AET|PEN/.test(statusRaw);
   if (!isFinished && !isCancelled) return null;
-
-  const scoreStr = String(ev.score ?? '');
-  const parsed = scoreStr ? (() => {
-    const m = scoreStr.match(/(\d+)\s*[-:]\s*(\d+)/);
-    return m ? { home: Number(m[1]), away: Number(m[2]) } : null;
-  })() : null;
+  const parsed =
+    parseScoreValue(ev.score) ||
+    parseScoreValue(ev.goals) ||
+    parseScoreValue(ev.fixture?.score) ||
+    parseScoreValue(ev.result);
+  const htParsed =
+    parseScoreValue(ev.ht_score) ||
+    parseScoreValue(ev.score_ht) ||
+    parseScoreValue(ev.halftime_score) ||
+    parseScoreValue(ev.score?.halftime) ||
+    parseScoreValue(ev.fixture?.score?.halftime);
 
   const status: MatchResult['status'] =
     /CANCEL/.test(statusRaw) ? 'cancelled' :
     /POSTPON/.test(statusRaw) ? 'postponed' :
     /ABANDON/.test(statusRaw) ? 'abandoned' : 'finished';
+
+  if (status === 'finished' && !parsed) return null;
 
   return {
     eventId: String(ev.external_event_id ?? ev.id ?? ''),
@@ -1834,8 +1888,8 @@ export function resultFromCachedEvent(ev: any): MatchResult | null {
     status,
     homeScore: parsed?.home ?? 0,
     awayScore: parsed?.away ?? 0,
-    htHomeScore: null,
-    htAwayScore: null,
+    htHomeScore: htParsed?.home ?? null,
+    htAwayScore: htParsed?.away ?? null,
     totalCorners: null,
     homeCorners: null,
     awayCorners: null,
@@ -1850,26 +1904,67 @@ export function resultFromCachedEvent(ev: any): MatchResult | null {
 // ── Settle a single bet ───────────────────────────────────────────────────────
 
 async function settleBet(
-  pool: pg.Pool,
   bet: any,
   result: MatchResult,
-): Promise<{ outcome: 'won' | 'lost' | 'void'; winnings: number; note: string; settledSelections: any[] }> {
+): Promise<{ matched: boolean; complete: boolean; outcome: 'won' | 'lost' | 'void'; winnings: number; note: string; settledSelections: any[] }> {
   const selections: any[] = Array.isArray(bet.selections) ? bet.selections : [];
   const betType = String(bet.bet_type || 'single');
   const stake = Number(bet.stake) || 0;
   const isFreebet = Boolean(bet.is_free_bet);
 
+  let matched = false;
   const outcomes: SelectionOutcome[] = [];
   const notes: string[] = [];
   const settledSelections: any[] = [];
   const pricedSelections: Array<{ odd: number }> = [];
+  let unresolvedSelections = 0;
 
   for (const sel of selections) {
+    const existingOutcome = readSelectionOutcome(sel);
+    const targetsEvent = selectionTargetsEvent(sel, result.eventId);
+    if (targetsEvent) matched = true;
+
+    if (!targetsEvent) {
+      if (existingOutcome) {
+        outcomes.push(existingOutcome);
+        notes.push(String(sel?.settlement_note || ''));
+        pricedSelections.push({ odd: Number(sel?.settled_odd ?? sel?.odd) || 1 });
+      } else {
+        unresolvedSelections += 1;
+        pricedSelections.push({ odd: Number(sel?.odd) || 1 });
+      }
+      settledSelections.push(sel);
+      continue;
+    }
+
+    if (existingOutcome) {
+      outcomes.push(existingOutcome);
+      notes.push(String(sel?.settlement_note || ''));
+      pricedSelections.push({ odd: Number(sel?.settled_odd ?? sel?.odd) || 1 });
+      settledSelections.push(sel);
+      continue;
+    }
+
     const settled = settleStoredSelection(sel, result);
     outcomes.push(settled.outcome);
     notes.push(settled.note);
     settledSelections.push(settled.settledSelection);
     pricedSelections.push({ odd: settled.effectiveOdd });
+  }
+
+  if (!matched) {
+    return { matched: false, complete: false, outcome: 'void', winnings: 0, note: '', settledSelections: selections };
+  }
+
+  if (unresolvedSelections > 0) {
+    return {
+      matched: true,
+      complete: false,
+      outcome: 'void',
+      winnings: 0,
+      note: notes.filter(Boolean).join(' | '),
+      settledSelections,
+    };
   }
 
   let finalOutcome: 'won' | 'lost' | 'void';
@@ -1900,21 +1995,29 @@ async function settleBet(
   }
 
   const note = notes.join(' | ');
-  return { outcome: finalOutcome, winnings, note, settledSelections };
+  return { matched: true, complete: true, outcome: finalOutcome, winnings, note, settledSelections };
 }
 
-// ── Credit winnings to user balance ──────────────────────────────────────────
+// ── Finalize settlement atomically ───────────────────────────────────────────
 
-async function creditWinnings(
-  pool: pg.Pool,
+async function finalizeBetSettlement(
+  client: pg.PoolClient,
   userId: string,
   betId: string,
   winnings: number,
   outcome: 'won' | 'lost' | 'void',
   eventId: string,
+  settledSelections: any[],
 ): Promise<void> {
+  await client.query(
+    `UPDATE ${APP_BETS_TABLE}
+     SET status = $2, winnings = $3, selections = $4::jsonb, settled_at = NOW(), updated_at = NOW()
+     WHERE id = $1 AND status = 'pending'`,
+    [betId, outcome, winnings, JSON.stringify(settledSelections)],
+  );
+
   if (winnings <= 0) return;
-  await ensureAppTransactionsTable(pool);
+
   const txId = randomId(16);
   const txType = outcome === 'void' ? 'bet_refund' : 'bet_win';
   const description =
@@ -1922,25 +2025,122 @@ async function creditWinnings(
       ? `Aposta ${betId} anulada — reembolso`
       : `Ganhos da aposta ${betId} (evento ${eventId})`;
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(
-      `UPDATE profiles SET balance = balance + $2, updated_at = NOW() WHERE user_id = $1`,
-      [userId, winnings],
-    );
-    await client.query(
-      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, description, completed_at, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 'completed', $5, NOW(), NOW(), NOW())`,
-      [txId, userId, txType, winnings, description],
-    );
-    await client.query('COMMIT');
-  } catch (e) {
-    await client.query('ROLLBACK');
-    throw e;
-  } finally {
-    client.release();
+  await client.query(
+    `UPDATE profiles SET balance = balance + $2, updated_at = NOW() WHERE user_id = $1`,
+    [userId, winnings],
+  );
+  await client.query(
+    `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, description, completed_at, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, 'completed', $5, NOW(), NOW(), NOW())`,
+    [txId, userId, txType, winnings, description],
+  );
+}
+
+async function updateBetSelectionsInPlace(
+  client: pg.PoolClient,
+  betId: string,
+  settledSelections: any[],
+): Promise<void> {
+  await client.query(
+    `UPDATE ${APP_BETS_TABLE}
+     SET selections = $2::jsonb, updated_at = NOW()
+     WHERE id = $1 AND status = 'pending'`,
+    [betId, JSON.stringify(settledSelections)],
+  );
+}
+
+async function lockPendingBet(
+  client: pg.PoolClient,
+  betId: string,
+): Promise<any | null> {
+  const r = await client.query(
+    `SELECT id, user_id, bet_type, stake, potential_win, total_odds, is_free_bet, selections, status
+     FROM ${APP_BETS_TABLE}
+     WHERE id = $1
+     FOR UPDATE`,
+    [betId],
+  );
+  const row = r.rows?.[0] || null;
+  if (!row || String(row.status) !== 'pending') return null;
+  return row;
+}
+
+function countFinalOutcome(outcome: 'won' | 'lost' | 'void', target: { totalWon: number; totalLost: number; totalVoid: number }) {
+  if (outcome === 'won') target.totalWon += 1;
+  else if (outcome === 'lost') target.totalLost += 1;
+  else target.totalVoid += 1;
+}
+
+type SettlementCounter = Pick<SettlementReport, 'totalWon' | 'totalLost' | 'totalVoid'>;
+
+async function settleEventBetsInternal(
+  pool: pg.Pool,
+  result: MatchResult,
+  counter?: SettlementCounter,
+): Promise<{ settled: number; credited: number; errors: string[] }> {
+  await ensureAppTransactionsTable(pool);
+  let settled = 0;
+  let credited = 0;
+  const errors: string[] = [];
+
+  const r = await pool.query(
+    `SELECT id
+     FROM ${APP_BETS_TABLE}
+     WHERE status = 'pending'
+       AND EXISTS (
+         SELECT 1
+         FROM jsonb_array_elements(COALESCE(selections, '[]'::jsonb)) AS sel
+         WHERE COALESCE(sel->>'event_id', sel->>'external_event_id', sel->>'id', sel->'combo_meta'->>'event_id') = $1
+       )`,
+    [result.eventId],
+  ).catch((e: any) => { errors.push(`DB query: ${e?.message}`); return { rows: [] }; });
+
+  for (const row of r.rows) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const bet = await lockPendingBet(client, row.id);
+      if (!bet) {
+        await client.query('ROLLBACK');
+        continue;
+      }
+
+      const settlement = await settleBet(bet, result);
+      if (!settlement.matched) {
+        await client.query('ROLLBACK');
+        continue;
+      }
+
+      if (!settlement.complete) {
+        await updateBetSelectionsInPlace(client, bet.id, settlement.settledSelections);
+        await client.query('COMMIT');
+        continue;
+      }
+
+      await finalizeBetSettlement(
+        client,
+        bet.user_id,
+        bet.id,
+        settlement.winnings,
+        settlement.outcome,
+        result.eventId,
+        settlement.settledSelections,
+      );
+      await client.query('COMMIT');
+
+      settled += 1;
+      credited += settlement.winnings;
+      if (counter) countFinalOutcome(settlement.outcome, counter);
+      console.log(`[settlement] bet ${bet.id} → ${settlement.outcome} (winnings: ${settlement.winnings}) | ${settlement.note}`);
+    } catch (e: any) {
+      await client.query('ROLLBACK').catch(() => null);
+      errors.push(`bet ${row.id}: ${e?.message || e}`);
+    } finally {
+      client.release();
+    }
   }
+
+  return { settled, credited, errors };
 }
 
 // ── Main: settle all pending bets for one event ───────────────────────────────
@@ -1950,40 +2150,7 @@ export async function settleEventBets(
   result: MatchResult,
 ): Promise<{ settled: number; credited: number; errors: string[] }> {
   await ensureAppBetsTable(pool);
-  let settled = 0;
-  let credited = 0;
-  const errors: string[] = [];
-
-  const r = await pool.query(
-    `SELECT id, user_id, bet_type, stake, potential_win, total_odds, is_free_bet, selections
-     FROM ${APP_BETS_TABLE}
-     WHERE status = 'pending'
-       AND selections::text LIKE $1`,
-    [`%${result.eventId}%`],
-  ).catch((e: any) => { errors.push(`DB query: ${e?.message}`); return { rows: [] }; });
-
-  for (const bet of r.rows) {
-    try {
-      const { outcome, winnings, note, settledSelections } = await settleBet(pool, bet, result);
-
-      await pool.query(
-        `UPDATE ${APP_BETS_TABLE}
-         SET status = $2, winnings = $3, selections = $4::jsonb, settled_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [bet.id, outcome, winnings, JSON.stringify(settledSelections)],
-      );
-
-      await creditWinnings(pool, bet.user_id, bet.id, winnings, outcome, result.eventId);
-
-      settled++;
-      credited += winnings;
-      console.log(`[settlement] bet ${bet.id} → ${outcome} (winnings: ${winnings}) | ${note}`);
-    } catch (e: any) {
-      errors.push(`bet ${bet.id}: ${e?.message || e}`);
-    }
-  }
-
-  return { settled, credited, errors };
+  return settleEventBetsInternal(pool, result);
 }
 
 // ── Admin: settle by provided result ────────────────────────────────────────
@@ -2048,7 +2215,7 @@ export async function autoSettleFromCache(
 
       if (!matchResult) continue;
 
-      const { settled, credited, errors } = await settleEventBets(pool, matchResult);
+      const { settled, credited, errors } = await settleEventBetsInternal(pool, matchResult, report);
       if (settled > 0 || errors.length > 0) {
         report.totalSettled += settled;
         report.totalCredited += credited;

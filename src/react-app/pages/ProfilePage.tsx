@@ -114,7 +114,7 @@ const ProfilePage: React.FC = () => {
 
   const handleWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (withdrawAmount < 10) return addNotification({ type: 'error', message: 'Mínimo €10' });
+    if (withdrawAmount < 20) return addNotification({ type: 'error', message: 'Mínimo €20' });
     if (!hasIban && (!newIban || !holderName)) return addNotification({ type: 'error', message: 'Preencha o IBAN e Titular' });
     setWithdrawLoading(true);
     try {
@@ -860,7 +860,7 @@ const ProfilePage: React.FC = () => {
                         <Check className="w-4 h-4 text-emerald-500" />
                       </div>
                     </div>
-                    <InputField label="Valor a levantar (€)" type="number" value={withdrawAmount} onChange={e => setWithdrawAmount(Number(e.target.value))} min={10} />
+                    <InputField label="Valor a levantar (€)" type="number" value={withdrawAmount} onChange={e => setWithdrawAmount(Number(e.target.value))} min={20} />
                     <button onClick={handleWithdraw} disabled={withdrawLoading} className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-[14px] transition">
                       {withdrawLoading ? 'A processar...' : 'Confirmar levantamento'}
                     </button>
@@ -1142,7 +1142,7 @@ const ProfilePage: React.FC = () => {
             {[
               { n: '1', title: 'Regras de utilização', items: ['A plataforma é destinada exclusivamente a utilizadores maiores de 18 anos.', 'Cada conta é pessoal, individual e intransmissível.', 'É proibida a utilização de bots, scripts ou automações.', 'As odds podem ser ajustadas; quando necessário, será solicitada confirmação do utilizador.', 'Reservamo-nos o direito de suspender ou encerrar contas em caso de conduta indevida.'] },
               { n: '2', title: 'Jogo responsável', items: ['Disponibilizamos ferramentas de limites, notificações e autoexclusão.', 'A autoexclusão impede depósitos, apostas e criação de novos boletins.'] },
-              { n: '3', title: 'Depósitos e levantamentos', items: ['Depósito mínimo: €10 | Máximo por operação: €20.000.', 'O levantamento mínimo é de €10.', 'Todos os levantamentos requerem IBAN válido e verificação da identidade.'] },
+              { n: '3', title: 'Depósitos e levantamentos', items: ['Depósito mínimo: €10 | Máximo por operação: €20.000.', 'O levantamento mínimo é de €20.', 'Todos os levantamentos requerem IBAN válido e verificação da identidade.'] },
               { n: '4', title: 'Suporte e reclamações', items: ['Contacto: atendimentoaoclientebet62@gmail.com', 'Todas as reclamações serão analisadas caso a caso.'] },
             ].map(sec => (
               <div key={sec.n}>

@@ -130,6 +130,8 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS self_exclude BOOLEAN NOT NULL DEFAULT FALSE`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS self_exclude_until TIMESTAMPTZ`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_operator BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verified_iban TEXT`,
+    `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS iban_holder_name TEXT`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
     `DO $$

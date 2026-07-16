@@ -60,6 +60,22 @@ function decodeUrlValue(value: string): string {
   }
 }
 
+function normalizeIban(value: string): string {
+  return String(value || '').replace(/\s+/g, '').trim().toUpperCase();
+}
+
+function maskIban(value: string): string {
+  const iban = normalizeIban(value);
+  if (!iban) return '';
+  if (iban.length <= 12) return iban;
+  return `${iban.slice(0, 8)}...${iban.slice(-4)}`;
+}
+
+function isValidIbanShape(value: string): boolean {
+  const iban = normalizeIban(value);
+  return /^[A-Z]{2}\d{2}[A-Z0-9]{8,30}$/.test(iban);
+}
+
 function isAllowedExtension(filename: string, mimeType: string): boolean {
   const ext = fileExtensionOf(filename);
   const allowed = KYC_ALLOWED_EXTENSIONS_BY_MIME[mimeType] || [];
@@ -113,6 +129,55 @@ export async function handleUsersRoutes(
     const profile = (r.rows?.[0]?.profile && typeof r.rows[0].profile === 'object') ? r.rows[0].profile : {};
     const operator = Boolean((profile as any).is_operator);
     sendJson(res, 200, { operator });
+    return true;
+  }
+
+  if (req.method === 'GET' && path === '/api/users/iban') {
+    const u = await requireUser(pool, req);
+    if (!u) return unauthorized(res), true;
+
+    const r = await pool.query(
+      `SELECT verified_iban, iban_holder_name
+       FROM profiles
+       WHERE user_id = $1
+       LIMIT 1`,
+      [u.id],
+    );
+    const row = r.rows?.[0] || {};
+    const iban = normalizeIban(String(row.verified_iban || ''));
+    sendJson(res, 200, {
+      has_iban: Boolean(iban),
+      iban_masked: maskIban(iban),
+      holder_name: String(row.iban_holder_name || ''),
+    });
+    return true;
+  }
+
+  if (req.method === 'POST' && path === '/api/users/iban') {
+    const u = await requireUser(pool, req);
+    if (!u) return unauthorized(res), true;
+    const body = await readJsonBody<{ iban?: string; holder_name?: string }>(req, 8 * 1024).catch(() => null);
+    if (!body) return badRequest(res, 'Invalid JSON'), true;
+
+    const iban = normalizeIban(String(body.iban || ''));
+    const holderName = String(body.holder_name || '').trim();
+    if (!isValidIbanShape(iban)) return badRequest(res, 'IBAN inválido'), true;
+    if (!holderName) return badRequest(res, 'Nome do titular em falta'), true;
+
+    await pool.query(
+      `UPDATE profiles
+       SET verified_iban = $2,
+           iban_holder_name = $3,
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      [u.id, iban, holderName],
+    );
+
+    sendJson(res, 200, {
+      ok: true,
+      iban: maskIban(iban),
+      holder_name: holderName,
+    });
     return true;
   }
 

@@ -100,6 +100,8 @@ async function initDb(): Promise<void> {
         self_exclude          BOOLEAN     NOT NULL DEFAULT FALSE,
         self_exclude_until    TIMESTAMPTZ,
         is_operator           BOOLEAN     NOT NULL DEFAULT FALSE,
+        verified_iban         TEXT,
+        iban_holder_name      TEXT,
         created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`,
@@ -123,6 +125,8 @@ async function initDb(): Promise<void> {
         END IF;
       END $$`,
     );
+    await run(client, 'profiles.verified_iban', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verified_iban TEXT`);
+    await run(client, 'profiles.iban_holder_name', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS iban_holder_name TEXT`);
     await run(
       client,
       'profiles.user_id->text',

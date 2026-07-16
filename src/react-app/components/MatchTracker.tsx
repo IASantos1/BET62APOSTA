@@ -14,7 +14,7 @@ interface MatchTrackerProps {
 interface GameEvent {
   id: number
   minute: string
-  type: 'goal' | 'card' | 'attack' | 'corner' | 'shot'
+  type: 'goal' | 'card' | 'attack' | 'corner' | 'shot' | 'var' | 'penalty' | 'suspension'
   team: 'home' | 'away'
   description: string
 }
@@ -102,13 +102,77 @@ const MatchStats = ({ stats, darkMode }: { stats: any, darkMode: boolean }) => (
   </div>
 )
 
+const normalizeEventType = (rawType: any, rawDetail: any): GameEvent['type'] => {
+  const type = String(rawType || '').trim().toLowerCase()
+  const detail = String(rawDetail || '').trim().toLowerCase()
+  if (type === 'goal' || type === 'own_goal' || type === 'disallowed_goal') return 'goal'
+  if (type === 'var') return 'var'
+  if (type === 'penalty' || type === 'penalty_awarded' || type === 'missed_penalty') return 'penalty'
+  if (type === 'card' || type === 'red_card' || type === 'yellow_red' || detail.includes('card')) return 'card'
+  if (type === 'corner') return 'corner'
+  if (type === 'shot' || detail.includes('shot')) return 'shot'
+  if (type === 'suspension' || detail.includes('suspend')) return 'suspension'
+  if (type === 'attack' || detail.includes('attack')) return 'attack'
+  return 'attack'
+}
+
+const normalizeEventMinute = (ev: any): string => {
+  const elapsed = ev?.time?.elapsed ?? ev?.elapsed ?? ev?.minute ?? ev?.incident?.time?.elapsed ?? ev?.incident?.elapsed
+  const extra = ev?.time?.extra ?? ev?.extra ?? ev?.incident?.time?.extra ?? ev?.incident?.extra
+  if (elapsed == null || elapsed === '') return ''
+  return `${elapsed}${extra ? `+${extra}` : ''}`
+}
+
+const normalizeEventDescription = (ev: any): string => {
+  const type = String(ev?.type || ev?.incident?.type || '').trim()
+  const detail = String(ev?.detail || ev?.incident?.detail || '').trim()
+  const player = String(ev?.player?.name || ev?.incident?.player?.name || '').trim()
+  if (type === 'var') return player ? `VAR - ${player}` : 'Revisão VAR'
+  if (type === 'penalty_awarded') return player ? `Penálti assinalado - ${player}` : 'Penálti assinalado'
+  if (type === 'missed_penalty') return player ? `Penálti falhado - ${player}` : 'Penálti falhado'
+  if (type === 'disallowed_goal') return player ? `Golo anulado - ${player}` : 'Golo anulado'
+  if (type === 'red_card') return player ? `Cartão vermelho - ${player}` : 'Cartão vermelho'
+  if (type === 'yellow_red') return player ? `Segundo amarelo - ${player}` : 'Segundo amarelo'
+  if (type === 'goal') return player ? `Golo - ${player}` : 'Golo'
+  return `${type}${player ? ` - ${player}` : ''}${detail ? ` ${detail}` : ''}`.trim() || 'Lance crítico'
+}
+
+const normalizeMatchEvents = (live: any, homeName: string): GameEvent[] => {
+  const rawEvents = Array.isArray(live?.fixture?.events)
+    ? live.fixture.events
+    : Array.isArray(live?.events)
+      ? live.events
+      : []
+
+  return rawEvents
+    .map((ev: any, idx: number) => {
+      const teamName = String(ev?.team?.name || ev?.incident?.team?.name || '').trim()
+      const teamId = ev?.team?.id ?? ev?.incident?.team?.id
+      const homeId = live?.fixture?.home?.id ?? live?.teams?.home?.id
+      const isHome =
+        (teamName && teamName === homeName) ||
+        (teamId != null && homeId != null && String(teamId) === String(homeId))
+      return {
+        id: idx + 1,
+        minute: normalizeEventMinute(ev),
+        type: normalizeEventType(ev?.type || ev?.incident?.type, ev?.detail || ev?.incident?.detail),
+        team: isHome ? 'home' : 'away',
+        description: normalizeEventDescription(ev),
+      } as GameEvent
+    })
+    .reverse()
+}
+
 const TimelineEvent = ({ event, darkMode }: { event: GameEvent, darkMode: boolean }) => {
   const icon = {
     goal: '⚽',
     card: '🟨',
     attack: '🟢',
     corner: '🚩',
-    shot: '🚀'
+    shot: '🚀',
+    var: '🖥️',
+    penalty: '🎯',
+    suspension: '⏸️',
   }[event.type]
 
   const isHome = event.team === 'home'
@@ -220,7 +284,8 @@ export default function MatchTracker({ darkMode, live, homeName, awayName, leagu
 
   // --- Real Data Integration ---
   const hasRealStats = useMemo(() => !!(live?.fixture?.stats && Array.isArray(live.fixture.stats) && live.fixture.stats.length === 2), [live]);
-  const hasRealEvents = useMemo(() => !!(live?.fixture?.events && Array.isArray(live.fixture.events)), [live]);
+  const normalizedEvents = useMemo(() => normalizeMatchEvents(live, homeName), [live, homeName]);
+  const hasRealEvents = normalizedEvents.length > 0;
 
   useEffect(() => {
     if (hasRealStats) {
@@ -244,30 +309,11 @@ export default function MatchTracker({ darkMode, live, homeName, awayName, leagu
 
   useEffect(() => {
     if (hasRealEvents) {
-        const evs = live.fixture.events
-          .map((e: any, idx: number) => {
-            const teamName = String(e?.team?.name || '').trim();
-            const teamId = e?.team?.id;
-            const isHome = (teamName && teamName === homeName) || (teamId != null && teamId === live?.fixture?.home?.id);
-            const typeMap: any = { Goal: 'goal', Card: 'card', subst: 'substitution' };
-            const elapsed = e?.time?.elapsed ?? e?.elapsed ?? null;
-            const extra = e?.time?.extra ?? e?.extra ?? null;
-            const minute =
-              elapsed != null && elapsed !== ''
-                ? `${elapsed}${extra ? `+${extra}` : ''}'`
-                : '';
-            return {
-              id: idx,
-              minute,
-              type: typeMap[e?.type] || 'attack',
-              team: isHome ? 'home' : 'away',
-              description: `${String(e?.type || '')}${e?.player?.name ? ` - ${e.player.name}` : ''}${e?.detail ? ` ${e.detail}` : ''}`.trim(),
-            };
-          })
-          .reverse(); // Newest first
-        setGameEvents(evs);
+        setGameEvents(normalizedEvents);
+        return;
     }
-  }, [live, hasRealEvents, homeName]);
+    setGameEvents([]);
+  }, [hasRealEvents, normalizedEvents]);
 
   // --- Simulation Logic (Visuals Only) ---
   // DISABLED BY REQUEST: Prevent fake simulation when no data is available

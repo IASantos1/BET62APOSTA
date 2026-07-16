@@ -165,7 +165,7 @@ export async function handleWalletRoutes(
   }
 
   // POST /api/wallet/withdraw — create withdrawal request
-  if (req.method === 'POST' && path === '/api/wallet/withdraw') {
+  if (req.method === 'POST' && (path === '/api/wallet/withdraw' || path === '/api/withdrawals')) {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
     await ensureAppTransactionsTable(pool);
@@ -177,8 +177,9 @@ export async function handleWalletRoutes(
     if (!amount || amount < 20) return badRequest(res, 'Valor mínimo de levantamento é €20'), true;
 
     const txId = randomId(16);
-    const iban = String(body.iban || body.account_details?.iban || body.accountDetails?.iban || '').trim();
+    const iban = String(body.iban || body.account_details?.iban || body.accountDetails?.iban || '').replace(/\s+/g, '').trim().toUpperCase();
     const maskedIban = iban ? `${iban.slice(0, 8)}...${iban.slice(-4)}` : '';
+    const holderName = String(body.holder_name || body.account_details?.holder_name || body.accountDetails?.holder_name || '').trim();
     const description = String(body.description || `Levantamento para ${maskedIban || 'IBAN informado'}`);
     const paymentMethod = String(body.payment_method || 'bank_transfer');
     let newBalance = 0;
@@ -197,6 +198,17 @@ export async function handleWalletRoutes(
         [txId, u.id, amount, paymentMethod, description],
       );
 
+      if (iban) {
+        await client.query(
+          `UPDATE profiles
+           SET verified_iban = COALESCE(NULLIF(verified_iban, ''), $2),
+               iban_holder_name = COALESCE(NULLIF(iban_holder_name, ''), NULLIF($3, '')),
+               updated_at = NOW()
+           WHERE user_id = $1`,
+          [u.id, iban, holderName],
+        );
+      }
+
       newBalance = current - amount;
       await setLockedBalance(client, u.id, newBalance);
       await client.query('COMMIT');
@@ -212,6 +224,8 @@ export async function handleWalletRoutes(
       transactionId: txId,
       message: `Levantamento de €${amount.toFixed(2)} solicitado com sucesso!`,
       processingTime: '1-3 dias úteis',
+      iban: maskedIban,
+      holder_name: holderName,
       newBalance,
     });
     return true;
@@ -229,8 +243,9 @@ export async function handleWalletRoutes(
     if (!amount || amount < 20) return badRequest(res, 'Valor inválido'), true;
 
     const txId = randomId(16);
-    const iban = String(body.iban || body.account_details?.iban || '').trim();
+    const iban = String(body.iban || body.account_details?.iban || '').replace(/\s+/g, '').trim().toUpperCase();
     const maskedIban = iban ? `${iban.slice(0, 8)}...${iban.slice(-4)}` : '';
+    const holderName = String(body.holder_name || body.account_details?.holder_name || '').trim();
     const description = String(body.description || `Levantamento para ${maskedIban || 'IBAN informado'}`);
     const paymentMethod = String(body.payment_method || 'bank_transfer');
     const client = await pool.connect();
@@ -248,6 +263,17 @@ export async function handleWalletRoutes(
         [txId, u.id, amount, paymentMethod, description],
       );
 
+      if (iban) {
+        await client.query(
+          `UPDATE profiles
+           SET verified_iban = COALESCE(NULLIF(verified_iban, ''), $2),
+               iban_holder_name = COALESCE(NULLIF(iban_holder_name, ''), NULLIF($3, '')),
+               updated_at = NOW()
+           WHERE user_id = $1`,
+          [u.id, iban, holderName],
+        );
+      }
+
       await setLockedBalance(client, u.id, current - amount);
       await client.query('COMMIT');
     } catch (e) {
@@ -256,7 +282,7 @@ export async function handleWalletRoutes(
     } finally {
       client.release();
     }
-    sendJson(res, 200, { success: true, id: txId });
+    sendJson(res, 200, { success: true, id: txId, iban: maskedIban, holder_name: holderName });
     return true;
   }
 

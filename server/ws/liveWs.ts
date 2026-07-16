@@ -59,6 +59,7 @@ export function createLiveWs(apiKey: string) {
   const SNAPSHOT_TENNIS_CACHE_TTL_MS = envInt('SPORTS_WS_SNAPSHOT_TENNIS_CACHE_TTL_MS', 1_000, 500, 10_000);
   const WS_RECONNECT_MIN_MS = envInt('SPORTS_WS_RECONNECT_MIN_MS', 1_000, 250, 10_000);
   const WS_RECONNECT_MAX_MS = envInt('SPORTS_WS_RECONNECT_MAX_MS', 20_000, 1_000, 60_000);
+  const CRITICAL_INCIDENT_TARGET_LIMIT = envInt('SPORTS_WS_CRITICAL_INCIDENT_TARGET_LIMIT', 40, 12, 100);
   const oddsCache = new Map<string, { ts: number; data: any | null }>();
   const oddsInflight = new Map<string, Promise<any | null>>();
   const snapshotCache = new Map<string, { ts: number; live: any[] }>();
@@ -706,7 +707,7 @@ export function createLiveWs(apiKey: string) {
         };
       })
       .filter(Boolean)
-      .slice(0, 12) as Array<{ id: string; sport: string; homeTeam: string; awayTeam: string }>;
+      .slice(0, CRITICAL_INCIDENT_TARGET_LIMIT) as Array<{ id: string; sport: string; homeTeam: string; awayTeam: string }>;
 
     for (const target of targets) {
       const cacheKey = `${target.sport}:${target.id}`;

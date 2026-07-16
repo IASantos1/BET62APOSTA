@@ -40,7 +40,7 @@ export default function TermsPage() {
             <ul className="list-disc pl-5 space-y-2">
               <li>Os valores depositados são convertidos em saldo interno para utilização exclusiva na plataforma.</li>
               <li><strong>Depósito mínimo:</strong> €10 | <strong>Máximo por operação:</strong> €20.000.</li>
-              <li>O <strong>levantamento mínimo</strong> é de €10.</li>
+              <li>O <strong>levantamento mínimo</strong> é de €20.</li>
               <li>Todos os levantamentos requerem IBAN válido e verificação da identidade.</li>
               <li>O IBAN ficará associado à conta para levantamentos futuros.</li>
               <li>O prazo de processamento pode ser de até 24 horas, dependendo das validações de segurança.</li>

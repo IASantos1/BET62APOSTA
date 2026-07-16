@@ -3,11 +3,13 @@ import { useApp } from '@/react-app/contexts/AppContext';
 import { apiFetch } from '@/react-app/utils/api';
 import { COUNTRIES, DEFAULT_IBAN_PLACEHOLDER } from '@/shared/constants';
 
+const WITHDRAW_MIN_EUR = 20;
+
 export function WithdrawForm() {
   const { addNotification, user } = useApp();
   
   // Withdraw State
-  const [withdrawAmount, setWithdrawAmount] = useState<number>(10);
+  const [withdrawAmount, setWithdrawAmount] = useState<number>(WITHDRAW_MIN_EUR);
   const [hasIban, setHasIban] = useState<boolean | null>(null); // null = loading
   const [savedIban, setSavedIban] = useState<string>('');
   const [savedHolder, setSavedHolder] = useState<string>('');
@@ -38,7 +40,9 @@ export function WithdrawForm() {
 
   const handleWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (withdrawAmount < 10) return addNotification({ type: 'error', message: 'Mínimo €10' });
+    if (withdrawAmount < WITHDRAW_MIN_EUR) {
+      return addNotification({ type: 'error', message: `Mínimo €${WITHDRAW_MIN_EUR}` });
+    }
     if (!hasIban && (!newIban || !holderName)) return addNotification({ type: 'error', message: 'Preencha o IBAN e Titular' });
 
     setWithdrawLoading(true);
@@ -172,9 +176,9 @@ export function WithdrawForm() {
               value={withdrawAmount}
               onChange={(e) => setWithdrawAmount(Number(e.target.value))}
               className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-transparent focus:ring-2 focus:ring-blue-500 outline-none"
-              min="10"
+              min={WITHDRAW_MIN_EUR}
             />
-            <p className="text-xs text-gray-500 mt-1">Mínimo: €10.00</p>
+            <p className="text-xs text-gray-500 mt-1">Mínimo: €{WITHDRAW_MIN_EUR.toFixed(2)}</p>
           </div>
 
           <button
@@ -182,7 +186,7 @@ export function WithdrawForm() {
             disabled={withdrawLoading}
             className="w-full py-3.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {withdrawLoading ? 'A processar...' : 'Confirmar Saque'}
+            {withdrawLoading ? 'A processar...' : 'Solicitar Levantamento'}
           </button>
         </form>
       )}

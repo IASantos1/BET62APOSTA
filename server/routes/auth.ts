@@ -115,6 +115,22 @@ function verifyLegacyPassword(password: string, storedValue: string): boolean {
   return false;
 }
 
+function buildLoginLookup(userCols: ColInfo[], identifier: string): { whereSql: string; params: string[]; aliasCol: string } {
+  const loginCols = ['email', 'username'].filter((name) => hasCol(userCols, name));
+  if (loginCols.length === 0) {
+    throw new Error('No supported login column found in users table');
+  }
+  const normalized = String(identifier || '').trim().toLowerCase();
+  const whereSql = loginCols
+    .map((col, idx) => `LOWER(COALESCE(${col}, '')) = $${idx + 1}`)
+    .join(' OR ');
+  return {
+    whereSql,
+    params: loginCols.map(() => normalized),
+    aliasCol: loginCols[0],
+  };
+}
+
 async function createUserRecord(
   pool: pg.Pool,
   email: string,
@@ -217,12 +233,11 @@ async function loadUserForSignin(pool: pg.Pool, email: string): Promise<any | nu
   if (hasCol(userCols, 'password_salt')) passwordCols.push('password_salt');
   if (hasCol(userCols, 'hashed_password')) passwordCols.push('hashed_password');
   if (hasCol(userCols, 'password')) passwordCols.push('password');
-  const emailCol = firstExistingCol(userCols, 'email', 'username');
-  if (!emailCol) throw new Error('No supported login column found in users table');
-  passwordCols.push(`${emailCol} AS email`);
+  const lookup = buildLoginLookup(userCols, email);
+  passwordCols.push(`${lookup.aliasCol} AS email`);
   const r = await pool.query(
-    `SELECT ${passwordCols.join(', ')} FROM users WHERE ${emailCol} = $1 LIMIT 1`,
-    [email],
+    `SELECT ${passwordCols.join(', ')} FROM users WHERE ${lookup.whereSql} LIMIT 1`,
+    lookup.params,
   );
   return r.rows?.[0] || null;
 }
@@ -300,9 +315,8 @@ export async function handleAuthRoutes(
       if (authRateLimit(res, 'signup-email', [email], 8, 10 * 60_000)) return true;
 
       const userCols = await getTableCols(pool, 'users').catch(() => []);
-      const loginCol = firstExistingCol(userCols, 'email', 'username');
-      if (!loginCol) throw new Error('No supported login column found in users table');
-      const exists = await pool.query(`SELECT 1 FROM users WHERE ${loginCol} = $1 LIMIT 1`, [email]);
+      const lookup = buildLoginLookup(userCols, email);
+      const exists = await pool.query(`SELECT 1 FROM users WHERE ${lookup.whereSql} LIMIT 1`, lookup.params);
       if (exists.rows.length > 0) return sendJson(res, 409, { error: 'Email already exists' }), true;
 
       const name = `${String(body.firstName || '').trim()} ${String(body.lastName || '').trim()}`.trim();
