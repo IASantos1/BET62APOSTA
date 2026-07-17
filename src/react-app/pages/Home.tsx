@@ -88,6 +88,41 @@ const getEventLeagueMeta = (event: any) => {
   };
 };
 
+const hasRenderableLiveOdds = (ev: any): boolean => {
+  const sportRaw = String(ev?.sport || '').toLowerCase();
+  const isSoccer = sportRaw.includes('soccer') || (sportRaw.includes('football') && !sportRaw.includes('american')) || sportRaw.includes('futebol');
+  if (!isSoccer) return true;
+
+  const homeOdd = Number(ev?.home_odd || 0);
+  const drawOdd = Number(ev?.draw_odd || 0);
+  const awayOdd = Number(ev?.away_odd || 0);
+  if (homeOdd > 1.01 && awayOdd > 1.01) return true;
+  if (homeOdd > 1.01 && drawOdd > 1.01) return true;
+  if (drawOdd > 1.01 && awayOdd > 1.01) return true;
+
+  let mk: any = ev?.markets ?? ev?.odds;
+  if (typeof mk === 'string') {
+    const s = mk.trim();
+    if (s && ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']')))) {
+      try { mk = JSON.parse(s); } catch { void 0; }
+    }
+  }
+  if (!mk || typeof mk !== 'object') return false;
+  const h2h = mk.h2h || mk.main || mk['1x2'] || mk.match_winner;
+  const sels = Array.isArray(h2h)
+    ? h2h
+    : Array.isArray(h2h?.selections)
+      ? h2h.selections
+      : Array.isArray(h2h?.outcomes)
+        ? h2h.outcomes
+        : Array.isArray(h2h?.values)
+          ? h2h.values
+          : [];
+  return Array.isArray(sels)
+    ? sels.filter((s: any) => Number(s?.odd ?? s?.price ?? s?.value ?? 0) > 1.01).length >= 2
+    : false;
+};
+
 function Home({ mode = 'home' }: HomeProps) {
   const { darkMode, selectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
   const navigate = useNavigate();
@@ -331,7 +366,11 @@ function Home({ mode = 'home' }: HomeProps) {
   );
 
   const limitedLive = useMemo(
-    () => limitEvents(filterEventsByControls(flatLiveEvents), 120),
+    () => {
+      const filtered = filterEventsByControls(flatLiveEvents);
+      const preferred = filtered.filter((ev) => hasRenderableLiveOdds(ev));
+      return limitEvents(preferred, 120);
+    },
     [flatLiveEvents, leagueFilter, sportFilter],
   );
 

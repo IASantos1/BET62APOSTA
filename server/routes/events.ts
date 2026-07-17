@@ -1368,13 +1368,45 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       return score;
     };
 
+    const hasRenderablePrimaryOdds = (e: any): boolean => {
+      const h = Number((e as any)?.home_odd || 0);
+      const d = Number((e as any)?.draw_odd || 0);
+      const a = Number((e as any)?.away_odd || 0);
+      if (h > 1.01 && a > 1.01) return true;
+      if (h > 1.01 && d > 1.01) return true;
+      if (d > 1.01 && a > 1.01) return true;
+
+      let mk: any = (e as any)?.markets ?? (e as any)?.odds;
+      if (typeof mk === 'string') {
+        const s = mk.trim();
+        if (s && ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']')))) {
+          try { mk = JSON.parse(s); } catch { void 0; }
+        }
+      }
+      if (!mk || typeof mk !== 'object') return false;
+
+      const h2h = (mk as any).h2h || (mk as any).main || (mk as any)['1x2'] || (mk as any).match_winner;
+      const sels = Array.isArray(h2h)
+        ? h2h
+        : Array.isArray(h2h?.selections)
+          ? h2h.selections
+          : Array.isArray(h2h?.outcomes)
+            ? h2h.outcomes
+            : Array.isArray(h2h?.values)
+              ? h2h.values
+              : [];
+      return Array.isArray(sels)
+        ? sels.filter((s: any) => Number(s?.odd ?? s?.price ?? s?.value ?? 0) > 1.01).length >= 2
+        : false;
+    };
+
     const curateLiveEvents = (arr: AnyEvent[]): AnyEvent[] => {
       if (allowBlocked || cleanLeague) return arr;
 
       const nonSoccer: AnyEvent[] = [];
-      const importantSoccer: AnyEvent[] = [];
-      const clubFriendlies: AnyEvent[] = [];
-      const fallbackSoccer: AnyEvent[] = [];
+      const importantSoccerWithOdds: AnyEvent[] = [];
+      const clubFriendliesWithOdds: AnyEvent[] = [];
+      const fallbackSoccerWithOdds: AnyEvent[] = [];
 
       for (const e of Array.isArray(arr) ? arr : []) {
         const sport = String((e as any)?.sport || '').toLowerCase().trim();
@@ -1390,18 +1422,21 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
 
         if (hasBlockedTeamMarker(homeTeam) || hasBlockedTeamMarker(awayTeam)) continue;
         if (isBlockedLeague(leagueName, country, true)) continue;
+        const hasOdds = hasRenderablePrimaryOdds(e);
+
+        if (!hasOdds) continue;
 
         if (isClubFriendlyLeagueName(leagueName)) {
-          clubFriendlies.push(e);
+          clubFriendliesWithOdds.push(e);
           continue;
         }
 
         if (isImportantSoccerLeague(leagueName, country)) {
-          importantSoccer.push(e);
+          importantSoccerWithOdds.push(e);
           continue;
         }
 
-        fallbackSoccer.push(e);
+        fallbackSoccerWithOdds.push(e);
       }
 
       const byPriority = (a: any, b: any) => {
@@ -1410,11 +1445,13 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         return sortStable([a, b])[0] === a ? -1 : 1;
       };
 
-      const selectedFriendlies = [...clubFriendlies].sort(byPriority).slice(0, 3);
+      const selectedFriendlies = [...clubFriendliesWithOdds].sort(byPriority).slice(0, 3);
       const selectedSoccer =
-        importantSoccer.length > 0
-          ? [...importantSoccer, ...selectedFriendlies]
-          : [...fallbackSoccer].sort(byPriority).slice(0, 6).concat(selectedFriendlies);
+        importantSoccerWithOdds.length > 0
+          ? [...importantSoccerWithOdds, ...selectedFriendlies]
+          : fallbackSoccerWithOdds.length > 0
+            ? [...fallbackSoccerWithOdds].sort(byPriority).slice(0, 6).concat(selectedFriendlies)
+            : [];
 
       return [...nonSoccer, ...selectedSoccer];
     };
