@@ -45,26 +45,47 @@ function firstEnv(...names: string[]): string {
   return '';
 }
 
-function getEnvAdminCredentials(): { login: string; password: string } {
-  const login = firstEnv(
+function uniqueEnvValues(values: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of values) {
+    const value = String(raw || '').trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
+function getEnvAdminCredentials(): { logins: string[]; username: string; email: string; password: string; primaryLogin: string } {
+  const username = firstEnv(
     'ADMIN_USERNAME',
-    'ADMIN_LOGIN',
-    'ADMIN_EMAIL',
     'BET62_ADMIN_USERNAME',
+  );
+  const login = firstEnv(
+    'ADMIN_LOGIN',
     'BET62_ADMIN_LOGIN',
+  );
+  const email = firstEnv(
+    'ADMIN_EMAIL',
     'BET62_ADMIN_EMAIL',
   );
+  const logins = uniqueEnvValues([username, login, email]);
   const password = firstEnv(
     'ADMIN_PASSWORD',
     'BET62_ADMIN_PASSWORD',
   );
-  return { login, password };
+  const primaryLogin = email || username || login || logins[0] || '';
+  return { logins, username, email, password, primaryLogin };
 }
 
 function matchesEnvAdminCredentials(identifier: string, password: string): boolean {
   const cfg = getEnvAdminCredentials();
-  if (!cfg.login || !cfg.password) return false;
-  return String(identifier || '').trim().toLowerCase() === cfg.login.toLowerCase() && password === cfg.password;
+  if (cfg.logins.length === 0 || !cfg.password) return false;
+  const normalized = String(identifier || '').trim().toLowerCase();
+  return cfg.logins.some((login) => login.toLowerCase() === normalized) && password === cfg.password;
 }
 
 function ipOf(req: http.IncomingMessage): string {
@@ -357,18 +378,41 @@ async function loadUserForSignin(pool: pg.Pool, email: string): Promise<any | nu
 
 async function ensureEnvAdminUser(pool: pg.Pool, identifier: string): Promise<any | null> {
   const cfg = getEnvAdminCredentials();
-  if (!cfg.login || !cfg.password) return null;
+  if (cfg.logins.length === 0 || !cfg.password) return null;
 
-  const login = String(identifier || cfg.login).trim().toLowerCase();
-  let user = await loadUserForSignin(pool, login);
+  const requestedLogin = String(identifier || '').trim().toLowerCase();
+  const loginCandidates = uniqueEnvValues([requestedLogin, ...cfg.logins]).map((x) => x.toLowerCase());
+  let user: any | null = null;
+  for (const login of loginCandidates) {
+    user = await loadUserForSignin(pool, login);
+    if (user) break;
+  }
   let userId = String(user?.id || '').trim();
 
   if (!userId) {
-    userId = await createUserRecord(pool, login, cfg.password, 'Administrador BET62');
+    userId = await createUserRecord(pool, cfg.primaryLogin, cfg.password, 'Administrador BET62');
   }
 
   try {
-    await pool.query(`UPDATE users SET role = 'admin' WHERE id = $1`, [userId]);
+    const userCols = await getTableCols(pool, 'users').catch(() => []);
+    const updates: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (hasCol(userCols, 'role')) updates.push(`role = 'admin'`);
+    if (hasCol(userCols, 'email') && cfg.email) {
+      updates.push(`email = $${idx++}`);
+      values.push(cfg.email.toLowerCase());
+    }
+    if (hasCol(userCols, 'username') && (cfg.username || cfg.primaryLogin)) {
+      updates.push(`username = $${idx++}`);
+      values.push(cfg.username || cfg.primaryLogin);
+    }
+
+    if (updates.length > 0) {
+      values.push(userId);
+      await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = $${idx}`, values);
+    }
   } catch {
     void 0;
   }
@@ -385,7 +429,13 @@ async function ensureEnvAdminUser(pool: pg.Pool, identifier: string): Promise<an
     void 0;
   }
 
-  user = await loadUserForSignin(pool, login);
+  for (const login of loginCandidates) {
+    user = await loadUserForSignin(pool, login);
+    if (user) return user;
+  }
+  if (cfg.primaryLogin) {
+    user = await loadUserForSignin(pool, cfg.primaryLogin.toLowerCase());
+  }
   return user || { id: userId };
 }
 
