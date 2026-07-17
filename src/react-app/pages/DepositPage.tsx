@@ -34,6 +34,11 @@ const PaymentLogo = ({
   </div>
 );
 
+const pageShellStyle = (darkMode: boolean) => ({
+  backgroundColor: darkMode ? '#111827' : '#f9fafb',
+  color: darkMode ? '#ffffff' : '#111827',
+});
+
 // ─── MBWay ────────────────────────────────────────────────────────────────────
 const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
   const { addNotification, darkMode } = useApp();
@@ -165,14 +170,14 @@ const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => voi
       <div>
         <label className={`block text-sm font-medium mb-1 ${uiDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Número de Telemóvel</label>
         <div className="flex gap-2">
-          <span className={`flex items-center px-3 rounded-l-lg border border-r-0 text-sm font-medium ${uiDarkMode ? 'bg-gray-700 border-gray-600 text-gray-300' : 'bg-gray-100 border-gray-300 text-gray-700'}`}>🇵🇹 +351</span>
+          <span className={`flex items-center px-3 rounded-l-lg border border-r-0 text-sm font-medium ${uiDarkMode ? 'bg-gray-700 border-gray-600 text-gray-300' : 'bg-gray-100 border-gray-300 text-gray-700'}`}>+351</span>
           <input type="tel" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} maxLength={9} placeholder="912 345 678"
             className={`flex-1 p-3 rounded-r-lg border outline-none focus:ring-2 focus:ring-red-500 ${uiDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} />
         </div>
       </div>
       {error && <p className="text-red-500 text-sm">{error}</p>}
       <button type="submit" disabled={loading} className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2">
-        {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> A enviar...</> : `📱 Pagar €${amount.toFixed(2)} via MBway`}
+        {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> €{amount.toFixed(2)}</> : `€${amount.toFixed(2)}`}
       </button>
       <p className={`text-xs text-center ${uiDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Receberás uma notificação na tua app MBway para confirmar</p>
     </form>
@@ -542,7 +547,7 @@ export default function DepositPage() {
   ];
 
   if (!user) return (
-    <div className={`min-h-screen px-4 py-8 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div className={`min-h-screen px-4 py-8 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`} style={pageShellStyle(darkMode)}>
       <div className="max-w-md mx-auto text-center py-16">
         <div className="text-5xl mb-4">🔐</div>
         <h2 className="text-xl font-bold mb-2">Sessão necessária</h2>
@@ -553,7 +558,7 @@ export default function DepositPage() {
   );
 
   if (success) return (
-    <div className={`min-h-screen px-4 py-8 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div className={`min-h-screen px-4 py-8 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`} style={pageShellStyle(darkMode)}>
       <div className="text-center py-10 max-w-md mx-auto">
         <div className="text-5xl mb-4">✅</div>
         <h2 className="text-xl font-bold text-green-400 mb-2">Depósito Iniciado!</h2>
@@ -568,8 +573,8 @@ export default function DepositPage() {
   );
 
   return (
-    <div className={`min-h-screen px-4 py-8 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
-      <div className="max-w-md mx-auto">
+    <div className={`min-h-screen px-4 py-8 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`} style={pageShellStyle(darkMode)}>
+      <div className={`max-w-md mx-auto rounded-[28px] ${darkMode ? 'bg-gray-900' : 'bg-gray-50'}`} style={pageShellStyle(darkMode)}>
         <div className={`grid grid-cols-2 rounded-2xl p-1 mb-4 shadow ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
           {([
             { key: 'deposit', label: 'Depósito' },
