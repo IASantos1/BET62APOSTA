@@ -119,6 +119,38 @@ const hasRenderableLiveOdds = (ev: any): boolean => {
     : false;
 };
 
+function EventCardSkeleton({ darkMode, live = false }: { darkMode: boolean; live?: boolean }) {
+  return (
+    <div className={`rounded-2xl border p-4 md:p-5 animate-pulse ${darkMode ? 'bg-[#161616] border-gray-800' : 'bg-white border-gray-200'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className={`w-9 h-9 rounded-full ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`} />
+          <div className="min-w-0">
+            <div className={`h-3 w-40 rounded ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`} />
+            <div className={`h-3 w-20 rounded mt-2 ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`} />
+          </div>
+        </div>
+        <div className={`h-6 w-14 rounded-full ${live ? 'bg-red-500/30' : darkMode ? 'bg-gray-800' : 'bg-gray-200'}`} />
+      </div>
+
+      <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <div className={`h-8 rounded ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`} />
+        <div className="flex flex-col items-center gap-2">
+          <div className={`h-7 w-16 rounded ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`} />
+          <div className={`h-5 w-10 rounded-full ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`} />
+        </div>
+        <div className={`h-8 rounded ${darkMode ? 'bg-gray-800' : 'bg-gray-200'}`} />
+      </div>
+
+      <div className="mt-5 grid grid-cols-3 gap-3">
+        <div className={`h-16 rounded-xl ${darkMode ? 'bg-gray-800' : 'bg-gray-100'}`} />
+        <div className={`h-16 rounded-xl ${darkMode ? 'bg-gray-800' : 'bg-gray-100'}`} />
+        <div className={`h-16 rounded-xl ${darkMode ? 'bg-gray-800' : 'bg-gray-100'}`} />
+      </div>
+    </div>
+  );
+}
+
 function Home({ mode = 'home' }: HomeProps) {
   const { darkMode, selectedCategory, showMobileSidebar, setShowMobileSidebar, addToBetSlip } = useApp();
   const navigate = useNavigate();
@@ -1101,9 +1133,17 @@ function Home({ mode = 'home' }: HomeProps) {
             </div>
 
             {!revealed ? (
-              <div className="text-center py-20">
-                <div className="animate-spin h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-                <p className="text-gray-500">Carregando eventos...</p>
+              <div className="space-y-6 events-reveal">
+                <div className="flex flex-col gap-4">
+                  {Array.from({ length: mode === 'live' ? 4 : 3 }).map((_, idx) => (
+                    <EventCardSkeleton key={`skeleton_${mode}_${idx}`} darkMode={darkMode} live={mode === 'live'} />
+                  ))}
+                </div>
+                <div className="text-center pt-2">
+                  <p className={`${darkMode ? 'text-gray-400' : 'text-gray-500'} text-sm font-medium`}>
+                    Carregando eventos e estabilizando odds...
+                  </p>
+                </div>
               </div>
             ) : (limitedLive.length > 0 || limitedUpcoming.length > 0 || limitedNext7.length > 0) ? (
               <div className="space-y-12 events-reveal">
