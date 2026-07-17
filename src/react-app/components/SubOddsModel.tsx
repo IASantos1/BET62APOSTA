@@ -1755,13 +1755,19 @@ export function SubOddsModel({
           )
       }
 
-      // Correct Score — 3 columns: Casa wins | Empates | Fora wins
+      // Correct Score
       if (key === 'correct_score' || key === 'exact_score' || key === 'score') {
         const rawItems = getMarketItems(key);
         if (!rawItems || rawItems.length === 0) return null;
         const title = getMarketTitle(key, event?.sport);
         const susp = getSuspendedReason(key);
         const isSusp = !!susp;
+        const sportKey = String(event?.sport || '').toLowerCase();
+        const isTennisScoreMarket =
+          sportKey.includes('tennis') ||
+          sportKey.includes('tênis') ||
+          sportKey.includes('atp') ||
+          sportKey.includes('wta');
 
         // Parse label like "1-0" → { h: 1, a: 0 }
         const parseScore = (label: string) => {
@@ -1769,6 +1775,107 @@ export function SubOddsModel({
           if (!m) return null;
           return { h: parseInt(m[1]), a: parseInt(m[2]) };
         };
+
+        if (isTennisScoreMarket) {
+          const detectSide = (item: MarketItem): 'home' | 'away' | null => {
+            const text = `${item.label || ''} ${item.selection || ''} ${item.name || ''}`.toLowerCase();
+            if (/\bcasa\b|\bhome\b/.test(text)) return 'home';
+            if (/\bfora\b|\baway\b|\bvisitante\b/.test(text)) return 'away';
+            return null;
+          };
+
+          const normalized = rawItems
+            .map((item: MarketItem) => {
+              const parsed = parseScore(String(item.label || ''));
+              const side = detectSide(item);
+              if (!parsed || !side) return null;
+              const winnerSets = Math.max(parsed.h, parsed.a);
+              const loserSets = Math.min(parsed.h, parsed.a);
+              return {
+                item,
+                side,
+                winnerSets,
+                loserSets,
+                scoreLabel: `${winnerSets}-${loserSets}`,
+              };
+            })
+            .filter(Boolean) as Array<{
+              item: MarketItem;
+              side: 'home' | 'away';
+              winnerSets: number;
+              loserSets: number;
+              scoreLabel: string;
+            }>;
+
+          if (normalized.length > 0) {
+            const rowsMap = new Map<string, {
+              winnerSets: number;
+              loserSets: number;
+              home?: MarketItem;
+              away?: MarketItem;
+            }>();
+
+            for (const entry of normalized) {
+              const rowKey = entry.scoreLabel;
+              const prev = rowsMap.get(rowKey) || {
+                winnerSets: entry.winnerSets,
+                loserSets: entry.loserSets,
+              };
+              prev[entry.side] = entry.item;
+              rowsMap.set(rowKey, prev);
+            }
+
+            const rows = Array.from(rowsMap.entries())
+              .sort((a, b) => {
+                const av = a[1];
+                const bv = b[1];
+                if (av.winnerSets !== bv.winnerSets) return av.winnerSets - bv.winnerSets;
+                return av.loserSets - bv.loserSets;
+              });
+
+            const renderExactScoreButton = (item: MarketItem | undefined, scoreLabel: string, side: 'home' | 'away') => {
+              if (!item) return <div className="h-12" />;
+              const val = Number(item.odd);
+              const isBlocked = isSusp || item.suspended === true || !(val > 0);
+              const priceStr = val > 0 ? val.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+              return (
+                <button
+                  onClick={isBlocked ? undefined : () => onSelect(String(item.selection || item.label), val)}
+                  disabled={isBlocked}
+                  className={`w-full min-h-[48px] rounded-xl px-3 py-2 font-black tabular-nums transition-all duration-200 flex items-center justify-between gap-3 ${
+                    isBlocked ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'
+                  }`}
+                >
+                  <span className="text-sm font-extrabold">{scoreLabel}</span>
+                  <span className={`text-base ${side === 'home' ? 'text-white' : 'text-white'}`}>{priceStr}</span>
+                </button>
+              );
+            };
+
+            return (
+              <MarketCard title={title} darkMode={darkMode} noPad>
+                <div className="p-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className={`text-[10px] font-extrabold uppercase tracking-wider text-center py-1.5 ${darkMode ? 'bg-gray-800/60 text-blue-300' : 'bg-gray-50 text-blue-600'} rounded-lg truncate px-2`}>
+                      {home || 'Jogador 1'}
+                    </div>
+                    <div className={`text-[10px] font-extrabold uppercase tracking-wider text-center py-1.5 ${darkMode ? 'bg-gray-800/60 text-red-300' : 'bg-gray-50 text-red-600'} rounded-lg truncate px-2`}>
+                      {away || 'Jogador 2'}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {rows.map(([scoreLabel, row]) => (
+                      <div key={scoreLabel} className="grid grid-cols-2 gap-2">
+                        {renderExactScoreButton(row.home, scoreLabel, 'home')}
+                        {renderExactScoreButton(row.away, scoreLabel, 'away')}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </MarketCard>
+            );
+          }
+        }
 
         const baseMax = 3;
         const liveMax =
@@ -2336,11 +2443,6 @@ export function SubOddsModel({
       const isBaseball = s.includes('baseball') || s.includes('beisebol') || s.includes('mlb');
       const isIceHockey = s.includes('ice hockey') || s.includes('hóquei') || s.includes('nhl');
 
-      if (isBasketball) return BASKETBALL_GROUPS;
-      if (isTennis) return TENNIS_GROUPS;
-      if (isBaseball) return BASEBALL_GROUPS;
-      if (isIceHockey) return ICE_HOCKEY_GROUPS;
-
       const keysWithCategory = Object.keys(eventOdds || {}).filter(k => {
           if (k === 'main' || k === '1x2' || k === 'match_winner' || k === 'spreads') return false;
           return !!(eventOdds as any)[k]?.category;
@@ -2388,7 +2490,11 @@ export function SubOddsModel({
       const isRugby = s.includes('rugby') || s.includes('union') || s.includes('league');
       
       let BASE_GROUPS = MARKET_GROUPS;
-      if (isVolleyball) BASE_GROUPS = VOLLEYBALL_GROUPS;
+      if (isBasketball) BASE_GROUPS = BASKETBALL_GROUPS;
+      else if (isTennis) BASE_GROUPS = TENNIS_GROUPS;
+      else if (isBaseball) BASE_GROUPS = BASEBALL_GROUPS;
+      else if (isIceHockey) BASE_GROUPS = ICE_HOCKEY_GROUPS;
+      else if (isVolleyball) BASE_GROUPS = VOLLEYBALL_GROUPS;
       else if (isAFL) BASE_GROUPS = AFL_GROUPS;
       else if (isF1) BASE_GROUPS = FORMULA1_GROUPS;
       else if (isAmericanFootball) BASE_GROUPS = AMERICAN_FOOTBALL_GROUPS;
