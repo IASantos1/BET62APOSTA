@@ -174,6 +174,21 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     lastFailureAt: number;
     lastError: string;
   }>();
+  const liveOddsGapSamples = new Map<string, {
+    sport: string;
+    matchId: string;
+    homeTeam: string;
+    awayTeam: string;
+    league: string;
+    count: number;
+    lastSeenAt: number;
+    sources: {
+      all: boolean;
+      live: boolean;
+      pre: boolean;
+    };
+    marketKeys: string[];
+  }>();
 
   const ensureProviderMetric = (operation: string) => {
     const key = String(operation || '').trim().toLowerCase() || 'unknown';
@@ -222,6 +237,59 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       metric.lastFailureAt = nowMs();
       metric.lastError = String(error?.message || error || 'provider_error');
       throw error;
+    }
+  };
+
+  const hasAnyRenderableH2H = (odds: any): boolean => {
+    const home = Number(odds?.home || 0);
+    const draw = Number(odds?.draw || 0);
+    const away = Number(odds?.away || 0);
+    if (home > 1 && away > 1) return true;
+    const mk = odds?.markets && typeof odds.markets === 'object' ? odds.markets : {};
+    const aliases = ['h2h', '1x2', 'main', 'match_winner', 'match_result', 'full_time_result', 'moneyline', 'winner'];
+    for (const key of aliases) {
+      const arr = (mk as any)?.[key];
+      if (!Array.isArray(arr) || arr.length === 0) continue;
+      const valid = arr.filter((s: any) => Number(s?.odd ?? s?.price ?? s?.value ?? 0) > 1.01);
+      if (valid.length >= 2) return true;
+    }
+    return home > 1 || draw > 1 || away > 1;
+  };
+
+  const recordLiveOddsGapSample = (
+    sport: string,
+    matchId: string,
+    ctx: { homeTeam?: string; awayTeam?: string },
+    results: { allResult: any; liveResult: any; preResult: any; merged: any },
+  ) => {
+    const key = `${String(sport || '').trim().toLowerCase()}:${String(matchId || '').trim()}`;
+    if (!key || key.endsWith(':')) return;
+    const merged = results.merged;
+    if (hasAnyRenderableH2H(merged)) {
+      liveOddsGapSamples.delete(key);
+      return;
+    }
+    const cachedEvent = lastEventById.get(String(matchId || '').trim())?.data;
+    const prev = liveOddsGapSamples.get(key);
+    const marketKeys = Object.keys((merged?.markets && typeof merged.markets === 'object') ? merged.markets : {}).slice(0, 12);
+    liveOddsGapSamples.set(key, {
+      sport: String(sport || '').trim(),
+      matchId: String(matchId || '').trim(),
+      homeTeam: String(ctx.homeTeam || (cachedEvent as any)?.home_team || '').trim(),
+      awayTeam: String(ctx.awayTeam || (cachedEvent as any)?.away_team || '').trim(),
+      league: String((cachedEvent as any)?.league || '').trim(),
+      count: (prev?.count || 0) + 1,
+      lastSeenAt: nowMs(),
+      sources: {
+        all: !!results.allResult,
+        live: !!results.liveResult,
+        pre: !!results.preResult,
+      },
+      marketKeys,
+    });
+    if (liveOddsGapSamples.size > 60) {
+      const oldest = Array.from(liveOddsGapSamples.entries()).sort((a, b) => (a[1].lastSeenAt || 0) - (b[1].lastSeenAt || 0))[0]?.[0];
+      if (oldest) liveOddsGapSamples.delete(oldest);
     }
   };
 
@@ -851,6 +919,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         callProvider('odds', () => fetchSportsApiProMatchOddsPreMatch(apiKey, sport, normalizedId, opts)).catch(() => null),
       ]);
       const merged = mergeOddsResults([allResult, liveResult, preResult].filter(Boolean));
+      if (ctx.isLive) {
+        recordLiveOddsGapSample(sport, normalizedId, opts, { allResult, liveResult, preResult, merged });
+      }
       if (merged && merged.markets && typeof merged.markets === 'object') {
         const derived = deriveAdditionalMarkets(
           merged.markets,
@@ -2486,6 +2557,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     return {
       since: new Date(process.uptime() > 0 ? Date.now() - Math.floor(process.uptime() * 1000) : Date.now()).toISOString(),
       operations,
+      liveOddsGaps: Array.from(liveOddsGapSamples.values())
+        .sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0))
+        .slice(0, 30),
     };
   };
 
