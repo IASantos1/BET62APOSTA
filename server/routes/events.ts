@@ -498,6 +498,147 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   };
 
   const getSuspensionState = (matchId: string, sport: string, event: any, odds?: any) => {
+    const collectMarketKeys = (): string[] => {
+      const source = (odds?.markets && typeof odds.markets === 'object') ? odds.markets
+        : ((event?.markets && typeof event.markets === 'object') ? event.markets : null);
+      return source ? Object.keys(source) : [];
+    };
+    const soccerPhase = (() => {
+      const statusShort = String(event?.status_short ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
+      const statusLong = String(event?.status_long ?? event?.fixture?.status?.long ?? '').toLowerCase().trim();
+      const elapsed = Number(event?.elapsed ?? event?.fixture?.status?.elapsed ?? 0);
+      if (statusShort === '1H' || statusLong.includes('first half')) return 'first_half' as const;
+      if (statusShort === 'HT' || statusLong.includes('half-time') || statusLong.includes('halftime')) return 'half_time' as const;
+      if (statusShort === '2H' || statusLong.includes('second half')) return 'second_half' as const;
+      if (elapsed >= 46) return 'second_half' as const;
+      if (elapsed > 0) return 'first_half' as const;
+      return 'other' as const;
+    })();
+    const getTennisLikeSetNumber = () => {
+      const statusShort = String(event?.status_short ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
+      const statusMatch = /^S([1-5])$/.exec(statusShort);
+      if (statusMatch) return Math.max(1, Math.min(5, Number(statusMatch[1])));
+      const scoreHome = Number(event?.score?.home ?? 0);
+      const scoreAway = Number(event?.score?.away ?? 0);
+      const wonSets = (Number.isFinite(scoreHome) ? scoreHome : 0) + (Number.isFinite(scoreAway) ? scoreAway : 0);
+      return Math.max(1, Math.min(5, wonSets + 1));
+    };
+    const getPeriodLikeNumber = (label: 'Q' | 'P' | 'IN') => {
+      const statusShort = String(event?.status_short ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
+      const statusLong = String(event?.status_long ?? event?.fixture?.status?.long ?? '').toLowerCase().trim();
+      const match = new RegExp(`^${label}(\\d+)$`).exec(statusShort);
+      if (match) return Math.max(1, Number(match[1]));
+      if (label === 'IN') {
+        const longMatch = /(\d+)(?:st|nd|rd|th)?\s+inning/.exec(statusLong);
+        if (longMatch) return Math.max(1, Number(longMatch[1]));
+        if (statusShort === 'IN' || statusLong.includes('inning')) return 1;
+      }
+      return null;
+    };
+    const progressiveMarketClosures = (() => {
+      const sportKey = String(sport || '').toLowerCase().trim();
+      const keys = collectMarketKeys();
+      if (keys.length === 0) return [] as string[];
+      const closed = new Set<string>();
+      const closeIf = (predicate: (key: string) => boolean) => {
+        for (const key of keys) if (predicate(key)) closed.add(key);
+      };
+
+      if (isSoccerSport(sportKey)) {
+        const elapsed = Number(event?.elapsed ?? event?.fixture?.status?.elapsed ?? 0);
+        const firstHalfOnly = new Set([
+          '1st_half', 'first_half_h2h', 'half_time_result', 'first_half_result',
+          '1st_half_totals', 'first_half_totals', 'first_half_goals_total',
+          '1st_half_goal_odd_even', '1st_half_correct_score',
+          'double_chance_1st_half', 'draw_no_bet_1st_half', 'btts_first_half',
+          '1st_half_corners', '1st_half_cards',
+        ]);
+        const secondHalfOnly = new Set([
+          '2nd_half', 'second_half_h2h', 'second_half_result',
+          '2nd_half_totals', 'second_half_totals', 'second_half_goals_total',
+          '2nd_half_correct_score', 'btts_second_half',
+          '2nd_half_corners', '2nd_half_cards',
+        ]);
+        if (soccerPhase !== 'first_half') closeIf((key) => firstHalfOnly.has(key));
+        if (soccerPhase !== 'second_half') closeIf((key) => secondHalfOnly.has(key));
+
+        const keep85 = (key: string) => (
+          ['h2h', 'totals', 'match_goals', 'goals_total', 'total_goals', 'double_chance', 'draw_no_bet', 'btts',
+           'corners_total', 'corners_2_way', 'corner_handicap', 'spreads', 'handicap', 'next_goal', 'first_team_to_score', 'team_to_score_last']
+            .includes(key) ||
+          /^totals_[\d_]+$/.test(key) ||
+          /^corners_total_[\d_]+$/.test(key) ||
+          /^asian_handicap_/.test(key) ||
+          /^handicap_european_/.test(key)
+        );
+        const keep90 = (key: string) => (
+          ['h2h', 'totals', 'match_goals', 'goals_total', 'total_goals', 'corners_total', 'corners_2_way',
+           'corner_handicap', 'spreads', 'handicap', 'next_goal', 'first_team_to_score']
+            .includes(key) ||
+          /^totals_[\d_]+$/.test(key) ||
+          /^corners_total_[\d_]+$/.test(key) ||
+          /^asian_handicap_/.test(key) ||
+          /^handicap_european_/.test(key)
+        );
+        if (elapsed >= 90) closeIf((key) => !keep90(key));
+        else if (elapsed >= 85) closeIf((key) => !keep85(key));
+      } else if (sportKey === 'tennis') {
+        const currentSet = getTennisLikeSetNumber();
+        const setAliases: Record<number, string[]> = {
+          1: ['set_1_h2h', 'set_1_totals', 'first_set_winner'],
+          2: ['set_2_h2h', 'set_2_totals', 'second_set_winner'],
+          3: ['set_3_h2h', 'set_3_totals', 'third_set_winner'],
+          4: ['set_4_h2h', 'set_4_totals', 'fourth_set_winner'],
+          5: ['set_5_h2h', 'set_5_totals', 'fifth_set_winner'],
+        };
+        for (const [idx, aliases] of Object.entries(setAliases)) {
+          if (Number(idx) !== currentSet) closeIf((key) => aliases.includes(key));
+        }
+      } else if (sportKey === 'volleyball') {
+        const currentSet = getTennisLikeSetNumber();
+        const setAliases: Record<number, string[]> = {
+          1: ['first_set_winner', 'first_set_total'],
+          2: ['second_set_winner', 'second_set_total'],
+          3: ['third_set_winner', 'third_set_total'],
+          4: ['fourth_set_winner', 'fourth_set_total'],
+          5: ['fifth_set_winner', 'fifth_set_total'],
+        };
+        for (const [idx, aliases] of Object.entries(setAliases)) {
+          if (Number(idx) !== currentSet) closeIf((key) => aliases.includes(key));
+        }
+      } else if (sportKey === 'basketball') {
+        const quarter = getPeriodLikeNumber('Q');
+        if (quarter) {
+          const aliases: Record<number, string[]> = {
+            1: ['q1_h2h', 'q1_totals'],
+            2: ['q2_h2h', 'q2_totals'],
+            3: ['q3_h2h', 'q3_totals'],
+            4: ['q4_h2h', 'q4_totals'],
+          };
+          for (const [idx, keysForQuarter] of Object.entries(aliases)) {
+            if (Number(idx) !== quarter) closeIf((key) => keysForQuarter.includes(key));
+          }
+        }
+      } else if (sportKey === 'hockey' || sportKey === 'ice-hockey') {
+        const period = getPeriodLikeNumber('P');
+        if (period) {
+          const aliases: Record<number, string[]> = {
+            1: ['period_1_h2h', 'period_1_totals'],
+            2: ['period_2_h2h', 'period_2_totals'],
+            3: ['period_3_h2h', 'period_3_totals'],
+          };
+          for (const [idx, keysForPeriod] of Object.entries(aliases)) {
+            if (Number(idx) !== period) closeIf((key) => keysForPeriod.includes(key));
+          }
+        }
+      } else if (sportKey === 'baseball') {
+        const inning = getPeriodLikeNumber('IN');
+        if (inning && inning !== 1) {
+          closeIf((key) => ['nrfi', 'yrfi', 'first_inning_run', 'first_inning_h2h', 'first_inning_totals', 'result_1st_inning'].includes(key));
+        }
+      }
+      return Array.from(closed);
+    })();
     const sportKey = String(sport || '').toLowerCase().trim();
     const providerStatus = getProviderStatusObj(event);
     const providerReason = String(
@@ -517,7 +658,10 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const tennisFreeze = sportKey === 'tennis' ? getTennisFreeze(matchId) : null;
     const criticalFreeze = isSoccerSport(sportKey) ? getCriticalFreeze(matchId) : null;
     const activeFreeze = criticalFreeze || tennisFreeze;
-    const suspendedMarkets = tennisFreeze ? tennisSuspendedMarketKeys(tennisFreeze.reason) : [];
+    const suspendedMarkets = Array.from(new Set([
+      ...(tennisFreeze ? tennisSuspendedMarketKeys(tennisFreeze.reason) : []),
+      ...progressiveMarketClosures,
+    ]));
     const freezeReason = String(activeFreeze?.reason || '');
     const suspendedReason = String((providerSuspended ? providerReason : '') || (suspendedMarkets.length > 0 ? freezeReason : '') || '');
     return {

@@ -1078,16 +1078,51 @@ export function SubOddsModel({
     return elapsed || 0;
   }, [isLive, liveTimer, event]);
 
+  const liveSportKey = useMemo(() => String((event as any)?.sport || (event as any)?.sport_key || '').toLowerCase(), [event]);
+
   const isSoccerLive = useMemo(() => {
     if (!isLive) return false;
-    const s = String((event as any)?.sport || (event as any)?.sport_key || '').toLowerCase();
+    const s = liveSportKey;
     return (
       s.includes('soccer') ||
       s === 'football' ||
       s === 'futebol' ||
       (s.includes('football') && !s.includes('american') && !s.includes('gaelic') && !s.includes('aussie'))
     );
-  }, [isLive, event]);
+  }, [isLive, liveSportKey]);
+
+  const livePhaseNumber = useMemo(() => {
+    if (!isLive) return null;
+    const statusShort = String((event as any)?.status_short ?? (event as any)?.fixture?.status?.short ?? '').toUpperCase().trim();
+    const statusLong = String((event as any)?.status_long ?? (event as any)?.fixture?.status?.long ?? '').toLowerCase().trim();
+
+    if (liveSportKey === 'tennis' || liveSportKey === 'volleyball') {
+      const direct = /^S([1-5])$/.exec(statusShort);
+      if (direct) return Math.max(1, Math.min(5, Number(direct[1])));
+      const wonHome = Number((event as any)?.score?.home ?? 0);
+      const wonAway = Number((event as any)?.score?.away ?? 0);
+      return Math.max(1, Math.min(5, (Number.isFinite(wonHome) ? wonHome : 0) + (Number.isFinite(wonAway) ? wonAway : 0) + 1));
+    }
+
+    if (liveSportKey === 'basketball') {
+      const direct = /^Q([1-4])$/.exec(statusShort);
+      if (direct) return Number(direct[1]);
+    }
+
+    if (liveSportKey === 'hockey' || liveSportKey === 'ice-hockey') {
+      const direct = /^P([1-3])$/.exec(statusShort);
+      if (direct) return Number(direct[1]);
+    }
+
+    if (liveSportKey === 'baseball') {
+      const direct = /^IN(\d+)$/.exec(statusShort);
+      if (direct) return Math.max(1, Number(direct[1]));
+      const longMatch = /(\d+)(?:st|nd|rd|th)?\s+inning/.exec(statusLong);
+      if (longMatch) return Math.max(1, Number(longMatch[1]));
+      if (statusShort === 'IN' || statusLong.includes('inning')) return 1;
+    }
+    return null;
+  }, [isLive, event, liveSportKey]);
 
   const liveSoccerPhase = useMemo(() => {
     if (!isSoccerLive) return 'other' as const;
@@ -1100,29 +1135,101 @@ export function SubOddsModel({
   }, [isSoccerLive, event, liveTimer, liveElapsedMinute]);
 
   const isMarketLiquidated = (key: string): boolean => {
-    if (!isSoccerLive) return false;
-    const min = liveElapsedMinute;
+    if (!isLive) return false;
+    if (isSoccerLive) {
+      const min = liveElapsedMinute;
+      const FIRST_HALF_ONLY = new Set([
+        '1st_half', 'first_half_h2h', 'half_time_result', 'first_half_result',
+        '1st_half_totals', 'first_half_totals', 'first_half_goals_total',
+        '1st_half_goal_odd_even', '1st_half_correct_score',
+        'double_chance_1st_half', 'draw_no_bet_1st_half', 'btts_first_half',
+        '1st_half_corners', '1st_half_cards',
+      ]);
+      const SECOND_HALF_ONLY = new Set([
+        '2nd_half', 'second_half_h2h', 'second_half_result',
+        '2nd_half_totals', 'second_half_totals', 'second_half_goals_total',
+        '2nd_half_correct_score', 'btts_second_half',
+        '2nd_half_corners', '2nd_half_cards',
+      ]);
 
-    const FIRST_HALF_ONLY = new Set([
-      '1st_half', 'first_half_h2h', 'half_time_result', 'first_half_result',
-      '1st_half_totals', 'first_half_totals', 'first_half_goals_total',
-      '1st_half_goal_odd_even', '1st_half_correct_score',
-      'double_chance_1st_half', 'draw_no_bet_1st_half', 'btts_first_half',
-    ]);
-    const SECOND_HALF_ONLY = new Set([
-      '2nd_half', 'second_half_h2h', 'second_half_result',
-      '2nd_half_totals', 'second_half_totals', 'second_half_goals_total',
-      '2nd_half_correct_score', 'btts_second_half',
-    ]);
+      if (FIRST_HALF_ONLY.has(key) && liveSoccerPhase !== 'first_half') return true;
+      if (SECOND_HALF_ONLY.has(key) && liveSoccerPhase !== 'second_half') return true;
 
-    if (FIRST_HALF_ONLY.has(key) && liveSoccerPhase !== 'first_half') return true;
-    if (SECOND_HALF_ONLY.has(key) && liveSoccerPhase === 'first_half') return true;
+      const keep85 = (marketKey: string) => (
+        ['h2h', 'totals', 'match_goals', 'goals_total', 'total_goals', 'double_chance', 'draw_no_bet', 'btts',
+          'corners_total', 'corners_2_way', 'corner_handicap', 'spreads', 'handicap', 'next_goal', 'first_team_to_score', 'team_to_score_last']
+          .includes(marketKey) ||
+        /^totals_[\d_]+$/.test(marketKey) ||
+        /^corners_total_[\d_]+$/.test(marketKey) ||
+        /^asian_handicap_/.test(marketKey) ||
+        /^handicap_european_/.test(marketKey)
+      );
+      const keep90 = (marketKey: string) => (
+        ['h2h', 'totals', 'match_goals', 'goals_total', 'total_goals', 'corners_total', 'corners_2_way',
+          'corner_handicap', 'spreads', 'handicap', 'next_goal', 'first_team_to_score']
+          .includes(marketKey) ||
+        /^totals_[\d_]+$/.test(marketKey) ||
+        /^corners_total_[\d_]+$/.test(marketKey) ||
+        /^asian_handicap_/.test(marketKey) ||
+        /^handicap_european_/.test(marketKey)
+      );
+      if (min >= 90) return !keep90(key);
+      if (min >= 85) return !keep85(key);
+      return false;
+    }
 
-    if (min < 85) return false;
+    if ((liveSportKey === 'tennis' || liveSportKey === 'volleyball') && livePhaseNumber) {
+      const aliases = liveSportKey === 'tennis'
+        ? {
+            1: ['set_1_h2h', 'set_1_totals', 'first_set_winner'],
+            2: ['set_2_h2h', 'set_2_totals', 'second_set_winner'],
+            3: ['set_3_h2h', 'set_3_totals', 'third_set_winner'],
+            4: ['set_4_h2h', 'set_4_totals', 'fourth_set_winner'],
+            5: ['set_5_h2h', 'set_5_totals', 'fifth_set_winner'],
+          }
+        : {
+            1: ['first_set_winner', 'first_set_total'],
+            2: ['second_set_winner', 'second_set_total'],
+            3: ['third_set_winner', 'third_set_total'],
+            4: ['fourth_set_winner', 'fourth_set_total'],
+            5: ['fifth_set_winner', 'fifth_set_total'],
+          };
+      for (const [idx, keys] of Object.entries(aliases)) {
+        if (Number(idx) !== livePhaseNumber && keys.includes(key)) return true;
+      }
+      return false;
+    }
 
-    // 85–90 min: H2H + Totals + Chance Dupla
-    const keep85 = new Set(['totals', 'match_goals', 'goals_total', 'total_goals', 'double_chance']);
-    return !keep85.has(key);
+    if (liveSportKey === 'basketball' && livePhaseNumber) {
+      const aliases: Record<number, string[]> = {
+        1: ['q1_h2h', 'q1_totals'],
+        2: ['q2_h2h', 'q2_totals'],
+        3: ['q3_h2h', 'q3_totals'],
+        4: ['q4_h2h', 'q4_totals'],
+      };
+      for (const [idx, keys] of Object.entries(aliases)) {
+        if (Number(idx) !== livePhaseNumber && keys.includes(key)) return true;
+      }
+      return false;
+    }
+
+    if ((liveSportKey === 'hockey' || liveSportKey === 'ice-hockey') && livePhaseNumber) {
+      const aliases: Record<number, string[]> = {
+        1: ['period_1_h2h', 'period_1_totals'],
+        2: ['period_2_h2h', 'period_2_totals'],
+        3: ['period_3_h2h', 'period_3_totals'],
+      };
+      for (const [idx, keys] of Object.entries(aliases)) {
+        if (Number(idx) !== livePhaseNumber && keys.includes(key)) return true;
+      }
+      return false;
+    }
+
+    if (liveSportKey === 'baseball' && livePhaseNumber && livePhaseNumber !== 1) {
+      return ['nrfi', 'yrfi', 'first_inning_run', 'first_inning_h2h', 'first_inning_totals', 'result_1st_inning'].includes(key);
+    }
+
+    return false;
   };
 
   // Liquidation tier label for display badge
