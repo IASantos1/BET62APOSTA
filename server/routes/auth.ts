@@ -37,6 +37,36 @@ type TwoFactorConfirmBody = {
   token?: string;
 };
 
+function firstEnv(...names: string[]): string {
+  for (const name of names) {
+    const value = String(process.env[name] || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function getEnvAdminCredentials(): { login: string; password: string } {
+  const login = firstEnv(
+    'ADMIN_USERNAME',
+    'ADMIN_LOGIN',
+    'ADMIN_EMAIL',
+    'BET62_ADMIN_USERNAME',
+    'BET62_ADMIN_LOGIN',
+    'BET62_ADMIN_EMAIL',
+  );
+  const password = firstEnv(
+    'ADMIN_PASSWORD',
+    'BET62_ADMIN_PASSWORD',
+  );
+  return { login, password };
+}
+
+function matchesEnvAdminCredentials(identifier: string, password: string): boolean {
+  const cfg = getEnvAdminCredentials();
+  if (!cfg.login || !cfg.password) return false;
+  return String(identifier || '').trim().toLowerCase() === cfg.login.toLowerCase() && password === cfg.password;
+}
+
 function ipOf(req: http.IncomingMessage): string {
   const raw = String(req.headers['x-forwarded-for'] || '').split(',')[0]?.trim();
   return raw || String(req.socket.remoteAddress || '');
@@ -325,6 +355,40 @@ async function loadUserForSignin(pool: pg.Pool, email: string): Promise<any | nu
   return r.rows?.[0] || null;
 }
 
+async function ensureEnvAdminUser(pool: pg.Pool, identifier: string): Promise<any | null> {
+  const cfg = getEnvAdminCredentials();
+  if (!cfg.login || !cfg.password) return null;
+
+  const login = String(identifier || cfg.login).trim().toLowerCase();
+  let user = await loadUserForSignin(pool, login);
+  let userId = String(user?.id || '').trim();
+
+  if (!userId) {
+    userId = await createUserRecord(pool, login, cfg.password, 'Administrador BET62');
+  }
+
+  try {
+    await pool.query(`UPDATE users SET role = 'admin' WHERE id = $1`, [userId]);
+  } catch {
+    void 0;
+  }
+
+  try {
+    await pool.query(
+      `UPDATE profiles
+       SET is_operator = TRUE,
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      [userId],
+    );
+  } catch {
+    void 0;
+  }
+
+  user = await loadUserForSignin(pool, login);
+  return user || { id: userId };
+}
+
 function verifyUserPassword(password: string, row: any): boolean {
   const hash = String(row?.password_hash || '').trim();
   const salt = String(row?.password_salt || '').trim();
@@ -427,9 +491,12 @@ export async function handleAuthRoutes(
       if (!email || !password) return badRequest(res, 'Invalid credentials'), true;
       if (authRateLimit(res, 'signin', [remoteIp, email], 10, 15 * 60_000)) return true;
 
-      const u = await loadUserForSignin(pool, email);
+      const envAdminMatch = matchesEnvAdminCredentials(email, password);
+      const u = envAdminMatch
+        ? await ensureEnvAdminUser(pool, email)
+        : await loadUserForSignin(pool, email);
       if (!u) return unauthorized(res), true;
-      if (!verifyUserPassword(password, u)) return unauthorized(res), true;
+      if (!envAdminMatch && !verifyUserPassword(password, u)) return unauthorized(res), true;
       clearRateLimit(`signin:${remoteIp}`);
       clearRateLimit(`signin:${email}`);
 

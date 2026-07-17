@@ -390,6 +390,10 @@ export async function handleUsersRoutes(
   if (req.method === 'GET' && path === '/api/users/is-operator') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
+    if (u.role === 'admin') {
+      sendJson(res, 200, { operator: true });
+      return true;
+    }
 
     const r = await pool.query(`SELECT to_jsonb(p) AS profile FROM profiles p WHERE p.user_id = $1 LIMIT 1`, [u.id]);
     const profile = (r.rows?.[0]?.profile && typeof r.rows[0].profile === 'object') ? r.rows[0].profile : {};
