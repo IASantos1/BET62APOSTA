@@ -1,5 +1,5 @@
 import { OddButton } from '@/react-app/components/OddButton';
-import { useMemo, useState, memo, useEffect, useRef, Fragment } from 'react';
+import { useMemo, useState, memo, useEffect, useRef } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { formatLeagueHeader, abbreviateTeamName, getSportFromLeague, getSportIcon, labelOutcome } from '@/shared/helpers';
@@ -717,92 +717,99 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
           className={`text-left w-full ${darkMode ? 'text-white hover:text-red-300' : 'text-gray-900 hover:text-red-700'} underline-offset-2 hover:underline overflow-hidden`} 
         > 
           {sport === 'tennis' ? (
-            <span className="relative flex items-center gap-2 w-full justify-start">
-              <div className="flex flex-col gap-1.5 min-w-0 flex-1 pr-14">
-                {(() => {
-                  const statusShort = String(event?.status ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
-                  const statusLong = String(event?.fixture?.status?.long ?? (event as any)?.status_long ?? '').toUpperCase().trim();
-                  const setNumFromStatus = (() => {
-                    const m1 = statusShort.match(/^S(\d{1,2})$/);
-                    if (m1) return Number(m1[1]);
-                    const m2 = statusLong.match(/\bSET\s*(\d{1,2})\b/);
-                    if (m2) return Number(m2[1]);
-                    const m3 = statusShort.match(/\bSET\s*(\d{1,2})\b/);
-                    if (m3) return Number(m3[1]);
-                    const m4 = statusShort.match(/\b(\d{1,2})(?:ST|ND|RD|TH)\s+SET\b/);
-                    if (m4) return Number(m4[1]);
-                    const m5 = statusLong.match(/\b(\d{1,2})(?:ST|ND|RD|TH)\s+SET\b/);
-                    if (m5) return Number(m5[1]);
-                    return 0;
-                  })();
+            <span className="relative flex items-start gap-2 w-full justify-start">
+              <div className="flex flex-col gap-1.5 min-w-0 flex-1 pr-20 sm:pr-24">
+                <span className="text-sm font-semibold truncate leading-tight min-w-0">
+                  {String(homeTeamName || '').split(',')[0].trim() || '-'}
+                </span>
+                <span className="text-sm font-semibold truncate leading-tight min-w-0">
+                  {String(awayTeamName || '').split(',')[0].trim() || '-'}
+                </span>
+              </div>
 
-                  const setsAll = tennisScore?.sets || [];
-                  let maxWithAny = 0;
-                  for (let i = 0; i < Math.min(10, setsAll.length); i++) {
-                    const s = setsAll[i];
-                    if (!s) continue;
-                    if (s.home != null || s.away != null) maxWithAny = i + 1;
-                  }
+              {(() => {
+                const statusShort = String(event?.status ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
+                const statusLong = String(event?.fixture?.status?.long ?? (event as any)?.status_long ?? '').toUpperCase().trim();
+                const setNumFromStatus = (() => {
+                  const m1 = statusShort.match(/^S(\d{1,2})$/);
+                  if (m1) return Number(m1[1]);
+                  const m2 = statusLong.match(/\bSET\s*(\d{1,2})\b/);
+                  if (m2) return Number(m2[1]);
+                  const m3 = statusShort.match(/\bSET\s*(\d{1,2})\b/);
+                  if (m3) return Number(m3[1]);
+                  const m4 = statusShort.match(/\b(\d{1,2})(?:ST|ND|RD|TH)\s+SET\b/);
+                  if (m4) return Number(m4[1]);
+                  const m5 = statusLong.match(/\b(\d{1,2})(?:ST|ND|RD|TH)\s+SET\b/);
+                  if (m5) return Number(m5[1]);
+                  return 0;
+                })();
 
-                  const maxCols = 5;
-                  const cols =
-                    isLiveEvent
-                      ? Math.min(maxCols, Math.max(1, setNumFromStatus || 1, maxWithAny))
-                      : Math.min(maxCols, maxWithAny);
-                  const showSets = cols > 0 && (isLiveEvent || !!tennisScore?.hasAnySet);
-                  const sets = Array.from({ length: cols }, (_, i) => setsAll[i] || { home: null, away: null });
+                const setsAll = tennisScore?.sets || [];
+                let maxWithAny = 0;
+                for (let i = 0; i < Math.min(10, setsAll.length); i++) {
+                  const s = setsAll[i];
+                  if (!s) continue;
+                  if (s.home != null || s.away != null) maxWithAny = i + 1;
+                }
 
+                const maxCols = 5;
+                const cols =
+                  isLiveEvent
+                    ? Math.min(maxCols, Math.max(1, setNumFromStatus || 1, maxWithAny))
+                    : Math.min(maxCols, maxWithAny);
+                const showSets = cols > 0 && (isLiveEvent || !!tennisScore?.hasAnySet);
+                const showPoints = isLiveEvent && (!!tennisScore?.pHome || !!tennisScore?.pAway);
+                const sets = Array.from({ length: cols }, (_, i) => setsAll[i] || { home: null, away: null });
+
+                if (!showSets && !showPoints && !isLiveEvent) {
                   return (
-                    <div
-                      className="grid gap-x-1 gap-y-1 items-center tabular-nums"
-                      style={{
-                        gridTemplateColumns: showSets ? `minmax(0,1fr) repeat(${cols}, 1.25rem) auto` : `minmax(0,1fr) auto`,
-                      }}
-                    >
-                      {showSets ? (
-                        <>
-                          <span />
-                          {Array.from({ length: cols }).map((_, i) => (
-                            <span key={`hdr-s-${i + 1}`} className={`text-[10px] font-bold text-right ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                              {`S${i + 1}`}
+                    <span className={`text-xs font-bold shrink-0 px-1 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      {'vs'}
+                    </span>
+                  );
+                }
+
+                return (
+                  <div className="ml-auto mt-5 shrink-0">
+                    <div className="flex items-stretch overflow-hidden rounded-xl border border-black/60 bg-black/90 shadow-lg shadow-black/20">
+                      <div className="px-2 py-1.5">
+                        <div className="mb-1 text-center text-[9px] font-black uppercase tracking-[0.18em] text-white/70">
+                          SET
+                        </div>
+                        <div
+                          className="grid gap-x-2 gap-y-1 justify-end tabular-nums"
+                          style={{ gridTemplateColumns: `repeat(${Math.max(cols, 1)}, 1rem)` }}
+                        >
+                          {(showSets ? sets : [{ home: null, away: null }]).map((s, idx) => (
+                            <span key={`home-score-${idx}`} className="text-center text-[11px] font-black text-white">
+                              {s.home ?? ''}
                             </span>
                           ))}
-                          <span />
-                        </>
-                      ) : null}
-
-                      {(['home', 'away'] as const).map((side) => {
-                        const name = side === 'home' ? homeTeamName : awayTeamName;
-                        const point = side === 'home' ? tennisScore?.pHome : tennisScore?.pAway;
-                        return (
-                          <Fragment key={side}>
-                            <span className="text-sm font-semibold truncate leading-tight min-w-0">
-                              {String(name || '').split(',')[0].trim() || '-'}
+                          {(showSets ? sets : [{ home: null, away: null }]).map((s, idx) => (
+                            <span key={`away-score-${idx}`} className="text-center text-[11px] font-black text-white/85">
+                              {s.away ?? ''}
                             </span>
-                            {showSets
-                              ? sets.map((s, idx) => {
-                                  const val = side === 'home' ? s.home : s.away;
-                                  return (
-                                    <span key={`${side}-s-${idx}`} className={`text-right text-xs font-bold ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-                                      {val ?? ''}
-                                    </span>
-                                  );
-                                })
-                              : null}
-                            {isLiveEvent && point ? (
-                              <span className={`ml-1 px-1 rounded text-[10px] font-extrabold ${darkMode ? 'bg-gray-700 text-gray-100' : 'bg-gray-200 text-gray-900'}`}>
-                                {point}
-                              </span>
-                            ) : (
-                              <span />
-                            )}
-                          </Fragment>
-                        );
-                      })}
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="min-w-[2.5rem] border-l border-white/10 bg-black px-2 py-1.5">
+                        <div className="mb-1 text-center text-[9px] font-black uppercase tracking-[0.18em] text-white/70">
+                          PT
+                        </div>
+                        <div className="grid gap-y-1 tabular-nums">
+                          <span className="text-center text-[11px] font-black text-white">
+                            {showPoints ? tennisScore?.pHome : ''}
+                          </span>
+                          <span className="text-center text-[11px] font-black text-white/85">
+                            {showPoints ? tennisScore?.pAway : ''}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                  );
-                })()}
-              </div>
+                  </div>
+                );
+              })()}
 
               {(() => {
                 if (!isLiveEvent) {
@@ -849,9 +856,9 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                 return (
                   <span className="absolute right-0 top-0 flex flex-col items-end gap-0.5">
                     {setLabel ? (
-                      <span className="text-[10px] font-bold text-red-600 bg-red-600/10 rounded px-1 leading-tight">{setLabel}</span>
+                      <span className="text-[10px] font-bold text-red-500 bg-red-500/10 rounded px-1 leading-tight">{setLabel}</span>
                     ) : (
-                      <span className="text-xs font-bold text-red-600">AO VIVO</span>
+                      <span className="text-xs font-bold text-red-500">AO VIVO</span>
                     )}
                     {timer ? (
                       <span className="text-[10px] font-bold text-[#39FF14]">{timer}</span>
