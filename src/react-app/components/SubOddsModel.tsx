@@ -2625,10 +2625,10 @@ export function SubOddsModel({
       }
 
       const hasTodos = groups.some((g) => g.title.toLowerCase() === 'todos');
-      if (!hasTodos) {
+      if (!hasTodos && !isTennis) {
         const allKeys = Array.from(new Set(groups.flatMap((g) => g.keys)));
         groups.unshift({ title: 'Todos', keys: allKeys });
-      } else {
+      } else if (hasTodos) {
         const idx = groups.findIndex((g) => g.title.toLowerCase() === 'todos');
         if (idx >= 0) {
           const allKeys = Array.from(new Set(groups.flatMap((g, i) => i === idx ? [] : g.keys)));
@@ -2657,8 +2657,8 @@ export function SubOddsModel({
      const isMMA = s.includes('mma') || s.includes('ufc') || s.includes('mixed martial arts') || s.includes('luta');
      
      if (isSoccer) return 'Todos';
-     if (isBasketball) return BASKETBALL_GROUPS[0].title;
-     if (isTennis) return TENNIS_GROUPS[0].title;
+    if (isBasketball) return BASKETBALL_GROUPS[0].title;
+    if (isTennis) return Number((event as any)?.is_live) === 1 ? 'Set Atual' : '1º Set';
      if (isVolleyball) return VOLLEYBALL_GROUPS[0].title;
      if (isAFL) return AFL_GROUPS[0].title;
      if (isBaseball) return BASEBALL_GROUPS[0].title;

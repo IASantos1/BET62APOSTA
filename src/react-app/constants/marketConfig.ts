@@ -430,35 +430,6 @@ export const BASKETBALL_GROUPS = [
 ];
 
 // ─── Tennis ────────────────────────────────────────────────────────────
-const TENNIS_SET_RANGE = [1, 2, 3, 4, 5];
-const TENNIS_SET_SUFFIXES = [
-  'h2h',
-  'totals',
-  'games_handicap',
-  'games_odd_even',
-  'correct_score',
-  'tie_break',
-  'tie_break_winner',
-  'game_winner',
-  'game_1_winner',
-  'game_2_winner',
-  'game_3_winner',
-  'next_game_winner',
-  'next_point_winner',
-  'race_to_games',
-  'break_of_serve',
-  'total_breaks',
-  'first_ace',
-  'total_aces',
-  'total_double_faults',
-  'both_players_games',
-  'break_point',
-];
-
-const TENNIS_PER_SET_KEYS = TENNIS_SET_RANGE.flatMap((setNumber) =>
-  TENNIS_SET_SUFFIXES.map((suffix) => `set_${setNumber}_${suffix}`),
-);
-
 const TENNIS_CURRENT_SET_KEYS = [
   'current_set_winner',
   'current_set_totals',
@@ -480,14 +451,39 @@ const TENNIS_CURRENT_SET_KEYS = [
   'current_set_break_point',
 ];
 
+const tennisKeysForSet = (setNumber: number) => [
+  `set_${setNumber}_h2h`,
+  `set_${setNumber}_games_handicap`,
+  `set_${setNumber}_totals`,
+  `set_${setNumber}_games_odd_even`,
+  `set_${setNumber}_correct_score`,
+  `set_${setNumber}_tie_break`,
+  `set_${setNumber}_tie_break_winner`,
+  `set_${setNumber}_game_1_winner`,
+  `set_${setNumber}_game_2_winner`,
+  `set_${setNumber}_game_3_winner`,
+  `set_${setNumber}_game_winner`,
+  `set_${setNumber}_next_game_winner`,
+  `set_${setNumber}_next_point_winner`,
+  `set_${setNumber}_race_to_games`,
+  `set_${setNumber}_break_of_serve`,
+  `set_${setNumber}_total_breaks`,
+  `set_${setNumber}_first_ace`,
+  `set_${setNumber}_total_aces`,
+  `set_${setNumber}_total_double_faults`,
+  `set_${setNumber}_both_players_games`,
+  `set_${setNumber}_break_point`,
+];
+
 export const TENNIS_GROUPS = [
-  {
-    title: "Todos",
-    keys: ["h2h", ...TENNIS_CURRENT_SET_KEYS, ...TENNIS_PER_SET_KEYS, "set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","total_sets","over_under_sets","spreads","handicap","sets_handicap","games_handicap","totals","match_total_games","set_total_games","player_games","race_to_games","games_odd_even","game_winner","next_game_winner","correct_score","score_exact","exact_score","tennis_exact_sets","tennis_correct_score","tie_break","tie_breaks","tie_break_in_match","match_has_tiebreak","aces_total","total_aces","player_aces","player_ace","double_faults_total","player_double_faults","break_points","break_points_converted","first_serve_winner","first_serve_percentage","player_to_win_a_set","to_win_a_set"]
-  },
-  { title: "Vencedor",   keys: ["h2h"] },
+  { title: "1º Set", keys: tennisKeysForSet(1) },
+  { title: "2º Set", keys: tennisKeysForSet(2) },
+  { title: "3º Set", keys: tennisKeysForSet(3) },
+  { title: "4º Set", keys: tennisKeysForSet(4) },
+  { title: "5º Set", keys: tennisKeysForSet(5) },
   { title: "Set Atual",  keys: [...TENNIS_CURRENT_SET_KEYS, "game_winner","next_game_winner"] },
-  { title: "Sets",       keys: ["correct_score","score_exact","exact_score","tennis_exact_sets","tennis_correct_score","total_sets","over_under_sets", ...TENNIS_PER_SET_KEYS, "set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","player_to_win_a_set","to_win_a_set"] },
+  { title: "Vencedor",   keys: ["h2h"] },
+  { title: "Sets",       keys: ["correct_score","score_exact","exact_score","tennis_exact_sets","tennis_correct_score","total_sets","over_under_sets","set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","player_to_win_a_set","to_win_a_set"] },
   { title: "Handicap",   keys: ["sets_handicap","games_handicap","spreads","handicap"] },
   { title: "Jogos",      keys: ["totals","match_total_games","set_total_games","player_games","race_to_games","games_odd_even"] },
   { title: "Especiais",  keys: ["tie_break","tie_breaks","tie_break_in_match","match_has_tiebreak","aces_total","total_aces","player_aces","player_ace","double_faults_total","player_double_faults","break_points","break_points_converted","first_serve_percentage"] },

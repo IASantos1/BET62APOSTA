@@ -953,6 +953,37 @@ export function createLiveWs(apiKey: string) {
       : false;
   };
 
+  const hasAnyMarketOdds = (e: any): boolean => {
+    let mk: any = e?.markets ?? e?.odds;
+    if (typeof mk === 'string') {
+      const s = mk.trim();
+      if (s && ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']')))) {
+        try { mk = JSON.parse(s); } catch { void 0; }
+      }
+    }
+    if (!mk || typeof mk !== 'object') return false;
+
+    const seen = new Set<any>();
+    const visit = (value: any, depth = 0): boolean => {
+      if (value == null || depth > 5) return false;
+      if (typeof value === 'number') return value > 1.01;
+      if (typeof value !== 'object') return false;
+      if (seen.has(value)) return false;
+      seen.add(value);
+
+      if (Array.isArray(value)) {
+        return value.some((entry) => visit(entry, depth + 1));
+      }
+
+      const price = Number(value?.odd ?? value?.price ?? value?.value ?? 0);
+      if (price > 1.01) return true;
+
+      return Object.values(value).some((entry) => visit(entry, depth + 1));
+    };
+
+    return visit(mk);
+  };
+
   const curateLiveEvents = (arr: any[]): any[] => {
     const nonSoccer: any[] = [];
     const importantSoccerWithOdds: any[] = [];
@@ -968,7 +999,7 @@ export function createLiveWs(apiKey: string) {
 
       if (hasBlockedTeamMarker(homeTeam) || hasBlockedTeamMarker(awayTeam)) continue;
       if (isUniversallyBlockedLeague(leagueName)) continue;
-      const hasOdds = hasRenderablePrimaryOdds(e);
+      const hasOdds = hasRenderablePrimaryOdds(e) || hasAnyMarketOdds(e);
       if (!hasOdds) continue;
 
       if (sport && sport !== 'soccer' && sport !== 'football') {
