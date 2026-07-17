@@ -985,6 +985,7 @@ export function createLiveWs(apiKey: string) {
   };
 
   const curateLiveEvents = (arr: any[]): any[] => {
+    const softFallback: any[] = [];
     const nonSoccer: any[] = [];
     const importantSoccerWithOdds: any[] = [];
     const clubFriendliesWithOdds: any[] = [];
@@ -998,6 +999,7 @@ export function createLiveWs(apiKey: string) {
       const awayTeam = String(e?.away_team || '');
 
       if (hasBlockedTeamMarker(homeTeam) || hasBlockedTeamMarker(awayTeam)) continue;
+      softFallback.push(e);
       if (isUniversallyBlockedLeague(leagueName)) continue;
       const hasOdds = hasRenderablePrimaryOdds(e) || hasAnyMarketOdds(e);
       if (!hasOdds) continue;
@@ -1037,7 +1039,9 @@ export function createLiveWs(apiKey: string) {
           ? [...fallbackSoccerWithOdds].sort(byPriority).slice(0, 6).concat(selectedFriendlies)
           : [];
 
-    return [...nonSoccer, ...selectedSoccer];
+    const curated = [...nonSoccer, ...selectedSoccer];
+    if (curated.length > 0) return curated;
+    return [...softFallback].sort(byPriority);
   };
 
   const mergeOddsResults = (results: any[]): any | null => {
@@ -1222,8 +1226,7 @@ export function createLiveWs(apiKey: string) {
       return attachLiveSuspensionPayload({ ...e, id, sport: evSport });
     });
     return curateLiveEvents(normalizedList
-      .filter((e: any) => Number(e?.is_live || 0) === 1)
-      .filter((e: any) => !isBlockedLeague(String(e?.league || ''), String(e?.country || ''))));
+      .filter((e: any) => Number(e?.is_live || 0) === 1));
   };
 
   const broadcastIncident = (sport: string, payload: any) => {

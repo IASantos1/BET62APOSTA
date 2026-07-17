@@ -1751,6 +1751,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const curateLiveEvents = (arr: AnyEvent[]): AnyEvent[] => {
       if (allowBlocked || cleanLeague) return arr;
 
+      const softFallback: AnyEvent[] = [];
       const nonSoccer: AnyEvent[] = [];
       const importantSoccerWithOdds: AnyEvent[] = [];
       const clubFriendliesWithOdds: AnyEvent[] = [];
@@ -1762,8 +1763,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         const country = String((e as any)?.country || '');
         const homeTeam = String((e as any)?.home_team || '');
         const awayTeam = String((e as any)?.away_team || '');
-        const hasOdds = hasRenderablePrimaryOdds(e) || hasAnyMarketOdds(e);
         if (hasBlockedTeamMarker(homeTeam) || hasBlockedTeamMarker(awayTeam)) continue;
+        softFallback.push(e);
+        const hasOdds = hasRenderablePrimaryOdds(e) || hasAnyMarketOdds(e);
         if (isUniversallyBlockedLeague(leagueName)) continue;
         if (!hasOdds) continue;
 
@@ -1800,7 +1802,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
             ? [...fallbackSoccerWithOdds].sort(byPriority).slice(0, 6).concat(selectedFriendlies)
             : [];
 
-      return [...nonSoccer].sort(byPriority).concat(selectedSoccer);
+      const curated = [...nonSoccer].sort(byPriority).concat(selectedSoccer);
+      if (curated.length > 0) return curated;
+      return [...softFallback].sort(byPriority);
     };
 
     if (includeLive) {
