@@ -419,6 +419,7 @@ export function useLiveFeed(sport?: string) {
                       if (!id) return;
                       const prevVal = next.get(id);
                       const merged = { ...(prevVal || {}), ...parsed, __lastSeenAt: now };
+                      merged.score = mergeLiveScore((prevVal as any)?.score, (parsed as any)?.score);
                       const pn = Number((parsed as any)?.home_odd || 0);
                       const qn = Number((parsed as any)?.draw_odd || 0);
                       const rn = Number((parsed as any)?.away_odd || 0);
@@ -619,6 +620,7 @@ export function useLiveFeed(sport?: string) {
                   if (!id) return;
                   const prevVal = next.get(id);
                   const merged = { ...(prevVal || {}), ...parsed, __lastSeenAt: now };
+                  merged.score = mergeLiveScore((prevVal as any)?.score, (parsed as any)?.score);
                   const pn = Number((parsed as any)?.home_odd || 0);
                   const qn = Number((parsed as any)?.draw_odd || 0);
                   const rn = Number((parsed as any)?.away_odd || 0);

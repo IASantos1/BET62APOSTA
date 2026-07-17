@@ -340,8 +340,18 @@ export function createLiveWs(apiKey: string) {
   };
 
   const buildTennisScoreFromDelta = (data: any): Record<string, any> | null => {
-    const homeSets = toNumOrNull(pickFirst(data, ['homeScore.current', 'homeScore.display', 'homeScore.sets', 'homeScore.set']));
-    const awaySets = toNumOrNull(pickFirst(data, ['awayScore.current', 'awayScore.display', 'awayScore.sets', 'awayScore.set']));
+    const homeSets = toNumOrNull(pickFirst(data, [
+      'homeScore.setsWon',
+      'homeScore.totalSets',
+      'homeScore.sets',
+      'homeScore.set',
+    ]));
+    const awaySets = toNumOrNull(pickFirst(data, [
+      'awayScore.setsWon',
+      'awayScore.totalSets',
+      'awayScore.sets',
+      'awayScore.set',
+    ]));
 
     const sets: Record<string, { home: number | null; away: number | null }> = {};
     for (let i = 1; i <= 5; i++) {
@@ -385,6 +395,30 @@ export function createLiveWs(apiKey: string) {
     if (Object.keys(sets).length > 0) out.sets = sets;
     if (pointHome != null || pointAway != null) out.point = { home: pointHome ?? null, away: pointAway ?? null };
     return Object.keys(out).length > 0 ? out : null;
+  };
+
+  const mergeScoreState = (baseScore: any, nextScore: any): Record<string, any> => {
+    const base =
+      baseScore && typeof baseScore === 'object' && !Array.isArray(baseScore)
+        ? baseScore
+        : {};
+    const next =
+      nextScore && typeof nextScore === 'object' && !Array.isArray(nextScore)
+        ? nextScore
+        : {};
+
+    return {
+      ...base,
+      ...next,
+      sets: {
+        ...((base.sets && typeof base.sets === 'object') ? base.sets : {}),
+        ...((next.sets && typeof next.sets === 'object') ? next.sets : {}),
+      },
+      point: {
+        ...((base.point && typeof base.point === 'object') ? base.point : {}),
+        ...((next.point && typeof next.point === 'object') ? next.point : {}),
+      },
+    };
   };
 
   const hasOdds = (e: any) => Number(e?.home_odd) > 1 && Number(e?.away_odd) > 1;
@@ -646,7 +680,7 @@ export function createLiveWs(apiKey: string) {
                 : rawScore && typeof rawScore === 'object'
                   ? rawScore
                   : {};
-            patched.score = JSON.stringify({ ...(base || {}), ...st.score });
+            patched.score = JSON.stringify(mergeScoreState(base, st.score));
           } catch {
             patched.score = JSON.stringify(st.score);
           }
