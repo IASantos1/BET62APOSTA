@@ -1307,6 +1307,118 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       return true;
     };
 
+    const hasBlockedTeamMarker = (teamName: string): boolean => {
+      const t = normalizeLeagueText(teamName);
+      if (!t) return false;
+      return (
+        /\bu\d{2}\b/.test(t) ||
+        /\bsub-?\d{2}\b/.test(t) ||
+        /under-?\d{2}|under \d{2}/.test(t) ||
+        /\breserve\b|\breserves\b/.test(t) ||
+        /\bwomen\b|\bwoman\b|feminino|femenino|\bdamen\b|\bfeminine\b/.test(t)
+      );
+    };
+
+    const isClubFriendlyLeagueName = (leagueName: string): boolean => {
+      const l = normalizeLeagueText(leagueName);
+      return /club friendl|club friendly|friendly games|amistosos de clubes|amistoso de clubes|amical club/.test(l);
+    };
+
+    const isImportantSoccerLeague = (leagueName: string, country: string | undefined): boolean => {
+      const l = normalizeLeagueText(leagueName);
+      const c = normalizeLeagueText(country);
+      const lc = `${l} ${c}`.trim();
+      if (!l && !c) return false;
+
+      if (/china|chinese|csl|super league|league one|league 1/.test(lc)) return true;
+      if (/champions league|europa league|conference league|nations league/.test(l)) return true;
+      if (/world cup|copa do mundo|copa mundial|euro\b|euro qualif|world cup qualif|qualif|qualification|qualifier|eliminatorias/.test(l)) return true;
+      if (/copa america|copa america|conmebol|libertadores|sudamericana|recopa/.test(l)) return true;
+      if (/concacaf|gold cup|africa cup|afcon|\bcaf\b|asian cup|\bafc\b|olympics|olympic games/.test(l)) return true;
+      if (/international friendl|friendly international|international friendly|friendlies|friendly|amistoso|amistosos|national team|national teams|selecao|selecoes/.test(l)) return true;
+      if (/supercopa|super cup|uefa super|copa del rey|coppa italia|dfb pokal|coupe de france|fa cup|efl cup|carabao/.test(l)) return true;
+
+      if (/england|inglaterra/.test(c) && /premier league|championship|league one|league two/.test(l)) return true;
+      if (/spain|espanha|espana|españa/.test(c) && /la liga|segunda/.test(l)) return true;
+      if (/germany|alemanha|deutschland/.test(c) && /bundesliga/.test(l)) return true;
+      if (/italy|ital/.test(c) && /serie a|serie b/.test(l)) return true;
+      if (/france|fran[cç]/.test(c) && /ligue 1|ligue 2/.test(l)) return true;
+      if (/netherlands|holland|holanda|pa[íi]ses baixos/.test(c) && /eredivisie|eerste divisie/.test(l)) return true;
+      if (/portugal/.test(lc) && /liga portugal|primeira liga|segunda liga/.test(l)) return true;
+      if (/brazil|brasil/.test(c) && /brasileir|serie [abc]|copa do brasil/.test(l)) return true;
+      if (/argentina/.test(c) && /liga profesional|primera nacional|primera division/.test(l)) return true;
+      if (/united states|usa|estados unidos/.test(c) && /\bmls\b|us open cup/.test(l)) return true;
+      if (/turkey|turquia|turkiye|türkiye/.test(c) && /super lig|1 lig/.test(l)) return true;
+      if (/belgium|belgi[qe]|belgica|bélgica/.test(c) && /jupiler|pro league/.test(l)) return true;
+      if (/japan|japao|jap[oã]o/.test(c) && /j1 league|j2 league/.test(l)) return true;
+
+      return false;
+    };
+
+    const liveQualityScore = (e: any): number => {
+      let score = 0;
+      const homeOdd = Number((e as any)?.home_odd || 0);
+      const drawOdd = Number((e as any)?.draw_odd || 0);
+      const awayOdd = Number((e as any)?.away_odd || 0);
+      if (homeOdd > 1) score += 3;
+      if (drawOdd > 1) score += 1;
+      if (awayOdd > 1) score += 3;
+      const elapsed = Number((e as any)?.elapsed ?? (e as any)?.fixture?.status?.elapsed ?? 0);
+      if (Number.isFinite(elapsed) && elapsed > 0) score += 1;
+      return score;
+    };
+
+    const curateLiveEvents = (arr: AnyEvent[]): AnyEvent[] => {
+      if (allowBlocked || cleanLeague) return arr;
+
+      const nonSoccer: AnyEvent[] = [];
+      const importantSoccer: AnyEvent[] = [];
+      const clubFriendlies: AnyEvent[] = [];
+      const fallbackSoccer: AnyEvent[] = [];
+
+      for (const e of Array.isArray(arr) ? arr : []) {
+        const sport = String((e as any)?.sport || '').toLowerCase().trim();
+        if (sport && sport !== 'soccer' && sport !== 'football') {
+          nonSoccer.push(e);
+          continue;
+        }
+
+        const leagueName = String((e as any)?.league || '');
+        const country = String((e as any)?.country || '');
+        const homeTeam = String((e as any)?.home_team || '');
+        const awayTeam = String((e as any)?.away_team || '');
+
+        if (hasBlockedTeamMarker(homeTeam) || hasBlockedTeamMarker(awayTeam)) continue;
+        if (isBlockedLeague(leagueName, country, true)) continue;
+
+        if (isClubFriendlyLeagueName(leagueName)) {
+          clubFriendlies.push(e);
+          continue;
+        }
+
+        if (isImportantSoccerLeague(leagueName, country)) {
+          importantSoccer.push(e);
+          continue;
+        }
+
+        fallbackSoccer.push(e);
+      }
+
+      const byPriority = (a: any, b: any) => {
+        const diff = liveQualityScore(b) - liveQualityScore(a);
+        if (diff !== 0) return diff;
+        return sortStable([a, b])[0] === a ? -1 : 1;
+      };
+
+      const selectedFriendlies = [...clubFriendlies].sort(byPriority).slice(0, 3);
+      const selectedSoccer =
+        importantSoccer.length > 0
+          ? [...importantSoccer, ...selectedFriendlies]
+          : [...fallbackSoccer].sort(byPriority).slice(0, 6).concat(selectedFriendlies);
+
+      return [...nonSoccer, ...selectedSoccer];
+    };
+
     if (includeLive) {
       const sportSet = new Set(sports);
       const ids = new Set(liveAll.map((e: any) => String((e as any)?.id || '')));
@@ -1418,11 +1530,10 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
             const strictAllowlist = !requestedOnlySoccer && !cleanLeague;
             return !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || ''), strictAllowlist);
           });
-    // Live events: never apply league blocking — real matches in progress always show.
-    const live = sortStable(liveAll.filter((e: any) => {
+    const live = sortStable(curateLiveEvents(liveAll.filter((e: any) => {
       if (filterLeague([e]).length === 0) return false;
       return true;
-    })).slice(0, 120);
+    }))).slice(0, 120);
     const preSorted = sortStable(filterBlocked(filterLeague(preAll)));
     const preLimit = days > 1 ? 300 : 120;
     const pregame = days > 1 ? spreadAcrossDays(preSorted, days, preLimit) : preSorted.slice(0, preLimit);
