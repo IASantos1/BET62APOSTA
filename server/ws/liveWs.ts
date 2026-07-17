@@ -924,6 +924,32 @@ export function createLiveWs(apiKey: string) {
       if (baseLive.length === 0 && prevSnap && Array.isArray(prevSnap.live) && prevSnap.live.length > 0 && Date.now() - prevSnap.ts < 120_000) {
         baseLive = prevSnap.live;
       }
+      const now0 = Date.now();
+      baseLive = baseLive.map((e) => {
+        const sportKey = String(e?.sport || sport).trim().toLowerCase();
+        const mid = String(e?.id || '').trim();
+        if (!sportKey || !mid) return e;
+        const cacheKey = `${sportKey}:${normalizeMatchId(sportKey, mid)}`;
+        const cached = oddsCache.get(cacheKey);
+        if (!cached || !cached.data) return e;
+        if (now0 - cached.ts > ODDS_STALE_TTL_MS) return e;
+        const od = cached.data;
+        const h0 = Number(e?.home_odd || 0);
+        const d0 = Number(e?.draw_odd || 0);
+        const a0 = Number(e?.away_odd || 0);
+        const h1 = Number(od.home || 0);
+        const d1 = Number(od.draw || 0);
+        const a1 = Number(od.away || 0);
+        const markets0 = e?.markets;
+        const markets1 = od?.markets;
+        return {
+          ...e,
+          home_odd: h0 > 1 ? h0 : (h1 > 1 ? h1 : h0),
+          draw_odd: d0 > 1 ? d0 : (d1 > 1 ? d1 : d0),
+          away_odd: a0 > 1 ? a0 : (a1 > 1 ? a1 : a0),
+          markets: markets0 && Object.keys(markets0).length > 0 ? markets0 : (markets1 || markets0),
+        };
+      });
       snapshotCache.set(sport, { ts: Date.now(), live: baseLive });
       const baseMsg = JSON.stringify({ type: 'snapshot', live: baseLive });
       for (const c of clients) {
@@ -1203,8 +1229,6 @@ export function createLiveWs(apiKey: string) {
                 away_odd: parsed.away,
                 markets: parsed.markets
               });
-            } else {
-              oddsCache.delete(key);
             }
             // #region debug-point A:tennis-odds-update
             void import('node:fs').then((fs) => { let eurl = 'http://127.0.0.1:7777/event', sid = 'live-delay-clock'; try { const env = fs.readFileSync('.dbg/live-delay-clock.env', 'utf8'); eurl = /DEBUG_SERVER_URL=(.+)/.exec(env)?.[1] || eurl; sid = /DEBUG_SESSION_ID=(.+)/.exec(env)?.[1] || sid; } catch { void 0; } const keys = msg?.data && typeof msg.data === 'object' ? Object.keys(msg.data).slice(0, 40) : null; fetch(eurl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: sid, runId: 'pre', hypothesisId: 'A', location: 'server/ws/liveWs.ts:connectUpstream', msg: '[DEBUG] match odds update (invalidate cache)', data: { localSport, channel: msg.channel, matchId, dataKeys: keys }, ts: Date.now() }) }).catch(() => null); }).catch(() => null);
