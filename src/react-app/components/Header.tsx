@@ -3,7 +3,12 @@ import { apiFetch } from '@/react-app/utils/api';
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from 'react';
 import { NotepadText } from 'lucide-react';
-import { BrandMark } from '@/react-app/components/BrandMark';
+
+const SPORT_AVATARS = ['🐯','🦁','🐻','🐼','🦊','🐸','🦋','🐬','🦅','🐺','🐊','🐙','🦑','🦓','🦒','🐘','🦏','🦛','🐆','🐅'];
+function getEmojiAvatar(name: string): string {
+  const sum = String(name || 'U').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return SPORT_AVATARS[sum % SPORT_AVATARS.length];
+}
 
 function NavBtn({
   to,
@@ -57,6 +62,7 @@ export function Header() {
     const name = (user && (user as any).username) ? String((user as any).username) : '';
     return name.split(' ')[0] || name || 'U';
   }, [user]);
+  const emojiAvatar = useMemo(() => getEmojiAvatar(firstName), [firstName]);
 
   const isActive = useMemo(() => {
     const p = String(pathname || '/');
@@ -119,9 +125,8 @@ export function Header() {
               <button
                 type="button"
                 onClick={() => { setSelectedCategory(null); navigate('/'); }}
-                className="flex items-center gap-2 md:gap-3"
+                className="flex items-center"
               >
-                <BrandMark size={42} rounded="circle" className="shrink-0" />
                 <div className="text-left">
                   <h1 className={`text-xl md:text-2xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                     BET62
@@ -191,9 +196,9 @@ export function Header() {
                   <Link
                     to="/profile"
                     title={firstName}
-                    className={`w-9 h-9 rounded-full flex items-center justify-center font-bold transition-colors flex-shrink-0 ${darkMode ? 'hover:opacity-90' : 'hover:opacity-90'}`}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center text-xl font-bold transition-colors flex-shrink-0 border-2 ${darkMode ? 'bg-gray-800 border-gray-600 hover:bg-gray-700' : 'bg-gray-100 border-gray-300 hover:bg-gray-200'}`}
                   >
-                    <BrandMark size={36} rounded="circle" />
+                    {emojiAvatar}
                   </Link>
                 </div>
               ) : (

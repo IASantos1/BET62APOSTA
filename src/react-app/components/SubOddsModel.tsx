@@ -2658,7 +2658,7 @@ export function SubOddsModel({
      
      if (isSoccer) return 'Todos';
     if (isBasketball) return BASKETBALL_GROUPS[0].title;
-    if (isTennis) return Number((event as any)?.is_live) === 1 ? 'Set Atual' : '1º Set';
+    if (isTennis) return 'Sets';
      if (isVolleyball) return VOLLEYBALL_GROUPS[0].title;
      if (isAFL) return AFL_GROUPS[0].title;
      if (isBaseball) return BASEBALL_GROUPS[0].title;

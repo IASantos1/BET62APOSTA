@@ -47,6 +47,27 @@ const sports: SidebarSection = {
   ], 
 }; 
 
+const SPORT_TOKEN_TO_LABEL: Record<string, string> = {
+  soccer: 'Futebol',
+  football: 'Futebol',
+  basketball: 'Basquetebol',
+  tennis: 'Ténis',
+  cricket: 'Críquete',
+  'american-football': 'Futebol Americano',
+  handball: 'Handebol',
+  mma: 'MMA',
+  'formula-1': 'Fórmula 1',
+  formula1: 'Fórmula 1',
+  hockey: 'Hóquei',
+  'ice-hockey': 'Hóquei',
+  rugby: 'Rúgbi',
+  volleyball: 'Voleibol',
+  baseball: 'Beisebol',
+  golf: 'Golfe',
+  'horse-racing': 'Corridas de Cavalos',
+  afl: 'AFL',
+};
+
 export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event)[] }) {
   const navigate = useNavigate();
   const { darkMode, selectedCategory, setSelectedCategory, isOperator, setShowAdminPanel } = useApp();
@@ -243,15 +264,26 @@ export function Sidebar({ dynamicTopItems }: { dynamicTopItems?: (string | Event
       'football'
     ]);
 
+    const apiMappedLabels = (apiSports || [])
+      .map((s) => SPORT_TOKEN_TO_LABEL[normalize(s)] || '')
+      .filter(Boolean);
+    const availableSportLabels = new Set(
+      (apiMappedLabels.length > 0
+        ? apiMappedLabels
+        : ['Futebol', 'Ténis', 'Basquetebol', 'Beisebol', 'Hóquei', 'Voleibol', 'MMA']
+      ).map((s) => normalize(s)),
+    );
+
     const normalizedBaseSports = new Set((sports.items || []).map(s => normalize(s)));
-    const uniqueApiSports = (apiSports || []).filter(s => {
+    const uniqueApiSports = Array.from(new Set(apiMappedLabels)).filter((s) => {
       const n = normalize(s);
       return !normalizedBaseSports.has(n) && !HIDDEN_LEAGUES.has(n);
     });
     
-    const displaySports = Array.from(new Set([...(sports.items || []), ...uniqueApiSports]))
-      .filter(Boolean)
-      .sort((a,b)=>a.localeCompare(b,'pt-PT'));
+    const displaySports = [
+      ...(sports.items || []).filter((s) => availableSportLabels.has(normalize(s))),
+      ...uniqueApiSports,
+    ].filter(Boolean);
 
     return (
       <div key={section.title} className="mb-5">

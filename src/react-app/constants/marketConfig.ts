@@ -476,14 +476,18 @@ const tennisKeysForSet = (setNumber: number) => [
 ];
 
 export const TENNIS_GROUPS = [
-  { title: "1º Set", keys: tennisKeysForSet(1) },
-  { title: "2º Set", keys: tennisKeysForSet(2) },
-  { title: "3º Set", keys: tennisKeysForSet(3) },
-  { title: "4º Set", keys: tennisKeysForSet(4) },
-  { title: "5º Set", keys: tennisKeysForSet(5) },
-  { title: "Set Atual",  keys: [...TENNIS_CURRENT_SET_KEYS, "game_winner","next_game_winner"] },
   { title: "Vencedor",   keys: ["h2h"] },
-  { title: "Sets",       keys: ["correct_score","score_exact","exact_score","tennis_exact_sets","tennis_correct_score","total_sets","over_under_sets","set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","player_to_win_a_set","to_win_a_set"] },
+  { title: "Sets",       keys: [
+    "correct_score","score_exact","exact_score","tennis_exact_sets","tennis_correct_score","total_sets","over_under_sets",
+    "set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","player_to_win_a_set","to_win_a_set",
+    ...TENNIS_CURRENT_SET_KEYS,
+    "game_winner","next_game_winner",
+    ...tennisKeysForSet(1),
+    ...tennisKeysForSet(2),
+    ...tennisKeysForSet(3),
+    ...tennisKeysForSet(4),
+    ...tennisKeysForSet(5),
+  ] },
   { title: "Handicap",   keys: ["sets_handicap","games_handicap","spreads","handicap"] },
   { title: "Jogos",      keys: ["totals","match_total_games","set_total_games","player_games","race_to_games","games_odd_even"] },
   { title: "Especiais",  keys: ["tie_break","tie_breaks","tie_break_in_match","match_has_tiebreak","aces_total","total_aces","player_aces","player_ace","double_faults_total","player_double_faults","break_points","break_points_converted","first_serve_percentage"] },

@@ -144,7 +144,19 @@ function pickScore(x: any): number | null {
 }
 
 function statusText(status: any): string {
-  return String(status?.description ?? status?.type ?? status ?? '').trim();
+  if (status == null) return '';
+  if (typeof status === 'string' || typeof status === 'number') return String(status).trim();
+  return String(
+    status?.short ??
+    status?.long ??
+    status?.description ??
+    status?.type ??
+    status?.status ??
+    status?.statusText ??
+    status?.code ??
+    status?.name ??
+    '',
+  ).trim();
 }
 
 function statusKey(status: any): string {
@@ -193,6 +205,12 @@ function isLive(status: any): boolean {
   if (isNotStartedStatus(status)) return false;
   const s = statusText(status).toLowerCase();
   if (!s) return false;
+  if ([
+    '1h', '2h', 'ht', 'et', 'pen',
+    'q1', 'q2', 'q3', 'q4', 'ot',
+    's1', 's2', 's3', 's4', 's5',
+    'in', 'in_progress', 'live',
+  ].includes(s)) return true;
   if (s.includes('inprogress') || s.includes('in progress') || s.includes('live')) return true;
   if (s.includes('half') || s.includes('quarter') || s.includes('inning') || s.includes('set')) return true;
   if (s.includes('1st') || s.includes('2nd') || s.includes('3rd') || s.includes('4th')) return true;
