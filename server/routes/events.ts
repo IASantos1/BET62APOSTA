@@ -845,9 +845,12 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     if (inflight) return inflight;
     const p = (async () => {
       const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam };
-      // Single 'all' endpoint returns live + prematch odds in one call — no need to call all 3
-      const allResult = await callProvider('odds', () => fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts)).catch(() => null);
-      const merged = allResult ?? null;
+      const [allResult, liveResult, preResult] = await Promise.all([
+        callProvider('odds', () => fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts)).catch(() => null),
+        callProvider('odds', () => fetchSportsApiProMatchOddsLive(apiKey, sport, normalizedId, opts)).catch(() => null),
+        callProvider('odds', () => fetchSportsApiProMatchOddsPreMatch(apiKey, sport, normalizedId, opts)).catch(() => null),
+      ]);
+      const merged = mergeOddsResults([allResult, liveResult, preResult].filter(Boolean));
       if (merged && merged.markets && typeof merged.markets === 'object') {
         const derived = deriveAdditionalMarkets(
           merged.markets,

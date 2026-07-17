@@ -914,6 +914,12 @@ function parseOddDecimal(v: any): number {
   return 0;
 }
 
+function isProviderTruthy(v: any): boolean {
+  if (v === true || v === 1) return true;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'blocked' || s === 'stopped' || s === 'suspended';
+}
+
 function hasNumericPointInName(name: string, point: string): boolean {
   const m = /([+-]?\d+(?:[.,]\d+)?)/.exec(String(name || ''));
   if (!m) return false;
@@ -1192,14 +1198,29 @@ export function parseSportsApiProMatchOddsPayload(
   const perKeyLive: PerKeyMap = {};
   const perKeyPre: PerKeyMap = {};
 
-  const addSelectionTo = (target: PerKeyMap, key: string, value: string, odd: number, point?: string | null) => {
+  const addSelectionTo = (
+    target: PerKeyMap,
+    key: string,
+    value: string,
+    odd: number,
+    point?: string | null,
+    suspended?: boolean,
+  ) => {
     if (!key || !value || !(odd > 1)) return;
     const p = point ? String(point) : '';
     const mk = target[key] || (target[key] = new Map());
     const k = `${normalizeLineName(value)}|${p}`;
     const prev = mk.get(k);
-    if (!prev || odd > prev.odd) {
-      const out: any = { label: value, value, odd };
+    const out: any = { label: value, value, odd };
+    if (suspended) out.suspended = true;
+    if (!prev) {
+      if (p) out.point = p;
+      mk.set(k, out);
+      return;
+    }
+
+    const prevSuspended = isProviderTruthy((prev as any)?.suspended);
+    if ((prevSuspended && !suspended) || (prevSuspended === !!suspended && odd > prev.odd)) {
       if (p) out.point = p;
       mk.set(k, out);
     }
@@ -1220,9 +1241,9 @@ export function parseSportsApiProMatchOddsPayload(
     const marketPeriod = row?.marketPeriod ?? row?.market_period ?? row?.period ?? '';
     const key = marketKeyFromOddsAll(String(lineType || ''), String(lineName || ''), String(marketGroup || ''), String(marketPeriod || ''));
     if (!key) continue;
-    if (row?.suspended === true || row?.suspended === 1 || row?.suspended === '1') continue;
+    const rowSuspended = isProviderTruthy(row?.suspended) || isProviderTruthy(row?.blocked) || isProviderTruthy(row?.stopped);
     // Separate live vs pre-match rows — live data always has priority for the same market key
-    const isLiveRow = row?.isLive === true || row?.isLive === 1 || row?.isLive === 'true';
+    const isLiveRow = isProviderTruthy(row?.isLive);
     const target = isLiveRow ? perKeyLive : perKeyPre;
     const point = pickLineValue(row);
     const options =
@@ -1233,7 +1254,7 @@ export function parseSportsApiProMatchOddsPayload(
       Array.isArray(row?.values) ? row.values :
       [];
     for (const opt of options) {
-      if (opt?.suspended === true || opt?.suspended === 1) continue;
+      const optSuspended = rowSuspended || isProviderTruthy(opt?.suspended) || isProviderTruthy(opt?.blocked) || isProviderTruthy(opt?.stopped);
       const rawName = opt?.name ?? opt?.label ?? opt?.option ?? opt?.value ?? '';
       const odd = parseOddDecimal(
         opt?.rate ?? opt?.odd ?? opt?.price ?? opt?.decimalValue ?? opt?.decimal ??
@@ -1241,7 +1262,7 @@ export function parseSportsApiProMatchOddsPayload(
       );
       const pointForName = point && !hasNumericPointInName(String(rawName || ''), point) ? point : null;
       const value = formatSelectionName(key, String(rawName || ''), pointForName);
-      addSelectionTo(target, key, value, odd, point);
+      addSelectionTo(target, key, value, odd, point, optSuspended);
     }
   }
 
