@@ -514,108 +514,114 @@ export default function DepositPage() {
   ];
 
   if (!user) return (
-    <div className={`max-w-md mx-auto text-center py-16 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-      <div className="text-5xl mb-4">🔐</div>
-      <h2 className="text-xl font-bold mb-2">Sessão necessária</h2>
-      <p className={`text-sm mb-6 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Tens de iniciar sessão para fazer um depósito ou solicitar um levantamento.</p>
-      <button onClick={() => openAuthModal('login')} className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg transition-colors">Entrar na conta</button>
+    <div className={`min-h-screen px-4 py-8 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+      <div className="max-w-md mx-auto text-center py-16">
+        <div className="text-5xl mb-4">🔐</div>
+        <h2 className="text-xl font-bold mb-2">Sessão necessária</h2>
+        <p className={`text-sm mb-6 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Tens de iniciar sessão para fazer um depósito ou solicitar um levantamento.</p>
+        <button onClick={() => openAuthModal('login')} className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg transition-colors">Entrar na conta</button>
+      </div>
     </div>
   );
 
   if (success) return (
-    <div className="text-center py-10 max-w-md mx-auto">
-      <div className="text-5xl mb-4">✅</div>
-      <h2 className="text-xl font-bold text-green-400 mb-2">Depósito Iniciado!</h2>
-      <p className={`text-sm mb-4 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>O teu saldo será atualizado assim que o pagamento for confirmado.</p>
-      <div className={`rounded-xl p-4 mb-6 text-left border ${darkMode ? 'bg-yellow-900/20 border-yellow-700/40' : 'bg-yellow-50 border-yellow-300'}`}>
-        <div className="flex items-center gap-2 mb-2"><span className="text-xl">🎁</span><span className={`font-bold text-sm ${darkMode ? 'text-yellow-300' : 'text-yellow-800'}`}>Promoções Ativadas!</span></div>
-        <p className={`text-xs ${darkMode ? 'text-yellow-200/80' : 'text-yellow-700'}`}>Todas as promoções elegíveis foram ativadas automaticamente com este depósito, de acordo com os Termos e Condições de cada uma. Consulta a página de Promoções para ver os bónus disponíveis.</p>
+    <div className={`min-h-screen px-4 py-8 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+      <div className="text-center py-10 max-w-md mx-auto">
+        <div className="text-5xl mb-4">✅</div>
+        <h2 className="text-xl font-bold text-green-400 mb-2">Depósito Iniciado!</h2>
+        <p className={`text-sm mb-4 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>O teu saldo será atualizado assim que o pagamento for confirmado.</p>
+        <div className={`rounded-xl p-4 mb-6 text-left border ${darkMode ? 'bg-yellow-900/20 border-yellow-700/40' : 'bg-yellow-50 border-yellow-300'}`}>
+          <div className="flex items-center gap-2 mb-2"><span className="text-xl">🎁</span><span className={`font-bold text-sm ${darkMode ? 'text-yellow-300' : 'text-yellow-800'}`}>Promoções Ativadas!</span></div>
+          <p className={`text-xs ${darkMode ? 'text-yellow-200/80' : 'text-yellow-700'}`}>Todas as promoções elegíveis foram ativadas automaticamente com este depósito, de acordo com os Termos e Condições de cada uma. Consulta a página de Promoções para ver os bónus disponíveis.</p>
+        </div>
+        <button onClick={() => setSuccess(false)} className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl">Novo Depósito</button>
       </div>
-      <button onClick={() => setSuccess(false)} className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl">Novo Depósito</button>
     </div>
   );
 
   return (
-    <div className={`max-w-md mx-auto ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-      <div className={`grid grid-cols-2 rounded-2xl p-1 mb-4 shadow ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-        {([
-          { key: 'deposit', label: 'Depósito' },
-          { key: 'withdraw', label: 'Levantar' },
-        ] as const).map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setWalletAction(tab.key)}
-            className={`rounded-xl px-3 py-3 text-sm font-bold transition-colors ${
-              walletAction === tab.key
-                ? 'bg-red-600 text-white shadow-md'
-                : darkMode
-                  ? 'text-gray-300 hover:bg-gray-700'
-                  : 'text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {walletAction === 'withdraw' ? (
-        <div className={`rounded-xl shadow ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-          <div className="p-5 border-b border-gray-200 dark:border-gray-700 text-center">
-            <h2 className="text-xl font-bold mb-1">Levantar</h2>
-            <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              Insere o teu IBAN, o nome do titular e solicita o levantamento com mínimo de €20.
-            </p>
-          </div>
-          <div className="p-4">
-            <WithdrawForm />
-          </div>
+    <div className={`min-h-screen px-4 py-8 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+      <div className="max-w-md mx-auto">
+        <div className={`grid grid-cols-2 rounded-2xl p-1 mb-4 shadow ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+          {([
+            { key: 'deposit', label: 'Depósito' },
+            { key: 'withdraw', label: 'Levantar' },
+          ] as const).map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setWalletAction(tab.key)}
+              className={`rounded-xl px-3 py-3 text-sm font-bold transition-colors ${
+                walletAction === tab.key
+                  ? 'bg-red-600 text-white shadow-md'
+                  : darkMode
+                    ? 'text-gray-300 hover:bg-gray-700'
+                    : 'text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
-      ) : (
-        <>
-          <h2 className="text-xl font-bold mb-4 text-center">Depositar</h2>
 
-          <div className={`p-4 rounded-xl shadow mb-4 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-            <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Valor do Depósito (€)</label>
-            <input type="number" value={amount} onChange={handleAmountChange} min="10" step="5"
-              className={`w-full p-3 rounded-lg border focus:ring-2 focus:ring-red-500 outline-none text-lg font-bold ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} ${amountError ? 'border-red-500' : ''}`}
-              placeholder="25" />
-            {amountError && <p className="text-red-500 text-xs mt-1">{amountError}</p>}
-            <div className="grid grid-cols-3 gap-2 mt-3">
-              {QUICK_AMOUNTS.map(v => (
-                <button key={v} onClick={() => handleQuickAmount(v)}
-                  className={`py-1.5 rounded-lg text-sm font-semibold transition-colors ${numAmount === v ? 'bg-red-600 text-white' : darkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
-                  €{v}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className={`rounded-xl shadow overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-            <div className={`grid grid-cols-3 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-              {methodTabs.map(tab => (
-                <button key={tab.key} onClick={() => setMethod(tab.key)}
-                  className={`py-3 flex items-center justify-center text-xs font-semibold transition-colors ${method === tab.key ? 'text-red-500 border-b-2 border-red-500 bg-red-500/10' : darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}>
-                  <span>{tab.label}</span>
-                </button>
-              ))}
+        {walletAction === 'withdraw' ? (
+          <div className={`rounded-xl shadow ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+            <div className="p-5 border-b border-gray-200 dark:border-gray-700 text-center">
+              <h2 className="text-xl font-bold mb-1">Levantar</h2>
+              <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                Insere o teu IBAN, o nome do titular e solicita o levantamento com mínimo de €20.
+              </p>
             </div>
             <div className="p-4">
-              {numAmount < minDeposit ? (
-                <p className="text-center text-gray-500 text-sm py-4">Seleciona um valor mínimo de €{minDeposit.toFixed(2)}</p>
-              ) : (
-                <>
-                  {method === 'cartao' && <StripeCardForm amount={numAmount} onSuccess={handleSuccess} />}
-                  {method === 'mbway' && <MBWayForm amount={numAmount} onSuccess={handleSuccess} />}
-                  {method === 'multibanco' && <MultibancoForm amount={numAmount} onSuccess={handleSuccess} />}
-                </>
-              )}
+              <WithdrawForm />
             </div>
           </div>
+        ) : (
+          <>
+            <h2 className="text-xl font-bold mb-4 text-center">Depositar</h2>
 
-          <p className={`text-center text-xs mt-4 ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>🔒 Todos os pagamentos são processados com encriptação SSL</p>
-        </>
-      )}
+            <div className={`p-4 rounded-xl shadow mb-4 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Valor do Depósito (€)</label>
+              <input type="number" value={amount} onChange={handleAmountChange} min="10" step="5"
+                className={`w-full p-3 rounded-lg border focus:ring-2 focus:ring-red-500 outline-none text-lg font-bold ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} ${amountError ? 'border-red-500' : ''}`}
+                placeholder="25" />
+              {amountError && <p className="text-red-500 text-xs mt-1">{amountError}</p>}
+              <div className="grid grid-cols-3 gap-2 mt-3">
+                {QUICK_AMOUNTS.map(v => (
+                  <button key={v} onClick={() => handleQuickAmount(v)}
+                    className={`py-1.5 rounded-lg text-sm font-semibold transition-colors ${numAmount === v ? 'bg-red-600 text-white' : darkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+                    €{v}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className={`rounded-xl shadow overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+              <div className={`grid grid-cols-3 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                {methodTabs.map(tab => (
+                  <button key={tab.key} onClick={() => setMethod(tab.key)}
+                    className={`py-3 flex items-center justify-center text-xs font-semibold transition-colors ${method === tab.key ? 'text-red-500 border-b-2 border-red-500 bg-red-500/10' : darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}>
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="p-4">
+                {numAmount < minDeposit ? (
+                  <p className="text-center text-gray-500 text-sm py-4">Seleciona um valor mínimo de €{minDeposit.toFixed(2)}</p>
+                ) : (
+                  <>
+                    {method === 'cartao' && <StripeCardForm amount={numAmount} onSuccess={handleSuccess} />}
+                    {method === 'mbway' && <MBWayForm amount={numAmount} onSuccess={handleSuccess} />}
+                    {method === 'multibanco' && <MultibancoForm amount={numAmount} onSuccess={handleSuccess} />}
+                  </>
+                )}
+              </div>
+            </div>
+
+            <p className={`text-center text-xs mt-4 ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>🔒 Todos os pagamentos são processados com encriptação SSL</p>
+          </>
+        )}
+      </div>
     </div>
   );
 }
