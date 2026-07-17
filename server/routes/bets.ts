@@ -373,7 +373,7 @@ export async function handleBetRoutes(
         return true;
       }
 
-      if (ctx.suspended || ctx.eventFrozen) {
+      if (ctx.providerSuspended || ctx.eventFrozen) {
         sendBetSelectionError(res, ctx.suspendedReason ? `Mercado suspenso: ${ctx.suspendedReason}` : 'Mercado suspenso', {
           index,
           event_id: eventId,

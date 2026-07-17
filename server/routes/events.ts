@@ -708,12 +708,12 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       ...progressiveMarketClosures,
     ]));
     const freezeReason = String(activeFreeze?.reason || '');
-    const suspendedReason = String((providerSuspended ? providerReason : '') || (suspendedMarkets.length > 0 ? freezeReason : '') || '');
+    const suspendedReason = String((providerSuspended ? providerReason : '') || (activeFreeze ? freezeReason : '') || '');
     return {
       providerSuspended,
       eventFrozen: !!activeFreeze,
       freezeReason,
-      suspended: providerSuspended || suspendedMarkets.length > 0,
+      suspended: providerSuspended || !!activeFreeze,
       suspendedReason,
       suspendedMarkets,
       activeFreeze,
@@ -1619,6 +1619,51 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       return false;
     };
 
+    const liveLeaguePriorityBoost = (e: any): number => {
+      const sportKey = String((e as any)?.sport || '').toLowerCase().trim();
+      const league = normalizeLeagueText(String((e as any)?.league || ''));
+      const country = normalizeLeagueText(String((e as any)?.country || ''));
+      const text = `${league} ${country}`.trim();
+      if (!text) return 0;
+
+      if (isSoccerSport(sportKey)) {
+        if (isImportantSoccerLeague(league, country)) return 24;
+        if (isClubFriendlyLeagueName(league)) return 8;
+        return 0;
+      }
+
+      if (sportKey === 'tennis') {
+        if (/grand slam|wimbledon|roland garros|australian open|us open/.test(text)) return 28;
+        if (/atp finals|wta finals|masters|atp 1000|wta 1000/.test(text)) return 24;
+        if (/atp 500|wta 500|atp 250|wta 250|challenger/.test(text)) return 18;
+        if (/itf|futures/.test(text)) return -8;
+      }
+      if (sportKey === 'basketball') {
+        if (/\bnba\b|euroleague|wnba/.test(text)) return 28;
+        if (/acb|liga endesa|bbva|nbl|cba|bsl|vtb|champions league/.test(text)) return 22;
+        if (/ncaa|college|universit/.test(text)) return 10;
+      }
+      if (sportKey === 'baseball') {
+        if (/\bmlb\b|major league baseball/.test(text)) return 28;
+        if (/\bnpb\b|nippon|kbo|cpbl|lmb/.test(text)) return 22;
+        if (/college|ncaa|minor league/.test(text)) return 8;
+      }
+      if (sportKey === 'volleyball') {
+        if (/nations league|olympic|world championship|cev champions league|fivb/.test(text)) return 26;
+        if (/superlega|superliga|serie a1|plusliga|sultanlar ligi/.test(text)) return 20;
+      }
+      if (sportKey === 'hockey' || sportKey === 'ice-hockey') {
+        if (/\bnhl\b|stanley cup/.test(text)) return 28;
+        if (/\bkhl\b|shl|liiga|del|national league/.test(text)) return 22;
+        if (/world championship|olympic/.test(text)) return 24;
+      }
+      if (sportKey === 'mma') {
+        if (/\bufc\b/.test(text)) return 30;
+        if (/pfl|bellator|one championship|cage warriors|ksw/.test(text)) return 22;
+      }
+      return 0;
+    };
+
     const liveQualityScore = (e: any): number => {
       let score = 0;
       const homeOdd = Number((e as any)?.home_odd || 0);
@@ -1629,6 +1674,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       if (awayOdd > 1) score += 3;
       const elapsed = Number((e as any)?.elapsed ?? (e as any)?.fixture?.status?.elapsed ?? 0);
       if (Number.isFinite(elapsed) && elapsed > 0) score += 1;
+      score += liveLeaguePriorityBoost(e);
       return score;
     };
 
@@ -1716,7 +1762,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
             ? [...fallbackSoccerWithOdds].sort(byPriority).slice(0, 6).concat(selectedFriendlies)
             : [];
 
-      return [...nonSoccer, ...selectedSoccer];
+      return [...nonSoccer].sort(byPriority).concat(selectedSoccer);
     };
 
     if (includeLive) {

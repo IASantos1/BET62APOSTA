@@ -261,9 +261,9 @@ export function useMergedEvents(
             ? (httpEvt as any).suspended
             : providerSuspended === true
               ? true
-              : ((wsSuspendedMarkets && wsSuspendedMarkets.length > 0) || (httpSuspendedMarkets && httpSuspendedMarkets.length > 0))
+              : eventFrozen === true
                 ? true
-                : undefined;
+                : false;
 
       const mergedEvt: Event = {
         ...(httpEvt || {}),
