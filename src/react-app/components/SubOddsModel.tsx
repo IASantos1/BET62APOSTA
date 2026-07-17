@@ -2396,8 +2396,48 @@ export function SubOddsModel({
       else if (isMMA) BASE_GROUPS = MMA_GROUPS;
       else if (isRugby) BASE_GROUPS = RUGBY_GROUPS;
 
-      return BASE_GROUPS;
-  }, [event?.sport, eventOdds]);
+      const hasKeyContent = (k: string) => {
+        if (k === 'h2h') return resultadoRegulamentar.length > 0;
+        if (k === 'totals') return totalsItems.length > 0 || getMarketItems(k).length > 0;
+        if (k === 'btts') return bttsItems.length > 0 || getMarketItems(k).length > 0;
+        return getMarketItems(k).length > 0;
+      };
+
+      const aliasBlocked = new Set([
+        'main', '1x2', 'h2h_3_way', 'match_winner',
+      ]);
+      const rawKeys = Array.from(new Set([
+        ...Object.keys((eventOdds && typeof eventOdds === 'object') ? eventOdds : {}),
+        ...Object.keys((normalizedMarkets && typeof normalizedMarkets === 'object') ? normalizedMarkets : {}),
+      ])).filter((k) => !aliasBlocked.has(k));
+
+      const renderedRawKeys = rawKeys.filter(hasKeyContent);
+      const assigned = new Set<string>();
+      const groups = BASE_GROUPS.map((group) => {
+        const keys = group.keys.filter((k) => hasKeyContent(k));
+        for (const key of keys) assigned.add(key);
+        return { ...group, keys };
+      }).filter((group) => group.keys.length > 0);
+
+      const extraKeys = renderedRawKeys.filter((k) => !assigned.has(k));
+      if (extraKeys.length > 0) {
+        groups.push({ title: 'Mais Mercados', keys: extraKeys });
+      }
+
+      const hasTodos = groups.some((g) => g.title.toLowerCase() === 'todos');
+      if (!hasTodos) {
+        const allKeys = Array.from(new Set(groups.flatMap((g) => g.keys)));
+        groups.unshift({ title: 'Todos', keys: allKeys });
+      } else {
+        const idx = groups.findIndex((g) => g.title.toLowerCase() === 'todos');
+        if (idx >= 0) {
+          const allKeys = Array.from(new Set(groups.flatMap((g, i) => i === idx ? [] : g.keys)));
+          groups[idx] = { ...groups[idx], keys: allKeys.length > 0 ? allKeys : groups[idx].keys };
+        }
+      }
+
+      return groups;
+  }, [event?.sport, eventOdds, normalizedMarkets, resultadoRegulamentar, totalsItems, bttsItems]);
 
   const [activeTab, setActiveTab] = useState(() => {
      const s = (event?.sport || '').toLowerCase();
