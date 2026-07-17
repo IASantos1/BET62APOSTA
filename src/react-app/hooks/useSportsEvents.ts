@@ -133,7 +133,7 @@ type OnlyMode = 'live' | 'pregame' | 'both';
 // Survives React remounts so navigating between / and /live is instant.
 interface _SCacheEntry { live: Event[]; pregame: Event[]; ts: number; }
 const _sCache = new Map<string, _SCacheEntry>();
-const _S_FRESH_MS = 45_000; // 45 s — matches the polling interval
+const _S_FRESH_MS = 5_000;
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function useSportsEvents(
@@ -341,13 +341,22 @@ export function useSportsEvents(
       try {
         const raw = localStorage.getItem(cacheKey);
         if (raw) {
-          const cached = JSON.parse(raw) as { live?: Event[]; pregame?: Event[] };
-          const cachedLive = Array.isArray(cached?.live) ? cached.live : [];
-          const cachedPregame = Array.isArray(cached?.pregame) ? cached.pregame : [];
-          if (cachedLive.length || cachedPregame.length) {
-            hadCache = true;
-            updateState(cachedLive, cachedPregame);
-            setLoading(false);
+          const cached = JSON.parse(raw) as { live?: Event[]; pregame?: Event[]; ts?: number };
+          const cachedTs = Number(cached?.ts || 0);
+          const cacheAgeOk =
+            only !== 'live'
+              ? true
+              : (cachedTs > 0 && Date.now() - cachedTs < 10_000);
+          if (!cacheAgeOk) {
+            localStorage.removeItem(cacheKey);
+          } else {
+            const cachedLive = Array.isArray(cached?.live) ? cached.live : [];
+            const cachedPregame = Array.isArray(cached?.pregame) ? cached.pregame : [];
+            if (cachedLive.length || cachedPregame.length) {
+              hadCache = true;
+              updateState(cachedLive, cachedPregame);
+              setLoading(false);
+            }
           }
         }
       } catch { void 0; }
@@ -570,7 +579,7 @@ export function useSportsEvents(
             _sCache.set(cacheKey, { live: [], pregame: finalPregame, ts: Date.now() });
             if (typeof window !== 'undefined') {
               try {
-                localStorage.setItem(cacheKey, JSON.stringify({ live: [], pregame: finalPregame }));
+                localStorage.setItem(cacheKey, JSON.stringify({ live: [], pregame: finalPregame, ts: Date.now() }));
               } catch { void 0; }
             }
             return;
@@ -657,7 +666,7 @@ export function useSportsEvents(
           _sCache.set(cacheKey, { live: finalLive, pregame: finalPregame, ts: Date.now() });
           if (typeof window !== 'undefined') {
             try {
-              localStorage.setItem(cacheKey, JSON.stringify({ live: finalLive, pregame: finalPregame }));
+              localStorage.setItem(cacheKey, JSON.stringify({ live: finalLive, pregame: finalPregame, ts: Date.now() }));
             } catch { void 0; }
           }
           return; 
@@ -807,7 +816,7 @@ export function useSportsEvents(
             updateState(finalLive, finalPregame);
             if (typeof window !== 'undefined') {
               try {
-                localStorage.setItem(cacheKey, JSON.stringify({ live: finalLive, pregame: finalPregame }));
+                localStorage.setItem(cacheKey, JSON.stringify({ live: finalLive, pregame: finalPregame, ts: Date.now() }));
               } catch { void 0; }
             }
             return;
@@ -864,7 +873,7 @@ export function useSportsEvents(
     // Initial fetch
     fetchData();
 
-            const intervalTime = safeCategory === 'all' ? 10_000 : 15_000;
+            const intervalTime = only === 'live' ? 5_000 : safeCategory === 'all' ? 10_000 : 15_000;
     let timeoutId: NodeJS.Timeout;
 
     const scheduleNext = () => {

@@ -2671,8 +2671,9 @@ export function SubOddsModel({
   });
   
   useEffect(() => {
+      if (finalGroups.length === 0) return;
       if (!finalGroups.find(g => g.title === activeTab)) {
-          setActiveTab(finalGroups[0].title);
+          setActiveTab(finalGroups[0]?.title || 'Todos');
       }
   }, [finalGroups, activeTab]);
 

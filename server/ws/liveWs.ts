@@ -51,12 +51,12 @@ export function createLiveWs(apiKey: string) {
   const lastSent = new Map<string, number>();
   const upstreams = new Map<string, UpstreamInfo>();
   const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'ice-hockey', 'baseball', 'volleyball', 'mma'];
-  // V2 mercados: cache fresco por 3.5s → atualiza entre 3-5s automaticamente
-  const ODDS_FRESH_TTL_MS = envInt('SPORTS_WS_LIVE_ODDS_TTL_MS', 3_500, 1_000, 15_000);
+  // Mantemos odds live muito frescas para evitar preço velho após gol/ponto.
+  const ODDS_FRESH_TTL_MS = envInt('SPORTS_WS_LIVE_ODDS_TTL_MS', 1_250, 1_000, 15_000);
   const ODDS_STALE_TTL_MS = envInt('SPORTS_WS_ODDS_STALE_TTL_MS', 15 * 60_000, 60_000, 24 * 60 * 60_000);
   const SNAPSHOT_THROTTLE_MS = envInt('SPORTS_WS_SNAPSHOT_THROTTLE_MS', 1_000, 250, 10_000);
-  const SNAPSHOT_CACHE_TTL_MS = envInt('SPORTS_WS_SNAPSHOT_CACHE_TTL_MS', 2_000, 500, 15_000);
-  const SNAPSHOT_TENNIS_CACHE_TTL_MS = envInt('SPORTS_WS_SNAPSHOT_TENNIS_CACHE_TTL_MS', 1_000, 500, 10_000);
+  const SNAPSHOT_CACHE_TTL_MS = envInt('SPORTS_WS_SNAPSHOT_CACHE_TTL_MS', 750, 500, 15_000);
+  const SNAPSHOT_TENNIS_CACHE_TTL_MS = envInt('SPORTS_WS_SNAPSHOT_TENNIS_CACHE_TTL_MS', 500, 500, 10_000);
   const WS_RECONNECT_MIN_MS = envInt('SPORTS_WS_RECONNECT_MIN_MS', 1_000, 250, 10_000);
   const WS_RECONNECT_MAX_MS = envInt('SPORTS_WS_RECONNECT_MAX_MS', 20_000, 1_000, 60_000);
   const CRITICAL_INCIDENT_TARGET_LIMIT = envInt('SPORTS_WS_CRITICAL_INCIDENT_TARGET_LIMIT', 40, 12, 100);
@@ -636,6 +636,20 @@ export function createLiveWs(apiKey: string) {
   };
 
   const buildTennisScoreFromDelta = (data: any): Record<string, any> | null => {
+    const normalizeTennisPoint = (value: any): string | number | null => {
+      if (value == null || value === '') return null;
+      const s = String(value).trim().toUpperCase();
+      if (!s) return null;
+      if (s === 'A' || s === 'AD' || s === 'ADV' || s === 'ADVANTAGE') return 'AD';
+      if (s === '15' || s === '30' || s === '40') return s;
+      const n = Number(s);
+      if (!Number.isFinite(n)) return value;
+      if (n === 1) return '15';
+      if (n === 2) return '30';
+      if (n === 3) return '40';
+      if (n >= 4) return 'AD';
+      return n;
+    };
     const homeSets = toNumOrNull(pickFirst(data, [
       'homeScore.setsWon',
       'homeScore.totalSets',
@@ -670,26 +684,37 @@ export function createLiveWs(apiKey: string) {
 
     const pointHome = pickFirst(data, [
       'homeScore.point',
+      'homeScore.displayPoint',
+      'homeScore.currentDisplay',
       'homeScore.currentPoint',
       'homeScore.points',
       'homeScore.game',
       'homeScore.currentGamePoint',
       'homeScore.current',
+      'score.home.point',
+      'score.home.currentPoint',
     ]);
     const pointAway = pickFirst(data, [
       'awayScore.point',
+      'awayScore.displayPoint',
+      'awayScore.currentDisplay',
       'awayScore.currentPoint',
       'awayScore.points',
       'awayScore.game',
       'awayScore.currentGamePoint',
       'awayScore.current',
+      'score.away.point',
+      'score.away.currentPoint',
     ]);
 
     const out: Record<string, any> = {};
     if (homeSets !== null) out.home = homeSets;
     if (awaySets !== null) out.away = awaySets;
     if (Object.keys(sets).length > 0) out.sets = sets;
-    if (pointHome != null || pointAway != null) out.point = { home: pointHome ?? null, away: pointAway ?? null };
+    if (pointHome != null || pointAway != null) out.point = {
+      home: normalizeTennisPoint(pointHome),
+      away: normalizeTennisPoint(pointAway),
+    };
     return Object.keys(out).length > 0 ? out : null;
   };
 
@@ -1088,7 +1113,7 @@ export function createLiveWs(apiKey: string) {
     if (!u?.ws || u.ws.readyState !== WebSocket.OPEN) return;
     const key = `${localSport}:${id}`;
     const last = oddsSubscribed.get(key) || 0;
-    if (Date.now() - last < 10 * 60_000) return;
+    if (Date.now() - last < 15_000) return;
     if (oddsSubscribed.size >= 240) return;
     oddsSubscribed.set(key, Date.now());
     // #region debug-point A:match-odds-subscribe
@@ -1610,6 +1635,9 @@ export function createLiveWs(apiKey: string) {
     ws.on('open', () => {
       u.connecting = false;
       u.backoffMs = 1000;
+      for (const key of Array.from(oddsSubscribed.keys())) {
+        if (key.startsWith(`${localSport}:`)) oddsSubscribed.delete(key);
+      }
       // #region debug-point A:upstream-open
       void import('node:fs').then((fs) => { let eurl = 'http://127.0.0.1:7777/event', sid = 'live-delay-clock'; try { const env = fs.readFileSync('.dbg/live-delay-clock.env', 'utf8'); eurl = /DEBUG_SERVER_URL=(.+)/.exec(env)?.[1] || eurl; sid = /DEBUG_SESSION_ID=(.+)/.exec(env)?.[1] || sid; } catch { void 0; } fetch(eurl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: sid, runId: 'pre', hypothesisId: 'A', location: 'server/ws/liveWs.ts:connectUpstream', msg: '[DEBUG] upstream open', data: { localSport, wsSport, url }, ts: Date.now() }) }).catch(() => null); }).catch(() => null);
       // #endregion
@@ -1828,10 +1856,7 @@ export function createLiveWs(apiKey: string) {
     } else {
       connectUpstream(sport);
     }
-    const intervalMs =
-      sport === 'all' || sport === 'soccer' || sport === 'tennis'
-        ? 1000
-        : 2500;
+    const intervalMs = 1000;
     const id = setInterval(() => {
       sendSnapshot(sport).catch(() => null);
     }, intervalMs);

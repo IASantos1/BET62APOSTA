@@ -206,7 +206,7 @@ export function useMergedEvents(
       indexAliases(canonical, e);
     });
     
-    // Overlay: WS Events (Prefer HTTP for odds/markets)
+    // Overlay: WS Events (Prefer live WS for odds/markets when available)
     wsEvents.forEach(e => {
       const canonical =
         index.get(String(e?.id || '').trim()) ||
@@ -221,7 +221,7 @@ export function useMergedEvents(
       const httpMarkets = (httpEvt as any)?.markets ?? (httpEvt as any)?.odds;
       const wsMarkets = (e as any)?.markets ?? (e as any)?.odds;
       const markets =
-        isNonEmptyMarkets(httpMarkets) ? httpMarkets : isNonEmptyMarkets(wsMarkets) ? wsMarkets : (httpEvt as any)?.odds ?? {};
+        isNonEmptyMarkets(wsMarkets) ? wsMarkets : isNonEmptyMarkets(httpMarkets) ? httpMarkets : (e as any)?.odds ?? (httpEvt as any)?.odds ?? {};
 
       const httpHomeOdd = Number((httpEvt as any)?.home_odd || 0);
       const httpDrawOdd = Number((httpEvt as any)?.draw_odd || 0);
@@ -270,10 +270,10 @@ export function useMergedEvents(
         ...e,
         id: (httpEvt as any)?.id || (e as any)?.id || (e as any)?.external_event_id || (e as any)?.fixture?.id,
         external_event_id: (httpEvt as any)?.external_event_id || (e as any)?.external_event_id || (httpEvt as any)?.id || (e as any)?.id,
-        odds: isNonEmptyObj((httpEvt as any)?.odds) ? (httpEvt as any)?.odds : isNonEmptyObj((e as any).odds) ? (e as any).odds : {},
-        home_odd: httpHomeOdd > 1 ? httpHomeOdd : wsHomeOdd > 1 ? wsHomeOdd : httpHomeOdd || wsHomeOdd || 0,
-        draw_odd: httpDrawOdd > 1 ? httpDrawOdd : wsDrawOdd > 1 ? wsDrawOdd : httpDrawOdd || wsDrawOdd || 0,
-        away_odd: httpAwayOdd > 1 ? httpAwayOdd : wsAwayOdd > 1 ? wsAwayOdd : httpAwayOdd || wsAwayOdd || 0,
+        odds: isNonEmptyObj((e as any)?.odds) ? (e as any).odds : isNonEmptyObj((httpEvt as any)?.odds) ? (httpEvt as any).odds : {},
+        home_odd: wsHomeOdd > 1 ? wsHomeOdd : httpHomeOdd > 1 ? httpHomeOdd : wsHomeOdd || httpHomeOdd || 0,
+        draw_odd: wsDrawOdd > 1 ? wsDrawOdd : httpDrawOdd > 1 ? httpDrawOdd : wsDrawOdd || httpDrawOdd || 0,
+        away_odd: wsAwayOdd > 1 ? wsAwayOdd : httpAwayOdd > 1 ? httpAwayOdd : wsAwayOdd || httpAwayOdd || 0,
         markets,
         score: mergedScore,
         goals: mergedGoals,

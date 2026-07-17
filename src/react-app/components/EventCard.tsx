@@ -297,6 +297,12 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
       if (s === '15' || s === '30' || s === '40') return s as any;
       if (s === 'A' || s === 'AD' || s === 'ADV' || s === 'ADVANTAGE') return 'AD';
       const n = Number(s);
+      if (Number.isFinite(n)) {
+        if (n === 1) return '15';
+        if (n === 2) return '30';
+        if (n === 3) return '40';
+        if (n >= 4) return 'AD';
+      }
       if (Number.isFinite(n) && (n === 15 || n === 30 || n === 40)) return String(n) as any;
       return null;
     };
@@ -502,6 +508,14 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
       );
   const normalizedSuspendReason = String(suspendReason || '').trim().toUpperCase();
 
+  const backendCritState = useMemo(() => {
+    if (normalizedSuspendReason === 'VAR' || normalizedSuspendReason === 'VAR_PENALTY') return 'var_review' as const;
+    if (normalizedSuspendReason === 'GOAL' || normalizedSuspendReason === 'EVENT_FROZEN') return 'goal' as const;
+    if (normalizedSuspendReason === 'PENALTY') return 'penalty' as const;
+    if (normalizedSuspendReason === 'CARD') return 'cards' as const;
+    return 'idle' as const;
+  }, [normalizedSuspendReason]);
+
   const apiCritState = useMemo(() => {
     if (apiVarActive) return 'var_review' as const
     const c = signals?.cta
@@ -600,7 +614,12 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
 
   useEffect(() => {
     if (!isLiveEvent) return;
-    const effectiveCrit: CritState = apiCritState !== 'idle' ? (apiCritState as CritState) : critState;
+    const effectiveCrit: CritState =
+      apiCritState !== 'idle'
+        ? (apiCritState as CritState)
+        : backendCritState !== 'idle'
+          ? (backendCritState as CritState)
+          : critState;
     if (effectiveCrit === 'idle') return;
     const key = `${eventId}|${effectiveCrit}`;
     if (lastNotifCritRef.current === key) return;
@@ -609,7 +628,7 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     if (!msg) return;
     const matchStr = String((event as any)?.match || `${homeTeamName} vs ${awayTeamName}`);
     addNotification({ type: 'info', message: `${matchStr}: ${msg}` });
-  }, [addNotification, apiCritState, critState, event, eventId, homeTeamName, awayTeamName, isLiveEvent]);
+  }, [addNotification, apiCritState, backendCritState, critState, event, eventId, homeTeamName, awayTeamName, isLiveEvent]);
   const apostaJaActive = useMemo(() => {
     if (!isLiveEvent) return false;
     if (hh > 0 && hh <= 1.01) return true;
@@ -1128,12 +1147,27 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
               );
             }
 
-            const effectiveCrit: CritState = apiCritState !== 'idle' ? (apiCritState as CritState) : critState
+            const effectiveCrit: CritState =
+              apiCritState !== 'idle'
+                ? (apiCritState as CritState)
+                : backendCritState !== 'idle'
+                  ? (backendCritState as CritState)
+                  : critState
 
             // Odds are blocked during any critical event OR explicit suspension
             const isOddsBlocked = isSuspended || (effectiveCrit !== 'idle' && isLiveEvent)
             const blockReason: string = isSuspended
-              ? (normalizedSuspendReason === 'VAR' ? 'VAR' : normalizedSuspendReason === 'EVENT_FROZEN' ? 'GOAL' : 'SUSPENSO')
+              ? (
+                  normalizedSuspendReason === 'VAR' || normalizedSuspendReason === 'VAR_PENALTY'
+                    ? 'VAR'
+                    : normalizedSuspendReason === 'GOAL' || normalizedSuspendReason === 'EVENT_FROZEN'
+                      ? 'GOAL'
+                      : normalizedSuspendReason === 'PENALTY'
+                        ? 'PENALTY'
+                        : normalizedSuspendReason === 'CARD'
+                          ? 'CARD'
+                          : 'SUSPENSO'
+                )
               : (CRIT_TO_REASON[effectiveCrit] || 'SUSPENSO')
 
             // Suspension object passed to OddButton
