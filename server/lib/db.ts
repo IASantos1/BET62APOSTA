@@ -130,6 +130,7 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS self_exclude BOOLEAN NOT NULL DEFAULT FALSE`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS self_exclude_until TIMESTAMPTZ`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_operator BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS referral_code TEXT`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verified_iban TEXT`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS iban_holder_name TEXT`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
@@ -491,6 +492,39 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
       until TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_referral_code_unique
+     ON profiles(referral_code)
+     WHERE referral_code IS NOT NULL AND referral_code <> ''`,
+    `CREATE TABLE IF NOT EXISTS user_notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'system',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      cta_label TEXT,
+      cta_target TEXT,
+      is_read BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_user_notifications_user_id
+     ON user_notifications(user_id, created_at DESC)`,
+    `CREATE TABLE IF NOT EXISTS user_referrals (
+      id TEXT PRIMARY KEY,
+      referrer_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      referred_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      referred_email TEXT,
+      referral_code TEXT NOT NULL,
+      reward_amount NUMERIC(18,2) NOT NULL DEFAULT 5,
+      status TEXT NOT NULL DEFAULT 'pending',
+      rewarded_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_user_referrals_referrer_user_id
+     ON user_referrals(referrer_user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_user_referrals_referred_user_id
+     ON user_referrals(referred_user_id)`,
     `DO $$
     DECLARE
       ref RECORD;
@@ -506,10 +540,13 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
           ('favorites', 'user_id'),
           ('user_presence', 'user_id'),
           ('user_documents', 'user_id'),
+          ('user_notifications', 'user_id'),
           ('kyc_documents', 'user_id'),
           ('refresh_tokens', 'user_id'),
           ('self_exclusions', 'user_id'),
-          ('user_self_exclude_history', 'user_id')
+          ('user_self_exclude_history', 'user_id'),
+          ('user_referrals', 'referrer_user_id'),
+          ('user_referrals', 'referred_user_id')
         ) AS refs(table_name, column_name)
       LOOP
         IF EXISTS (
@@ -653,4 +690,3 @@ export async function ensureSchema(pool: pg.Pool | null): Promise<void> {
   await ensureAppAuthTables(pool);
   await ensureAppFinancialTables(pool);
 }
-

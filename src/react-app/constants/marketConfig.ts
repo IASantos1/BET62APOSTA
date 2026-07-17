@@ -430,14 +430,64 @@ export const BASKETBALL_GROUPS = [
 ];
 
 // ─── Tennis ────────────────────────────────────────────────────────────
+const TENNIS_SET_RANGE = [1, 2, 3, 4, 5];
+const TENNIS_SET_SUFFIXES = [
+  'h2h',
+  'totals',
+  'games_handicap',
+  'games_odd_even',
+  'correct_score',
+  'tie_break',
+  'tie_break_winner',
+  'game_winner',
+  'game_1_winner',
+  'game_2_winner',
+  'game_3_winner',
+  'next_game_winner',
+  'next_point_winner',
+  'race_to_games',
+  'break_of_serve',
+  'total_breaks',
+  'first_ace',
+  'total_aces',
+  'total_double_faults',
+  'both_players_games',
+  'break_point',
+];
+
+const TENNIS_PER_SET_KEYS = TENNIS_SET_RANGE.flatMap((setNumber) =>
+  TENNIS_SET_SUFFIXES.map((suffix) => `set_${setNumber}_${suffix}`),
+);
+
+const TENNIS_CURRENT_SET_KEYS = [
+  'current_set_winner',
+  'current_set_totals',
+  'current_set_games_handicap',
+  'current_set_games_odd_even',
+  'current_set_correct_score',
+  'current_set_tie_break',
+  'current_set_tie_break_winner',
+  'current_set_game_winner',
+  'current_set_next_game_winner',
+  'current_set_next_point_winner',
+  'current_set_race_to_games',
+  'current_set_break_of_serve',
+  'current_set_total_breaks',
+  'current_set_first_ace',
+  'current_set_total_aces',
+  'current_set_total_double_faults',
+  'current_set_both_players_games',
+  'current_set_break_point',
+];
+
 export const TENNIS_GROUPS = [
   {
     title: "Todos",
-    keys: ["h2h","current_set_winner","current_set_totals","set_1_h2h","set_2_h2h","set_3_h2h","set_4_h2h","set_5_h2h","set_1_totals","set_2_totals","set_3_totals","set_4_totals","set_5_totals","set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","total_sets","over_under_sets","spreads","handicap","sets_handicap","games_handicap","totals","match_total_games","set_total_games","player_games","race_to_games","games_odd_even","game_winner","next_game_winner","correct_score","score_exact","tie_break","tie_breaks","tie_break_in_match","match_has_tiebreak","aces_total","total_aces","player_aces","player_ace","double_faults_total","player_double_faults","break_points","break_points_converted","first_serve_winner","first_serve_percentage","player_to_win_a_set","to_win_a_set"]
+    keys: ["h2h", ...TENNIS_CURRENT_SET_KEYS, ...TENNIS_PER_SET_KEYS, "set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","total_sets","over_under_sets","spreads","handicap","sets_handicap","games_handicap","totals","match_total_games","set_total_games","player_games","race_to_games","games_odd_even","game_winner","next_game_winner","correct_score","score_exact","exact_score","tennis_exact_sets","tennis_correct_score","tie_break","tie_breaks","tie_break_in_match","match_has_tiebreak","aces_total","total_aces","player_aces","player_ace","double_faults_total","player_double_faults","break_points","break_points_converted","first_serve_winner","first_serve_percentage","player_to_win_a_set","to_win_a_set"]
   },
-  { title: "Vencedor",   keys: ["h2h","correct_score","score_exact"] },
-  { title: "Set Atual",  keys: ["current_set_winner","current_set_totals","game_winner","next_game_winner"] },
-  { title: "Sets",       keys: ["total_sets","over_under_sets","set_1_h2h","set_2_h2h","set_3_h2h","set_4_h2h","set_5_h2h","set_1_totals","set_2_totals","set_3_totals","set_4_totals","set_5_totals","set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","player_to_win_a_set","to_win_a_set"] },
+  { title: "Vencedor",   keys: ["h2h"] },
+  { title: "Set Atual",  keys: [...TENNIS_CURRENT_SET_KEYS, "game_winner","next_game_winner"] },
+  { title: "Sets",       keys: ["correct_score","score_exact","exact_score","tennis_exact_sets","tennis_correct_score","total_sets","over_under_sets", ...TENNIS_PER_SET_KEYS, "set_winner","first_set_winner","second_set_winner","third_set_winner","sets_winner","sets_h2h","player_to_win_a_set","to_win_a_set"] },
   { title: "Handicap",   keys: ["sets_handicap","games_handicap","spreads","handicap"] },
   { title: "Jogos",      keys: ["totals","match_total_games","set_total_games","player_games","race_to_games","games_odd_even"] },
   { title: "Especiais",  keys: ["tie_break","tie_breaks","tie_break_in_match","match_has_tiebreak","aces_total","total_aces","player_aces","player_ace","double_faults_total","player_double_faults","break_points","break_points_converted","first_serve_percentage"] },

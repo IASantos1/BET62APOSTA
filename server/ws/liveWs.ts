@@ -421,6 +421,18 @@ export function createLiveWs(apiKey: string) {
       const closeIf = (predicate: (key: string) => boolean) => {
         for (const key of keys) if (predicate(key)) closed.add(key);
       };
+      const tennisSetKeyIndex = (marketKey: string): number | null => {
+        const key = String(marketKey || '').toLowerCase().trim();
+        const direct = /^set_(\d+)_/.exec(key);
+        if (direct) return Number(direct[1]);
+        const named = /^(first|second|third|fourth|fifth)_set_/.exec(key);
+        if (named) {
+          const map: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
+          return map[named[1]] || null;
+        }
+        return null;
+      };
+      const isCurrentTennisSetKey = (marketKey: string): boolean => String(marketKey || '').toLowerCase().startsWith('current_set_');
       if (isSoccerSport(sportKey)) {
         const elapsed = Number(event?.elapsed ?? event?.fixture?.status?.elapsed ?? 0);
         const firstHalfOnly = new Set([
@@ -460,16 +472,10 @@ export function createLiveWs(apiKey: string) {
         else if (elapsed >= 85) closeIf((key) => !keep85(key));
       } else if (sportKey === 'tennis') {
         const currentSet = getTennisLikeSetNumber();
-        const aliases: Record<number, string[]> = {
-          1: ['set_1_h2h', 'set_1_totals', 'first_set_winner'],
-          2: ['set_2_h2h', 'set_2_totals', 'second_set_winner'],
-          3: ['set_3_h2h', 'set_3_totals', 'third_set_winner'],
-          4: ['set_4_h2h', 'set_4_totals', 'fourth_set_winner'],
-          5: ['set_5_h2h', 'set_5_totals', 'fifth_set_winner'],
-        };
-        for (const [idx, keysForSet] of Object.entries(aliases)) {
-          if (Number(idx) !== currentSet) closeIf((key) => keysForSet.includes(key));
-        }
+        closeIf((key) => {
+          const setIdx = tennisSetKeyIndex(key);
+          return !!(setIdx && setIdx !== currentSet);
+        });
         if (currentSet >= 2) {
           keepOnly((key) =>
             ['h2h', 'current_set_winner', 'current_set_totals', 'set_winner', 'sets_winner', 'sets_h2h',
@@ -477,7 +483,8 @@ export function createLiveWs(apiKey: string) {
              'totals', 'match_total_games', 'set_total_games', 'player_games', 'game_winner', 'next_game_winner',
              'tie_break', 'tie_breaks', 'tie_break_in_match']
               .includes(key) ||
-            /^set_[1-5]_(h2h|totals)$/.test(key)
+            isCurrentTennisSetKey(key) ||
+            tennisSetKeyIndex(key) === currentSet
           );
         }
       } else if (sportKey === 'volleyball') {

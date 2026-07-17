@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { COUNTRIES } from '@/shared/constants';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { useAuth } from '@/react-app/contexts/AuthContext';
+import { BrandMark } from '@/react-app/components/BrandMark';
 
 type RegisterForm = {
   firstName: string;
@@ -12,6 +13,7 @@ type RegisterForm = {
   nif: string;
   dob: string;
   country: string;
+  referralCode: string;
   password: string;
   confirmPassword: string;
   acceptTerms: boolean;
@@ -25,6 +27,7 @@ const initialForm: RegisterForm = {
   nif: '',
   dob: '',
   country: 'PT',
+  referralCode: '',
   password: '',
   confirmPassword: '',
   acceptTerms: false,
@@ -114,6 +117,7 @@ export default function RegisterPage() {
         nif: form.nif.trim(),
         dob: form.dob,
         country: form.country,
+        referralCode: form.referralCode.trim(),
       });
 
       if (!result.success) {
@@ -140,10 +144,10 @@ export default function RegisterPage() {
             }`}
           >
             <div className="mb-8">
-              <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-red-600 to-red-800 text-white shadow-lg">
-                <i className="ri-user-add-line text-2xl"></i>
+              <div className="mb-4 flex justify-center">
+                <BrandMark size={64} rounded="circle" />
               </div>
-              <h1 className={`text-3xl font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>Criar conta profissional</h1>
+              <h1 className={`text-center text-3xl font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>Criar conta profissional</h1>
               <p className={`mt-2 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                 Registo com mais validações, dados civis e segurança de acesso.
               </p>
@@ -215,6 +219,22 @@ export default function RegisterPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-xs font-black uppercase tracking-[0.16em] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Código de amigo
+                </label>
+                <input
+                  name="referralCode"
+                  value={form.referralCode}
+                  onChange={handleChange}
+                  className={inputClass}
+                  placeholder="Opcional"
+                />
+                <p className={`mt-2 text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                  Use um código válido para receber 5€ em freebets no registo.
+                </p>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">

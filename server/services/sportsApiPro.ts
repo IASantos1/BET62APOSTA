@@ -941,6 +941,86 @@ function formatSelectionName(marketKey: string, optionName: string, point: strin
   return base;
 }
 
+function tennisSetNumberFromPeriod(period: string): number | null {
+  const p = normalizeLineName(period || '');
+  if (p === '1st set' || p === 'first set') return 1;
+  if (p === '2nd set' || p === 'second set') return 2;
+  if (p === '3rd set' || p === 'third set') return 3;
+  if (p === '4th set' || p === 'fourth set') return 4;
+  if (p === '5th set' || p === 'fifth set') return 5;
+  return null;
+}
+
+function tennisCurrentSetMarketKey(lineType: string, lineName: string, marketGroup: string): string | null {
+  const t = normalizeLineType(lineType);
+  const n = normalizeLineName(lineName);
+  const g = normalizeLineName(marketGroup || '');
+  const combo = `${g} ${n} ${t}`.trim();
+
+  if ((combo.includes('tie break') || combo.includes('tiebreak')) && combo.includes('winner')) return 'current_set_tie_break_winner';
+  if (combo.includes('tie break') || combo.includes('tiebreak')) return 'current_set_tie_break';
+  if (combo.includes('next point') || combo.includes('point winner')) return 'current_set_next_point_winner';
+  if (combo.includes('next game')) return 'current_set_next_game_winner';
+  if (combo.includes('game winner') || combo.includes('current game')) return 'current_set_game_winner';
+  if (combo.includes('race to')) return 'current_set_race_to_games';
+  if (combo.includes('break point')) return 'current_set_break_point';
+  if (combo.includes('break') || combo.includes('service break')) {
+    if (combo.includes('total') || combo.includes('number of')) return 'current_set_total_breaks';
+    return 'current_set_break_of_serve';
+  }
+  if (combo.includes('double fault')) return 'current_set_total_double_faults';
+  if (combo.includes('ace')) {
+    if (combo.includes('first')) return 'current_set_first_ace';
+    return 'current_set_total_aces';
+  }
+  if (combo.includes('both') && combo.includes('game')) return 'current_set_both_players_games';
+  if (combo.includes('correct score') || combo.includes('set betting') || combo.includes('match score') || combo.includes('exact sets')) {
+    return 'current_set_correct_score';
+  }
+  if (combo.includes('odd even') || combo.includes('odd/even') || combo.includes('even odd')) return 'current_set_games_odd_even';
+  if ((g.includes('point spread') || g.includes('handicap') || t.includes('handicap')) && combo.includes('game')) return 'current_set_games_handicap';
+  if ((g.includes('over') || g.includes('under') || combo.includes('total')) && combo.includes('game')) return 'current_set_totals';
+  if (combo.includes('winner')) return 'current_set_winner';
+  return null;
+}
+
+function tennisSetScopedMarketKey(setNumber: number, lineType: string, lineName: string, marketGroup: string): string | null {
+  const prefix = `set_${setNumber}_`;
+  const t = normalizeLineType(lineType);
+  const n = normalizeLineName(lineName);
+  const g = normalizeLineName(marketGroup || '');
+  const combo = `${g} ${n} ${t}`.trim();
+
+  if ((combo.includes('tie break') || combo.includes('tiebreak')) && combo.includes('winner')) return `${prefix}tie_break_winner`;
+  if (combo.includes('tie break') || combo.includes('tiebreak')) return `${prefix}tie_break`;
+  if (combo.includes('next point') || combo.includes('point winner')) return `${prefix}next_point_winner`;
+  if (combo.includes('next game')) return `${prefix}next_game_winner`;
+  if (combo.includes('first game')) return `${prefix}game_1_winner`;
+  if (combo.includes('second game')) return `${prefix}game_2_winner`;
+  if (combo.includes('third game')) return `${prefix}game_3_winner`;
+  if (combo.includes('game winner') || combo.includes('current game')) return `${prefix}game_winner`;
+  if (combo.includes('race to')) return `${prefix}race_to_games`;
+  if (combo.includes('break point')) return `${prefix}break_point`;
+  if (combo.includes('break') || combo.includes('service break')) {
+    if (combo.includes('total') || combo.includes('number of')) return `${prefix}total_breaks`;
+    return `${prefix}break_of_serve`;
+  }
+  if (combo.includes('double fault')) return `${prefix}total_double_faults`;
+  if (combo.includes('ace')) {
+    if (combo.includes('first')) return `${prefix}first_ace`;
+    return `${prefix}total_aces`;
+  }
+  if (combo.includes('both') && combo.includes('game')) return `${prefix}both_players_games`;
+  if (combo.includes('correct score') || combo.includes('set betting') || combo.includes('match score') || combo.includes('exact sets')) {
+    return `${prefix}correct_score`;
+  }
+  if (combo.includes('odd even') || combo.includes('odd/even') || combo.includes('even odd')) return `${prefix}games_odd_even`;
+  if ((g.includes('point spread') || g.includes('handicap') || t.includes('handicap')) && combo.includes('game')) return `${prefix}games_handicap`;
+  if ((g.includes('over') || g.includes('under') || combo.includes('total')) && combo.includes('game')) return `${prefix}totals`;
+  if (combo.includes('winner')) return `${prefix}h2h`;
+  return null;
+}
+
 // marketKeyFromOddsAll accepts both lineType/lineName (legacy) AND
 // marketGroup/marketName/marketPeriod (SportsApiPro v2 format).
 // Extra params: marketGroup and marketPeriod from the SportsApiPro row.
@@ -953,6 +1033,15 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   const combo = `${g} ${n} ${t}`.trim();
 
   // ── SportsApiPro v2 period-based markets (checked FIRST) ──────────────────
+  if (p === 'current set' || p.includes('current set')) {
+    const currentKey = tennisCurrentSetMarketKey(lineType, lineName, marketGroup || '');
+    if (currentKey) return currentKey;
+  }
+  const tennisSetNo = tennisSetNumberFromPeriod(p);
+  if (tennisSetNo) {
+    const scopedKey = tennisSetScopedMarketKey(tennisSetNo, lineType, lineName, marketGroup || '');
+    if (scopedKey) return scopedKey;
+  }
   if (p === '1st half' || p === 'first half') {
     if (g.includes('over') || g.includes('under') || n.includes('total')) return '1st_half_totals';
     return '1st_half';
@@ -977,10 +1066,6 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   if (p === '2nd quarter' || p === 'second quarter') return g.includes('over') || g.includes('under') ? 'q2_totals' : 'q2_h2h';
   if (p === '3rd quarter' || p === 'third quarter') return g.includes('over') || g.includes('under') ? 'q3_totals' : 'q3_h2h';
   if (p === '4th quarter' || p === 'fourth quarter') return g.includes('over') || g.includes('under') ? 'q4_totals' : 'q4_h2h';
-  if (p === 'current set' || p.includes('current set')) {
-    if (g.includes('winner') || n.includes('winner')) return 'current_set_winner';
-    if (g.includes('over') || g.includes('under') || n.includes('total')) return 'current_set_totals';
-  }
   if (p === '1st set' || p === 'first set') return g.includes('over') || g.includes('under') ? 'set_1_totals' : 'set_1_h2h';
   if (p === '2nd set' || p === 'second set') return g.includes('over') || g.includes('under') ? 'set_2_totals' : 'set_2_h2h';
   if (p === '3rd set' || p === 'third set') return g.includes('over') || g.includes('under') ? 'set_3_totals' : 'set_3_h2h';
@@ -1029,7 +1114,17 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   if (g === 'asian handicap' || g === 'asianhandicap') return 'spreads';
   if (g === 'double chance' || g === 'doublechance') return 'double_chance';
   if (g === 'both teams to score' || g === 'bothteamstoscore') return 'btts';
-  if (g === 'correct score' || g === 'correctscore') return 'correct_score';
+  if (
+    g === 'correct score' ||
+    g === 'correctscore' ||
+    g === 'set betting' ||
+    g === 'setbetting' ||
+    g === 'exact sets' ||
+    g === 'match score' ||
+    g === 'result of sets' ||
+    g === 'sets result' ||
+    g === 'correct score by sets'
+  ) return 'correct_score';
   if (g === 'draw no bet' || g === 'drawnabet') return 'draw_no_bet';
   if (g === 'puck line' || g === 'puckline') return 'puck_line';
   if (g === 'run line' || g === 'runline') return 'run_line';
@@ -1131,7 +1226,16 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   if (t === 'fulltime' || t === 'matchresult' || t === 'matchwinner') return 'h2h';
   if (t === 'moneyline' || t === 'winner') return 'h2h';
   if (t === 'doublechance') return 'double_chance';
-  if (t === 'correctscore' || t === 'scoreexact' || t === 'setbetting') return 'correct_score';
+  if (
+    t === 'correctscore' ||
+    t === 'scoreexact' ||
+    t === 'setbetting' ||
+    t === 'exactsets' ||
+    t === 'matchscore' ||
+    t === 'resultofsets' ||
+    t === 'setsresult' ||
+    t === 'correctscorebysets'
+  ) return 'correct_score';
   if (t === 'totalgoals' || t === 'overunder' || t === 'asianoverunder') return 'totals';
   if (t === 'totalpoints' || t === 'totalruns' || t === 'gametotal') return 'totals';
   if (t === 'teamtotalpoints' || t === 'teamtotalruns' || t === 'teamtotalgoals') return 'team_totals';

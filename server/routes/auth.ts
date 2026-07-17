@@ -16,6 +16,7 @@ type SignUpBody = {
   lastName?: string;
   dob?: string;
   country?: string;
+  referralCode?: string;
 };
 
 type SignInBody = {
@@ -226,6 +227,88 @@ async function createProfileRecord(
   }
 }
 
+async function createUserNotification(
+  pool: pg.Pool,
+  userId: string,
+  input: { kind?: string; title: string; body: string; cta_label?: string; cta_target?: string },
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO user_notifications (
+       id, user_id, kind, title, body, cta_label, cta_target, is_read, created_at, updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, NOW(), NOW())`,
+    [
+      randomId(16),
+      userId,
+      String(input.kind || 'system'),
+      String(input.title || ''),
+      String(input.body || ''),
+      input.cta_label ? String(input.cta_label) : null,
+      input.cta_target ? String(input.cta_target) : null,
+    ],
+  );
+}
+
+async function applyReferralOnSignup(
+  pool: pg.Pool,
+  newUserId: string,
+  email: string,
+  referralCode: string,
+): Promise<void> {
+  const code = String(referralCode || '').trim().toUpperCase();
+  if (!code) return;
+
+  const referrer = await pool.query(
+    `SELECT user_id
+     FROM profiles
+     WHERE referral_code = $1
+       AND user_id <> $2
+     LIMIT 1`,
+    [code, newUserId],
+  );
+  const referrerUserId = String(referrer.rows?.[0]?.user_id || '').trim();
+  if (!referrerUserId) return;
+
+  const existing = await pool.query(
+    `SELECT 1
+     FROM user_referrals
+     WHERE referred_user_id = $1
+        OR LOWER(COALESCE(referred_email, '')) = $2
+     LIMIT 1`,
+    [newUserId, String(email || '').trim().toLowerCase()],
+  );
+  if (existing.rows.length > 0) return;
+
+  await pool.query(
+    `INSERT INTO user_referrals (
+       id, referrer_user_id, referred_user_id, referred_email, referral_code, reward_amount, status, rewarded_at, created_at, updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, 5, 'rewarded', NOW(), NOW(), NOW())`,
+    [randomId(16), referrerUserId, newUserId, String(email || '').trim().toLowerCase(), code],
+  );
+  await pool.query(
+    `UPDATE profiles
+     SET free_bet_balance = COALESCE(free_bet_balance, 0) + 5,
+         updated_at = NOW()
+     WHERE user_id = ANY($1::text[])`,
+    [[referrerUserId, newUserId]],
+  );
+  await createUserNotification(pool, referrerUserId, {
+    kind: 'promo',
+    title: 'Convite convertido',
+    body: 'Recebeu 5€ em freebets por um amigo ter concluído o registo com o seu código.',
+    cta_label: 'Abrir perfil',
+    cta_target: '/profile?tab=Convida%20um%20amigo',
+  });
+  await createUserNotification(pool, newUserId, {
+    kind: 'promo',
+    title: 'Bónus de boas-vindas',
+    body: 'Recebeu 5€ em freebets por se registar com um código de amigo.',
+    cta_label: 'Ver saldo',
+    cta_target: '/profile',
+  });
+}
+
 async function loadUserForSignin(pool: pg.Pool, email: string): Promise<any | null> {
   const userCols = await getTableCols(pool, 'users').catch(() => []);
   const passwordCols = ['id'];
@@ -322,6 +405,7 @@ export async function handleAuthRoutes(
       const name = `${String(body.firstName || '').trim()} ${String(body.lastName || '').trim()}`.trim();
       const userId = await createUserRecord(pool, email, password, name || null);
       await createProfileRecord(pool, userId, email, name || null, body.dob || null);
+      await applyReferralOnSignup(pool, userId, email, body.referralCode || '');
 
       const tokens = await issueTokens(pool, userId, req);
       setAuthCookies(req, res, tokens);

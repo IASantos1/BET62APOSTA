@@ -86,7 +86,7 @@ export function Bet62Intro() {
               style={{
                 width: '84px',
                 height: '84px',
-                borderRadius: '28px',
+                borderRadius: '9999px',
                 background: 'linear-gradient(135deg, #ff4d4f 0%, #c8102e 100%)',
                 display: 'flex',
                 alignItems: 'center',
@@ -96,14 +96,14 @@ export function Bet62Intro() {
             >
               <span
                 style={{
-                  fontSize: '28px',
+                  fontSize: '32px',
                   fontWeight: 900,
                   color: '#fff',
                   letterSpacing: '-1px',
                   fontFamily: 'system-ui, -apple-system, sans-serif',
                 }}
               >
-                B62
+                62
               </span>
             </div>
 

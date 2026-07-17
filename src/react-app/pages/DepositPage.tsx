@@ -11,9 +11,9 @@ type Method = 'mbway' | 'multibanco' | 'cartao';
 type WalletAction = 'deposit' | 'withdraw';
 
 // ─── MBWay ────────────────────────────────────────────────────────────────────
-const MBWayForm = ({ amount, onSuccess, forceLight = false }: { amount: number; onSuccess: () => void; forceLight?: boolean }) => {
+const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
   const { addNotification, darkMode } = useApp();
-  const uiDarkMode = forceLight ? false : darkMode;
+  const uiDarkMode = darkMode;
   const [phone, setPhone] = useState('');
   const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -166,9 +166,9 @@ type MultibancoRef = {
   paid?: boolean;
 };
 
-const MultibancoForm = ({ amount, onSuccess, forceLight = false }: { amount: number; onSuccess: () => void; forceLight?: boolean }) => {
+const MultibancoForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
   const { addNotification, darkMode, user } = useApp();
-  const uiDarkMode = forceLight ? false : darkMode;
+  const uiDarkMode = darkMode;
   const [email, setEmail] = useState((user as any)?.email || '');
   const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -362,9 +362,9 @@ const MultibancoForm = ({ amount, onSuccess, forceLight = false }: { amount: num
 };
 
 // ─── Stripe Card Form ─────────────────────────────────────────────────────────
-const StripeCardFormInner = ({ amount, onSuccess, forceLight = false }: { amount: number; onSuccess: () => void; forceLight?: boolean }) => {
+const StripeCardFormInner = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
   const { addNotification, darkMode } = useApp();
-  const uiDarkMode = forceLight ? false : darkMode;
+  const uiDarkMode = darkMode;
   const stripe = useStripe();
   const elements = useElements();
   const [loading, setLoading] = useState(false);
@@ -448,9 +448,9 @@ const StripeCardFormInner = ({ amount, onSuccess, forceLight = false }: { amount
   );
 };
 
-const StripeCardForm = ({ amount, onSuccess, forceLight = false }: { amount: number; onSuccess: () => void; forceLight?: boolean }) => {
+const StripeCardForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
   const { darkMode } = useApp();
-  const uiDarkMode = forceLight ? false : darkMode;
+  const uiDarkMode = darkMode;
   const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
@@ -481,14 +481,14 @@ const StripeCardForm = ({ amount, onSuccess, forceLight = false }: { amount: num
 
   return (
     <Elements stripe={stripePromise!} options={{ locale: 'pt' }}>
-      <StripeCardFormInner amount={amount} onSuccess={onSuccess} forceLight={forceLight} />
+      <StripeCardFormInner amount={amount} onSuccess={onSuccess} />
     </Elements>
   );
 };
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function DepositPage() {
-  const { darkMode: appDarkMode, user, openAuthModal } = useApp();
+  const { darkMode, user, openAuthModal } = useApp();
   const [amount, setAmount] = useState("25");
   const [amountError, setAmountError] = useState("");
   const [method, setMethod] = useState<Method>('cartao');
@@ -498,8 +498,6 @@ export default function DepositPage() {
   const numAmount = parseFloat(amount) || 0;
   const isAdmin = !!(user as any)?.is_operator;
   const minDeposit = isAdmin ? 0.5 : 10;
-  const lightDepositMode = walletAction === 'deposit';
-  const darkMode = lightDepositMode ? false : appDarkMode;
 
   const handleAmountChange = (e: ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -607,9 +605,9 @@ export default function DepositPage() {
                 <p className="text-center text-gray-500 text-sm py-4">Seleciona um valor mínimo de €{minDeposit.toFixed(2)}</p>
               ) : (
                 <>
-                  {method === 'cartao' && <StripeCardForm amount={numAmount} onSuccess={handleSuccess} forceLight={lightDepositMode} />}
-                  {method === 'mbway' && <MBWayForm amount={numAmount} onSuccess={handleSuccess} forceLight={lightDepositMode} />}
-                  {method === 'multibanco' && <MultibancoForm amount={numAmount} onSuccess={handleSuccess} forceLight={lightDepositMode} />}
+                  {method === 'cartao' && <StripeCardForm amount={numAmount} onSuccess={handleSuccess} />}
+                  {method === 'mbway' && <MBWayForm amount={numAmount} onSuccess={handleSuccess} />}
+                  {method === 'multibanco' && <MultibancoForm amount={numAmount} onSuccess={handleSuccess} />}
                 </>
               )}
             </div>

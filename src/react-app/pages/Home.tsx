@@ -119,6 +119,42 @@ const hasRenderableLiveOdds = (ev: any): boolean => {
     : false;
 };
 
+const hasAnyMarketOdds = (ev: any): boolean => {
+  let mk: any = ev?.markets ?? ev?.odds;
+  if (typeof mk === 'string') {
+    const s = mk.trim();
+    if (s && ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']')))) {
+      try { mk = JSON.parse(s); } catch { void 0; }
+    }
+  }
+  if (!mk || typeof mk !== 'object') return false;
+
+  for (const value of Object.values(mk)) {
+    const selections = Array.isArray(value)
+      ? value
+      : Array.isArray((value as any)?.selections)
+        ? (value as any).selections
+        : Array.isArray((value as any)?.outcomes)
+          ? (value as any).outcomes
+          : Array.isArray((value as any)?.values)
+            ? (value as any).values
+            : [];
+    if (Array.isArray(selections) && selections.some((s: any) => Number(s?.odd ?? s?.price ?? s?.value ?? 0) > 1.01)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const isLiveLikeEvent = (ev: any): boolean => {
+  const status = String(ev?.status || ev?.status_short || ev?.fixture?.status?.short || '').toUpperCase();
+  return (
+    Number(ev?.is_live) === 1 ||
+    status === 'LIVE' ||
+    ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(status)
+  );
+};
+
 function EventCardSkeleton({ darkMode, live = false }: { darkMode: boolean; live?: boolean }) {
   return (
     <div className={`rounded-2xl border p-4 md:p-5 animate-pulse ${darkMode ? 'bg-[#161616] border-gray-800' : 'bg-white border-gray-200'}`}>
@@ -172,7 +208,7 @@ function Home({ mode = 'home' }: HomeProps) {
     {
       only: mode === 'home' ? 'pregame' : mode === 'live' ? 'live' : 'both',
       days: apiDays,
-      requireOdds: true,
+      requireOdds: mode !== 'live',
     },
   );
 
@@ -188,7 +224,7 @@ function Home({ mode = 'home' }: HomeProps) {
     only: 'pregame',
     days: 3,
     enabled: mode === 'live',
-    requireOdds: true,
+    requireOdds: false,
   });
   void eventsLoading;
   
@@ -372,7 +408,10 @@ function Home({ mode = 'home' }: HomeProps) {
     () => {
       const filtered = filterEventsByControls(flatLiveEvents);
       const preferred = filtered.filter((ev) => hasRenderableLiveOdds(ev));
-      return limitEvents(preferred, 120);
+      if (preferred.length > 0) return limitEvents(preferred, 120);
+      const fallback = filtered.filter((ev) => isLiveLikeEvent(ev) && (hasAnyMarketOdds(ev) || hasRenderableLiveOdds(ev)));
+      if (fallback.length > 0) return limitEvents(fallback, 120);
+      return limitEvents(filtered.filter((ev) => isLiveLikeEvent(ev)), 120);
     },
     [flatLiveEvents, leagueFilter, sportFilter],
   );

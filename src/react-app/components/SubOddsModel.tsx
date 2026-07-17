@@ -646,6 +646,62 @@ export function SubOddsModel({
   }
 
   const getMarketTitle = (key: string, sport?: string) => {
+      const tennisScoped = /^set_(\d+)_(.+)$/.exec(key);
+      if (tennisScoped) {
+        const setNumber = Number(tennisScoped[1]);
+        const suffix = tennisScoped[2];
+        const suffixMap: Record<string, string> = {
+          h2h: 'Vencedor',
+          totals: 'Total de Games',
+          games_handicap: 'Handicap de Games',
+          games_odd_even: 'Games Par/Ímpar',
+          correct_score: 'Placar Correto',
+          tie_break: 'Haverá Tie-break?',
+          tie_break_winner: 'Vencedor do Tie-break',
+          game_winner: 'Vencedor do Game Atual',
+          game_1_winner: '1º Game',
+          game_2_winner: '2º Game',
+          game_3_winner: '3º Game',
+          next_game_winner: 'Próximo Game',
+          next_point_winner: 'Próximo Ponto',
+          race_to_games: 'Race to Games',
+          break_of_serve: 'Quebra de Saque',
+          total_breaks: 'Total de Quebras de Saque',
+          first_ace: 'Primeiro Ace',
+          total_aces: 'Total de Aces',
+          total_double_faults: 'Total de Duplas Faltas',
+          both_players_games: 'Ambos vencem pelo menos X Games',
+          break_point: 'Break Point no Próximo Game',
+        };
+        return `${setNumber}º Set - ${suffixMap[suffix] || suffix.replace(/_/g, ' ')}`;
+      }
+
+      const currentTennisScoped = /^current_set_(.+)$/.exec(key);
+      if (currentTennisScoped) {
+        const suffix = currentTennisScoped[1];
+        const suffixMap: Record<string, string> = {
+          winner: 'Vencedor',
+          totals: 'Total de Games',
+          games_handicap: 'Handicap de Games',
+          games_odd_even: 'Games Par/Ímpar',
+          correct_score: 'Placar Correto',
+          tie_break: 'Haverá Tie-break?',
+          tie_break_winner: 'Vencedor do Tie-break',
+          game_winner: 'Vencedor do Game Atual',
+          next_game_winner: 'Próximo Game',
+          next_point_winner: 'Próximo Ponto',
+          race_to_games: 'Race to Games',
+          break_of_serve: 'Quebra de Saque',
+          total_breaks: 'Total de Quebras de Saque',
+          first_ace: 'Primeiro Ace',
+          total_aces: 'Total de Aces',
+          total_double_faults: 'Total de Duplas Faltas',
+          both_players_games: 'Ambos vencem pelo menos X Games',
+          break_point: 'Break Point no Próximo Game',
+        };
+        return `Set Atual - ${suffixMap[suffix] || suffix.replace(/_/g, ' ')}`;
+      }
+
       const periodKey = /^period_(\d)_(h2h|totals)$/.exec(key);
       if (periodKey) {
         const n = Number(periodKey[1]);
@@ -663,6 +719,9 @@ export function SubOddsModel({
           if (s.includes('basketball') || s.includes('basquete')) return 'Vencedor';
           if (s.includes('mma') || s.includes('ufc') || s.includes('mixed martial arts') || s.includes('luta')) return 'Vencedor da Luta';
           return MARKET_CONFIG['h2h']?.title || 'Resultado Final';
+      }
+      if ((key === 'correct_score' || key === 'score_exact' || key === 'exact_score') && ((sport || '').toLowerCase().includes('tennis') || (sport || '').toLowerCase().includes('tênis'))) {
+          return 'Placar exato por Sets';
       }
 
       const raw = (eventOdds && (eventOdds as any)[key]);
@@ -1136,6 +1195,27 @@ export function SubOddsModel({
     );
   }, [isSoccerLive, event, liveTimer, liveElapsedMinute]);
 
+  const tennisSetIndexFromKey = (marketKey: string): number | null => {
+    const key = String(marketKey || '').toLowerCase().trim();
+    const numbered = /^set_(\d+)_/.exec(key);
+    if (numbered) return Number(numbered[1]);
+    const named = /^(first|second|third|fourth|fifth)_set_/.exec(key);
+    if (named) {
+      const map: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
+      return map[named[1]] || null;
+    }
+    if (key === 'first_set_winner' || key === 'first_set_total') return 1;
+    if (key === 'second_set_winner' || key === 'second_set_total') return 2;
+    if (key === 'third_set_winner' || key === 'third_set_total') return 3;
+    if (key === 'fourth_set_winner' || key === 'fourth_set_total') return 4;
+    if (key === 'fifth_set_winner' || key === 'fifth_set_total') return 5;
+    return null;
+  };
+
+  const isCurrentSetScopedKey = (marketKey: string): boolean => {
+    return String(marketKey || '').toLowerCase().startsWith('current_set_');
+  };
+
   const isMarketLiquidated = (key: string): boolean => {
     if (!isLive) return false;
     if (isSoccerLive) {
@@ -1196,8 +1276,13 @@ export function SubOddsModel({
             4: ['fourth_set_winner', 'fourth_set_total'],
             5: ['fifth_set_winner', 'fifth_set_total'],
           };
-      for (const [idx, keys] of Object.entries(aliases)) {
-        if (Number(idx) !== livePhaseNumber && keys.includes(key)) return true;
+      if (liveSportKey === 'tennis') {
+        const setIdx = tennisSetIndexFromKey(key);
+        if (setIdx && setIdx !== livePhaseNumber) return true;
+      } else {
+        for (const [idx, keys] of Object.entries(aliases)) {
+          if (Number(idx) !== livePhaseNumber && keys.includes(key)) return true;
+        }
       }
       if (liveSportKey === 'tennis' && livePhaseNumber >= 2) {
         const keepTennisLate = (marketKey: string) => (
@@ -1206,7 +1291,8 @@ export function SubOddsModel({
            'totals', 'match_total_games', 'set_total_games', 'player_games', 'game_winner', 'next_game_winner',
            'tie_break', 'tie_breaks', 'tie_break_in_match']
             .includes(marketKey) ||
-          /^set_[1-5]_(h2h|totals)$/.test(marketKey)
+          isCurrentSetScopedKey(marketKey) ||
+          tennisSetIndexFromKey(marketKey) === livePhaseNumber
         );
         return !keepTennisLate(key);
       }
@@ -1779,17 +1865,23 @@ export function SubOddsModel({
         };
 
         if (isTennisScoreMarket) {
-          const detectSide = (item: MarketItem): 'home' | 'away' | null => {
+          const detectSide = (item: MarketItem, parsed: { h: number; a: number } | null): 'home' | 'away' | null => {
             const text = `${item.label || ''} ${item.selection || ''} ${item.name || ''}`.toLowerCase();
             if (/\bcasa\b|\bhome\b/.test(text)) return 'home';
             if (/\bfora\b|\baway\b|\bvisitante\b/.test(text)) return 'away';
+            if (home && text.includes(String(home).toLowerCase())) return 'home';
+            if (away && text.includes(String(away).toLowerCase())) return 'away';
+            if (parsed) {
+              if (parsed.h > parsed.a) return 'home';
+              if (parsed.a > parsed.h) return 'away';
+            }
             return null;
           };
 
           const normalized = rawItems
             .map((item: MarketItem) => {
               const parsed = parseScore(String(item.label || ''));
-              const side = detectSide(item);
+              const side = detectSide(item, parsed);
               if (!parsed || !side) return null;
               const winnerSets = Math.max(parsed.h, parsed.a);
               const loserSets = Math.min(parsed.h, parsed.a);

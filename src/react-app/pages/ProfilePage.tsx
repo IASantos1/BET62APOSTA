@@ -14,6 +14,9 @@ import {
 
 interface WalletEntry { currency: string; balance: number }
 interface Transaction { id: string; type: string; status: string; amount: number; currency: string; created_at: string; metadata?: string }
+interface UserNotificationEntry { id: string; kind: string; title: string; body: string; cta_label?: string; cta_target?: string; is_read: boolean; created_at: string }
+interface ReferralInviteEntry { id: string; email: string; status: string; reward_amount: number; created_at: string }
+interface ReferralSummary { code: string; reward_eur: number; link: string; invited_count: number; rewarded_count: number; total_reward_eur: number; invites: ReferralInviteEntry[] }
 
 // ── Theme helpers ──────────────────────────────────────────────────
 const t = {
@@ -100,6 +103,31 @@ const ProfilePage: React.FC = () => {
   const [newIban, setNewIban] = useState('');
   const [holderName, setHolderName] = useState('');
   const [withdrawLoading, setWithdrawLoading] = useState(false);
+  const [userNotifications, setUserNotifications] = useState<UserNotificationEntry[]>([]);
+  const [notificationsUnread, setNotificationsUnread] = useState(0);
+  const [referral, setReferral] = useState<ReferralSummary | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteName, setInviteName] = useState('');
+  const [inviteLoading, setInviteLoading] = useState(false);
+
+  const fetchUserNotifications = async (markRead = false) => {
+    if (!user) { setUserNotifications([]); setNotificationsUnread(0); return; }
+    const data = await apiFetch<{ unread: number; notifications: UserNotificationEntry[] }>('/api/users/notifications', { cache: 'no-store' });
+    const next = Array.isArray(data.notifications) ? data.notifications : [];
+    setUserNotifications(next);
+    setNotificationsUnread(Number(data.unread || 0));
+    if (markRead && Number(data.unread || 0) > 0) {
+      await apiFetch('/api/users/notifications/read-all', { method: 'POST' }).catch(() => null);
+      setNotificationsUnread(0);
+      setUserNotifications(next.map((item) => ({ ...item, is_read: true })));
+    }
+  };
+
+  const fetchReferral = async () => {
+    if (!user) { setReferral(null); return; }
+    const data = await apiFetch<ReferralSummary>('/api/users/referral', { cache: 'no-store' });
+    setReferral(data);
+  };
 
   useEffect(() => {
     if (selectedItem === 'Métodos de Pagamento' && activePaymentTab === 'withdrawals' && user) {
@@ -169,22 +197,29 @@ const ProfilePage: React.FC = () => {
     const loadData = async () => {
       if (!user) return;
       try {
-        const [wb, tx, tfa, pf, ud] = await Promise.all([
+        const [wb, tx, tfa, pf, ud, nt, rf] = await Promise.all([
           apiFetch<WalletEntry[]>('/api/wallet/balances', { signal: ac.signal }).catch(() => null),
           apiFetch<Transaction[]>('/api/wallet/transactions', { signal: ac.signal }).catch(() => null),
           apiFetch<{ enabled?: boolean }>('/api/auth/2fa/status', { signal: ac.signal }).catch(() => null),
           apiFetch<any>('/api/users/profile', { signal: ac.signal }).catch(() => null),
           apiFetch<any[]>('/api/users/documents', { signal: ac.signal }).catch(() => null),
+          apiFetch<{ unread: number; notifications: UserNotificationEntry[] }>('/api/users/notifications', { signal: ac.signal }).catch(() => null),
+          apiFetch<ReferralSummary>('/api/users/referral', { signal: ac.signal }).catch(() => null),
         ]);
         if (wb) setWallets(wb);
         if (tx) setTransactions(tx);
         if (tfa) setTwoFactorEnabled(Boolean(tfa.enabled));
         if (pf) setProfile(pf);
         if (ud) setDocuments(Array.isArray(ud) ? ud : []);
+        if (nt) {
+          setUserNotifications(Array.isArray(nt.notifications) ? nt.notifications : []);
+          setNotificationsUnread(Number(nt.unread || 0));
+        }
+        if (rf) setReferral(rf);
       } catch (err: any) {
         const msg = String(err?.message || '');
         if (/Abort|ERR_ABORTED|ERR_CANCELED/i.test(msg)) return;
-        setWallets([]); setTransactions([]); setTwoFactorEnabled(false); setProfile(null); setDocuments([]);
+        setWallets([]); setTransactions([]); setTwoFactorEnabled(false); setProfile(null); setDocuments([]); setUserNotifications([]); setNotificationsUnread(0); setReferral(null);
       }
     };
     loadData();
@@ -263,6 +298,52 @@ const ProfilePage: React.FC = () => {
     }
   };
 
+  const handleNotificationClick = async (item: UserNotificationEntry) => {
+    if (!item.is_read) {
+      await apiFetch(`/api/users/notifications/${encodeURIComponent(item.id)}/read`, { method: 'POST' }).catch(() => null);
+      setUserNotifications((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, is_read: true } : entry));
+      setNotificationsUnread((prev) => Math.max(0, prev - 1));
+    }
+    if (item.cta_target) navigate(item.cta_target);
+  };
+
+  const handleInviteFriend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail.trim()) {
+      addNotification({ type: 'error', message: 'Indique o email do amigo' });
+      return;
+    }
+    setInviteLoading(true);
+    try {
+      const data = await apiFetch<{ reward_eur?: number; status?: string }>('/api/users/referral/invite', {
+        method: 'POST',
+        body: JSON.stringify({ email: inviteEmail.trim(), name: inviteName.trim() }),
+      });
+      addNotification({
+        type: 'success',
+        message: data?.status === 'rewarded'
+          ? 'Convite validado. Foram creditados 5€ em freebets.'
+          : 'Convite enviado com sucesso.',
+      });
+      setInviteEmail('');
+      setInviteName('');
+      await Promise.all([fetchReferral(), fetchUserNotifications()]);
+    } catch (err: any) {
+      addNotification({ type: 'error', message: err?.message || 'Falha ao enviar convite' });
+    } finally {
+      setInviteLoading(false);
+    }
+  };
+
+  const copyText = async (value: string, successMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      addNotification({ type: 'success', message: successMessage });
+    } catch {
+      addNotification({ type: 'error', message: 'Não foi possível copiar agora' });
+    }
+  };
+
   useEffect(() => {
     let timer: any = null;
     if (selectedItem === 'Preciso de ajuda' && user) {
@@ -271,6 +352,15 @@ const ProfilePage: React.FC = () => {
     }
     return () => { if (timer) clearInterval(timer); };
   }, [selectedItem, user]);
+
+  useEffect(() => {
+    if (selectedItem === 'Novidades' || selectedItem === 'Notificações') {
+      void fetchUserNotifications(true);
+    }
+    if (selectedItem === 'Convida um amigo') {
+      void fetchReferral();
+    }
+  }, [selectedItem]);
 
   const balance = wallets.find(w => w.currency === 'EUR')?.balance ?? 0;
   const fullName =
@@ -318,7 +408,7 @@ const ProfilePage: React.FC = () => {
     { label: 'A minha conta', icon: User, action: () => setSelectedItem('A minha conta'), accent: 'bg-blue-500/15 text-blue-300' },
     { label: 'Pagamentos', icon: CreditCard, action: () => setSelectedItem('Métodos de Pagamento'), accent: 'bg-emerald-500/15 text-emerald-300' },
     { label: 'Documentos', icon: FileText, action: () => setSelectedItem('Documentos'), accent: 'bg-amber-500/15 text-amber-300' },
-    { label: 'Operações', icon: History, action: () => setSelectedItem('Operações'), accent: 'bg-violet-500/15 text-violet-300' },
+    { label: 'Novidades', icon: Bell, action: () => setSelectedItem('Novidades'), accent: 'bg-violet-500/15 text-violet-300' },
     { label: 'Ajuda', icon: MessageCircle, action: () => setSelectedItem('Preciso de ajuda'), accent: 'bg-pink-500/15 text-pink-300' },
     { label: 'Limites', icon: ShieldAlert, action: () => setSelectedItem('Definir os meus limites'), accent: 'bg-orange-500/15 text-orange-300' },
   ];
@@ -538,7 +628,7 @@ const ProfilePage: React.FC = () => {
                   <div className={`mt-5 space-y-2 text-[15px] font-black ${darkMode ? 'text-white' : 'text-gray-950'}`}>
                     <div className="flex items-center justify-between gap-4">
                       <span className="inline-flex items-center gap-2"><span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">F</span> FREEBETS</span>
-                      <span>0,00 €</span>
+                      <span>{Number(profile?.free_bet_balance || 0).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                     </div>
                     <div className="flex items-center justify-between gap-4">
                       <span className="inline-flex items-center gap-2"><span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-purple-600 text-[10px] text-white">C</span> BÓNUS DE CASINO</span>
@@ -630,10 +720,10 @@ const ProfilePage: React.FC = () => {
       <div className="mb-6">
         <SectionTitle>Agora</SectionTitle>
         <div className={`rounded-[24px] overflow-hidden ${t.card(darkMode)}`}>
-          <MenuItem icon={Bell} label="Novidades" onClick={() => {}} badge="676" badgeColor="bg-gray-900 text-white" />
-          <MenuItem icon={Percent} label="Código promocional" onClick={() => {}} />
-          <MenuItem icon={Gift} label="Convida um amigo" onClick={() => {}}
-            badge={<span className="flex items-center gap-1"><span className="w-3.5 h-3.5 rounded-full bg-red-600 inline-flex items-center justify-center text-[8px] font-bold text-white">F</span> 10 €</span>}
+          <MenuItem icon={Bell} label="Novidades" onClick={() => setSelectedItem('Novidades')} badge={notificationsUnread > 0 ? String(notificationsUnread) : undefined} badgeColor="bg-gray-900 text-white" />
+          <MenuItem icon={Percent} label="Código promocional" onClick={() => setSelectedItem('Código promocional')} />
+          <MenuItem icon={Gift} label="Convida um amigo" onClick={() => setSelectedItem('Convida um amigo')}
+            badge={<span className="flex items-center gap-1"><span className="w-3.5 h-3.5 rounded-full bg-red-600 inline-flex items-center justify-center text-[8px] font-bold text-white">F</span> 5 €</span>}
             badgeColor="bg-gray-900 text-white"
             isLast
           />
@@ -646,11 +736,10 @@ const ProfilePage: React.FC = () => {
         <div className={`rounded-[24px] overflow-hidden ${t.card(darkMode)}`}>
           <MenuItem icon={User} label="A minha conta" onClick={() => setSelectedItem('A minha conta')} />
           <MenuItem icon={CreditCard} label="Métodos de pagamento" onClick={() => setSelectedItem('Métodos de Pagamento')} />
-          <MenuItem icon={History} label="Operações" onClick={() => setSelectedItem('Operações')} />
           <MenuItem icon={MessageCircle} label="Mensagens" onClick={() => setSelectedItem('Preciso de ajuda')} />
           <MenuItem icon={FileText} label="Documentos" onClick={() => setSelectedItem('Documentos')} />
           <MenuItem icon={Lock} label="Acesso e segurança" onClick={() => setSelectedItem('A minha conta')} />
-          <MenuItem icon={Bell} label="Notificações" onClick={() => setSelectedItem('Opções')} />
+          <MenuItem icon={Bell} label="Notificações" onClick={() => setSelectedItem('Notificações')} badge={notificationsUnread > 0 ? String(notificationsUnread) : undefined} badgeColor="bg-red-600 text-white" />
           <MenuItem icon={Settings} label="Opções" onClick={() => setSelectedItem('Opções')} isLast />
         </div>
       </div>
@@ -895,6 +984,131 @@ const ProfilePage: React.FC = () => {
             </Card>
           </div>
         )}
+      </div>
+    );
+
+    if (selectedItem === 'Novidades' || selectedItem === 'Notificações') return (
+      <div className="p-4 space-y-4 max-w-lg mx-auto">
+        <Card title={selectedItem === 'Novidades' ? 'Novidades e atualizações' : 'Notificações'}>
+          {userNotifications.length === 0 ? (
+            <p className={`text-[13px] py-6 text-center ${t.sub(darkMode)}`}>Sem novidades de momento.</p>
+          ) : (
+            <div className="space-y-3">
+              {userNotifications.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => handleNotificationClick(item)}
+                  className={`w-full rounded-2xl border p-4 text-left transition hover:opacity-85 ${item.is_read ? '' : 'ring-1 ring-red-500/30'} ${darkMode ? 'border-white/10 bg-white/[0.03]' : 'border-gray-200 bg-gray-50'}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className={`text-[14px] font-bold ${t.heading(darkMode)}`}>{item.title}</p>
+                      <p className={`mt-1 text-[12px] ${t.sub(darkMode)}`}>{item.body}</p>
+                      <p className={`mt-2 text-[11px] ${t.label(darkMode)}`}>{new Date(item.created_at).toLocaleString('pt-PT')}</p>
+                    </div>
+                    {!item.is_read && <span className="mt-1 inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />}
+                  </div>
+                  {item.cta_label && (
+                    <div className="mt-3 text-[12px] font-semibold text-red-500">{item.cta_label} →</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+
+    if (selectedItem === 'Código promocional') return (
+      <div className="p-4 space-y-4 max-w-lg mx-auto">
+        <Card title="Código promocional">
+          <div className="space-y-4">
+            <div className={`rounded-2xl border p-4 ${darkMode ? 'border-white/10 bg-white/[0.03]' : 'border-gray-200 bg-gray-50'}`}>
+              <p className={`text-[14px] font-semibold ${t.heading(darkMode)}`}>Campanhas ativas</p>
+              <p className={`mt-1 text-[12px] ${t.sub(darkMode)}`}>
+                As promoções e códigos ativos ficam centralizados aqui. Quando existir uma campanha nova, ela também aparece em Novidades.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/promotions')}
+              className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-[14px] transition"
+            >
+              Ver promoções disponíveis
+            </button>
+          </div>
+        </Card>
+      </div>
+    );
+
+    if (selectedItem === 'Convida um amigo') return (
+      <div className="p-4 space-y-4 max-w-lg mx-auto">
+        <Card title="Convida um amigo">
+          <div className="space-y-4">
+            <div className={`rounded-2xl border p-4 ${darkMode ? 'border-white/10 bg-white/[0.03]' : 'border-gray-200 bg-gray-50'}`}>
+              <p className={`text-[12px] uppercase tracking-[0.18em] ${t.label(darkMode)}`}>Oferta ativa</p>
+              <p className={`mt-2 text-[18px] font-black ${t.heading(darkMode)}`}>Ganha 5€ em freebets por cada amigo válido</p>
+              <p className={`mt-1 text-[12px] ${t.sub(darkMode)}`}>Partilhe o código abaixo. Quando o amigo se registar com ele, o sistema credita as freebets.</p>
+            </div>
+
+            <div className={`rounded-2xl border p-4 ${darkMode ? 'border-white/10 bg-black/15' : 'border-gray-200 bg-white'}`}>
+              <p className={`text-[11px] uppercase tracking-[0.18em] mb-2 ${t.label(darkMode)}`}>Código pessoal</p>
+              <div className="flex items-center gap-2">
+                <div className={`flex-1 rounded-xl border px-4 py-3 font-black tracking-[0.2em] ${darkMode ? 'border-white/10 bg-white/[0.03] text-white' : 'border-gray-200 bg-gray-50 text-gray-900'}`}>
+                  {referral?.code || 'BET62'}
+                </div>
+                <button onClick={() => copyText(referral?.code || 'BET62', 'Código copiado')} className="px-4 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-[13px] font-bold transition">
+                  Copiar
+                </button>
+              </div>
+              <button onClick={() => copyText(referral?.link || 'https://bet62.com/register', 'Link copiado')} className={`mt-3 w-full py-3 rounded-xl text-[13px] font-semibold transition ${darkMode ? 'bg-white/8 text-white hover:bg-white/12' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`}>
+                Copiar link do convite
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Convidados', value: referral?.invited_count ?? 0 },
+                { label: 'Validados', value: referral?.rewarded_count ?? 0 },
+                { label: 'Freebets', value: `${Number(referral?.total_reward_eur || 0).toFixed(2)} €` },
+              ].map((item) => (
+                <div key={item.label} className={`rounded-2xl p-4 ${t.card(darkMode)}`}>
+                  <p className={`text-[11px] uppercase tracking-wide ${t.label(darkMode)}`}>{item.label}</p>
+                  <p className={`mt-2 text-[18px] font-black ${t.heading(darkMode)}`}>{item.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <form onSubmit={handleInviteFriend} className="space-y-3">
+              <InputField label="Nome do amigo" value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Opcional" />
+              <InputField label="Email do amigo" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="amigo@email.pt" />
+              <button type="submit" disabled={inviteLoading} className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-[14px] transition">
+                {inviteLoading ? 'A enviar convite...' : 'Enviar convite'}
+              </button>
+            </form>
+          </div>
+        </Card>
+
+        <Card title="Convites registados">
+          {referral?.invites?.length ? (
+            <div className="space-y-3">
+              {referral.invites.map((item) => (
+                <div key={item.id} className={`rounded-2xl border p-4 ${darkMode ? 'border-white/10 bg-white/[0.03]' : 'border-gray-200 bg-gray-50'}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className={`text-[14px] font-semibold ${t.heading(darkMode)}`}>{item.email}</p>
+                      <p className={`text-[12px] ${t.sub(darkMode)}`}>{new Date(item.created_at).toLocaleString('pt-PT')}</p>
+                    </div>
+                    <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${item.status === 'rewarded' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-amber-500/15 text-amber-500'}`}>
+                      {item.status === 'rewarded' ? `+${item.reward_amount.toFixed(2)}€` : 'Pendente'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className={`text-[13px] py-6 text-center ${t.sub(darkMode)}`}>Ainda não existem convites registados.</p>
+          )}
+        </Card>
       </div>
     );
 
@@ -1223,6 +1437,10 @@ const ProfilePage: React.FC = () => {
     'Informação': 'Informação',
     'A minha conta': 'A minha conta',
     'Métodos de Pagamento': 'Métodos de pagamento',
+    'Novidades': 'Novidades',
+    'Notificações': 'Notificações',
+    'Código promocional': 'Código promocional',
+    'Convida um amigo': 'Convida um amigo',
     'Operações': 'Operações',
     'Documentos': 'Documentos',
     'Opções': 'Opções',

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { useAuth } from '@/react-app/contexts/AuthContext';
 import { TwoFactor } from '@/react-app/components/TwoFactorSetup';
+import { BrandMark } from '@/react-app/components/BrandMark';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -59,10 +60,10 @@ export default function LoginPage() {
             }`}
           >
             <div className="mb-8">
-              <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-red-600 to-red-800 text-white shadow-lg">
-                <i className="ri-login-box-line text-2xl"></i>
+              <div className="mb-4 flex justify-center">
+                <BrandMark size={64} rounded="circle" />
               </div>
-              <h1 className={`text-3xl font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>Entrar na sua conta</h1>
+              <h1 className={`text-center text-3xl font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>Entrar na sua conta</h1>
               <p className={`mt-2 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                 Acesso direto sem recarregar a página principal por baixo.
               </p>

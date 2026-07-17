@@ -47,6 +47,7 @@ type SignUpResult = {
     nif?: string;
     dob: string;
     country: string;
+    referralCode?: string;
   }) => Promise<SignUpResult>;
 
   signOut: () => Promise<void>;

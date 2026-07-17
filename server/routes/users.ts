@@ -82,6 +82,100 @@ function isAllowedExtension(filename: string, mimeType: string): boolean {
   return allowed.includes(ext);
 }
 
+function makeReferralCode(seed: string): string {
+  return String(seed || '')
+    .replace(/[^a-z0-9]/gi, '')
+    .toUpperCase()
+    .slice(0, 10);
+}
+
+async function ensureUserReferralCode(pool: pg.Pool, userId: string, emailHint?: string): Promise<string> {
+  const existing = await pool.query(
+    `SELECT referral_code, email
+     FROM profiles
+     WHERE user_id = $1
+     LIMIT 1`,
+    [userId],
+  );
+  const current = String(existing.rows?.[0]?.referral_code || '').trim().toUpperCase();
+  if (current) return current;
+
+  const email = String(emailHint || existing.rows?.[0]?.email || '').trim().toLowerCase();
+  const base = makeReferralCode(email.split('@')[0] || userId || 'BET62');
+  let candidate = base || makeReferralCode(userId);
+  let suffix = 62;
+
+  while (true) {
+    const hit = await pool.query(
+      `SELECT 1
+       FROM profiles
+       WHERE referral_code = $1
+         AND user_id <> $2
+       LIMIT 1`,
+      [candidate, userId],
+    );
+    if (hit.rows.length === 0) break;
+    candidate = `${base.slice(0, 6) || 'BET'}${suffix}`;
+    suffix += 1;
+  }
+
+  await pool.query(
+    `UPDATE profiles
+     SET referral_code = $2, updated_at = NOW()
+     WHERE user_id = $1`,
+    [userId, candidate],
+  );
+  return candidate;
+}
+
+async function createUserNotification(
+  pool: pg.Pool,
+  userId: string,
+  input: {
+    kind?: string;
+    title: string;
+    body: string;
+    cta_label?: string;
+    cta_target?: string;
+  },
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO user_notifications (
+       id, user_id, kind, title, body, cta_label, cta_target, is_read, created_at, updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, NOW(), NOW())`,
+    [
+      randomId(16),
+      userId,
+      String(input.kind || 'system'),
+      String(input.title || ''),
+      String(input.body || ''),
+      input.cta_label ? String(input.cta_label) : null,
+      input.cta_target ? String(input.cta_target) : null,
+    ],
+  );
+}
+
+async function seedDefaultNotifications(pool: pg.Pool, userId: string): Promise<void> {
+  const count = await pool.query(`SELECT COUNT(*)::int AS count FROM user_notifications WHERE user_id = $1`, [userId]);
+  if (Number(count.rows?.[0]?.count || 0) > 0) return;
+
+  await createUserNotification(pool, userId, {
+    kind: 'news',
+    title: 'Novidades BET62',
+    body: 'O Ao Vivo foi atualizado para priorizar ligas maiores e melhorar a estabilidade das odds.',
+    cta_label: 'Ver Ao Vivo',
+    cta_target: '/live',
+  });
+  await createUserNotification(pool, userId, {
+    kind: 'promo',
+    title: 'Convida um amigo',
+    body: 'Partilhe o seu código pessoal e ganhe 5€ em freebets quando o amigo se registar com ele.',
+    cta_label: 'Abrir convite',
+    cta_target: '/profile?tab=Convida%20um%20amigo',
+  });
+}
+
 async function readBinaryBody(req: http.IncomingMessage, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
@@ -118,6 +212,178 @@ export async function handleUsersRoutes(
       self_exclude: selfExclude,
       self_exclude_until: selfExcludeUntil,
     });
+    return true;
+  }
+
+  if (req.method === 'GET' && path === '/api/users/notifications') {
+    const u = await requireUser(pool, req);
+    if (!u) return unauthorized(res), true;
+    await seedDefaultNotifications(pool, u.id);
+    const r = await pool.query(
+      `SELECT id, kind, title, body, cta_label, cta_target, is_read, created_at
+       FROM user_notifications
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 100`,
+      [u.id],
+    );
+    const notifications = (r.rows || []).map((row: any) => ({
+      id: String(row.id || ''),
+      kind: String(row.kind || 'system'),
+      title: String(row.title || ''),
+      body: String(row.body || ''),
+      cta_label: row.cta_label ? String(row.cta_label) : undefined,
+      cta_target: row.cta_target ? String(row.cta_target) : undefined,
+      is_read: Boolean(row.is_read),
+      created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+    }));
+    const unread = notifications.filter((item: any) => !item.is_read).length;
+    sendJson(res, 200, { unread, notifications });
+    return true;
+  }
+
+  if (req.method === 'POST' && path === '/api/users/notifications/read-all') {
+    const u = await requireUser(pool, req);
+    if (!u) return unauthorized(res), true;
+    await pool.query(
+      `UPDATE user_notifications
+       SET is_read = TRUE, updated_at = NOW()
+       WHERE user_id = $1 AND is_read = FALSE`,
+      [u.id],
+    );
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === 'POST' && path.startsWith('/api/users/notifications/') && path.endsWith('/read')) {
+    const u = await requireUser(pool, req);
+    if (!u) return unauthorized(res), true;
+    const id = path.split('/')[4] || '';
+    if (!id) return badRequest(res, 'Notificação inválida'), true;
+    await pool.query(
+      `UPDATE user_notifications
+       SET is_read = TRUE, updated_at = NOW()
+       WHERE user_id = $1 AND id = $2`,
+      [u.id, id],
+    );
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === 'GET' && path === '/api/users/referral') {
+    const u = await requireUser(pool, req);
+    if (!u) return unauthorized(res), true;
+    const code = await ensureUserReferralCode(pool, u.id);
+    const stats = await pool.query(
+      `SELECT
+         COUNT(*)::int AS invited_count,
+         COUNT(*) FILTER (WHERE status = 'rewarded')::int AS rewarded_count,
+         COALESCE(SUM(reward_amount) FILTER (WHERE status = 'rewarded'), 0)::numeric AS total_reward
+       FROM user_referrals
+       WHERE referrer_user_id = $1`,
+      [u.id],
+    );
+    const invites = await pool.query(
+      `SELECT id, referred_email, status, reward_amount, created_at
+       FROM user_referrals
+       WHERE referrer_user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [u.id],
+    );
+    sendJson(res, 200, {
+      code,
+      reward_eur: 5,
+      link: `https://bet62.com/register?ref=${encodeURIComponent(code)}`,
+      invited_count: Number(stats.rows?.[0]?.invited_count || 0),
+      rewarded_count: Number(stats.rows?.[0]?.rewarded_count || 0),
+      total_reward_eur: Number(stats.rows?.[0]?.total_reward || 0),
+      invites: (invites.rows || []).map((row: any) => ({
+        id: String(row.id || ''),
+        email: String(row.referred_email || ''),
+        status: String(row.status || 'pending'),
+        reward_amount: Number(row.reward_amount || 0),
+        created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+      })),
+    });
+    return true;
+  }
+
+  if (req.method === 'POST' && path === '/api/users/referral/invite') {
+    const u = await requireUser(pool, req);
+    if (!u) return unauthorized(res), true;
+    const body = await readJsonBody<{ email?: string; name?: string }>(req, 8 * 1024).catch(() => null);
+    if (!body) return badRequest(res, 'Invalid JSON'), true;
+    const email = String(body.email || '').trim().toLowerCase();
+    const friendName = String(body.name || '').trim();
+    if (!email || !email.includes('@')) return badRequest(res, 'Email inválido'), true;
+    const ownProfile = await pool.query(`SELECT email FROM profiles WHERE user_id = $1 LIMIT 1`, [u.id]);
+    const ownEmail = String(ownProfile.rows?.[0]?.email || '').trim().toLowerCase();
+    if (ownEmail && ownEmail === email) return badRequest(res, 'Não pode convidar o seu próprio email'), true;
+
+    const code = await ensureUserReferralCode(pool, u.id, ownEmail);
+    const existing = await pool.query(
+      `SELECT id, status
+       FROM user_referrals
+       WHERE referrer_user_id = $1
+         AND LOWER(COALESCE(referred_email, '')) = $2
+       LIMIT 1`,
+      [u.id, email],
+    );
+    if (existing.rows.length > 0) return badRequest(res, 'Este convite já foi enviado'), true;
+
+    const maybeFriend = await pool.query(
+      `SELECT user_id
+       FROM profiles
+       WHERE LOWER(COALESCE(email, '')) = $1
+       LIMIT 1`,
+      [email],
+    );
+
+    const referralId = randomId(16);
+    const friendUserId = String(maybeFriend.rows?.[0]?.user_id || '').trim() || null;
+    const rewardStatus = friendUserId ? 'rewarded' : 'pending';
+    await pool.query(
+      `INSERT INTO user_referrals (
+         id, referrer_user_id, referred_user_id, referred_email, referral_code, reward_amount, status, rewarded_at, created_at, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, 5, $6, ${friendUserId ? 'NOW()' : 'NULL'}, NOW(), NOW())`,
+      [referralId, u.id, friendUserId, email, code, rewardStatus],
+    );
+
+    if (friendUserId) {
+      await pool.query(
+        `UPDATE profiles
+         SET free_bet_balance = COALESCE(free_bet_balance, 0) + 5,
+             updated_at = NOW()
+         WHERE user_id = $1`,
+        [u.id],
+      );
+      await createUserNotification(pool, u.id, {
+        kind: 'promo',
+        title: 'Convite validado',
+        body: `Recebeu 5€ em freebets por convidar ${friendName || email}.`,
+        cta_label: 'Ver conta',
+        cta_target: '/profile',
+      });
+      await createUserNotification(pool, friendUserId, {
+        kind: 'promo',
+        title: 'Chegou um convite',
+        body: 'Um amigo convidou-o para a BET62. Já pode usar as novidades e promoções disponíveis.',
+        cta_label: 'Abrir perfil',
+        cta_target: '/profile',
+      });
+    } else {
+      await createUserNotification(pool, u.id, {
+        kind: 'promo',
+        title: 'Convite enviado',
+        body: `O convite para ${friendName || email} ficou registado com sucesso.`,
+        cta_label: 'Ver convite',
+        cta_target: '/profile?tab=Convida%20um%20amigo',
+      });
+    }
+
+    sendJson(res, 200, { ok: true, code, reward_eur: friendUserId ? 5 : 0, status: rewardStatus });
     return true;
   }
 
