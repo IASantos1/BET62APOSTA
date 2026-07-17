@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { useEffect, useState, memo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -37,6 +37,7 @@ import ProfilePage from "./pages/ProfilePage";
 import MyBetsPage from "./pages/MyBetsPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import AdminAccessPage from "./pages/AdminAccessPage";
 import { AdminRoute } from './routes/AdminRoute';
 import AdminKycPage from "./pages/AdminKycPage";
 import AdminWithdrawalsPage from "./pages/AdminWithdrawalsPage";
@@ -124,12 +125,14 @@ export default function App() {
 
 const InnerApp = memo(function InnerApp() {
   const { darkMode } = useApp();
+  const location = useLocation();
+  const isStandaloneAdmin = location.pathname === '/admin' || location.pathname === '/admin/login' || location.pathname.startsWith('/admin/');
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
-      <Header />
+      {!isStandaloneAdmin && <Header />}
       <AppContent />
-      <Footer />
+      {!isStandaloneAdmin && <Footer />}
     </div>
   );
 });
@@ -137,21 +140,7 @@ const InnerApp = memo(function InnerApp() {
 function AppContent() {
   const { authModalOpen, authModalMode, authModalUserId, closeAuthModal, openAuthModal, darkMode } = useApp();
   const location = useLocation();
-  const navigate = useNavigate();
-  const isAdminAuthPath = location.pathname === '/administrador/login' || location.pathname === '/admin/login';
-
-  useEffect(() => {
-    if (isAdminAuthPath) {
-      openAuthModal('login');
-    }
-  }, [location.pathname, isAdminAuthPath]);
-
-  const handleCloseAuth = () => {
-    closeAuthModal();
-    if (isAdminAuthPath) {
-      navigate('/');
-    }
-  };
+  const isStandaloneAdmin = location.pathname === '/admin' || location.pathname === '/admin/login' || location.pathname.startsWith('/admin/');
 
   const isEventPage = location.pathname.startsWith('/event/');
   const vars = isEventPage ? eventVariants : pageVariants;
@@ -162,19 +151,15 @@ function AppContent() {
       <SWUpdateBar />
       <InstallBar />
       <CookieBanner />
-      <BackLink />
-      {authModalOpen && (
+      {!isStandaloneAdmin && <BackLink />}
+      {authModalOpen && !isStandaloneAdmin && (
         <AuthModal
           mode={authModalMode}
           tempUserId={authModalUserId}
-          allowRegister={!isAdminAuthPath}
-          onClose={handleCloseAuth}
+          allowRegister={true}
+          onClose={closeAuthModal}
           onLoginSuccess={() => {
             closeAuthModal();
-            if (isAdminAuthPath) {
-              navigate('/administrador');
-              return;
-            }
           }}
           onRequire2FA={(userId) => openAuthModal('2fa', userId)}
           onSwitchMode={(mode) => openAuthModal(mode)}
@@ -208,12 +193,11 @@ function AppContent() {
             <Route path="/my-bets" element={<MyBetsPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/admin/login" element={<HomePage mode="home" />} />
-            <Route path="/administrador/login" element={<HomePage mode="home" />} />
-            <Route path="/admin" element={
-              <AdminRoute><AdminPanel /></AdminRoute>
-            } />
-            <Route path="/administrador" element={
+            <Route path="/admin" element={<AdminAccessPage />} />
+            <Route path="/admin/login" element={<Navigate to="/admin" replace />} />
+            <Route path="/administrador" element={<Navigate to="/admin" replace />} />
+            <Route path="/administrador/login" element={<Navigate to="/admin" replace />} />
+            <Route path="/admin/dashboard" element={
               <AdminRoute><AdminPanel /></AdminRoute>
             } />
             <Route path="/deposit-success" element={<DepositSuccess />} />
@@ -240,8 +224,8 @@ function AppContent() {
         </motion.div>
       </AnimatePresence>
 
-      <MobileBetSlip />
-      <DashboardSidebar />
+      {!isStandaloneAdmin && <MobileBetSlip />}
+      {!isStandaloneAdmin && <DashboardSidebar />}
       <ToastContainer />
     </div>
   );
