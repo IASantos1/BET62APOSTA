@@ -540,6 +540,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const keys = collectMarketKeys();
       if (keys.length === 0) return [] as string[];
       const closed = new Set<string>();
+      const keepOnly = (predicate: (key: string) => boolean) => closeIf((key) => !predicate(key));
       const closeIf = (predicate: (key: string) => boolean) => {
         for (const key of keys) if (predicate(key)) closed.add(key);
       };
@@ -594,6 +595,16 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         for (const [idx, aliases] of Object.entries(setAliases)) {
           if (Number(idx) !== currentSet) closeIf((key) => aliases.includes(key));
         }
+        if (currentSet >= 2) {
+          keepOnly((key) =>
+            ['h2h', 'current_set_winner', 'current_set_totals', 'set_winner', 'sets_winner', 'sets_h2h',
+             'total_sets', 'over_under_sets', 'spreads', 'handicap', 'sets_handicap', 'games_handicap',
+             'totals', 'match_total_games', 'set_total_games', 'player_games', 'game_winner', 'next_game_winner',
+             'tie_break', 'tie_breaks', 'tie_break_in_match']
+              .includes(key) ||
+            /^set_[1-5]_(h2h|totals)$/.test(key)
+          );
+        }
       } else if (sportKey === 'volleyball') {
         const currentSet = getTennisLikeSetNumber();
         const setAliases: Record<number, string[]> = {
@@ -605,6 +616,15 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         };
         for (const [idx, aliases] of Object.entries(setAliases)) {
           if (Number(idx) !== currentSet) closeIf((key) => aliases.includes(key));
+        }
+        if (currentSet >= 3) {
+          keepOnly((key) =>
+            ['h2h', 'totals', 'spreads', 'handicap', 'total_sets', 'over_under_sets', 'sets_h2h', 'sets_winner',
+             'sets_handicap', 'set_total_points', 'point_handicap', 'winning_margin',
+             'first_set_winner', 'second_set_winner', 'third_set_winner', 'fourth_set_winner', 'fifth_set_winner',
+             'first_set_total', 'second_set_total', 'third_set_total', 'fourth_set_total', 'fifth_set_total']
+              .includes(key)
+          );
         }
       } else if (sportKey === 'basketball') {
         const quarter = getPeriodLikeNumber('Q');
@@ -618,6 +638,15 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
           for (const [idx, keysForQuarter] of Object.entries(aliases)) {
             if (Number(idx) !== quarter) closeIf((key) => keysForQuarter.includes(key));
           }
+          if (quarter >= 4) {
+            keepOnly((key) =>
+              ['h2h', 'totals', 'team_totals', 'spreads', 'handicap', 'alternate_spreads',
+               'q4_h2h', 'q4_totals', 'quarters_h2h', 'quarters_totals',
+               'double_chance', 'winning_margin', 'margin', 'race_to', 'race_to_points',
+               'first_to_score', 'next_basket', 'next_scorer', 'three_pointer']
+                .includes(key)
+            );
+          }
         }
       } else if (sportKey === 'hockey' || sportKey === 'ice-hockey') {
         const period = getPeriodLikeNumber('P');
@@ -630,11 +659,27 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
           for (const [idx, keysForPeriod] of Object.entries(aliases)) {
             if (Number(idx) !== period) closeIf((key) => keysForPeriod.includes(key));
           }
+          if (period >= 3) {
+            keepOnly((key) =>
+              ['h2h', 'totals', 'team_totals', 'puck_line', 'spreads', 'handicap', 'double_chance',
+               'winning_margin', 'first_to_score', 'period_3_h2h', 'period_3_totals',
+               'next_goal_scorer', 'shots_on_goal', 'shots_on_goal_period', 'power_play', 'power_play_goals']
+                .includes(key)
+            );
+          }
         }
       } else if (sportKey === 'baseball') {
         const inning = getPeriodLikeNumber('IN');
         if (inning && inning !== 1) {
           closeIf((key) => ['nrfi', 'yrfi', 'first_inning_run', 'first_inning_h2h', 'first_inning_totals', 'result_1st_inning'].includes(key));
+        }
+        if (inning && inning >= 7) {
+          keepOnly((key) =>
+            ['h2h', 'totals', 'run_line', 'spreads', 'handicap', 'team_totals', 'extra_innings',
+             'winning_margin', 'inning_winner', 'inning_h2h', 'innings_h2h', 'inning_totals', 'innings_totals',
+             'race_to', 'race_to_runs', 'run_range', 'run_total_range']
+              .includes(key)
+          );
         }
       }
       return Array.from(closed);

@@ -1197,6 +1197,26 @@ export function SubOddsModel({
       for (const [idx, keys] of Object.entries(aliases)) {
         if (Number(idx) !== livePhaseNumber && keys.includes(key)) return true;
       }
+      if (liveSportKey === 'tennis' && livePhaseNumber >= 2) {
+        const keepTennisLate = (marketKey: string) => (
+          ['h2h', 'current_set_winner', 'current_set_totals', 'set_winner', 'sets_winner', 'sets_h2h',
+           'total_sets', 'over_under_sets', 'spreads', 'handicap', 'sets_handicap', 'games_handicap',
+           'totals', 'match_total_games', 'set_total_games', 'player_games', 'game_winner', 'next_game_winner',
+           'tie_break', 'tie_breaks', 'tie_break_in_match']
+            .includes(marketKey) ||
+          /^set_[1-5]_(h2h|totals)$/.test(marketKey)
+        );
+        return !keepTennisLate(key);
+      }
+      if (liveSportKey === 'volleyball' && livePhaseNumber >= 3) {
+        const keepVolleyLate = new Set([
+          'h2h', 'totals', 'spreads', 'handicap', 'total_sets', 'over_under_sets', 'sets_h2h', 'sets_winner',
+          'sets_handicap', 'set_total_points', 'point_handicap', 'winning_margin',
+          'first_set_winner', 'second_set_winner', 'third_set_winner', 'fourth_set_winner', 'fifth_set_winner',
+          'first_set_total', 'second_set_total', 'third_set_total', 'fourth_set_total', 'fifth_set_total',
+        ]);
+        return !keepVolleyLate.has(key);
+      }
       return false;
     }
 
@@ -1210,6 +1230,15 @@ export function SubOddsModel({
       for (const [idx, keys] of Object.entries(aliases)) {
         if (Number(idx) !== livePhaseNumber && keys.includes(key)) return true;
       }
+      if (livePhaseNumber >= 4) {
+        const keepBasketLate = new Set([
+          'h2h', 'totals', 'team_totals', 'spreads', 'handicap', 'alternate_spreads',
+          'q4_h2h', 'q4_totals', 'quarters_h2h', 'quarters_totals',
+          'double_chance', 'winning_margin', 'margin', 'race_to', 'race_to_points',
+          'first_to_score', 'next_basket', 'next_scorer', 'three_pointer',
+        ]);
+        return !keepBasketLate.has(key);
+      }
       return false;
     }
 
@@ -1222,11 +1251,28 @@ export function SubOddsModel({
       for (const [idx, keys] of Object.entries(aliases)) {
         if (Number(idx) !== livePhaseNumber && keys.includes(key)) return true;
       }
+      if (livePhaseNumber >= 3) {
+        const keepHockeyLate = new Set([
+          'h2h', 'totals', 'team_totals', 'puck_line', 'spreads', 'handicap', 'double_chance',
+          'winning_margin', 'first_to_score', 'period_3_h2h', 'period_3_totals',
+          'next_goal_scorer', 'shots_on_goal', 'shots_on_goal_period', 'power_play', 'power_play_goals',
+        ]);
+        return !keepHockeyLate.has(key);
+      }
       return false;
     }
 
     if (liveSportKey === 'baseball' && livePhaseNumber && livePhaseNumber !== 1) {
-      return ['nrfi', 'yrfi', 'first_inning_run', 'first_inning_h2h', 'first_inning_totals', 'result_1st_inning'].includes(key);
+      if (['nrfi', 'yrfi', 'first_inning_run', 'first_inning_h2h', 'first_inning_totals', 'result_1st_inning'].includes(key)) return true;
+      if (livePhaseNumber >= 7) {
+        const keepBaseballLate = new Set([
+          'h2h', 'totals', 'run_line', 'spreads', 'handicap', 'team_totals', 'extra_innings',
+          'winning_margin', 'inning_winner', 'inning_h2h', 'innings_h2h', 'inning_totals', 'innings_totals',
+          'race_to', 'race_to_runs', 'run_range', 'run_total_range',
+        ]);
+        return !keepBaseballLate.has(key);
+      }
+      return false;
     }
 
     return false;
