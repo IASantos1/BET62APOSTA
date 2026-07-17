@@ -195,14 +195,6 @@ export function Header() {
                   </Link>
 
                   <Link
-                    to="/withdraw"
-                    title="Levantamento"
-                    className="px-3 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-bold uppercase tracking-wide bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-colors"
-                  >
-                    Saque
-                  </Link>
-
-                  <Link
                     to="/profile"
                     title={firstName}
                     className={`w-9 h-9 rounded-full flex items-center justify-center text-xl font-bold transition-colors flex-shrink-0 border-2 ${darkMode ? 'bg-gray-800 border-gray-600 hover:bg-gray-700' : 'bg-gray-100 border-gray-300 hover:bg-gray-200'}`}

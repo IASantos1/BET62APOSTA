@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { apiFetch } from '@/react-app/utils/api';
 import { TwoFactor } from '@/react-app/components/TwoFactorSetup';
+import { useNavigate } from 'react-router-dom';
 import {
   Shield, AlertTriangle, Check, History, Banknote, CreditCard,
   User, FileText, HelpCircle, Settings,
@@ -64,6 +65,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 // ── Main component ─────────────────────────────────────────────────
 const ProfilePage: React.FC = () => {
   const { darkMode, toggleDarkMode, autoTheme, setAutoTheme, addNotification, user, signOut, selfExclude, selfExcludeUntil, setSelfExclude } = useApp();
+  const navigate = useNavigate();
   const [wallets, setWallets] = useState<WalletEntry[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [profile, setProfile] = useState<any | null>(null);
@@ -547,13 +549,13 @@ const ProfilePage: React.FC = () => {
 
                 <div className="flex flex-col justify-end gap-3">
                   <button
-                    onClick={() => setSelectedItem('Métodos de Pagamento')}
+                    onClick={() => navigate('/withdraw')}
                     className={`min-w-[180px] rounded-2xl px-6 py-3 text-[16px] font-black transition ${darkMode ? 'bg-slate-950 text-white hover:bg-black' : 'bg-slate-950 text-white hover:bg-slate-800'}`}
                   >
                     Levantar
                   </button>
                   <button
-                    onClick={() => setSelectedItem('Métodos de Pagamento')}
+                    onClick={() => navigate('/deposit')}
                     className="min-w-[180px] rounded-2xl bg-red-600 px-6 py-3 text-[16px] font-black text-white transition hover:bg-red-700"
                   >
                     Depositar

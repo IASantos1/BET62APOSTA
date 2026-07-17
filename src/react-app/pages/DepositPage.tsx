@@ -562,7 +562,7 @@ export default function DepositPage() {
       <div className={`grid grid-cols-2 rounded-2xl p-1 mb-4 shadow ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
         {([
           { key: 'deposit', label: 'Depósito' },
-          { key: 'withdraw', label: 'Levantamento / Saque' },
+          { key: 'withdraw', label: 'Levantar' },
         ] as const).map((tab) => (
           <button
             key={tab.key}
@@ -584,7 +584,7 @@ export default function DepositPage() {
       {walletAction === 'withdraw' ? (
         <div className={`rounded-xl shadow ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
           <div className="p-5 border-b border-gray-200 dark:border-gray-700 text-center">
-            <h2 className="text-xl font-bold mb-1">Levantamento / Saque</h2>
+            <h2 className="text-xl font-bold mb-1">Levantar</h2>
             <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
               Insere o teu IBAN, o nome do titular e solicita o levantamento com mínimo de €20.
             </p>
