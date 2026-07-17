@@ -1211,6 +1211,20 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       return arr.filter((e: any) => normalizeLeagueText((e as any)?.league).includes(cleanLeague));
     };
 
+    const isUniversallyBlockedLeague = (leagueName: string): boolean => {
+      const l = normalizeLeagueText(leagueName);
+      if (!l) return false;
+      if (/\bu\d{2}\b/.test(l) || /\bsub-?\d{2}\b/.test(l) ||
+          /youth|junior|revelacao|primavera|nextgen|reserve|akademi|juvenil/.test(l) ||
+          /under-?\d{2}|under \d{2}/.test(l) ||
+          l.includes('u-17') || l.includes('u-21') || l.includes('u-23')) return true;
+      if (/amateur|amateure|amador|amatör/.test(l)) return true;
+      if (/\bwomen\b|\bwoman\b|feminino|femenino|\bdamen\b|\bféminine\b|toppserien|\bwsl\b|\bnwsl\b/.test(l)) return true;
+      if (/testspiel/.test(l)) return true;
+      if (/mls next pro/.test(l)) return true;
+      return false;
+    };
+
     const isBlockedLeague = (leagueName: string, country: string | undefined, strictAllowlist: boolean): boolean => {
       const l = normalizeLeagueText(leagueName);
       const c = normalizeLeagueText(country);
@@ -1221,20 +1235,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         return true;
       }
 
-      // Always block youth / junior / reserve regardless of country
-      if (/\bu\d{2}\b/.test(l) || /\bsub-?\d{2}\b/.test(l) ||
-          /youth|junior|revelacao|primavera|nextgen|reserve|akademi|juvenil/.test(l) ||
-          /under-?\d{2}|under \d{2}/.test(l) ||
-          l.includes('u-17') || l.includes('u-21') || l.includes('u-23')) return true;
-
-      // Always block amateur
-      if (/amateur|amateure|amador|amatör/.test(l)) return true;
-
-      // Always block women's competitions
-      if (/\bwomen\b|\bwoman\b|feminino|femenino|\bdamen\b|\bféminine\b|toppserien|\bwsl\b|\bnwsl\b/.test(l)) return true;
-
-      // Block testspiel
-      if (/testspiel/.test(l)) return true;
+      if (isUniversallyBlockedLeague(l)) return true;
 
       // Block known lower-division names that might leak through
       if (/série d|serie d|série e|serie e/.test(l)) return true; // Brazil 4th+ div
@@ -1484,21 +1485,20 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
 
       for (const e of Array.isArray(arr) ? arr : []) {
         const sport = String((e as any)?.sport || '').toLowerCase().trim();
-        if (sport && sport !== 'soccer' && sport !== 'football') {
-          nonSoccer.push(e);
-          continue;
-        }
-
         const leagueName = String((e as any)?.league || '');
         const country = String((e as any)?.country || '');
         const homeTeam = String((e as any)?.home_team || '');
         const awayTeam = String((e as any)?.away_team || '');
-
-        if (hasBlockedTeamMarker(homeTeam) || hasBlockedTeamMarker(awayTeam)) continue;
-        if (isBlockedLeague(leagueName, country, true)) continue;
         const hasOdds = hasRenderablePrimaryOdds(e);
-
+        if (hasBlockedTeamMarker(homeTeam) || hasBlockedTeamMarker(awayTeam)) continue;
+        if (isUniversallyBlockedLeague(leagueName)) continue;
         if (!hasOdds) continue;
+
+        if (sport && sport !== 'soccer' && sport !== 'football') {
+          nonSoccer.push(e);
+          continue;
+        }
+        if (isBlockedLeague(leagueName, country, true)) continue;
 
         if (isClubFriendlyLeagueName(leagueName)) {
           clubFriendliesWithOdds.push(e);
@@ -1635,10 +1635,11 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         ? arr
         : arr.filter((e: any) => {
             const sport = String((e as any)?.sport || '').toLowerCase().trim();
-            if (sport && sport !== 'soccer' && sport !== 'football') return true;
+            if (hasBlockedTeamMarker(String((e as any)?.home_team || '')) || hasBlockedTeamMarker(String((e as any)?.away_team || ''))) return false;
+            if (isUniversallyBlockedLeague(String((e as any)?.league || ''))) return false;
             const requestedOnlySoccer =
               sports.length === 1 && ['soccer', 'football'].includes(String(sports[0] || '').toLowerCase().trim());
-            const strictAllowlist = !requestedOnlySoccer && !cleanLeague;
+            const strictAllowlist = (sport === 'soccer' || sport === 'football') && !requestedOnlySoccer && !cleanLeague;
             return !isBlockedLeague(String((e as any)?.league || ''), String((e as any)?.country || ''), strictAllowlist);
           });
     const live = sortStable(curateLiveEvents(liveAll.filter((e: any) => {

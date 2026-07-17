@@ -67,6 +67,11 @@ const priceOf = (o: any) => {
   return Number.isFinite(p) && p > 1 ? p : 0;
 };
 
+const hasRowPrimaryOdds = (row: any) => {
+  const prices = [Number(row?.homeOdd || 0), Number(row?.drawOdd || 0), Number(row?.awayOdd || 0)].filter((x) => x > 1.01);
+  return prices.length >= 2;
+};
+
 // Helper Component for Odds Button in Table
 const TableOddButton = ({ label, price, event, selectionLabel, marketSuspended }: any) => {
     const { addToBetSlip, addNotification } = useApp();
@@ -271,8 +276,8 @@ export default function GamesDashboard() {
   const rows = useMemo(() => (mergedEvents || []).map(processRow), [mergedEvents]);
 
   // Separate Live and Pregame
-  const liveRows = rows.filter(r => r.isLive);
-  const pregameRows = rows.filter(r => !r.isLive);
+  const liveRows = rows.filter(r => r.isLive && hasRowPrimaryOdds(r));
+  const pregameRows = rows.filter(r => !r.isLive && hasRowPrimaryOdds(r));
 
   const groupedPregame = useMemo(() => {
     return pregameRows.reduce((acc: Record<string, Record<string, any[]>>, r: any) => {
@@ -366,13 +371,13 @@ export default function GamesDashboard() {
                                 </div>
                              </td>
                              <td className="px-3 py-2 w-20">
-                                <TableOddButton label="1" price={row.homeOdd} event={row.rawEvent} selectionLabel="Casa" />
+                                <TableOddButton label="1" price={row.homeOdd} event={row.rawEvent} selectionLabel="Casa" marketSuspended={row.resultMarketSuspended} />
                              </td>
                              <td className="px-3 py-2 w-20">
-                                <TableOddButton label="X" price={row.drawOdd} event={row.rawEvent} selectionLabel="Empate" />
+                                <TableOddButton label="X" price={row.drawOdd} event={row.rawEvent} selectionLabel="Empate" marketSuspended={row.resultMarketSuspended} />
                              </td>
                              <td className="px-3 py-2 w-20">
-                                <TableOddButton label="2" price={row.awayOdd} event={row.rawEvent} selectionLabel="Fora" />
+                                <TableOddButton label="2" price={row.awayOdd} event={row.rawEvent} selectionLabel="Fora" marketSuspended={row.resultMarketSuspended} />
                              </td>
                         </tr>
                     ))}

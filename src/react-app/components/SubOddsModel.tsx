@@ -25,6 +25,7 @@ export interface MarketItem {
   name?: string
   header?: string
   handicap?: string
+  suspended?: boolean
 }
 
 export interface Markets {
@@ -92,7 +93,7 @@ const OddRow = memo(({ item, onSelect, suspended, compact }: {
   const prevRef = useRef(Number(item.odd));
 
   const val = Number(item.odd);
-  const isSusp = !!suspended;
+  const isSusp = !!suspended || item.suspended === true;
   const priceStr = val > 0 ? val.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
 
   if (val !== prevRef.current) {
@@ -192,7 +193,7 @@ const MarketButtonGroup = memo(({ items, onSelect, suspendedReason, columns, dar
       <div className="flex flex-col gap-1">
         <div className="grid grid-cols-2 gap-x-3 gap-y-0">
           {display.map((it, idx) => (
-            <OddRow key={`${it.label}-${idx}`} item={it} onSelect={onSelect} suspended={suspendedReason} />
+            <OddRow key={`${it.label}-${idx}`} item={it} onSelect={onSelect} suspended={it.suspended ? (suspendedReason || 'SUSPENSO') : suspendedReason} />
           ))}
         </div>
         {isLong && (
@@ -209,7 +210,7 @@ const MarketButtonGroup = memo(({ items, onSelect, suspendedReason, columns, dar
       {display.map((it, idx) => (
         <div key={`${it.label}-${idx}`}>
           {idx > 0 && <div className={`h-px ${darkMode ? 'bg-gray-700/50' : 'bg-gray-100'}`} />}
-          <OddRow item={it} onSelect={onSelect} suspended={suspendedReason} />
+          <OddRow item={it} onSelect={onSelect} suspended={it.suspended ? (suspendedReason || 'SUSPENSO') : suspendedReason} />
         </div>
       ))}
       {isLong && (
@@ -248,7 +249,19 @@ export function SubOddsModel({
 }) {
   const home = useMemo(() => String(event?.home_team || (event?.match || '').split(' vs ')[0] || ''), [event])
   const away = useMemo(() => String(event?.away_team || (event?.match || '').split(' vs ')[1] || ''), [event])
-  const isGlobalSuspended = (event as any)?.oddsFrozen || (event as any)?.suspended || false;
+  const globalSuspendedReason = String(
+    (event as any)?.provider_suspended_reason ||
+    (event as any)?.freeze_reason ||
+    (event as any)?.suspended_reason ||
+    (event as any)?.suspendReason ||
+    ((event as any)?.oddsFrozen ? 'EVENT_FROZEN' : '')
+  ).trim();
+  const isGlobalSuspended =
+    Boolean((event as any)?.oddsFrozen) ||
+    Boolean((event as any)?.suspended) ||
+    Boolean((event as any)?.provider_suspended) ||
+    Boolean((event as any)?.event_frozen) ||
+    Boolean(globalSuspendedReason);
 
   const suspendedMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -298,7 +311,7 @@ export function SubOddsModel({
   };
 
   const getSuspendedReason = (marketKey?: string) => {
-    if (isGlobalSuspended) return 'EVENT_FROZEN';
+    if (isGlobalSuspended) return globalSuspendedReason || 'EVENT_FROZEN';
     const effective = apiCritState !== 'idle' ? apiCritState : critState
     if (effective !== 'idle') {
       if (effective === 'var_review' || effective === 'var_penalty') return 'VAR';
@@ -455,7 +468,7 @@ export function SubOddsModel({
         : labelOutcome('h2h', rawName)
       const key = isSoccer && t ? t : lbl
       const slot = isSoccer ? (t === 'home' ? 0 : t === 'draw' ? 1 : t === 'away' ? 2 : 9) : 9
-      return { label: lbl, odd: v, selection: lbl, name: key, header: String(slot) } as MarketItem
+      return { label: lbl, odd: v, selection: lbl, name: key, header: String(slot), suspended: o?.suspended === true || isSuspended } as MarketItem
     }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd > 0))
     
     const by = new Map<string, MarketItem>();
@@ -535,7 +548,7 @@ export function SubOddsModel({
       const v0 = Number(o?.value || o?.odd || 0)
       const v = applyMarginClamp('double_chance', v0)
       const lbl = normalizeDoubleChance(labelOutcome('double_chance', String(o?.outcome || o?.name || '')))
-      return { label: lbl, odd: v } as MarketItem
+      return { label: lbl, odd: v, suspended: o?.suspended === true || isSuspended } as MarketItem
     }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd > 0))
     if (mapped.length > 0) return mapped
     
@@ -616,7 +629,7 @@ export function SubOddsModel({
         const lbl = labelOutcome(labelKey || key, String(rawName))
         const hcRaw = o?.point ?? o?.handicap ?? o?.line ?? o?.total ?? o?.spread ?? null
         const hc = hcRaw === null || hcRaw === undefined ? undefined : String(hcRaw)
-        return { label: lbl, odd: v, name: String(rawName), handicap: hc } as MarketItem
+        return { label: lbl, odd: v, name: String(rawName), handicap: hc, suspended: o?.suspended === true || isSuspended } as MarketItem
       }).filter((x: MarketItem) => (isSuspended && x.label) || (x.label && x.odd > 1.01 && x.odd < 25))
       const n = (s: any) => {
         if (s === null || s === undefined) return NaN
@@ -1167,7 +1180,7 @@ export function SubOddsModel({
               <div className="grid grid-cols-3 gap-2 p-3">
                 {resultadoRegulamentar.map((item, i) => {
                   const val = Number(item.odd);
-                  const disabled = isSusp || !(val > 0);
+                  const disabled = isSusp || item.suspended === true || !(val > 0);
                   return (
                     <OddButton
                       key={i}
@@ -1176,7 +1189,7 @@ export function SubOddsModel({
                       trend="stable"
                       onClick={() => onSelect(String(item.selection || item.label), val)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                      suspended={disabled ? { reason: toBadgeReason(susp) } : undefined}
+                      suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined}
                     />
                   );
                 })}
@@ -1197,7 +1210,7 @@ export function SubOddsModel({
               <div className={`grid ${cols} gap-2 p-3`}>
                 {doubleChanceItems.map((item: any, i: number) => {
                   const val = Number(item.odd);
-                  const disabled = isSusp || !(val > 0);
+                  const disabled = isSusp || item.suspended === true || !(val > 0);
                   return (
                     <OddButton
                       key={i}
@@ -1206,7 +1219,7 @@ export function SubOddsModel({
                       trend="stable"
                       onClick={() => onSelect(String(item.selection || item.label), val)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                      suspended={disabled ? { reason: toBadgeReason(susp) } : undefined}
+                      suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined}
                     />
                   );
                 })}
@@ -1228,7 +1241,7 @@ export function SubOddsModel({
               <div className={`grid ${cols} gap-2 p-3`}>
                 {dnbItems.map((item: any, i: number) => {
                   const val = Number(item.odd);
-                  const disabled = isSusp || !(val > 0);
+                  const disabled = isSusp || item.suspended === true || !(val > 0);
                   return (
                     <OddButton
                       key={i}
@@ -1237,7 +1250,7 @@ export function SubOddsModel({
                       trend="stable"
                       onClick={() => onSelect(String(item.selection || item.label), val)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                      suspended={disabled ? { reason: toBadgeReason(susp) } : undefined}
+                      suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined}
                     />
                   );
                 })}
@@ -1268,7 +1281,7 @@ export function SubOddsModel({
               <div className={`grid ${cols} gap-2 p-3`}>
                 {ordered.map((item, i) => {
                   const val = Number(item.odd);
-                  const disabled = isSusp || !(val > 0);
+                  const disabled = isSusp || item.suspended === true || !(val > 0);
                   return (
                     <OddButton
                       key={i}
@@ -1277,7 +1290,7 @@ export function SubOddsModel({
                       trend="stable"
                       onClick={() => onSelect(String(item.selection || item.label), val)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                      suspended={disabled ? { reason: toBadgeReason(susp) } : undefined}
+                      suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined}
                     />
                   );
                 })}
@@ -1316,14 +1329,14 @@ export function SubOddsModel({
             const lbl = signLabel.replace(',', '.')
             const teamName = p.team === 'home' ? (home || 'Casa') : (away || 'Fora')
             const absKey = String(Math.abs(p.val)).replace(',', '.')
-            return { team: p.team as 'home' | 'away', absKey, line: lbl, odd: x.odd, selection: `${teamName} ${lbl}` }
-          }).filter(Boolean) as { team: 'home'|'away'; absKey: string; line: string; odd: number; selection: string }[]
+            return { team: p.team as 'home' | 'away', absKey, line: lbl, odd: x.odd, selection: `${teamName} ${lbl}`, suspended: x.suspended === true }
+          }).filter(Boolean) as { team: 'home'|'away'; absKey: string; line: string; odd: number; selection: string; suspended?: boolean }[]
 
-          const homeMap = new Map<string, { line: string; odd: number; selection: string }>();
-          const awayMap = new Map<string, { line: string; odd: number; selection: string }>();
+          const homeMap = new Map<string, { line: string; odd: number; selection: string; suspended?: boolean }>();
+          const awayMap = new Map<string, { line: string; odd: number; selection: string; suspended?: boolean }>();
 
           for (const p of parsed) {
-            const rec = { line: p.line, odd: p.odd, selection: p.selection };
+            const rec = { line: p.line, odd: p.odd, selection: p.selection, suspended: p.suspended };
             if (p.team === 'home') homeMap.set(p.absKey, rec);
             else awayMap.set(p.absKey, rec);
           }
@@ -1334,12 +1347,12 @@ export function SubOddsModel({
 
           if (allLines.length === 0) return null;
 
-          const renderBtn = (item: { line: string; odd: number; selection: string } | undefined) => {
+          const renderBtn = (item: { line: string; odd: number; selection: string; suspended?: boolean } | undefined) => {
             if (!item) return <div className="w-28" />;
             const priceStr = Number(item.odd) > 0
               ? Number(item.odd).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
               : '--';
-            const blocked = !!susp;
+            const blocked = !!susp || item.suspended === true;
             return (
               <button
                 onClick={blocked ? undefined : () => onSelect(item.selection, item.odd)}
@@ -1536,7 +1549,7 @@ export function SubOddsModel({
                   const renderBtn = (item: MarketItem | undefined, side: 'a' | 'b') => {
                     if (!item) return <div className="h-12 w-full" />;
                     const f = fair ? fair[side] : null;
-                    const isBlocked = !!susp;
+                    const isBlocked = !!susp || item.suspended === true;
                     const sideLabel = side === 'a' ? 'Acima de' : 'Abaixo de';
                     const priceStr = Number(item.odd) > 0 ? Number(item.odd).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
                     return (
@@ -1652,7 +1665,7 @@ export function SubOddsModel({
                       const parsedLabel = parseScore(String(item.label));
                       const isImpossible = !isSusp && currentGoals !== null && parsedLabel !== null &&
                         (parsedLabel.h < currentGoals.home || parsedLabel.a < currentGoals.away);
-                      const isBlocked = isSusp || isImpossible;
+                      const isBlocked = isSusp || item.suspended === true || isImpossible;
                       return (
                         <button
                           key={i}
@@ -1699,12 +1712,12 @@ export function SubOddsModel({
             <div className={`grid ${cols} gap-2 p-3`}>
               {items.map((item: MarketItem, i: number) => {
                 const val = Number(item.odd);
-                const disabled = isSusp || !(val > 0);
+                const disabled = isSusp || item.suspended === true || !(val > 0);
                 return (
                   <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
                     onClick={() => onSelect(String(item.selection || item.label), val)}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined} />
+                    suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined} />
                 );
               })}
             </div>
@@ -1795,12 +1808,12 @@ export function SubOddsModel({
             <div className={`grid ${cols} gap-2 p-3`}>
               {items.map((item: MarketItem, i: number) => {
                 const val = Number(item.odd);
-                const disabled = isSusp || !(val > 0);
+                const disabled = isSusp || item.suspended === true || !(val > 0);
                 return (
                   <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
                     onClick={() => onSelect(String(item.selection || item.label), val)}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined} />
+                    suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined} />
                 );
               })}
             </div>
@@ -1847,12 +1860,12 @@ export function SubOddsModel({
             <div className={`grid ${cols} gap-2 p-3`}>
               {items.map((item: MarketItem, i: number) => {
                 const val = Number(item.odd);
-                const disabled = isSusp || !(val > 0);
+                const disabled = isSusp || item.suspended === true || !(val > 0);
                 return (
                   <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
                     onClick={() => onSelect(String(item.selection || item.label), val)}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined} />
+                    suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined} />
                 );
               })}
             </div>
@@ -1872,12 +1885,12 @@ export function SubOddsModel({
             <div className={`grid ${cols} gap-2 p-3`}>
               {items.map((item: MarketItem, i: number) => {
                 const val = Number(item.odd);
-                const disabled = isSusp || !(val > 0);
+                const disabled = isSusp || item.suspended === true || !(val > 0);
                 return (
                   <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
                     onClick={() => onSelect(String(item.selection || item.label), val)}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined} />
+                    suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined} />
                 );
               })}
             </div>
@@ -1896,12 +1909,12 @@ export function SubOddsModel({
             <div className="grid grid-cols-2 gap-2 p-3">
               {items.map((item: MarketItem, i: number) => {
                 const val = Number(item.odd);
-                const disabled = isSusp || !(val > 0);
+                const disabled = isSusp || item.suspended === true || !(val > 0);
                 return (
                   <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
                     onClick={() => onSelect(String(item.selection || item.label), val)}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined} />
+                    suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined} />
                 );
               })}
             </div>
@@ -1950,8 +1963,8 @@ export function SubOddsModel({
                     const val = Number(item.odd);
                     const pStr = val > 0 ? val.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
                     return (
-                      <button key={i} onClick={isSusp ? undefined : () => onSelect(item.label, val)} disabled={isSusp}
-                        className={`w-full h-12 rounded-xl font-black tabular-nums flex flex-col items-center justify-center ${isSusp ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}>
+                      <button key={i} onClick={isSusp || item.suspended === true ? undefined : () => onSelect(item.label, val)} disabled={isSusp || item.suspended === true}
+                        className={`w-full h-12 rounded-xl font-black tabular-nums flex flex-col items-center justify-center ${isSusp || item.suspended === true ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}>
                         <span className="text-[12px] font-extrabold">{item.label}</span>
                         <span className="text-sm">{pStr}</span>
                       </button>
@@ -1998,7 +2011,7 @@ export function SubOddsModel({
             <div className="grid grid-cols-3 gap-2 p-3">
               {ordered.map((item, i) => {
                 const val = Number(item.odd);
-                const disabled = isSusp || !(val > 0);
+                const disabled = isSusp || item.suspended === true || !(val > 0);
                 return (
                   <OddButton
                     key={i}
@@ -2007,7 +2020,7 @@ export function SubOddsModel({
                     trend="stable"
                     onClick={() => onSelect(String(item.selection || item.label), val)}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
-                    suspended={disabled ? { reason: toBadgeReason(susp) } : undefined}
+                    suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined}
                   />
                 );
               })}

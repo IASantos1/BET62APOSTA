@@ -89,10 +89,6 @@ const getEventLeagueMeta = (event: any) => {
 };
 
 const hasRenderableLiveOdds = (ev: any): boolean => {
-  const sportRaw = String(ev?.sport || '').toLowerCase();
-  const isSoccer = sportRaw.includes('soccer') || (sportRaw.includes('football') && !sportRaw.includes('american')) || sportRaw.includes('futebol');
-  if (!isSoccer) return true;
-
   const homeOdd = Number(ev?.home_odd || 0);
   const drawOdd = Number(ev?.draw_odd || 0);
   const awayOdd = Number(ev?.away_odd || 0);
@@ -108,7 +104,7 @@ const hasRenderableLiveOdds = (ev: any): boolean => {
     }
   }
   if (!mk || typeof mk !== 'object') return false;
-  const h2h = mk.h2h || mk.main || mk['1x2'] || mk.match_winner;
+  const h2h = mk.h2h || mk.main || mk['1x2'] || mk.match_winner || mk.moneyline || mk.winner || mk.ml;
   const sels = Array.isArray(h2h)
     ? h2h
     : Array.isArray(h2h?.selections)
@@ -174,6 +170,10 @@ function Home({ mode = 'home' }: HomeProps) {
     }
     return Array.from(map.values());
   }, [mergedLive]);
+  const hasAnyRenderableLive = useMemo(
+    () => processedLive.some((ev) => hasRenderableLiveOdds(ev)),
+    [processedLive],
+  );
 
   const { upcomingEvents } = useUpcomingCache(pregame);
 
@@ -211,14 +211,17 @@ function Home({ mode = 'home' }: HomeProps) {
     const primaryReady = eventsReady;
     // Em "ao vivo" também esperamos o feed ao vivo e os próximos 7 dias.
     const liveSourcesReady = mode === 'live' ? (liveFeedLoaded && pregame7Ready) : true;
+    const liveOddsReady = mode === 'live'
+      ? (processedLive.length === 0 || hasAnyRenderableLive)
+      : true;
 
-    if (primaryReady && liveSourcesReady) {
+    if (primaryReady && liveSourcesReady && liveOddsReady) {
       // Pequena janela de assentamento para o merge final entrar num único lote.
       const settleMs = mode === 'live' ? 350 : 150;
       const t = setTimeout(() => setRevealed(true), settleMs);
       return () => clearTimeout(t);
     }
-  }, [revealed, eventsReady, liveFeedLoaded, pregame7Ready, mode]);
+  }, [revealed, eventsReady, liveFeedLoaded, pregame7Ready, mode, processedLive.length, hasAnyRenderableLive]);
 
   // Tecto de segurança: nunca segurar o ecrã mais do que 6s.
   useEffect(() => {
@@ -250,33 +253,7 @@ function Home({ mode = 'home' }: HomeProps) {
         if (!h || !a || h === 'undefined' || a === 'undefined' || h === 'Home Team' || a === 'Away Team') return false;
         if (e.id === 'undefined' || !e.id) return false;
 
-        const sportRaw = String((e as any)?.sport || '').toLowerCase();
-        const isSoccer = sportRaw.includes('soccer') || sportRaw.includes('football') || sportRaw.includes('futebol');
-
-        const homeOdd = Number((e as any)?.home_odd || 0);
-        const awayOdd = Number((e as any)?.away_odd || 0);
-        if (homeOdd > 1.01 && awayOdd > 1.01) return true;
-
-        let mk: any = (e as any)?.markets ?? (e as any)?.odds;
-        if (typeof mk === 'string') {
-          const s = mk.trim();
-          if (s && ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']')))) {
-            try { mk = JSON.parse(s); } catch { void 0; }
-          }
-        }
-        if (mk && typeof mk === 'object' && !Array.isArray(mk)) {
-          const h2h = (mk as any).h2h || (mk as any)['1x2'] || (mk as any).main || (mk as any).match_winner;
-          const sels = Array.isArray(h2h) ? h2h : (h2h?.selections || h2h?.outcomes || h2h?.values || []);
-          if (Array.isArray(sels)) {
-            const ok = sels.filter((s: any) => Number(s?.odd ?? s?.price ?? s?.value ?? 0) > 1.01).length;
-            if (ok >= 2) return true;
-          }
-        }
-
-        // Allow all non-soccer sports to appear even without odds
-        if (!isSoccer) return true;
-        
-        return false;
+        return hasRenderableLiveOdds(e);
       })
       .sort((a, b) => {
         const ta = new Date(a.event_date || a.start_time || a.fixture?.date || 0).getTime();
@@ -301,13 +278,7 @@ function Home({ mode = 'home' }: HomeProps) {
         const a = (e.away_team || '').trim();
         if (!h || !a || h === 'undefined' || a === 'undefined' || h === 'Home Team' || a === 'Away Team') return false;
         if (e.id === 'undefined' || !e.id) return false;
-        const homeOdd = Number((e as any)?.home_odd || 0);
-        const awayOdd = Number((e as any)?.away_odd || 0);
-        if (homeOdd > 1.01 && awayOdd > 1.01) return true;
-        const mk = (e as any)?.markets ?? (e as any)?.odds;
-        if (mk && typeof mk === 'object' && !Array.isArray(mk)) return Object.keys(mk).length > 0;
-        if (Array.isArray(mk)) return mk.length > 0;
-        return false;
+        return hasRenderableLiveOdds(e);
       })
       .sort((a, b) => {
         const ta = new Date(a.event_date || a.start_time || a.fixture?.date || 0).getTime();

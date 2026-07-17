@@ -526,38 +526,26 @@ export function createLiveWs(apiKey: string) {
 
   const hasOdds = (e: any) => Number(e?.home_odd) > 1 && Number(e?.away_odd) > 1;
 
+  const isUniversallyBlockedLeague = (leagueName: string): boolean => {
+    const l = String(leagueName || '').toLowerCase().trim();
+    if (!l) return false;
+    return (
+      /\bu\d{2}\b/.test(l) ||
+      /\bsub-?\d{2}\b/.test(l) ||
+      /under-?\d{2}|under \d{2}/.test(l) ||
+      /youth|junior|revelacao|primavera|nextgen|reserve|akademi|juvenil/.test(l) ||
+      /\bwomen\b|\bwoman\b|feminino|femenino|\bdamen\b|\bféminine\b|toppserien|\bwsl\b|\bnwsl\b/.test(l) ||
+      /amateur|amateure|amador|amatör/.test(l) ||
+      /testspiel/.test(l) ||
+      /mls next pro/.test(l)
+    );
+  };
+
   const isBlockedLeague = (leagueName: string, country?: string): boolean => {
     const l = String(leagueName || '').toLowerCase();
     const c = String(country || '').toLowerCase();
 
-    if (
-      /\bu\d{2}\b/.test(l) ||
-      l.includes('youth') ||
-      l.includes('junior') ||
-      l.includes('u-17') ||
-      l.includes('u-21') ||
-      l.includes('u-23') ||
-      l.includes('under-17') ||
-      l.includes('under-21') ||
-      l.includes('under-23') ||
-      l.includes('under 17') ||
-      l.includes('under 21') ||
-      l.includes('under 23') ||
-      l.includes('revelacao') ||
-      l.includes('primavera') ||
-      l.includes('nextgen') ||
-      l.includes('reserve') ||
-      l.includes('akademi') ||
-      l.includes('juvenil') ||
-      l.includes('sub-17') ||
-      l.includes('sub-20') ||
-      l.includes('sub-21') ||
-      l.includes('sub-23')
-    )
-      return true;
-
-    if (l.includes('amateur') || l.includes('amateure') || l.includes('amador') || l.includes('amatör')) return true;
-    if (/\bwomen\b|\bwoman\b|feminino|femenino|\bdamen\b|\bféminine\b|toppserien|\bwsl\b|\bnwsl\b/.test(l)) return true;
+    if (isUniversallyBlockedLeague(l)) return true;
 
     if (
       l.includes('regionalliga') ||
@@ -726,21 +714,21 @@ export function createLiveWs(apiKey: string) {
 
     for (const e of Array.isArray(arr) ? arr : []) {
       const sport = String(e?.sport || '').toLowerCase().trim();
-      if (sport && sport !== 'soccer' && sport !== 'football') {
-        nonSoccer.push(e);
-        continue;
-      }
-
       const leagueName = String(e?.league || '');
       const country = String(e?.country || '');
       const homeTeam = String(e?.home_team || '');
       const awayTeam = String(e?.away_team || '');
 
       if (hasBlockedTeamMarker(homeTeam) || hasBlockedTeamMarker(awayTeam)) continue;
-      if (isBlockedLeague(leagueName, country)) continue;
+      if (isUniversallyBlockedLeague(leagueName)) continue;
       const hasOdds = hasRenderablePrimaryOdds(e);
-
       if (!hasOdds) continue;
+
+      if (sport && sport !== 'soccer' && sport !== 'football') {
+        nonSoccer.push(e);
+        continue;
+      }
+      if (isBlockedLeague(leagueName, country)) continue;
 
       if (isClubFriendlyLeagueName(leagueName)) {
         clubFriendliesWithOdds.push(e);

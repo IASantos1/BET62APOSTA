@@ -148,26 +148,8 @@ function matchSelectionToOdd(input: {
   marketEntries: any[];
   event: any;
   topLevelOdds?: { home?: number; draw?: number; away?: number };
-}): { odd: number; label: string } | null {
+}): { odd: number; label: string; suspended?: boolean } | null {
   const candidates = selectionCandidates(input.selection, input.event);
-
-  if (input.marketKey === 'h2h') {
-    const home = String(input.event?.home_team || '').trim();
-    const away = String(input.event?.away_team || '').trim();
-    const sel = normalizeText(input.selection);
-    if (candidates.includes('1') || candidates.includes('home') || candidates.includes('casa') || (home && sel === normalizeText(home))) {
-      const odd = toNumber(input.topLevelOdds?.home);
-      if (odd > 1) return { odd, label: home || 'Casa' };
-    }
-    if (candidates.includes('x') || candidates.includes('draw') || candidates.includes('empate')) {
-      const odd = toNumber(input.topLevelOdds?.draw);
-      if (odd > 1) return { odd, label: 'Empate' };
-    }
-    if (candidates.includes('2') || candidates.includes('away') || candidates.includes('fora') || (away && sel === normalizeText(away))) {
-      const odd = toNumber(input.topLevelOdds?.away);
-      if (odd > 1) return { odd, label: away || 'Fora' };
-    }
-  }
 
   for (const entry of input.marketEntries) {
     const label = String(entry?.label ?? entry?.value ?? entry?.name ?? '').trim();
@@ -176,7 +158,31 @@ function matchSelectionToOdd(input: {
     const combined = normalizeText(`${label} ${point}`.trim());
     if (candidates.includes(normalizedLabel) || candidates.includes(combined) || normalizeText(input.selection) === combined) {
       const odd = toNumber(entry?.odd ?? entry?.price ?? entry?.value);
-      if (odd > 1) return { odd, label: point ? `${label} ${point}`.trim() : label };
+      if (odd > 1) {
+        return {
+          odd,
+          label: point ? `${label} ${point}`.trim() : label,
+          suspended: entry?.suspended === true,
+        };
+      }
+    }
+  }
+
+  if (input.marketKey === 'h2h') {
+    const home = String(input.event?.home_team || '').trim();
+    const away = String(input.event?.away_team || '').trim();
+    const sel = normalizeText(input.selection);
+    if (candidates.includes('1') || candidates.includes('home') || candidates.includes('casa') || (home && sel === normalizeText(home))) {
+      const odd = toNumber(input.topLevelOdds?.home);
+      if (odd > 1) return { odd, label: home || 'Casa', suspended: false };
+    }
+    if (candidates.includes('x') || candidates.includes('draw') || candidates.includes('empate')) {
+      const odd = toNumber(input.topLevelOdds?.draw);
+      if (odd > 1) return { odd, label: 'Empate', suspended: false };
+    }
+    if (candidates.includes('2') || candidates.includes('away') || candidates.includes('fora') || (away && sel === normalizeText(away))) {
+      const odd = toNumber(input.topLevelOdds?.away);
+      if (odd > 1) return { odd, label: away || 'Fora', suspended: false };
     }
   }
 
@@ -405,6 +411,17 @@ export async function handleBetRoutes(
           market: requestedMarket,
           code: 'SELECTION_INVALID',
           reason: 'Seleção não corresponde às opções atuais do mercado',
+        });
+        return true;
+      }
+      if (matched.suspended) {
+        sendBetSelectionError(res, `Seleção suspensa para o evento ${eventId}`, {
+          index,
+          event_id: eventId,
+          selection: requestedSelection,
+          market: requestedMarket,
+          code: 'SELECTION_SUSPENDED',
+          reason: 'Seleção suspensa no feed atual',
         });
         return true;
       }
