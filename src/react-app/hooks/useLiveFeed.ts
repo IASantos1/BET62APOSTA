@@ -361,6 +361,24 @@ const parseLiveEvent = (item: any) => {
 // Keyed by sport string. Survives remounts so /live → / → /live is instant.
 const _liveCache = new Map<string, { map: Map<string, any>; ts: number }>();
 const _LIVE_FRESH_MS = 30_000;
+const _EMPTY_FEED_GRACE_MS = 75_000;
+
+const retainRecentLiveEvents = (prev: Map<string, any>, now: number, graceMs: number) => {
+  const next = new Map<string, any>(prev);
+  for (const [id, ev] of next.entries()) {
+    const lastSeen = Number((ev as any)?.__lastSeenAt || 0);
+    const statusShort = (ev as any)?.fixture?.status?.short || (ev as any)?.status_short || (ev as any)?.status;
+    const statusLong = (ev as any)?.fixture?.status?.long || (ev as any)?.status_long;
+    if (isFinishedLiveStatus(statusShort) || isFinishedLiveStatus(statusLong)) {
+      next.delete(id);
+      continue;
+    }
+    if (!lastSeen || now - lastSeen > graceMs) {
+      next.delete(id);
+    }
+  }
+  return next;
+};
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function useLiveFeed(sport?: string) {
@@ -395,8 +413,8 @@ export function useLiveFeed(sport?: string) {
           if (list.length === 0) {
             __dbg('H2', 'poll-empty', { sport: String(sport || 'all') });
             const now = Date.now();
-            startTransition(() => setEventsMap(() => {
-              const next = new Map<string, any>();
+            startTransition(() => setEventsMap((prev) => {
+              const next = retainRecentLiveEvents(prev, now, _EMPTY_FEED_GRACE_MS);
               _liveCache.set(_sportKey, { map: next, ts: now });
               return next;
             }));
@@ -599,8 +617,8 @@ export function useLiveFeed(sport?: string) {
             setHasLoaded(true);
             if (msg.live.length === 0) {
               __dbg('H1', 'ws-snapshot-empty', { sport: String(sport || 'all') });
-              startTransition(() => setEventsMap(() => {
-                const next = new Map<string, any>();
+              startTransition(() => setEventsMap((prev) => {
+                const next = retainRecentLiveEvents(prev, now, _EMPTY_FEED_GRACE_MS);
                 _liveCache.set(_sportKey, { map: next, ts: now });
                 return next;
               }));

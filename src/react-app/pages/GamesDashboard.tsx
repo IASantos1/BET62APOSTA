@@ -236,6 +236,15 @@ export default function GamesDashboard() {
 
       const sportRaw = (ev as any)?.sport;
       const sport = sportRaw ? normalizeSport(sportRaw) : getSportFromLeague(String(ev.league || ev.league?.name || ''));
+      const suspendedMarkets = Array.isArray((ev as any)?.suspended_markets)
+        ? (ev as any).suspended_markets.map((x: any) => String(x || '').toLowerCase().trim())
+        : [];
+      const resultMarketSuspended = Boolean(
+        (ev as any)?.suspended ||
+        (ev as any)?.suspended_reason ||
+        suspendedMarkets.includes('resultado final') ||
+        suspendedMarkets.some((x: string) => ['h2h', 'moneyline', 'ml', 'winner'].includes(x))
+      );
       
       return {
         rawEvent: ev,
@@ -249,6 +258,7 @@ export default function GamesDashboard() {
         awayOdd,
         status: statusShort,
         elapsed: ev.elapsed ?? ev.fixture?.status?.elapsed ?? 0,
+        resultMarketSuspended,
         isLive: !isFinished && !isStale && (ev.is_live === 1 || ev.is_live === true || ['1H','2H','HT','ET','P','LIVE','Q1','Q2','Q3','Q4','OT','BT','IN','IN_PROGRESS'].includes(statusKey))
       };
   };
@@ -307,13 +317,13 @@ export default function GamesDashboard() {
                                     {row.elapsed}'
                                 </td>
                                 <td className="px-3 py-2">
-                                    <TableOddButton label="1" price={row.homeOdd} event={row.rawEvent} selectionLabel="Casa" />
+                                    <TableOddButton label="1" price={row.homeOdd} event={row.rawEvent} selectionLabel="Casa" marketSuspended={row.resultMarketSuspended} />
                                 </td>
                                 <td className="px-3 py-2">
-                                    <TableOddButton label="X" price={row.drawOdd} event={row.rawEvent} selectionLabel="Empate" />
+                                    <TableOddButton label="X" price={row.drawOdd} event={row.rawEvent} selectionLabel="Empate" marketSuspended={row.resultMarketSuspended} />
                                 </td>
                                 <td className="px-3 py-2">
-                                    <TableOddButton label="2" price={row.awayOdd} event={row.rawEvent} selectionLabel="Fora" />
+                                    <TableOddButton label="2" price={row.awayOdd} event={row.rawEvent} selectionLabel="Fora" marketSuspended={row.resultMarketSuspended} />
                                 </td>
                             </tr>
                         ))}

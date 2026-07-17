@@ -618,7 +618,7 @@ function Home({ mode = 'home' }: HomeProps) {
   const multiplesSource = displayedUpcoming;
 
   const multipleBanners = useMemo(() => {
-    type Pick = { event: Event; selection: string; market: string; odd: number };
+    type Pick = { event: Event; selection: string; market: string; odd: number; suspended: boolean; marketSuspended: boolean };
     type Banner = { id: string; picks: Pick[]; totalOdd: number; legsOddStr: string };
 
     const normalizeOdd = (v: any) => {
@@ -664,6 +664,10 @@ function Home({ mode = 'home' }: HomeProps) {
           (mkKey === 'h2h' || mkKey === 'moneyline' || mkKey === 'ml' || mkKey === 'winner')
             ? 'Resultado Final'
             : (String(market?.name || market?.key || '').trim() || 'Mercado');
+        const normalizedMarket = mkKey || marketName.toLowerCase().trim();
+        const suspendedMarkets = Array.isArray((ev as any)?.suspended_markets)
+          ? (ev as any).suspended_markets.map((x: any) => String(x || '').toLowerCase().trim())
+          : [];
 
         const rawSel = String(selection?.label || selection?.name || '').trim();
         const t = rawSel.toLowerCase();
@@ -674,7 +678,16 @@ function Home({ mode = 'home' }: HomeProps) {
               ? (awayName || rawSel)
               : rawSel || 'Seleção');
         if (!odd) return null;
-        return { event: ev, selection: selLabel, market: marketName, odd };
+        const eventSuspended = Boolean((ev as any)?.suspended || (ev as any)?.suspended_reason || (ev as any)?.suspendReason);
+        const marketSuspended = Boolean(
+          eventSuspended ||
+          market?.suspended === true ||
+          selection?.suspended === true ||
+          suspendedMarkets.includes(normalizedMarket) ||
+          (normalizedMarket === 'resultado final' && suspendedMarkets.some((x: string) => ['h2h', 'moneyline', 'ml', 'winner'].includes(x))) ||
+          (['h2h', 'moneyline', 'ml', 'winner'].includes(normalizedMarket) && suspendedMarkets.includes('resultado final'))
+        );
+        return { event: ev, selection: selLabel, market: marketName, odd, suspended: eventSuspended, marketSuspended };
       };
 
       if (sport === 'soccer') {
@@ -715,7 +728,8 @@ function Home({ mode = 'home' }: HomeProps) {
       ].filter((x) => x.odd > 0);
       if (opts.length >= 2) {
         const best = opts.reduce((m, x) => x.odd < m.odd ? x : m, opts[0]);
-        return { event: ev, selection: best.selection, market: 'Resultado Final', odd: best.odd };
+        const eventSuspended = Boolean((ev as any)?.suspended || (ev as any)?.suspended_reason || (ev as any)?.suspendReason);
+        return { event: ev, selection: best.selection, market: 'Resultado Final', odd: best.odd, suspended: eventSuspended, marketSuspended: eventSuspended };
       }
       return null;
     };
@@ -911,8 +925,8 @@ function Home({ mode = 'home' }: HomeProps) {
                             stake: 0,
                             league: String((p.event as any).league || ''),
                             sport: String((p.event as any).sport || ''),
-                            suspended: Boolean((p.event as any).suspended),
-                            market_suspended: false,
+                            suspended: Boolean(p.suspended),
+                            market_suspended: Boolean(p.marketSuspended),
                           });
                         }
                       }}

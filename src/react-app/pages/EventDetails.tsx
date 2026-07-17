@@ -344,6 +344,12 @@ export default function EventDetails() {
 
   const onSelect = useCallback((label: string, odd: number, market?: string, comboMeta?: any) => {
     if (!displayEvent) return;
+    const eventSuspended = Boolean(oddsSuspended || (displayEvent as any)?.suspended || (displayEvent as any)?.suspended_reason);
+    const normalizedMarket = String(market || 'Resultado Final').toLowerCase().trim();
+    const marketSuspended = eventSuspended || suspendedMarkets.some((entry) => {
+      if (Number(entry.eventId || 0) !== (Number(id) || 0)) return false;
+      return String(entry.marketId || '').toLowerCase().trim() === normalizedMarket;
+    });
     addToBetSlip({
       id: String(Date.now() + Math.random()),
       event_id: Number(displayEvent.id),
@@ -353,9 +359,11 @@ export default function EventDetails() {
       comboMeta,
       odd: odd,
       stake: 0,
-      league: displayEvent.league_name || displayEvent.league || displayEvent.sport_title || 'Desporto'
+      league: displayEvent.league_name || displayEvent.league || displayEvent.sport_title || 'Desporto',
+      suspended: Boolean(eventSuspended),
+      market_suspended: Boolean(marketSuspended),
     });
-  }, [displayEvent, addToBetSlip]);
+  }, [displayEvent, addToBetSlip, oddsSuspended, suspendedMarkets, id]);
 
   // Must be declared before any conditional return (Rules of Hooks)
   const isLiveRef = useRef(false);
