@@ -102,6 +102,7 @@ const TableOddButton = ({ label, price, event, selectionLabel, marketSuspended }
             stake: 0,
             league: typeof eventLeague === 'string' ? eventLeague : (eventLeague?.name || ''),
             sport: normalizeSport(eventSport),
+            suspended: Boolean(marketSuspended),
             market_suspended: marketSuspended
         });
     };
@@ -241,6 +242,10 @@ export default function GamesDashboard() {
         : [];
       const resultMarketSuspended = Boolean(
         (ev as any)?.suspended ||
+        (ev as any)?.provider_suspended ||
+        (ev as any)?.event_frozen ||
+        (ev as any)?.provider_suspended_reason ||
+        (ev as any)?.freeze_reason ||
         (ev as any)?.suspended_reason ||
         suspendedMarkets.includes('resultado final') ||
         suspendedMarkets.some((x: string) => ['h2h', 'moneyline', 'ml', 'winner'].includes(x))

@@ -276,26 +276,129 @@ export function createLiveWs(apiKey: string) {
     return null;
   };
 
+  const normalizeProviderFlag = (value: any): boolean => {
+    if (value === true || value === 1) return true;
+    const s = String(value ?? '').trim().toLowerCase();
+    return s === '1' || s === 'true' || s === 'yes' || s === 'blocked' || s === 'stopped';
+  };
+
+  const getProviderStatusObj = (event: any): any | null => {
+    if (event?.provider_status && typeof event.provider_status === 'object') return event.provider_status;
+    if (event?.fixture?.status?.raw && typeof event.fixture.status.raw === 'object') return event.fixture.status.raw;
+    if (event?.fixture?.status && typeof event.fixture.status === 'object') return event.fixture.status;
+    if (event?.status && typeof event.status === 'object') return event.status;
+    return null;
+  };
+
   const getRealtimeSuspensionPayload = (sport: string, matchId: string) => {
     const localSport = String(sport || '').trim().toLowerCase();
     if (localSport === 'tennis') {
       const freeze = getTennisFreeze(matchId);
-      if (!freeze) return { suspended_reason: undefined, suspended_markets: undefined };
+      if (!freeze) {
+        return {
+          suspended: undefined,
+          suspended_reason: undefined,
+          suspended_markets: undefined,
+          provider_suspended: undefined,
+          provider_suspended_reason: undefined,
+          event_frozen: false,
+          freeze_reason: undefined,
+        };
+      }
+      const suspendedMarkets = tennisSuspendedMarketKeys(freeze.reason);
       return {
-        suspended_reason: freeze.reason,
-        suspended_markets: tennisSuspendedMarketKeys(freeze.reason),
+        suspended: suspendedMarkets.length > 0 ? true : undefined,
+        suspended_reason: suspendedMarkets.length > 0 ? freeze.reason : undefined,
+        suspended_markets: suspendedMarkets,
+        provider_suspended: undefined,
+        provider_suspended_reason: undefined,
+        event_frozen: true,
+        freeze_reason: freeze.reason,
       };
     }
     if (isSoccerSport(localSport)) {
       const freeze = getCriticalFreeze(matchId);
-      if (!freeze) return { suspended_reason: undefined, suspended_markets: undefined };
+      if (!freeze) {
+        return {
+          suspended: undefined,
+          suspended_reason: undefined,
+          suspended_markets: undefined,
+          provider_suspended: undefined,
+          provider_suspended_reason: undefined,
+          event_frozen: false,
+          freeze_reason: undefined,
+        };
+      }
       return {
-        suspended_reason: freeze.reason,
+        suspended: undefined,
+        suspended_reason: undefined,
         suspended_markets: undefined,
+        provider_suspended: undefined,
+        provider_suspended_reason: undefined,
+        event_frozen: true,
+        freeze_reason: freeze.reason,
       };
     }
-    return { suspended_reason: undefined, suspended_markets: undefined };
+    return {
+      suspended: undefined,
+      suspended_reason: undefined,
+      suspended_markets: undefined,
+      provider_suspended: undefined,
+      provider_suspended_reason: undefined,
+      event_frozen: undefined,
+      freeze_reason: undefined,
+    };
   };
+
+  const buildLiveSuspensionPayload = (event: any, odds?: any) => {
+    const sportKey = String(event?.sport || '').trim().toLowerCase();
+    const matchId = normalizeMatchId(sportKey, String(event?.id || event?.external_event_id || '').trim());
+    const realtime = matchId ? getRealtimeSuspensionPayload(sportKey, matchId) : {
+      suspended: undefined,
+      suspended_reason: undefined,
+      suspended_markets: undefined,
+      provider_suspended: undefined,
+      provider_suspended_reason: undefined,
+      event_frozen: undefined,
+      freeze_reason: undefined,
+    };
+    const providerStatus = getProviderStatusObj(event);
+    const providerReason = String(
+      odds?.suspended_reason ||
+      providerStatus?.reason ||
+      providerStatus?.description ||
+      providerStatus?.type ||
+      '',
+    ).trim();
+    const providerSuspended = !!(
+      odds?.suspended === true ||
+      normalizeProviderFlag(providerStatus?.blocked) ||
+      normalizeProviderFlag(providerStatus?.stopped) ||
+      String(providerStatus?.short || providerStatus?.type || event?.status_short || event?.status || '').toUpperCase().trim() === 'SUSPENDED'
+    );
+    const suspendedMarkets = Array.isArray(realtime.suspended_markets) ? realtime.suspended_markets : [];
+    const freezeReason = String(realtime.freeze_reason || '').trim();
+    const suspendedReason = String(
+      (providerSuspended ? providerReason : '') ||
+      (suspendedMarkets.length > 0 ? freezeReason : '') ||
+      '',
+    ).trim();
+
+    return {
+      suspended: providerSuspended || suspendedMarkets.length > 0,
+      suspended_reason: suspendedReason || undefined,
+      suspended_markets: suspendedMarkets,
+      provider_suspended: providerSuspended,
+      provider_suspended_reason: providerSuspended ? (providerReason || undefined) : undefined,
+      event_frozen: realtime.event_frozen === undefined ? undefined : Boolean(realtime.event_frozen),
+      freeze_reason: freezeReason || undefined,
+    };
+  };
+
+  const attachLiveSuspensionPayload = (event: any, odds?: any) => ({
+    ...(event || {}),
+    ...buildLiveSuspensionPayload(event, odds),
+  });
 
   const applyRealtimeScoreFreeze = (sport: string, matchId: string, prev: UpstreamStateEntry | undefined, next: UpstreamStateEntry) => {
     const localSport = String(sport || '').trim().toLowerCase();
@@ -656,7 +759,7 @@ export function createLiveWs(apiKey: string) {
       matchMeta.set(key, { ts: Date.now(), sport: evSport, homeTeam: String(e?.home_team || ''), awayTeam: String(e?.away_team || '') });
       const st = upstreamState.get(evSport)?.get(id) || upstreamState.get(sp)?.get(id) || null;
       if (st && Date.now() - st.ts < 2 * 60_000) {
-        const patched: any = { ...e, id };
+        const patched: any = { ...e, id, sport: evSport };
         if (st.home != null || st.away != null) {
           patched.goals = { home: st.home ?? (patched.goals?.home ?? null), away: st.away ?? (patched.goals?.away ?? null) };
           try {
@@ -699,9 +802,9 @@ export function createLiveWs(apiKey: string) {
             ? { ...patched.fixture, status: { ...(patched.fixture.status || {}), short } }
             : patched.fixture;
         }
-        return patched;
+        return attachLiveSuspensionPayload(patched);
       }
-      return { ...e, id };
+      return attachLiveSuspensionPayload({ ...e, id, sport: evSport });
     });
     return normalizedList
       .filter((e: any) => Number(e?.is_live || 0) === 1)
@@ -1200,9 +1303,14 @@ export function createLiveWs(apiKey: string) {
               status_long: statusDesc || undefined,
               elapsed: elapsed ?? undefined,
               timer: timer || undefined,
+              suspended: realtimeSuspension.suspended,
               suspended_reason: realtimeSuspension.suspended_reason,
               suspendReason: realtimeSuspension.suspended_reason,
               suspended_markets: realtimeSuspension.suspended_markets,
+              provider_suspended: realtimeSuspension.provider_suspended,
+              provider_suspended_reason: realtimeSuspension.provider_suspended_reason,
+              event_frozen: realtimeSuspension.event_frozen,
+              freeze_reason: realtimeSuspension.freeze_reason,
               is_live: 1
             });
 
@@ -1219,6 +1327,7 @@ export function createLiveWs(apiKey: string) {
             const parsed = parseSportsApiProMatchOddsPayload(localSport, msg.data, meta ? { homeTeam: meta.homeTeam, awayTeam: meta.awayTeam } : undefined);
             if (parsed) {
               oddsCache.set(key, { ts: Date.now(), data: parsed });
+              const realtimeSuspension = getRealtimeSuspensionPayload(localSport, normalizedId);
               
               // DELTA UPDATE: Envia apenas a mudança de odds imediatamente
               broadcastDelta(localSport, {
@@ -1227,7 +1336,15 @@ export function createLiveWs(apiKey: string) {
                 home_odd: parsed.home,
                 draw_odd: parsed.draw,
                 away_odd: parsed.away,
-                markets: parsed.markets
+                markets: parsed.markets,
+                suspended: realtimeSuspension.suspended,
+                suspended_reason: realtimeSuspension.suspended_reason,
+                suspendReason: realtimeSuspension.suspended_reason,
+                suspended_markets: realtimeSuspension.suspended_markets,
+                provider_suspended: realtimeSuspension.provider_suspended,
+                provider_suspended_reason: realtimeSuspension.provider_suspended_reason,
+                event_frozen: realtimeSuspension.event_frozen,
+                freeze_reason: realtimeSuspension.freeze_reason,
               });
             }
             // #region debug-point A:tennis-odds-update

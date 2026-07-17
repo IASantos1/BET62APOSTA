@@ -714,9 +714,14 @@ export function useLiveFeed(sport?: string) {
                   is_live: 1,
                   goals: delta.goals || { home: delta.score?.home ?? null, away: delta.score?.away ?? null },
                   score: delta.score && typeof delta.score === 'object' ? { ...delta.score } : undefined,
+                  suspended: typeof delta.suspended === 'boolean' ? delta.suspended : undefined,
                   suspended_reason: delta.suspended_reason ?? delta.suspendReason ?? undefined,
                   suspendReason: delta.suspendReason ?? delta.suspended_reason ?? undefined,
                   suspended_markets: Array.isArray(delta.suspended_markets) ? delta.suspended_markets : undefined,
+                  provider_suspended: typeof delta.provider_suspended === 'boolean' ? delta.provider_suspended : undefined,
+                  provider_suspended_reason: delta.provider_suspended_reason ?? undefined,
+                  event_frozen: typeof delta.event_frozen === 'boolean' ? delta.event_frozen : undefined,
+                  freeze_reason: delta.freeze_reason ?? undefined,
                   status_short: delta.status_short || '',
                   status_long: delta.status_long || '',
                   elapsed: typeof delta.elapsed === 'number' ? delta.elapsed : 0,
@@ -789,8 +794,32 @@ export function useLiveFeed(sport?: string) {
                 const reason = String(delta.suspended_reason ?? delta.suspendReason ?? '').trim();
                 merged.suspended_reason = reason || undefined;
                 merged.suspendReason = reason || undefined;
+              } else if (delta.event_frozen === false && merged.provider_suspended !== true) {
+                merged.suspended_reason = undefined;
+                merged.suspendReason = undefined;
+              }
+              if (typeof delta.provider_suspended === 'boolean') {
+                merged.provider_suspended = delta.provider_suspended;
+                if (!delta.provider_suspended && delta.provider_suspended_reason == null) {
+                  merged.provider_suspended_reason = undefined;
+                }
+              }
+              if (delta.provider_suspended_reason != null) {
+                const providerReason = String(delta.provider_suspended_reason || '').trim();
+                merged.provider_suspended_reason = providerReason || undefined;
               }
               if (Array.isArray(delta.suspended_markets)) merged.suspended_markets = delta.suspended_markets;
+              if (typeof delta.event_frozen === 'boolean') {
+                merged.event_frozen = delta.event_frozen;
+                if (!delta.event_frozen && delta.freeze_reason == null) {
+                  merged.freeze_reason = undefined;
+                  if (delta.suspended == null && merged.provider_suspended !== true) merged.suspended = false;
+                }
+              }
+              if (delta.freeze_reason != null) {
+                const freezeReason = String(delta.freeze_reason || '').trim();
+                merged.freeze_reason = freezeReason || undefined;
+              }
 
               next.set(id, merged);
               _liveCache.set(_sportKey, { map: next, ts: now });

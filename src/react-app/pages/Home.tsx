@@ -678,7 +678,15 @@ function Home({ mode = 'home' }: HomeProps) {
               ? (awayName || rawSel)
               : rawSel || 'Seleção');
         if (!odd) return null;
-        const eventSuspended = Boolean((ev as any)?.suspended || (ev as any)?.suspended_reason || (ev as any)?.suspendReason);
+        const eventSuspended = Boolean(
+          (ev as any)?.suspended ||
+          (ev as any)?.provider_suspended ||
+          (ev as any)?.event_frozen ||
+          (ev as any)?.provider_suspended_reason ||
+          (ev as any)?.freeze_reason ||
+          (ev as any)?.suspended_reason ||
+          (ev as any)?.suspendReason
+        );
         const marketSuspended = Boolean(
           eventSuspended ||
           market?.suspended === true ||
@@ -728,7 +736,15 @@ function Home({ mode = 'home' }: HomeProps) {
       ].filter((x) => x.odd > 0);
       if (opts.length >= 2) {
         const best = opts.reduce((m, x) => x.odd < m.odd ? x : m, opts[0]);
-        const eventSuspended = Boolean((ev as any)?.suspended || (ev as any)?.suspended_reason || (ev as any)?.suspendReason);
+        const eventSuspended = Boolean(
+          (ev as any)?.suspended ||
+          (ev as any)?.provider_suspended ||
+          (ev as any)?.event_frozen ||
+          (ev as any)?.provider_suspended_reason ||
+          (ev as any)?.freeze_reason ||
+          (ev as any)?.suspended_reason ||
+          (ev as any)?.suspendReason
+        );
         return { event: ev, selection: best.selection, market: 'Resultado Final', odd: best.odd, suspended: eventSuspended, marketSuspended: eventSuspended };
       }
       return null;

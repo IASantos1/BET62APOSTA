@@ -127,7 +127,16 @@ const hasLiveSignal = (e: any) => {
   const hasIncidents =
     (Array.isArray(e?.events) && e.events.length > 0) ||
     (Array.isArray(e?.fixture?.events) && e.fixture.events.length > 0);
-  return Boolean(hasGoals || hasScore || hasTimer || hasElapsed || hasIncidents || e?.suspended);
+  return Boolean(
+    hasGoals ||
+    hasScore ||
+    hasTimer ||
+    hasElapsed ||
+    hasIncidents ||
+    e?.suspended ||
+    e?.provider_suspended ||
+    e?.event_frozen
+  );
 };
 
 const pickTimer = (wsTimer: any, httpTimer: any) => {
@@ -223,6 +232,38 @@ export function useMergedEvents(
 
       const mergedScore = mergeScores((httpEvt as any)?.score, (e as any)?.score);
       const mergedGoals = mergeGoals(httpEvt as any, e as any, mergedScore);
+      const wsSuspendedMarkets = Array.isArray((e as any)?.suspended_markets) ? (e as any).suspended_markets : null;
+      const httpSuspendedMarkets = Array.isArray((httpEvt as any)?.suspended_markets) ? (httpEvt as any).suspended_markets : null;
+      const providerSuspended =
+        typeof (e as any)?.provider_suspended === 'boolean'
+          ? (e as any).provider_suspended
+          : typeof (httpEvt as any)?.provider_suspended === 'boolean'
+            ? (httpEvt as any).provider_suspended
+            : undefined;
+      const providerSuspendedReason =
+        (e as any)?.provider_suspended_reason ??
+        (httpEvt as any)?.provider_suspended_reason ??
+        undefined;
+      const eventFrozen =
+        typeof (e as any)?.event_frozen === 'boolean'
+          ? (e as any).event_frozen
+          : typeof (httpEvt as any)?.event_frozen === 'boolean'
+            ? (httpEvt as any).event_frozen
+            : undefined;
+      const freezeReason =
+        (e as any)?.freeze_reason ??
+        (httpEvt as any)?.freeze_reason ??
+        undefined;
+      const legacySuspended =
+        typeof (e as any)?.suspended === 'boolean'
+          ? (e as any).suspended
+          : typeof (httpEvt as any)?.suspended === 'boolean'
+            ? (httpEvt as any).suspended
+            : providerSuspended === true
+              ? true
+              : ((wsSuspendedMarkets && wsSuspendedMarkets.length > 0) || (httpSuspendedMarkets && httpSuspendedMarkets.length > 0))
+                ? true
+                : undefined;
 
       const mergedEvt: Event = {
         ...(httpEvt || {}),
@@ -238,14 +279,26 @@ export function useMergedEvents(
         goals: mergedGoals,
         elapsed: pickElapsed((e as any)?.elapsed ?? (e as any)?.fixture?.status?.elapsed, (httpEvt as any)?.elapsed ?? (httpEvt as any)?.fixture?.status?.elapsed),
         timer: pickTimer((e as any)?.timer ?? (e as any)?.fixture?.status?.timer, (httpEvt as any)?.timer ?? (httpEvt as any)?.fixture?.status?.timer),
-        suspended: typeof (e as any)?.suspended === 'boolean' ? (e as any).suspended : (httpEvt as any)?.suspended,
-        suspended_reason: (e as any)?.suspended_reason ?? (e as any)?.suspendReason ?? (httpEvt as any)?.suspended_reason ?? (httpEvt as any)?.suspendReason,
-        suspendReason: (e as any)?.suspendReason ?? (e as any)?.suspended_reason ?? (httpEvt as any)?.suspendReason ?? (httpEvt as any)?.suspended_reason,
-        suspended_markets: Array.isArray((e as any)?.suspended_markets)
-          ? (e as any).suspended_markets
-          : Array.isArray((httpEvt as any)?.suspended_markets)
-            ? (httpEvt as any).suspended_markets
-            : undefined,
+        suspended: legacySuspended,
+        suspended_reason:
+          (e as any)?.suspended_reason ??
+          (e as any)?.suspendReason ??
+          (httpEvt as any)?.suspended_reason ??
+          (httpEvt as any)?.suspendReason ??
+          providerSuspendedReason ??
+          freezeReason,
+        suspendReason:
+          (e as any)?.suspendReason ??
+          (e as any)?.suspended_reason ??
+          (httpEvt as any)?.suspendReason ??
+          (httpEvt as any)?.suspended_reason ??
+          providerSuspendedReason ??
+          freezeReason,
+        suspended_markets: wsSuspendedMarkets ?? httpSuspendedMarkets ?? undefined,
+        provider_suspended: providerSuspended,
+        provider_suspended_reason: providerSuspendedReason,
+        event_frozen: eventFrozen,
+        freeze_reason: freezeReason,
       } as Event;
 
       map.set(canonical, mergedEvt);

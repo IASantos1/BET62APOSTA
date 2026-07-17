@@ -367,14 +367,14 @@ export async function handleBetRoutes(
         return true;
       }
 
-      if (ctx.suspended) {
+      if (ctx.suspended || ctx.eventFrozen) {
         sendBetSelectionError(res, ctx.suspendedReason ? `Mercado suspenso: ${ctx.suspendedReason}` : 'Mercado suspenso', {
           index,
           event_id: eventId,
           selection: requestedSelection,
           market: requestedMarket,
           code: 'MARKET_SUSPENDED',
-          reason: ctx.suspendedReason || 'Mercado suspenso no feed atual',
+          reason: ctx.suspendedReason || ctx.freezeReason || 'Mercado suspenso no feed atual',
         });
         return true;
       }

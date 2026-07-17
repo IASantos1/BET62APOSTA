@@ -75,7 +75,13 @@ export const EventSchema = z.object({
   status: z.string().optional(),
   start_time: z.string().optional(),
   suspended: z.boolean().optional(),
+  suspended_reason: z.string().optional(),
   suspendReason: z.string().optional(),
+  suspended_markets: z.array(z.string()).optional(),
+  provider_suspended: z.boolean().optional(),
+  provider_suspended_reason: z.string().optional(),
+  event_frozen: z.boolean().optional(),
+  freeze_reason: z.string().optional(),
   markets: z.any().optional(),
   odds: z.any().optional(),
   goals: z.object({

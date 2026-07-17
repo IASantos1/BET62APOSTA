@@ -189,11 +189,11 @@ export default function EventDetails() {
         const data = await apiFetch<any>(`/api/events/${id}/odds?realtime=1&markets=full${sportParam}`, { cache: 'no-store' });
         if (!cancelled && data) {
           if (data.markets && Object.keys(data.markets).length > 0) setRealtimeOdds(data.markets);
-          setOddsSuspended(!!data.suspended);
-          setOddsSuspendedReason(String(data.suspended_reason || ''));
+          setOddsSuspended(Boolean(data.suspended || data.provider_suspended || data.event_frozen));
+          setOddsSuspendedReason(String(data.provider_suspended_reason || data.suspended_reason || data.freeze_reason || ''));
           if (Array.isArray((data as any).suspended_markets)) {
             const eid = Number(id) || 0;
-            const reason = String((data as any).suspended_reason || '');
+            const reason = String((data as any).provider_suspended_reason || (data as any).suspended_reason || (data as any).freeze_reason || '');
             setSuspendedMarkets(
               (data as any).suspended_markets
                 .map((marketId: any) => ({ eventId: eid, marketId: String(marketId), reason }))
@@ -266,14 +266,23 @@ export default function EventDetails() {
               goals: data.goals ?? prev.goals,
               suspended: data.suspended ?? prev.suspended,
               suspended_reason: data.suspended_reason ?? prev.suspended_reason,
+              suspended_markets: Array.isArray(data.suspended_markets) ? data.suspended_markets : prev.suspended_markets,
+              provider_suspended: data.provider_suspended ?? prev.provider_suspended,
+              provider_suspended_reason: data.provider_suspended_reason ?? prev.provider_suspended_reason,
+              event_frozen: data.event_frozen ?? prev.event_frozen,
+              freeze_reason: data.freeze_reason ?? prev.freeze_reason,
             };
           });
 
-          if (typeof data.suspended === 'boolean') setOddsSuspended(Boolean(data.suspended));
-          if (data.suspended_reason != null) setOddsSuspendedReason(String(data.suspended_reason || ''));
+          if (typeof data.suspended === 'boolean' || typeof data.provider_suspended === 'boolean' || typeof data.event_frozen === 'boolean') {
+            setOddsSuspended(Boolean(data.suspended || data.provider_suspended || data.event_frozen));
+          }
+          if (data.suspended_reason != null || data.provider_suspended_reason != null || data.freeze_reason != null) {
+            setOddsSuspendedReason(String(data.provider_suspended_reason || data.suspended_reason || data.freeze_reason || ''));
+          }
           if (Array.isArray(data.suspended_markets)) {
             const eid = Number(id) || 0;
-            const reason = String(data.suspended_reason || '');
+            const reason = String(data.provider_suspended_reason || data.suspended_reason || data.freeze_reason || '');
             setSuspendedMarkets(
               data.suspended_markets
                 .map((marketId: any) => ({ eventId: eid, marketId: String(marketId), reason }))
@@ -344,11 +353,22 @@ export default function EventDetails() {
 
   const onSelect = useCallback((label: string, odd: number, market?: string, comboMeta?: any) => {
     if (!displayEvent) return;
-    const eventSuspended = Boolean(oddsSuspended || (displayEvent as any)?.suspended || (displayEvent as any)?.suspended_reason);
+    const eventSuspended = Boolean(
+      oddsSuspended ||
+      (displayEvent as any)?.suspended ||
+      (displayEvent as any)?.provider_suspended ||
+      (displayEvent as any)?.event_frozen ||
+      (displayEvent as any)?.provider_suspended_reason ||
+      (displayEvent as any)?.freeze_reason ||
+      (displayEvent as any)?.suspended_reason
+    );
     const normalizedMarket = String(market || 'Resultado Final').toLowerCase().trim();
     const marketSuspended = eventSuspended || suspendedMarkets.some((entry) => {
       if (Number(entry.eventId || 0) !== (Number(id) || 0)) return false;
-      return String(entry.marketId || '').toLowerCase().trim() === normalizedMarket;
+      const entryMarket = String(entry.marketId || '').toLowerCase().trim();
+      return entryMarket === normalizedMarket ||
+        (normalizedMarket === 'resultado final' && ['h2h', 'moneyline', 'ml', 'winner'].includes(entryMarket)) ||
+        (entryMarket === 'resultado final' && ['h2h', 'moneyline', 'ml', 'winner'].includes(normalizedMarket));
     });
     addToBetSlip({
       id: String(Date.now() + Math.random()),
@@ -655,7 +675,16 @@ export default function EventDetails() {
 
           {/* Odds */}
           <MemoSubOddsModel
-            event={{ ...displayEvent, suspended: effectiveOddsSuspended, suspendReason: effectiveOddsSuspendedReason }}
+            event={{
+              ...displayEvent,
+              suspended: effectiveOddsSuspended,
+              suspendReason: effectiveOddsSuspendedReason,
+              suspended_reason: effectiveOddsSuspendedReason,
+              provider_suspended: Boolean((displayEvent as any)?.provider_suspended),
+              provider_suspended_reason: (displayEvent as any)?.provider_suspended_reason,
+              event_frozen: Boolean((displayEvent as any)?.event_frozen),
+              freeze_reason: (displayEvent as any)?.freeze_reason,
+            }}
             darkMode={darkMode}
             markets={realtimeOdds || (displayEvent as any).markets || (displayEvent as any).odds || null}
             eventOdds={realtimeOdds || (displayEvent as any).markets || (displayEvent as any).odds || null}

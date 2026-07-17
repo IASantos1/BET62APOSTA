@@ -118,6 +118,9 @@ export type EventsService = {
     suspended: boolean;
     suspendedReason: string;
     suspendedMarkets: string[];
+    providerSuspended: boolean;
+    eventFrozen: boolean;
+    freezeReason: string;
   }>;
 };
 
@@ -447,15 +450,33 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const criticalFreeze = isSoccerSport(sportKey) ? getCriticalFreeze(matchId) : null;
     const activeFreeze = criticalFreeze || tennisFreeze;
     const suspendedMarkets = tennisFreeze ? tennisSuspendedMarketKeys(tennisFreeze.reason) : [];
-    const suspendedReason = String((providerSuspended ? providerReason : '') || activeFreeze?.reason || '');
+    const freezeReason = String(activeFreeze?.reason || '');
+    const suspendedReason = String((providerSuspended ? providerReason : '') || (suspendedMarkets.length > 0 ? freezeReason : '') || '');
     return {
       providerSuspended,
-      suspended: providerSuspended || !!activeFreeze,
+      eventFrozen: !!activeFreeze,
+      freezeReason,
+      suspended: providerSuspended || suspendedMarkets.length > 0,
       suspendedReason,
       suspendedMarkets,
       activeFreeze,
     };
   };
+
+  const buildSuspensionPayload = (suspension: ReturnType<typeof getSuspensionState>) => ({
+    suspended: suspension.suspended,
+    suspended_reason: suspension.suspendedReason || undefined,
+    suspended_markets: suspension.suspendedMarkets,
+    provider_suspended: suspension.providerSuspended,
+    provider_suspended_reason: suspension.providerSuspended ? (suspension.suspendedReason || undefined) : undefined,
+    event_frozen: suspension.eventFrozen,
+    freeze_reason: suspension.freezeReason || undefined,
+  });
+
+  const attachSuspensionPayload = (event: any, suspension: ReturnType<typeof getSuspensionState>) => ({
+    ...(event || {}),
+    ...buildSuspensionPayload(suspension),
+  });
 
   const normalizeMatchId = (sport: string, rawId: string): string => {
     const id = String(rawId || '').trim();
@@ -1465,13 +1486,23 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const liveFiltered = includeLive ? live : [];
       const preFiltered = includePregame ? pregame : [];
 
-      const liveEnriched = includeLive ? await mapLimit(liveFiltered, 10, (x) => enrichEventOdds(x, budget0, fullMarkets)) : [];
+      const liveEnriched = includeLive
+        ? await mapLimit(liveFiltered, 10, async (x) => {
+            const enriched = await enrichEventOdds(x, budget0, fullMarkets);
+            const suspension = getSuspensionState(matchIdOf(enriched), String((enriched as any)?.sport || ''), enriched);
+            return attachSuspensionPayload(enriched, suspension);
+          })
+        : [];
       const preEnriched = includePregame ? await mapLimit(preFiltered, 8, (x) => enrichEventOdds(x, budget0, fullMarkets)) : [];
       return { live: liveEnriched, pregame: preEnriched };
     }
 
     const liveBudget = { remaining: Math.min(30, live.length) };
-    const liveEnriched = await mapLimit(live, 10, (x) => enrichEventOdds(x, liveBudget, fullMarkets));
+    const liveEnriched = await mapLimit(live, 10, async (x) => {
+      const enriched = await enrichEventOdds(x, liveBudget, fullMarkets);
+      const suspension = getSuspensionState(matchIdOf(enriched), String((enriched as any)?.sport || ''), enriched);
+      return attachSuspensionPayload(enriched, suspension);
+    });
     let preEnriched: AnyEvent[] = pregame;
     if (includePregame && pregame.length > 0) {
       // Budget limits real API calls; events beyond budget get cached or baseline odds
@@ -1766,20 +1797,30 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     if (evMatch && req.method === 'GET') {
       const idRaw = decodeURIComponent(evMatch[1] || '');
       const id = normalizeIdLoose(idRaw);
+      const respondEvent = (found: any, sportKey: string) => {
+        const suspension = getSuspensionState(id, sportKey, found);
+        sendJson(res, 200, attachSuspensionPayload(found, suspension));
+      };
       const cached = lastEventById.get(id);
       if (cached && ttlOk(cached.ts, 30 * 60_000)) {
-        sendJson(res, 200, cached.data);
+        respondEvent(cached.data, String((cached.data as any)?.sport || ''));
         return true;
       }
       const sport = await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
       const live = await fetchLive(sport).catch(() => []);
       const foundLive = live.find((e: any) => String(e.id) === String(id));
-      if (foundLive) return sendJson(res, 200, foundLive), true;
+      if (foundLive) {
+        respondEvent(foundLive, sport);
+        return true;
+      }
       const date = ymd(new Date());
       const sched = await fetchSchedule(sport, date).catch(() => []);
       const found = sched.find((e: any) => String(e.id) === String(id));
-      if (found) return sendJson(res, 200, found), true;
+      if (found) {
+        respondEvent(found, sport);
+        return true;
+      }
       return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
     }
 
@@ -1854,11 +1895,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       if (!found) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
       const suspension = getSuspensionState(id, sKey, found);
       sendJson(res, 200, {
-        ...found,
+        ...attachSuspensionPayload(found, suspension),
         lastUpdateId: nextCursor || cursor || undefined,
-        suspended: suspension.suspended,
-        suspended_reason: suspension.suspendedReason || undefined,
-        suspended_markets: suspension.suspendedMarkets,
       });
       return true;
     }
@@ -1881,9 +1919,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         draw: odds?.draw || 0,
         away: odds?.away || 0,
         markets,
-        suspended: suspension.suspended,
-        suspended_reason: suspension.suspendedReason,
-        suspended_markets: suspension.suspendedMarkets,
+        ...buildSuspensionPayload(suspension),
       });
       return true;
     }
@@ -2338,7 +2374,17 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const getBetValidationContext = async (eventId: string) => {
     const id = normalizeIdLoose(eventId);
     if (!id) {
-      return { event: null, sport: null, odds: null, suspended: false, suspendedReason: '', suspendedMarkets: [] as string[] };
+      return {
+        event: null,
+        sport: null,
+        odds: null,
+        suspended: false,
+        suspendedReason: '',
+        suspendedMarkets: [] as string[],
+        providerSuspended: false,
+        eventFrozen: false,
+        freezeReason: '',
+      };
     }
 
     let event = lastEventById.get(id)?.data || null;
@@ -2348,7 +2394,17 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       sport = await resolveSport(id);
     }
     if (!sport) {
-      return { event: null, sport: null, odds: null, suspended: false, suspendedReason: '', suspendedMarkets: [] as string[] };
+      return {
+        event: null,
+        sport: null,
+        odds: null,
+        suspended: false,
+        suspendedReason: '',
+        suspendedMarkets: [] as string[],
+        providerSuspended: false,
+        eventFrozen: false,
+        freezeReason: '',
+      };
     }
 
     if (!event) {
@@ -2370,6 +2426,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       suspended: suspension.suspended,
       suspendedReason: suspension.suspendedReason,
       suspendedMarkets: suspension.suspendedMarkets,
+      providerSuspended: suspension.providerSuspended,
+      eventFrozen: suspension.eventFrozen,
+      freezeReason: suspension.freezeReason,
     };
   };
 

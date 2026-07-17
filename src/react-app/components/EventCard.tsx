@@ -441,8 +441,17 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
   };
   const [transientSuspend, setTransientSuspend] = useState<{ reason: string; until: number }>({ reason: '', until: 0 });
   const lastTransientSuspendRef = useRef<string>('');
+  const providerSuspended = Boolean((event as any)?.provider_suspended);
+  const eventFrozen = Boolean((event as any)?.event_frozen);
   const backendSuspendReason = useMemo(
-    () => String((event as any)?.suspended_reason || (event as any)?.suspendReason || '').trim().toUpperCase(),
+    () =>
+      String(
+        (event as any)?.provider_suspended_reason ||
+        (event as any)?.freeze_reason ||
+        (event as any)?.suspended_reason ||
+        (event as any)?.suspendReason ||
+        ''
+      ).trim().toUpperCase(),
     [event],
   );
   const suspendSignalKey = useMemo(() => {
@@ -470,7 +479,12 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
   }, [backendSuspendReason, suspendSignalKey]);
 
   const transientSuspended = transientSuspend.until > Date.now();
-  const explicitEventSuspended = !!suspension || !!(event as any).oddsFrozen || event.suspended === true;
+  const explicitEventSuspended =
+    !!suspension ||
+    !!(event as any).oddsFrozen ||
+    event.suspended === true ||
+    providerSuspended ||
+    eventFrozen;
 
   const apiVarActive = !!signals?.varActive;
   const isSuspended = apiVarActive || explicitEventSuspended || transientSuspended;
@@ -480,6 +494,8 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     : (
         transientSuspend.reason ||
         suspension?.reason ||
+        (event as any).provider_suspended_reason ||
+        (event as any).freeze_reason ||
         (event as any).suspended_reason ||
         (event as any).suspendReason ||
         ((event as any).oddsFrozen ? 'EVENT_FROZEN' : 'SUSPENSO')
