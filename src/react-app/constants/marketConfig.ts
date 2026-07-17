@@ -321,15 +321,36 @@ export const MARKET_CONFIG: Record<string, { title: string, grid?: string }> = {
   // ── MMA / UFC ─────────────────────────────────────────────────
   method: { title: 'Método de Vitória' },
   method_of_victory: { title: 'Método de Vitória' },
+  fighter_method_of_victory: { title: 'Método da Vitória por Lutador' },
   rounds: { title: 'Rondas' },
   total_rounds: { title: 'Total de Rondas' },
   over_under_rounds: { title: 'Mais/Menos Rondas' },
+  round_handicap: { title: 'Handicap de Rondas' },
+  point_spread: { title: 'Handicap' },
+  exact_winning_round: { title: 'Ronda da Vitória' },
   finish_method_round: { title: 'Método e Ronda' },
+  round_method_combo: { title: 'Ronda + Método' },
   knockout_draw: { title: 'KO ou Empate' },
   first_round_finish: { title: 'Finalização na 1ª Ronda' },
   submission_only: { title: 'Apenas Finalização' },
   decision_type: { title: 'Tipo de Decisão' },
+  will_fight_go_the_distance: { title: 'A luta vai até a decisão?' },
+  fight_goes_to_decision: { title: 'A luta vai até a decisão?' },
+  fight_duration: { title: 'Duração da Luta' },
+  wins_inside_distance: { title: 'Vence antes da decisão' },
+  finish_in_first_60_seconds: { title: 'Termina nos primeiros 60 segundos' },
+  finish_in_last_minute: { title: 'Termina no último minuto da ronda' },
+  no_contest: { title: 'Luta será No Contest' },
   total_strikes: { title: 'Total de Golpes' },
+  total_knockdowns: { title: 'Haverá Knockdown' },
+  total_submissions: { title: 'Haverá Finalização' },
+  point_deduction: { title: 'Haverá dedução de ponto' },
+  next_round_submission: { title: 'Próxima ronda terá finalização' },
+  next_round_ko_tko: { title: 'Próxima ronda terá KO/TKO' },
+  next_round_is_last: { title: 'Próxima ronda será a última' },
+  live_total_rounds: { title: 'Mais/Menos Rondas ao Vivo' },
+  live_method_of_victory: { title: 'Método da Vitória ao Vivo' },
+  fight_builder: { title: 'Mercados Combinados' },
 
   // ── Rugby ──────────────────────────────────────────────────────
   player_tries: { title: 'Tries do Jogador' },
@@ -497,10 +518,24 @@ export const HANDBALL_GROUPS = [
 
 // ─── MMA ───────────────────────────────────────────────────────────────
 export const MMA_GROUPS = [
-  { title: "Mercado Base",   keys: ["h2h","totals","method_of_victory"] },
-  { title: "Rondas",         keys: ["totals","exact_winning_round","will_fight_go_the_distance","fight_duration"] },
-  { title: "Performance",    keys: ["method_of_victory","total_knockdowns","total_submissions","first_round_finish"] },
-  { title: "Handicaps",      keys: ["round_handicap","point_spread","handicap"] },
+  {
+    title: "Todos",
+    keys: [
+      "h2h","double_chance","method_of_victory","fighter_method_of_victory","exact_winning_round",
+      "finish_method_round","round_method_combo","total_rounds","over_under_rounds",
+      "will_fight_go_the_distance","fight_goes_to_decision","fight_duration","wins_inside_distance",
+      "decision_type","total_knockdowns","point_deduction","finish_in_first_60_seconds",
+      "finish_in_last_minute","no_contest","next_round_submission","next_round_ko_tko",
+      "next_round_is_last","live_total_rounds","live_method_of_victory","fight_builder",
+      "first_round_finish","submission_only","round_handicap","point_spread","handicap"
+    ]
+  },
+  { title: "Vencedor", keys: ["h2h","double_chance","wins_inside_distance"] },
+  { title: "Método", keys: ["method_of_victory","fighter_method_of_victory","decision_type","finish_method_round","round_method_combo","live_method_of_victory"] },
+  { title: "Rondas", keys: ["exact_winning_round","total_rounds","over_under_rounds","will_fight_go_the_distance","fight_goes_to_decision","fight_duration","next_round_is_last","live_total_rounds"] },
+  { title: "Especiais", keys: ["total_knockdowns","point_deduction","finish_in_first_60_seconds","finish_in_last_minute","no_contest","first_round_finish","submission_only","next_round_submission","next_round_ko_tko"] },
+  { title: "Combos", keys: ["fight_builder"] },
+  { title: "Handicaps", keys: ["round_handicap","point_spread","handicap"] },
 ];
 
 // ─── Rugby ─────────────────────────────────────────────────────────────

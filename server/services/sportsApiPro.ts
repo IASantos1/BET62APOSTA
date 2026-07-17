@@ -1018,6 +1018,7 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   }
   if (g === 'home draw away') return 'h2h';
   if (g === 'over under' || g === 'overunder') {
+    if (n.includes('round')) return 'over_under_rounds';
     if (n.includes('game') || n.includes('total game') || n === 'total games won') return 'match_total_games';
     if (n.includes('set') || n.includes('total set')) return 'total_sets';
     if (n.includes('corner')) return 'corners_total';
@@ -1048,12 +1049,69 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   if (g.includes('current set winner')) return 'current_set_winner';
   if (g.includes('winner') && g.includes('set')) return 'current_set_winner';
 
+  // MMA / UFC specific markets
+  if (combo.includes('method of victory') || combo.includes('victory method') || combo.includes('win method')) {
+    if (
+      combo.includes('fighter') ||
+      combo.includes('by fighter') ||
+      combo.includes('competitor') ||
+      combo.includes('home by') ||
+      combo.includes('away by')
+    ) return 'fighter_method_of_victory';
+    return 'method_of_victory';
+  }
+  if (
+    combo.includes('winning round') ||
+    combo.includes('round of victory') ||
+    combo.includes('exact winning round')
+  ) return 'exact_winning_round';
+  if (
+    combo.includes('method and round') ||
+    combo.includes('round method') ||
+    combo.includes('victory in round') ||
+    combo.includes('finish method round')
+  ) return 'finish_method_round';
+  if (combo.includes('go the distance') || combo.includes('goes the distance') || combo.includes('fight goes distance')) {
+    return 'will_fight_go_the_distance';
+  }
+  if (combo.includes('go to decision') || combo.includes('goes to decision') || combo.includes('fight goes to decision')) {
+    return 'fight_goes_to_decision';
+  }
+  if (combo.includes('fight duration') || combo.includes('bout duration') || combo.includes('duration of fight') || combo.includes('fight time')) {
+    return 'fight_duration';
+  }
+  if (
+    combo.includes('inside the distance') ||
+    combo.includes('wins before decision') ||
+    combo.includes('before the decision')
+  ) return 'wins_inside_distance';
+  if (
+    combo.includes('decision type') ||
+    combo.includes('unanimous decision') ||
+    combo.includes('split decision') ||
+    combo.includes('majority decision')
+  ) return 'decision_type';
+  if (combo.includes('knockdown')) return 'total_knockdowns';
+  if (combo.includes('point deduction') || combo.includes('deduction of point')) return 'point_deduction';
+  if (combo.includes('no contest')) return 'no_contest';
+  if (combo.includes('first 60 seconds') || combo.includes('first minute')) return 'finish_in_first_60_seconds';
+  if (combo.includes('last minute') && combo.includes('round')) return 'finish_in_last_minute';
+  if (combo.includes('next round') && combo.includes('submission')) return 'next_round_submission';
+  if (combo.includes('next round') && (combo.includes('ko') || combo.includes('tko'))) return 'next_round_ko_tko';
+  if (combo.includes('next round') && combo.includes('last')) return 'next_round_is_last';
+  if ((combo.includes('live') || p.includes('live')) && combo.includes('method of victory')) return 'live_method_of_victory';
+  if ((combo.includes('live') || p.includes('live')) && combo.includes('round') && (combo.includes('over') || combo.includes('under'))) return 'live_total_rounds';
+  if (combo.includes('bet builder') || combo.includes('same game parlay') || combo.includes('fight builder')) return 'fight_builder';
+  if (combo.includes('submission')) return 'submission_only';
+
   // marketName based (SportsApiPro)
   if (n === 'full time' && !marketGroup) return 'h2h';
   if (n === 'game total') return 'totals';
   if (n === 'point spread') return 'spreads';
   if (n === 'total games won' || n === 'total games') return 'match_total_games';
   if (n === 'current set winner') return 'current_set_winner';
+  if (n === 'total rounds' || n === 'number of rounds') return 'total_rounds';
+  if (n === 'round handicap') return 'round_handicap';
 
   // ── Legacy lineType / lineName mapping ────────────────────────────────────
   if (n.includes('1st half') || n.includes('first half')) return '1st_half';
@@ -1085,6 +1143,8 @@ function marketKeyFromOddsAll(lineType: string, lineName: string, marketGroup?: 
   if (t === 'gamehandicap') return 'handicap';
   if (t === 'sethandicap') return 'sets_handicap';
   if (t === 'totalsets' || t === 'overundersets' || t === 'overunderset') return 'total_sets';
+  if (t === 'roundhandicap') return 'round_handicap';
+  if (t === 'totalrounds' || t === 'overunderrounds') return 'over_under_rounds';
 
   if (t.includes('firstperiod') || n.includes('1st period') || n.includes('first period')) return (t.includes('total') || g.includes('over')) ? 'period_1_totals' : 'period_1_h2h';
   if (t.includes('secondperiod') || n.includes('2nd period') || n.includes('second period')) return (t.includes('total') || g.includes('over')) ? 'period_2_totals' : 'period_2_h2h';

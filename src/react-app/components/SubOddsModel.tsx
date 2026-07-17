@@ -671,6 +671,7 @@ export function SubOddsModel({
           const s = (sport || '').toLowerCase();
           if (s.includes('tennis') || s.includes('tênis')) return 'Total de Games na Partida';
           if (s.includes('basketball') || s.includes('basquete')) return 'Total de Pontos';
+          if (s.includes('mma') || s.includes('ufc') || s.includes('mixed martial arts') || s.includes('luta')) return 'Total da Luta';
           if (s.includes('ice-hockey') || s.includes('hockey') || s.includes('hóquei')) return 'Total de Golos';
           return 'Total de Golos - Tempo Regular';
       }
@@ -686,6 +687,7 @@ export function SubOddsModel({
       if (key === 'spreads') {
           const s = (sport || '').toLowerCase();
           if (s.includes('basketball') || s.includes('basquete')) return 'Handicap de Pontos';
+          if (s.includes('mma') || s.includes('ufc') || s.includes('mixed martial arts') || s.includes('luta')) return 'Handicap';
           if (s.includes('american') || s.includes('nfl') || s.includes('football')) return 'Handicap';
           if (s.includes('baseball') || s.includes('mlb')) return 'Linha de Corrida';
       }
