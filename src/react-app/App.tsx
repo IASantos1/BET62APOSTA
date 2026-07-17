@@ -123,17 +123,19 @@ export default function App() {
 }
 
 const InnerApp = memo(function InnerApp() {
+  const { darkMode } = useApp();
+
   return (
-    <>
+    <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       <Header />
       <AppContent />
       <Footer />
-    </>
+    </div>
   );
 });
 
 function AppContent() {
-  const { authModalOpen, authModalMode, authModalUserId, closeAuthModal, openAuthModal } = useApp();
+  const { authModalOpen, authModalMode, authModalUserId, closeAuthModal, openAuthModal, darkMode } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
   const isAdminAuthPath = location.pathname === '/administrador/login' || location.pathname === '/admin/login';
@@ -156,7 +158,7 @@ function AppContent() {
   const trans = isEventPage ? eventTrans : pageTrans;
 
   return (
-    <>
+    <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       <SWUpdateBar />
       <InstallBar />
       <CookieBanner />
@@ -182,6 +184,7 @@ function AppContent() {
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={location.pathname}
+          className={darkMode ? 'bg-gray-900 text-white min-h-screen' : 'bg-gray-50 text-gray-900 min-h-screen'}
           variants={vars}
           initial="initial"
           animate="animate"
@@ -240,7 +243,7 @@ function AppContent() {
       <MobileBetSlip />
       <DashboardSidebar />
       <ToastContainer />
-    </>
+    </div>
   );
 }
 

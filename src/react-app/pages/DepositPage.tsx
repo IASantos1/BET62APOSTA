@@ -10,6 +10,30 @@ const QUICK_AMOUNTS = [10, 25, 50, 100, 200, 500];
 type Method = 'mbway' | 'multibanco' | 'cartao';
 type WalletAction = 'deposit' | 'withdraw';
 
+const PAYMENT_LOGOS = {
+  card: { src: '/icons/card.svg', alt: 'Cartão bancário' },
+  mbway: { src: '/icons/mbway_official.svg', alt: 'MB WAY' },
+  multibanco: { src: '/icons/multibanco_official.svg', alt: 'Multibanco' },
+  visa: { src: '/icons/visa.svg', alt: 'Visa' },
+  mastercard: { src: '/icons/mastercard.svg', alt: 'Mastercard' },
+} as const;
+
+const PaymentLogo = ({
+  src,
+  alt,
+  className = '',
+  imgClassName = '',
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  imgClassName?: string;
+}) => (
+  <div className={`flex items-center justify-center rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-black/5 ${className}`}>
+    <img src={src} alt={alt} className={`max-h-6 w-auto object-contain ${imgClassName}`} loading="lazy" />
+  </div>
+);
+
 // ─── MBWay ────────────────────────────────────────────────────────────────────
 const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
   const { addNotification, darkMode } = useApp();
@@ -439,10 +463,14 @@ const StripeCardFormInner = ({ amount, onSuccess }: { amount: number; onSuccess:
         }
       </button>
 
-      <div className="flex items-center justify-center gap-3 opacity-60">
-        {['VISA', 'MC', 'AMEX'].map(b => (
-          <span key={b} className={`text-xs font-bold px-2 py-0.5 rounded border ${darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-300 text-gray-500'}`}>{b}</span>
-        ))}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <PaymentLogo src={PAYMENT_LOGOS.visa.src} alt={PAYMENT_LOGOS.visa.alt} imgClassName="max-h-5" />
+        <PaymentLogo src={PAYMENT_LOGOS.mastercard.src} alt={PAYMENT_LOGOS.mastercard.alt} imgClassName="max-h-7" />
+        <PaymentLogo src={PAYMENT_LOGOS.mbway.src} alt={PAYMENT_LOGOS.mbway.alt} imgClassName="max-h-5" />
+        <PaymentLogo src={PAYMENT_LOGOS.multibanco.src} alt={PAYMENT_LOGOS.multibanco.alt} imgClassName="max-h-7" />
+      </div>
+      <div className={`text-center text-[11px] ${uiDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+        Processado com tecnologia Stripe e métodos oficiais suportados.
       </div>
     </form>
   );
@@ -507,10 +535,10 @@ export default function DepositPage() {
   const handleQuickAmount = (val: number) => { setAmount(String(val)); setAmountError(''); };
   const handleSuccess = () => setSuccess(true);
 
-  const methodTabs: { key: Method; label: string }[] = [
-    { key: 'cartao', label: 'Cartão' },
-    { key: 'mbway', label: 'MBway' },
-    { key: 'multibanco', label: 'Multibanco' },
+  const methodTabs: { key: Method; label: string; logo?: { src: string; alt: string } }[] = [
+    { key: 'cartao', label: 'Cartão', logo: PAYMENT_LOGOS.card },
+    { key: 'mbway', label: 'MB WAY', logo: PAYMENT_LOGOS.mbway },
+    { key: 'multibanco', label: 'Multibanco', logo: PAYMENT_LOGOS.multibanco },
   ];
 
   if (!user) return (
@@ -600,7 +628,15 @@ export default function DepositPage() {
               <div className={`grid grid-cols-3 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
                 {methodTabs.map(tab => (
                   <button key={tab.key} onClick={() => setMethod(tab.key)}
-                    className={`py-3 flex items-center justify-center text-xs font-semibold transition-colors ${method === tab.key ? 'text-red-500 border-b-2 border-red-500 bg-red-500/10' : darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}>
+                    className={`py-3 px-2 flex flex-col items-center justify-center gap-2 text-xs font-semibold transition-colors ${method === tab.key ? 'text-red-500 border-b-2 border-red-500 bg-red-500/10' : darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}>
+                    {tab.logo ? (
+                      <PaymentLogo
+                        src={tab.logo.src}
+                        alt={tab.logo.alt}
+                        className="px-2 py-1 shadow-none"
+                        imgClassName={tab.key === 'multibanco' ? 'max-h-5' : tab.key === 'cartao' ? 'max-h-6' : 'max-h-4'}
+                      />
+                    ) : null}
                     <span>{tab.label}</span>
                   </button>
                 ))}

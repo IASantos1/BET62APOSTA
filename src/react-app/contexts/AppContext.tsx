@@ -127,6 +127,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById('root');
+    const bg = darkMode ? '#111827' : '#f9fafb';
+    const fg = darkMode ? '#ffffff' : '#111827';
+
+    html.classList.toggle('dark', darkMode);
+    body.classList.toggle('dark', darkMode);
+    if (root) root.classList.toggle('dark', darkMode);
+
+    html.style.backgroundColor = bg;
+    body.style.backgroundColor = bg;
+    body.style.color = fg;
+    if (root) {
+      root.style.backgroundColor = bg;
+      root.style.color = fg;
+      root.style.minHeight = '100vh';
+    }
+
+    return () => {
+      html.classList.remove('dark');
+      body.classList.remove('dark');
+      if (root) root.classList.remove('dark');
+    };
+  }, [darkMode]);
+
+  useEffect(() => {
     try {
       localStorage.removeItem('selected_category');
       localStorage.removeItem('selected_category_migrated_v2');

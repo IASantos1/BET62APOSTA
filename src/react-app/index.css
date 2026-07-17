@@ -5,6 +5,31 @@
  :root { 
    font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif; 
  } 
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+html,
+body {
+  margin: 0;
+  background-color: #f9fafb;
+}
+
+#root {
+  min-height: 100vh;
+  background-color: inherit;
+  color: inherit;
+}
+
+html.dark,
+body.dark,
+#root.dark {
+  background-color: #111827;
+  color: #ffffff;
+}
  
  @keyframes slide-in { 
    from { 
