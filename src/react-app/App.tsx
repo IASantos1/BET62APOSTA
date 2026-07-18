@@ -77,14 +77,11 @@ const eventTrans = {
 };
 
 export default function App() {
-  const [showIntro, setShowIntro] = useState(() => {
-    try { return !sessionStorage.getItem('bet62_intro_shown'); } catch { return true; }
-  });
+  const [showIntro, setShowIntro] = useState(true);
 
   useEffect(() => {
     if (showIntro) {
-      try { sessionStorage.setItem('bet62_intro_shown', '1'); } catch { /* empty */ }
-      const t = setTimeout(() => setShowIntro(false), 3200);
+      const t = setTimeout(() => setShowIntro(false), 1900);
       return () => clearTimeout(t);
     }
   }, [showIntro]);
