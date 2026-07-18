@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Event } from '../../shared/types';
 import { apiFetch } from '../utils/api';
+import { getLiveFeedHealthSnapshot } from './useLiveFeed';
 
 const __DBG_URL = (import.meta.env.DEV && (import.meta as any).env?.VITE_DEBUG_SERVER_URL)
   ? String((import.meta as any).env.VITE_DEBUG_SERVER_URL)
@@ -319,6 +320,38 @@ export function useSportsEvents(
     let lastInteractionAt = Date.now();
     let hiddenAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
     let wakeInFlight = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let resolvedSportForHealth = String(safeCategory || 'all').toLowerCase().trim() || 'all';
+    const queueNext = (delay: number) => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        if (isActive && !document.hidden) {
+          fetchData().finally(scheduleNext);
+        } else if (isActive) {
+          scheduleNext();
+        }
+      }, delay);
+    };
+    const getAdaptiveInterval = () => {
+      if (only !== 'live') {
+        return safeCategory === 'all' ? 10_000 : 15_000;
+      }
+      const health = getLiveFeedHealthSnapshot(resolvedSportForHealth);
+      if (!health.active) return 1_000;
+      if (health.level === 'healthy') return 45_000;
+      if (health.level === 'warning') return 10_000;
+      return 3_000;
+    };
+    const scheduleNext = () => {
+      queueNext(getAdaptiveInterval());
+    };
+    const onLiveFeedHealth = (event: globalThis.Event) => {
+      const detail = (event as CustomEvent<{ sport?: string; active?: boolean }>).detail;
+      if (!detail?.sport) return;
+      const targetSport = String(detail.sport || '').toLowerCase().trim();
+      if (targetSport !== 'all' && targetSport !== resolvedSportForHealth) return;
+      scheduleNext();
+    };
 
     // Only reset the readiness gate when no fresh in-memory data exists.
     // With a hot module cache the UI shows stale data instantly; don't flash blank.
@@ -449,6 +482,7 @@ export function useSportsEvents(
             ? 'all'
             : (rawSport === 'soccer-all' ? 'soccer' : rawSport);
         } 
+        resolvedSportForHealth = String(sportParam || 'all').toLowerCase().trim() || 'all';
  
         params.set('sports', sportParam); 
         if (leagueFilter) {
@@ -873,25 +907,12 @@ export function useSportsEvents(
     // Initial fetch
     fetchData();
 
-            const intervalTime = only === 'live' ? 1_000 : safeCategory === 'all' ? 10_000 : 15_000;
-    let timeoutId: NodeJS.Timeout;
-
-    const scheduleNext = () => {
-      timeoutId = setTimeout(() => {
-        if (isActive && !document.hidden) {
-          fetchData().finally(scheduleNext);
-        } else if (isActive) {
-          // If hidden, check again in 3s (but don't fetch)
-          scheduleNext();
-        }
-      }, intervalTime);
-    };
-
     // Start loop
     scheduleNext();
 
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
     if (typeof window !== 'undefined') {
+      window.addEventListener('bet62:livefeed-health', onLiveFeedHealth as EventListener);
       window.addEventListener('focus', onFocus);
       window.addEventListener('pointerdown', onActivity);
       window.addEventListener('keydown', onActivity);
@@ -901,10 +922,11 @@ export function useSportsEvents(
 
     return () => {
       isActive = false;
-      clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
       controller.abort();
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange);
       if (typeof window !== 'undefined') {
+        window.removeEventListener('bet62:livefeed-health', onLiveFeedHealth as EventListener);
         window.removeEventListener('focus', onFocus);
         window.removeEventListener('pointerdown', onActivity);
         window.removeEventListener('keydown', onActivity);

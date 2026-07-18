@@ -491,7 +491,7 @@ export default function EventStatsPage() {
 
     fetchStats()
     if (isLive) {
-      const intervalMs = 1000
+      const intervalMs = 20_000
       timer = setInterval(fetchStats, intervalMs)
     }
 

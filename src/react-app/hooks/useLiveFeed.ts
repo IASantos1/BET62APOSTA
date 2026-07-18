@@ -363,6 +363,47 @@ const _liveCache = new Map<string, { map: Map<string, any>; ts: number }>();
 const _LIVE_FRESH_MS = 1_000;
 const _EMPTY_FEED_GRACE_MS = 75_000;
 
+type LiveFeedHealthLevel = 'healthy' | 'warning' | 'degraded' | 'offline' | 'unavailable';
+type LiveFeedHealth = {
+  sport: string;
+  active: boolean;
+  wsConnected: boolean;
+  level: LiveFeedHealthLevel;
+  missedHeartbeats: number;
+  updatedAt: number;
+};
+
+const _liveFeedHealth = new Map<string, LiveFeedHealth>();
+
+const defaultLiveFeedHealth = (sport: string): LiveFeedHealth => ({
+  sport,
+  active: false,
+  wsConnected: false,
+  level: 'unavailable',
+  missedHeartbeats: 0,
+  updatedAt: 0,
+});
+
+const emitLiveFeedHealth = (health: LiveFeedHealth) => {
+  _liveFeedHealth.set(health.sport, health);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('bet62:livefeed-health', { detail: health }));
+  }
+};
+
+const resolveLiveFeedHealth = (sport: string): LiveFeedHealth => {
+  const requested = String(sport || 'all').trim() || 'all';
+  const direct = _liveFeedHealth.get(requested);
+  if (direct) return direct;
+  const all = _liveFeedHealth.get('all');
+  if (all) return all;
+  return defaultLiveFeedHealth(requested);
+};
+
+export function getLiveFeedHealthSnapshot(sport: string): LiveFeedHealth {
+  return resolveLiveFeedHealth(sport);
+}
+
 const retainRecentLiveEvents = (prev: Map<string, any>, now: number, graceMs: number) => {
   const next = new Map<string, any>(prev);
   for (const [id, ev] of next.entries()) {
@@ -506,7 +547,10 @@ export function useLiveFeed(sport?: string) {
     let ws: WebSocket | null = null;
     let wsOk = false;
     let pingId: ReturnType<typeof setInterval> | null = null;
+    let reconnectId: ReturnType<typeof setTimeout> | null = null;
     let missingDeltaRefreshAt = 0;
+    let pendingHeartbeats = 0;
+    let lastSnapshotHttpAt = 0;
     const idleMs = 60_000;
     let lastInteractionAt = Date.now();
     let hiddenAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
@@ -515,27 +559,93 @@ export function useLiveFeed(sport?: string) {
       __dbg(hypothesisId, msg, data);
     };
 
+    const publishHealth = (partial?: Partial<LiveFeedHealth>) => {
+      const current = resolveLiveFeedHealth(_sportKey);
+      emitLiveFeedHealth({
+        ...current,
+        sport: _sportKey,
+        active: true,
+        wsConnected: wsOk,
+        level: partial?.level ?? current.level ?? (wsOk ? 'healthy' : 'offline'),
+        missedHeartbeats: partial?.missedHeartbeats ?? current.missedHeartbeats ?? pendingHeartbeats,
+        updatedAt: Date.now(),
+      });
+    };
+
+    const classifyHeartbeat = () => {
+      if (!wsOk) return 'offline' as const;
+      if (pendingHeartbeats <= 0) return 'healthy' as const;
+      if (pendingHeartbeats === 1) return 'warning' as const;
+      return 'degraded' as const;
+    };
+
+    const getAdaptivePollMs = () => {
+      if (onlyHidden()) return 60_000;
+      const level = classifyHeartbeat();
+      if (!wsOk) return 3_000;
+      if (level === 'healthy') return 45_000;
+      if (level === 'warning') return 10_000;
+      return 3_000;
+    };
+
+    const markWsHealthy = () => {
+      pendingHeartbeats = 0;
+      publishHealth({ level: 'healthy', missedHeartbeats: 0 });
+    };
+
+    const scheduleReconnect = () => {
+      if (cancelled || reconnectId) return;
+      reconnectId = setTimeout(() => {
+        reconnectId = null;
+        startWs();
+      }, 3_000);
+    };
+
+    const clearReconnect = () => {
+      if (reconnectId) {
+        clearTimeout(reconnectId);
+        reconnectId = null;
+      }
+    };
+
+    const scheduleLoop = (delay?: number) => {
+      if (cancelled) return;
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(loop, delay ?? getAdaptivePollMs());
+    };
+
+    const onlyHidden = () => typeof document !== 'undefined' && document.hidden;
+
     const loop = async () => {
       if (cancelled) return;
-      if (wsOk) return;
-      const sportKey = String(sport || 'all').toLowerCase();
-      const fallbackMs =
-        sportKey === 'tennis'
-          ? 1200
-          : sportKey === 'soccer' || sportKey === 'football' || sportKey === 'futebol' || sportKey === 'all'
-            ? 1500
-            : 2500;
       if (inflight) {
-        timeoutId = setTimeout(loop, fallbackMs);
+        scheduleLoop();
+        return;
+      }
+      const now = Date.now();
+      const level = classifyHeartbeat();
+      const shouldSnapshot =
+        !wsOk ||
+        level === 'degraded' ||
+        level === 'warning' ||
+        now - lastSnapshotHttpAt >= 45_000;
+      if (!shouldSnapshot) {
+        scheduleLoop();
         return;
       }
       inflight = true;
       try {
-        log('A', 'poll tick (ws not ok)', { sport: String(sport || 'all') });
+        log('A', 'adaptive http snapshot', {
+          sport: String(sport || 'all'),
+          wsOk,
+          level,
+          missedHeartbeats: pendingHeartbeats,
+        });
         await fetchLiveEvents();
+        lastSnapshotHttpAt = Date.now();
       } finally {
         inflight = false;
-        timeoutId = setTimeout(loop, fallbackMs);
+        scheduleLoop();
       }
     };
 
@@ -547,7 +657,9 @@ export function useLiveFeed(sport?: string) {
       fetchLiveEvents()
         .catch(() => void 0)
         .finally(() => {
+          lastSnapshotHttpAt = Date.now();
           wakeInFlight = false;
+          scheduleLoop();
         });
     };
 
@@ -573,24 +685,42 @@ export function useLiveFeed(sport?: string) {
     const onFocus = () => onActivity();
 
     const startWs = () => {
+      if (cancelled) return;
+      clearReconnect();
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
       if (!wsUrl || typeof WebSocket === 'undefined') return;
       try {
         ws = new WebSocket(wsUrl);
       } catch {
         ws = null;
+        wsOk = false;
+        publishHealth({ level: 'offline', missedHeartbeats: pendingHeartbeats });
+        scheduleReconnect();
         return;
       }
 
       ws.onopen = () => {
         wsOk = true;
+        pendingHeartbeats = 0;
         setIsConnected(true);
         __dbg('H1', 'ws-open', { url: wsUrl, sport: String(sport || 'all') });
         log('A', 'ws open', { url: wsUrl, sport: String(sport || 'all') });
+        markWsHealthy();
         fetchLiveEvents().catch(() => void 0);
+        lastSnapshotHttpAt = Date.now();
         if (pingId) clearInterval(pingId);
         pingId = setInterval(() => {
-          try { ws?.send(JSON.stringify({ type: 'ping', ts: Date.now() })); } catch { void 0; }
+          if (!ws || ws.readyState !== WebSocket.OPEN) return;
+          pendingHeartbeats += 1;
+          const level = classifyHeartbeat();
+          publishHealth({ level, missedHeartbeats: pendingHeartbeats });
+          if (pendingHeartbeats >= 3) {
+            try { ws.close(); } catch { void 0; }
+            return;
+          }
+          try { ws.send(JSON.stringify({ type: 'ping', ts: Date.now() })); } catch { void 0; }
         }, 15_000);
+        scheduleLoop(45_000);
       };
       ws.onclose = () => {
         wsOk = false;
@@ -598,7 +728,9 @@ export function useLiveFeed(sport?: string) {
         __dbg('H1', 'ws-close', { url: wsUrl, sport: String(sport || 'all') });
         log('A', 'ws close', { url: wsUrl, sport: String(sport || 'all') });
         if (pingId) { clearInterval(pingId); pingId = null; }
-        loop();
+        publishHealth({ level: 'offline', missedHeartbeats: pendingHeartbeats });
+        scheduleReconnect();
+        scheduleLoop(3_000);
       };
       ws.onerror = () => {
         wsOk = false;
@@ -606,11 +738,21 @@ export function useLiveFeed(sport?: string) {
         __dbg('H1', 'ws-error', { url: wsUrl, sport: String(sport || 'all') });
         log('A', 'ws error', { url: wsUrl, sport: String(sport || 'all') });
         if (pingId) { clearInterval(pingId); pingId = null; }
-        loop();
+        publishHealth({ level: 'offline', missedHeartbeats: pendingHeartbeats });
+        scheduleReconnect();
+        scheduleLoop(3_000);
       };
       ws.onmessage = (evt) => {
         try {
           const msg = JSON.parse(String((evt as any)?.data || ''));
+          if (msg?.type === 'pong') {
+            markWsHealthy();
+            scheduleLoop(45_000);
+            return;
+          }
+          if (msg?.type === 'snapshot' || msg?.type === 'update' || msg?.type === 'incident') {
+            markWsHealthy();
+          }
           if (msg?.type === 'snapshot' && Array.isArray(msg?.live)) {
             const now = Date.now();
             const graceMs = 30_000;
@@ -623,6 +765,7 @@ export function useLiveFeed(sport?: string) {
                 return next;
               }));
               setLastUpdatedAt(now);
+              scheduleLoop(45_000);
               return;
             }
             __dbg('H1', 'ws-snapshot', { sport: String(sport || 'all'), count: msg.live.length });
@@ -693,6 +836,7 @@ export function useLiveFeed(sport?: string) {
               return next;
             }));
             setLastUpdatedAt(now);
+            scheduleLoop(45_000);
             return;
           }
           if (msg?.type === 'update' && msg?.data?.id) {
@@ -826,6 +970,7 @@ export function useLiveFeed(sport?: string) {
               return next;
             });
             setLastUpdatedAt(now);
+            scheduleLoop(45_000);
             return;
           }
           if (msg?.type === 'incident' && msg?.data?.id) {
@@ -869,13 +1014,14 @@ export function useLiveFeed(sport?: string) {
               return next;
             });
             setLastUpdatedAt(now);
+            scheduleLoop(45_000);
             return;
           }
-          if (msg?.type === 'pong') return;
         } catch { void 0; }
       };
     };
 
+    publishHealth({ level: 'offline', missedHeartbeats: 0 });
     startWs();
     loop();
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
@@ -891,10 +1037,19 @@ export function useLiveFeed(sport?: string) {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
       if (pingId) clearInterval(pingId);
+      clearReconnect();
       if (ws) {
         try { ws.close(); } catch { void 0; }
         ws = null;
       }
+      emitLiveFeedHealth({
+        sport: _sportKey,
+        active: false,
+        wsConnected: false,
+        level: 'unavailable',
+        missedHeartbeats: 0,
+        updatedAt: Date.now(),
+      });
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange);
       if (typeof window !== 'undefined') {
         window.removeEventListener('focus', onFocus);
