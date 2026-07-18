@@ -545,9 +545,9 @@ export default function DepositPage() {
       key: 'cartao',
       label: 'Cartão',
       logo: PAYMENT_LOGOS.card,
-      framed: true,
-      logoClassName: 'h-14 w-16 px-0 py-0 shadow-none',
-      imageClassName: 'max-h-10 w-12',
+      framed: false,
+      logoClassName: 'h-14 w-full',
+      imageClassName: 'max-h-10 w-[64px]',
     },
     {
       key: 'mbway',
