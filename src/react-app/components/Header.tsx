@@ -74,35 +74,57 @@ export function Header() {
 
   useEffect(() => {
     let alive = true;
-    const loadBalance = async () => {
-      if (!user) { setEurBalance(null); return; }
-      try {
-        const d = await apiFetch<{ currency: string; balance: number }[]>('/api/wallet/balances', { cache: 'no-store' });
-        if (alive) {
-          const eur = d.find(x => x.currency === 'EUR');
-          setEurBalance(eur ? eur.balance : 0);
-        }
-      } catch {
-        if (alive) setEurBalance(null);
-      }
-    };
-    loadBalance();
-    return () => { alive = false; };
-  }, [user]);
 
-  useEffect(() => {
-    let alive = true;
-    const loadFreebets = async () => {
-      if (!user) { setFreebets(null); return; }
+    const loadWalletSummary = async () => {
+      if (!user) {
+        if (alive) {
+          setEurBalance(null);
+          setFreebets(null);
+        }
+        return;
+      }
+
       try {
-        const d = await apiFetch<{ amount_eur: number }>('/api/promotions/freebets', { cache: 'no-store' });
-        if (alive) { setFreebets(Number(d.amount_eur || 0)); }
+        const [balances, freebetData] = await Promise.all([
+          apiFetch<{ currency: string; balance: number }[]>('/api/wallet/balances', { cache: 'no-store' }),
+          apiFetch<{ amount_eur: number }>('/api/promotions/freebets', { cache: 'no-store' }),
+        ]);
+
+        if (!alive) return;
+
+        const eur = Array.isArray(balances) ? balances.find((x) => x.currency === 'EUR') : null;
+        setEurBalance(eur ? Number(eur.balance || 0) : 0);
+        setFreebets(Number(freebetData?.amount_eur || 0));
       } catch {
-        if (alive) setFreebets(null);
+        if (!alive) return;
+        setEurBalance(null);
+        setFreebets(null);
       }
     };
-    loadFreebets();
-    return () => { alive = false; };
+
+    const refreshWallet = () => {
+      loadWalletSummary().catch(() => null);
+    };
+
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        refreshWallet();
+      }
+    };
+
+    refreshWallet();
+    window.addEventListener('wallet:refresh', refreshWallet as EventListener);
+    window.addEventListener('focus', refreshWallet);
+    document.addEventListener('visibilitychange', onVisibility);
+    const intervalId = window.setInterval(refreshWallet, 10000);
+
+    return () => {
+      alive = false;
+      window.removeEventListener('wallet:refresh', refreshWallet as EventListener);
+      window.removeEventListener('focus', refreshWallet);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(intervalId);
+    };
   }, [user]);
 
   return (

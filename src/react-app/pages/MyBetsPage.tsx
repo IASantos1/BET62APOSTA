@@ -27,8 +27,8 @@ type Selection = {
 };
 
 type MyBet = {
-  id: number;
-  event_id: number;
+  id: string | number;
+  event_id: string | number | null;
   team_match: string;
   team_home?: string;
   team_away?: string;
@@ -39,6 +39,7 @@ type MyBet = {
   potential_win: number;
   status: string;
   created_at?: string;
+  winnings?: number;
   cashoutAvailable?: boolean;
   cashoutValue?: number;
   cashoutBlocked?: boolean;
@@ -48,6 +49,10 @@ type MyBet = {
   is_freebet?: number;
   selections?: Selection[];
   live?: LiveData;
+};
+
+type BetsPayload = {
+  bets?: MyBet[];
 };
 
 const BLOCK_REASONS: Record<string, string> = {
@@ -93,19 +98,89 @@ function periodLabel(elapsed: number | null, status: string | null): string {
   return '';
 }
 
-function statusPill(status: string): { label: string; bg: string; text: string } {
-  switch (status) {
+function normalizeStatus(status: string): 'pending' | 'won' | 'lost' | 'cashed_out' {
+  const key = String(status || '').trim().toLowerCase();
+  if (key === 'won' || key === 'ganha') return 'won';
+  if (key === 'lost' || key === 'perdida') return 'lost';
+  if (key === 'cashed_out') return 'cashed_out';
+  return 'pending';
+}
+
+function statusPill(status: string): { label: string; classes: string; accent: string } {
+  switch (normalizeStatus(status)) {
     case 'won':
-    case 'ganha':
-      return { label: 'Ganhos', bg: 'bg-green-600', text: 'text-white' };
+      return {
+        label: 'Ganha',
+        classes: 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30',
+        accent: 'border-emerald-500/35',
+      };
     case 'lost':
-    case 'perdida':
-      return { label: 'Perdida', bg: 'bg-red-600', text: 'text-white' };
+      return {
+        label: 'Perdida',
+        classes: 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30',
+        accent: 'border-red-500/35',
+      };
     case 'cashed_out':
-      return { label: 'Cashout', bg: 'bg-yellow-500', text: 'text-black' };
+      return {
+        label: 'Cash Out',
+        classes: 'bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/30',
+        accent: 'border-amber-400/35',
+      };
     case 'pending':
     default:
-      return { label: 'Em aberto', bg: 'bg-gray-600', text: 'text-white' };
+      return {
+        label: 'Ativa',
+        classes: 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-500/30',
+        accent: 'border-blue-500/35',
+      };
+  }
+}
+
+function selectionStatusLabel(status?: string): string {
+  switch (normalizeStatus(String(status || 'pending'))) {
+    case 'won':
+      return 'Ganha';
+    case 'lost':
+      return 'Perdida';
+    case 'cashed_out':
+      return 'Cash Out';
+    default:
+      return 'Em aberto';
+  }
+}
+
+function normalizeBetsPayload(data: MyBet[] | BetsPayload | null | undefined): MyBet[] {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.bets)) return data.bets;
+  return [];
+}
+
+function buildSingleSelection(bet: MyBet): Selection {
+  return {
+    event_id: bet.event_id ?? '',
+    team_match: bet.team_match,
+    league: bet.league,
+    selection: bet.selection,
+    odd: bet.currentOdd && Math.abs(bet.currentOdd - bet.odd) > 0.01 ? Number(bet.currentOdd) : Number(bet.odd),
+    status: bet.status,
+    home_team: bet.team_home,
+    away_team: bet.team_away,
+    live: bet.live,
+  };
+}
+
+function formatTicketDate(iso?: string): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString('pt-PT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
   }
 }
 
@@ -118,92 +193,119 @@ function MatchBlock({ live, homeTeam, awayTeam, selectionStatus }:
   const showScore = isLive || isFinished || (live && (live.home_score != null || live.away_score != null));
   const dateLabel = formatMatchDate(live?.event_date);
   const timeLabel = formatMatchTime(live?.event_date);
-
-  const borderClass = isLive
-    ? 'border-red-500'
-    : darkMode ? 'border-gray-700' : 'border-gray-200';
-  const labelText = isLive ? 'text-red-500' : (darkMode ? 'text-gray-400' : 'text-gray-500');
+  const statusKey = String(live?.status || '').toUpperCase();
+  const liveLabel = statusKey === 'HT'
+    ? 'Intervalo'
+    : statusKey === 'BT'
+      ? 'Pausa Técnica'
+      : isLive
+        ? 'Ao Vivo'
+        : isFinished
+          ? 'Finalizado'
+          : 'Agendado';
 
   return (
-    <div className={`rounded-lg border ${borderClass} px-4 py-3 mt-2 relative ${darkMode ? 'bg-gray-900/50' : 'bg-gray-50'}`}>
-      {/* Top label: minute+period for live, date for resolved/upcoming */}
-      <div className={`text-xs font-semibold text-center mb-2 ${labelText} flex items-center justify-center gap-2`}>
-        {isLive ? (
-          <>
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            <span>{live?.elapsed != null ? `${live.elapsed}'` : 'AO VIVO'} • {periodLabel(live?.elapsed ?? null, live?.status ?? null)}</span>
-          </>
-        ) : showScore ? (
-          <span>{dateLabel}</span>
-        ) : (
-          <span>{dateLabel}</span>
-        )}
+    <div className={`mt-3 rounded-2xl border px-4 py-4 ${darkMode ? 'border-gray-700 bg-gray-900/70' : 'border-gray-200 bg-gray-50'}`}>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] ${
+          isLive
+            ? 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30'
+            : isFinished
+              ? (darkMode ? 'bg-gray-800 text-gray-300 ring-1 ring-gray-700' : 'bg-gray-200 text-gray-700 ring-1 ring-gray-300')
+              : (darkMode ? 'bg-gray-800 text-gray-300 ring-1 ring-gray-700' : 'bg-white text-gray-600 ring-1 ring-gray-200')
+        }`}>
+          {isLive && <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />}
+          <span>{liveLabel}</span>
+          {isLive && live?.elapsed != null && <span>{live.elapsed}'</span>}
+        </div>
+        <div className={`text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+          {dateLabel}{timeLabel ? ` • ${timeLabel}` : ''}
+        </div>
       </div>
 
-      {/* Teams + score (or kickoff time when upcoming) */}
       {showScore ? (
-        <div className="flex items-center justify-center gap-3">
-          <span className={`font-semibold text-right flex-1 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <span className={`text-right text-sm font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
             {homeTeam}
           </span>
-          <span className={`px-3 py-1 rounded-md font-bold tabular-nums text-sm ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-gray-900'}`}>
+          <span className={`rounded-xl px-4 py-2 text-center text-base font-black tabular-nums ${
+            isLive
+              ? 'bg-red-600 text-white shadow-lg shadow-red-950/30'
+              : darkMode
+                ? 'bg-gray-800 text-white'
+                : 'bg-gray-200 text-gray-900'
+          }`}>
             {live?.home_score ?? 0} - {live?.away_score ?? 0}
           </span>
-          <span className={`font-semibold text-left flex-1 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+          <span className={`text-left text-sm font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
             {awayTeam}
           </span>
         </div>
       ) : (
-        <div className="flex items-center justify-center gap-3">
-          <span className={`font-semibold text-right flex-1 ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <span className={`text-right text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
             {homeTeam}
           </span>
-          <span className={`text-sm font-medium tabular-nums ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+          <span className={`rounded-xl px-3 py-2 text-sm font-black tabular-nums ${darkMode ? 'bg-gray-800 text-gray-300' : 'bg-white text-gray-600 ring-1 ring-gray-200'}`}>
             {timeLabel || 'vs'}
           </span>
-          <span className={`font-semibold text-left flex-1 ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+          <span className={`text-left text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
             {awayTeam}
           </span>
+        </div>
+      )}
+
+      {(isLive || statusKey) && (
+        <div className={`mt-3 text-center text-[11px] font-semibold uppercase tracking-[0.12em] ${
+          isLive ? 'text-red-400' : darkMode ? 'text-gray-500' : 'text-gray-500'
+        }`}>
+          {isLive ? periodLabel(live?.elapsed ?? null, live?.status ?? null) || 'Jogo em curso' : statusKey}
         </div>
       )}
     </div>
   );
 }
 
-function BetLeg({ bet, sel }: { bet: MyBet; sel: Selection }) {
+function BetLeg({ bet, sel, isLast }: { bet: MyBet; sel: Selection; isLast: boolean }) {
   const { darkMode } = useApp();
   const sport = getSportFromLeague(sel.league || '');
   const sportIcon = getSportIcon(sport);
   const homeTeam = sel.home_team || sel.team_match.split(' vs ')[0] || '';
   const awayTeam = sel.away_team || sel.team_match.split(' vs ')[1] || '';
-  const accentText = bet.status === 'lost' ? 'text-red-500'
-    : bet.status === 'won' ? 'text-green-600'
-    : darkMode ? 'text-white' : 'text-gray-900';
-
-  // Per-leg status icon (✓ won, ✗ lost, … pending)
-  const legIcon = sel.status === 'won' ? <span className="text-green-500">✓</span>
-    : sel.status === 'lost' ? <span className="text-red-500">✗</span>
-    : <span className={darkMode ? 'text-gray-500' : 'text-gray-400'}>···</span>;
+  const status = normalizeStatus(sel.status || bet.status);
+  const accentText = status === 'lost'
+    ? 'text-red-400'
+    : status === 'won'
+      ? 'text-emerald-400'
+      : darkMode ? 'text-white' : 'text-gray-900';
 
   return (
-    <div className={`px-4 py-3 ${darkMode ? 'border-b border-gray-700/60' : 'border-b border-gray-200'} last:border-b-0`}>
+    <div className={`px-4 py-4 ${!isLast ? (darkMode ? 'border-b border-gray-700/60' : 'border-b border-gray-200') : ''}`}>
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-2 min-w-0 flex-1">
-          <img src={sportIcon} alt={sport} className="w-5 h-5 mt-0.5 opacity-80 shrink-0" />
+        <div className="flex min-w-0 items-start gap-3 flex-1">
+          <img src={sportIcon} alt={sport} className="mt-0.5 h-5 w-5 shrink-0 opacity-80" />
           <div className="min-w-0">
-            <div className={`font-bold leading-tight truncate ${accentText}`}>
+            <div className={`text-sm font-black leading-tight ${accentText}`}>
               {translateSelection(sel.selection)}
             </div>
-            <div className={`text-xs mt-0.5 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              Resultado (Tempo Regulamentar)
+            <div className={`mt-1 text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              {sel.league || 'Mercado'}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className={`text-base font-bold tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+        <div className="shrink-0 text-right">
+          <span className={`block text-base font-black tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>
             {Number(sel.odd).toFixed(2)}
           </span>
-          <span className="w-5 h-5 flex items-center justify-center text-sm">{legIcon}</span>
+          <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${
+            status === 'won'
+              ? 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30'
+              : status === 'lost'
+                ? 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30'
+                : 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-500/30'
+          }`}>
+            {selectionStatusLabel(sel.status || bet.status)}
+          </span>
         </div>
       </div>
 
@@ -218,56 +320,13 @@ function BetLeg({ bet, sel }: { bet: MyBet; sel: Selection }) {
 }
 
 function SingleBetLeg({ bet }: { bet: MyBet }) {
-  const { darkMode } = useApp();
-  const sport = getSportFromLeague(bet.league || '');
-  const sportIcon = getSportIcon(sport);
-  const homeTeam = bet.team_home || bet.team_match.split(' vs ')[0] || '';
-  const awayTeam = bet.team_away || bet.team_match.split(' vs ')[1] || '';
-  const oddChanged = bet.currentOdd && Math.abs(bet.currentOdd - bet.odd) > 0.01;
-  const accentText = bet.status === 'lost' ? 'text-red-500'
-    : bet.status === 'won' ? 'text-green-600'
-    : darkMode ? 'text-white' : 'text-gray-900';
-
-  return (
-    <div className="px-4 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-2 min-w-0 flex-1">
-          <img src={sportIcon} alt={sport} className="w-5 h-5 mt-0.5 opacity-80 shrink-0" />
-          <div className="min-w-0">
-            <div className={`font-bold leading-tight ${accentText}`}>
-              {translateSelection(bet.selection)}
-            </div>
-            <div className={`text-xs mt-0.5 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              {bet.league || 'Resultado'}
-            </div>
-          </div>
-        </div>
-        <div className="text-right shrink-0">
-          {oddChanged && (
-            <div className={`text-xs line-through ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-              {Number(bet.odd).toFixed(2)}
-            </div>
-          )}
-          <div className={`text-lg font-bold tabular-nums ${oddChanged ? 'text-orange-500' : (darkMode ? 'text-white' : 'text-gray-900')}`}>
-            {(oddChanged ? bet.currentOdd : bet.odd)?.toFixed(2)}
-          </div>
-        </div>
-      </div>
-
-      <MatchBlock
-        live={bet.live}
-        homeTeam={homeTeam}
-        awayTeam={awayTeam}
-        selectionStatus={bet.status}
-      />
-    </div>
-  );
+  return <BetLeg bet={bet} sel={buildSingleSelection(bet)} isLast />;
 }
 
 function CashoutPanel({ bet, onCashout, processing }:
   { bet: MyBet; onCashout: (bet: MyBet) => void; processing: boolean }) {
   const { darkMode } = useApp();
-  if (bet.status !== 'pending' || bet.type === 'multi') return null;
+  if (normalizeStatus(bet.status) !== 'pending' || bet.type === 'multi') return null;
   if (!bet.cashoutAvailable && !bet.cashoutBlocked) return null;
 
   const value = bet.cashoutValue ?? 0;
@@ -324,14 +383,14 @@ function CashoutPanel({ bet, onCashout, processing }:
 export default function MyBetsPage() {
   const { darkMode, user, addNotification, notifications } = useApp();
   const [bets, setBets] = useState<MyBet[]>([]);
-  const [processingId, setProcessingId] = useState<number | null>(null);
+  const [processingId, setProcessingId] = useState<string | number | null>(null);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<'ativas' | 'encerradas' | 'ganhas'>('ativas');
+  const [tab, setTab] = useState<'ativas' | 'perdidas' | 'ganhas'>('ativas');
 
   const loadBets = useCallback((signal?: AbortSignal) => {
     setLoading(true);
-    apiFetch<MyBet[]>('/api/bets', { signal, cache: 'no-store' })
-      .then((data: MyBet[]) => setBets(Array.isArray(data) ? data : []))
+    apiFetch<MyBet[] | BetsPayload>('/api/bets', { signal, cache: 'no-store' })
+      .then((data) => setBets(normalizeBetsPayload(data)))
       .catch((err: any) => {
         const msg = String(err?.message || 'Erro ao carregar apostas');
         const aborted = err && (err.name === 'AbortError' || msg.includes('ERR_ABORTED'));
@@ -349,6 +408,7 @@ export default function MyBetsPage() {
     try {
       const res: any = await apiFetch(`/api/bets/${bet.id}/cashout`, { method: 'POST' });
       addNotification({ type: 'success', message: `Cash Out de €${(res?.amount ?? bet.cashoutValue).toFixed(2)} efectuado!` });
+      window.dispatchEvent(new CustomEvent('wallet:refresh'));
       loadBets();
     } catch (e: any) {
       addNotification({ type: 'error', message: e.message || 'Erro no cashout' });
@@ -373,30 +433,29 @@ export default function MyBetsPage() {
   }, [user, loadBets, onRefresh]);
 
   const filteredBets = useMemo(() => {
-    if (tab === 'ativas') return bets.filter(b => b.status === 'pending');
-    if (tab === 'ganhas') return bets.filter(b => b.status === 'won' || b.status === 'cashed_out');
-    return bets.filter(b => b.status === 'lost');
+    if (tab === 'ativas') return bets.filter((b) => normalizeStatus(b.status) === 'pending');
+    if (tab === 'ganhas') return bets.filter((b) => ['won', 'cashed_out'].includes(normalizeStatus(b.status)));
+    return bets.filter((b) => normalizeStatus(b.status) === 'lost');
   }, [bets, tab]);
 
   const counts = useMemo(() => ({
-    ativas: bets.filter(b => b.status === 'pending').length,
-    encerradas: bets.filter(b => b.status === 'lost').length,
-    ganhas: bets.filter(b => b.status === 'won' || b.status === 'cashed_out').length,
+    ativas: bets.filter((b) => normalizeStatus(b.status) === 'pending').length,
+    perdidas: bets.filter((b) => normalizeStatus(b.status) === 'lost').length,
+    ganhas: bets.filter((b) => ['won', 'cashed_out'].includes(normalizeStatus(b.status))).length,
   }), [bets]);
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-gray-100'} pb-20`}>
-      <div className="max-w-3xl mx-auto px-4 py-6">
+      <div className="mx-auto max-w-4xl px-4 py-6">
         <h1 className={`text-2xl font-bold mb-5 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
           As Minhas Apostas
         </h1>
 
-        {/* Tabs: Ativas | Encerradas | Ganhas */}
         <div className={`flex items-center gap-6 mb-5 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
           {([
             ['ativas', 'Ativas', counts.ativas],
-            ['encerradas', 'Encerradas', counts.encerradas],
             ['ganhas', 'Ganhas', counts.ganhas],
+            ['perdidas', 'Perdidas', counts.perdidas],
           ] as const).map(([key, label, count]) => (
             <button
               key={key}
@@ -430,87 +489,88 @@ export default function MyBetsPage() {
             {filteredBets.map((bet) => {
               const pill = statusPill(bet.status);
               const isMulti = bet.type === 'multi';
-              const totalOdd = isMulti ? Number(bet.odd) : Number(bet.odd);
+              const totalOdd = Number(bet.odd || 0);
+              const settledStatus = normalizeStatus(bet.status);
+              const selections = isMulti && Array.isArray(bet.selections) && bet.selections.length > 0
+                ? bet.selections
+                : [buildSingleSelection(bet)];
+              const displayReturn =
+                settledStatus === 'cashed_out'
+                  ? Number(bet.cashoutValue || 0)
+                  : settledStatus === 'won'
+                    ? Number(bet.winnings || bet.potential_win || 0)
+                  : settledStatus === 'lost'
+                    ? 0
+                    : Number(bet.potential_win || 0);
 
               return (
                 <div
                   key={bet.id}
-                  className={`rounded-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} shadow-sm`}
+                  className={`overflow-hidden rounded-3xl border shadow-sm ${pill.accent} ${darkMode ? 'bg-gray-800/95' : 'bg-white border-gray-200'}`}
                 >
-                  {/* Card header: Múltipla badge or Single header + status pill */}
-                  <div className={`flex items-center justify-between px-4 py-3 ${darkMode ? 'border-b border-gray-700' : 'border-b border-gray-200'}`}>
-                    <div className="flex items-center gap-2">
-                      {isMulti ? (
-                        <>
-                          <span className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                            Múltipla ({bet.selections?.length || 0})
-                          </span>
-                          <div className="flex gap-1">
-                            {bet.selections?.map((s, i) => (
-                              <span key={i} className="w-4 h-4 inline-flex items-center justify-center rounded-full text-xs font-bold"
-                                style={{
-                                  background: s.status === 'won' ? '#16a34a' : s.status === 'lost' ? '#dc2626' : '#6b7280',
-                                  color: 'white',
-                                }}
-                              >{s.status === 'won' ? '✓' : s.status === 'lost' ? '✗' : '·'}</span>
-                            ))}
-                          </div>
-                        </>
-                      ) : (
-                        <span className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                          Aposta simples • {bet.league || ''}
-                        </span>
-                      )}
+                  <div className={`px-5 py-4 ${darkMode ? 'border-b border-gray-700' : 'border-b border-gray-200 bg-gray-50/70'}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className={`text-[11px] font-black uppercase tracking-[0.18em] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                          Bilhete #{bet.id}
+                        </div>
+                        <div className={`mt-1 text-lg font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                          {isMulti ? `Múltipla • ${selections.length} seleções` : 'Aposta Simples'}
+                        </div>
+                        <div className={`mt-1 text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                          {formatTicketDate(bet.created_at)}
+                        </div>
+                      </div>
+                      <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-[0.14em] ${pill.classes}`}>
+                        {pill.label}
+                      </span>
                     </div>
-                    <span className={`px-2.5 py-1 rounded text-xs font-bold ${pill.bg} ${pill.text}`}>
-                      {pill.label}
-                    </span>
                   </div>
 
-                  {/* Legs */}
-                  {isMulti && bet.selections
-                    ? bet.selections.map((sel, idx) => (
-                        <BetLeg key={idx} bet={bet} sel={sel} />
+                  {isMulti
+                    ? selections.map((sel, idx) => (
+                        <BetLeg
+                          key={`${bet.id}-${idx}-${sel.event_id}-${sel.selection}`}
+                          bet={bet}
+                          sel={sel}
+                          isLast={idx === selections.length - 1}
+                        />
                       ))
-                    : <SingleBetLeg bet={bet} />
-                  }
+                    : <SingleBetLeg bet={bet} />}
 
-                  {/* Cashout */}
                   <CashoutPanel bet={bet} onCashout={handleCashout} processing={processingId === bet.id} />
 
-                  {/* Footer: cota total / montante / ganhos */}
-                  <div className={`px-4 py-3 ${darkMode ? 'bg-gray-900/40 border-t border-gray-700' : 'bg-gray-50 border-t border-gray-200'} space-y-1.5`}>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Cota total</span>
-                      <span className={`text-sm font-bold tabular-nums px-2 py-0.5 rounded ${
-                        bet.status === 'pending' ? 'bg-yellow-400 text-black'
-                        : bet.status === 'won' ? 'bg-green-100 text-green-800'
-                        : bet.status === 'cashed_out' ? 'bg-yellow-100 text-yellow-800'
-                        : darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-700'
-                      }`}>{totalOdd.toFixed(2)}</span>
+                  <div className={`grid grid-cols-1 gap-3 px-5 py-4 sm:grid-cols-3 ${darkMode ? 'border-t border-gray-700 bg-gray-900/50' : 'border-t border-gray-200 bg-gray-50'}`}>
+                    <div className={`rounded-2xl px-3 py-3 ${darkMode ? 'bg-gray-800 text-gray-300' : 'bg-white text-gray-700 ring-1 ring-gray-200'}`}>
+                      <div className="text-[11px] font-black uppercase tracking-[0.14em] opacity-70">Cota Total</div>
+                      <div className={`mt-1 text-lg font-black tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                        {totalOdd.toFixed(2)}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Montante</span>
-                      <span className={`text-sm font-semibold tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                        {Number(bet.stake).toFixed(2)} €
-                      </span>
+                    <div className={`rounded-2xl px-3 py-3 ${darkMode ? 'bg-gray-800 text-gray-300' : 'bg-white text-gray-700 ring-1 ring-gray-200'}`}>
+                      <div className="text-[11px] font-black uppercase tracking-[0.14em] opacity-70">Apostado</div>
+                      <div className={`mt-1 text-lg font-black tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                        €{Number(bet.stake || 0).toFixed(2)}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                        {bet.status === 'won' ? 'Ganhos'
-                          : bet.status === 'cashed_out' ? 'Cashout'
-                          : bet.status === 'lost' ? 'Perda'
-                          : 'Retorno potencial'}
-                      </span>
-                      <span className={`text-sm font-bold tabular-nums ${
-                        bet.status === 'lost' ? 'text-red-500'
-                        : bet.status === 'won' ? 'text-green-600'
-                        : darkMode ? 'text-green-400' : 'text-green-600'
-                      }`}>
-                        {(bet.status === 'cashed_out' ? (bet.cashoutValue || 0)
-                          : bet.status === 'lost' ? 0
-                          : bet.potential_win).toFixed(2)} €
-                      </span>
+                    <div className={`rounded-2xl px-3 py-3 ${
+                      settledStatus === 'lost'
+                        ? 'bg-red-500/10 text-red-400 ring-1 ring-red-500/20'
+                        : settledStatus === 'won'
+                          ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'
+                          : darkMode
+                            ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20'
+                            : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                    }`}>
+                      <div className="text-[11px] font-black uppercase tracking-[0.14em] opacity-80">
+                        {settledStatus === 'won' ? 'Ganho'
+                          : settledStatus === 'cashed_out' ? 'Cash Out'
+                          : settledStatus === 'lost' ? 'Perda'
+                          : 'Retorno'}
+                      </div>
+                      <div className="mt-1 text-lg font-black tabular-nums">
+                        €{displayReturn.toFixed(2)}
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -23,6 +23,17 @@ type PlaceBetBody = {
   }>;
 };
 
+type BetLiveData = {
+  isLive: boolean;
+  status: string | null;
+  elapsed: number | null;
+  home_score: number | null;
+  away_score: number | null;
+  home_logo: string | null;
+  away_logo: string | null;
+  event_date: string | null;
+};
+
 type BetSelectionError = {
   index: number;
   event_id: string;
@@ -38,6 +49,12 @@ type BetSelectionError = {
 function toNumber(v: any): number {
   const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function toNullableNumber(v: any): number | null {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 function normalizeText(v: any): string {
@@ -228,6 +245,64 @@ async function updateLockedProfile(client: Queryable, userId: string, balance: n
   );
 }
 
+function readEventStatus(event: any): string | null {
+  const raw =
+    event?.status?.short ??
+    event?.fixture?.status?.short ??
+    event?.status_short ??
+    event?.status ??
+    '';
+  const value = String(raw || '').trim().toUpperCase();
+  return value || null;
+}
+
+function readEventElapsed(event: any): number | null {
+  return toNullableNumber(
+    event?.elapsed ??
+    event?.fixture?.status?.elapsed ??
+    event?.status?.elapsed ??
+    event?.timer?.elapsed,
+  );
+}
+
+function buildLiveData(event: any): BetLiveData | null {
+  if (!event || typeof event !== 'object') return null;
+
+  const homeScore = toNullableNumber(
+    event?.goals?.home ??
+    event?.score?.home ??
+    event?.scores?.home ??
+    event?.homeScore ??
+    event?.home_score ??
+    event?.golsCasa,
+  );
+  const awayScore = toNullableNumber(
+    event?.goals?.away ??
+    event?.score?.away ??
+    event?.scores?.away ??
+    event?.awayScore ??
+    event?.away_score ??
+    event?.golsFora,
+  );
+  const status = readEventStatus(event);
+  const elapsed = readEventElapsed(event);
+  const isLive =
+    Number(event?.is_live || 0) === 1 ||
+    Boolean(event?.live) ||
+    Boolean(elapsed != null && !isFinishedLike(event));
+
+  return {
+    isLive,
+    status,
+    elapsed,
+    home_score: homeScore,
+    away_score: awayScore,
+    home_logo: String(event?.teams?.home?.logo || event?.home_logo || '').trim() || null,
+    away_logo: String(event?.teams?.away?.logo || event?.away_logo || '').trim() || null,
+    event_date: String(event?.event_date || event?.fixture?.date || event?.date || '').trim() || null,
+  };
+}
+
 function serializeBetRecord(row: any, userId: string) {
   const selections = row?.selections && typeof row.selections === 'object' ? row.selections : [];
   const arr = Array.isArray(selections) ? selections : [];
@@ -252,6 +327,9 @@ function serializeBetRecord(row: any, userId: string) {
     is_free_bet: Boolean(row?.is_free_bet),
     winnings: toNumber(row?.winnings),
     cashout_value: toNumber(row?.cashout_value),
+    cashoutValue: toNumber(row?.cashout_value),
+    cashoutAvailable: false,
+    cashoutBlocked: false,
     cashout_at: row?.cashout_at ? new Date(row.cashout_at).toISOString() : undefined,
     settled_at: row?.settled_at ? new Date(row.settled_at).toISOString() : undefined,
     selection: first.selection ? String(first.selection) : '',
@@ -261,6 +339,37 @@ function serializeBetRecord(row: any, userId: string) {
     league: first.league ? String(first.league) : '',
     selections: arr,
     created_at: row?.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+  };
+}
+
+function hydrateBetRecord(record: any, liveByEventId: Map<string, BetLiveData | null>) {
+  const selections = Array.isArray(record?.selections) ? record.selections : [];
+  const hydratedSelections = selections.map((selection: any) => {
+    const eventId = String(selection?.event_id ?? '').trim();
+    const live = eventId ? (liveByEventId.get(eventId) ?? null) : null;
+    return {
+      ...selection,
+      status: String(selection?.status || record?.status || 'pending'),
+      live,
+    };
+  });
+
+  const firstSelection = hydratedSelections[0] || {};
+  const firstEventId = String(firstSelection?.event_id ?? record?.event_id ?? '').trim();
+  const live = firstEventId ? (liveByEventId.get(firstEventId) ?? null) : null;
+
+  return {
+    ...record,
+    event_id: firstSelection?.event_id ?? record?.event_id ?? null,
+    team_match: String(firstSelection?.team_match || record?.team_match || ''),
+    team_home: String(firstSelection?.home_team || record?.team_home || ''),
+    team_away: String(firstSelection?.away_team || record?.team_away || ''),
+    league: String(firstSelection?.league || record?.league || ''),
+    selection: String(firstSelection?.selection || record?.selection || ''),
+    odd: toNumber(record?.total_odds || record?.odd),
+    cashoutValue: toNumber(record?.cashoutValue ?? record?.cashout_value),
+    selections: hydratedSelections,
+    live,
   };
 }
 
@@ -308,7 +417,28 @@ export async function handleBetRoutes(
       [u.id],
     );
 
-    const out = (r.rows || []).map((b: any) => serializeBetRecord(b, u.id));
+    const base = (r.rows || []).map((b: any) => serializeBetRecord(b, u.id));
+    const eventIds = Array.from(new Set(
+      base.flatMap((bet: any) => {
+        const ids = Array.isArray(bet?.selections)
+          ? bet.selections.map((selection: any) => String(selection?.event_id || '').trim()).filter(Boolean)
+          : [];
+        if (ids.length > 0) return ids;
+        return bet?.event_id != null ? [String(bet.event_id).trim()] : [];
+      }),
+    ));
+    const liveEntries = await Promise.all(
+      eventIds.map(async (eventId) => {
+        try {
+          const ctx = await events.getBetValidationContext(eventId);
+          return [eventId, buildLiveData(ctx?.event)] as const;
+        } catch {
+          return [eventId, null] as const;
+        }
+      }),
+    );
+    const liveByEventId = new Map<string, BetLiveData | null>(liveEntries);
+    const out = base.map((bet: any) => hydrateBetRecord(bet, liveByEventId));
 
     sendJson(res, 200, { bets: out });
     return true;

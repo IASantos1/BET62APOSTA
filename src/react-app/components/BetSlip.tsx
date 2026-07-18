@@ -258,6 +258,7 @@ export function BetSlip() {
          type: 'success', 
          message: `${mode === 'single' ? 'Apostas simples' : 'Aposta múltipla'} de €${totalStake.toFixed(2)} colocada com sucesso!`, 
        }); 
+      window.dispatchEvent(new CustomEvent('wallet:refresh'));
       window.dispatchEvent(new CustomEvent('bets:refresh'));
       clearBetSlip(); 
      } catch (error: any) {
