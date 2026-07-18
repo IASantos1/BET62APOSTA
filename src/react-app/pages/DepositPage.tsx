@@ -1,4 +1,4 @@
-import { useState, useEffect, type ChangeEvent } from "react";
+import { useState, useEffect, type ChangeEvent, type ReactNode } from "react";
 import { useApp } from '@/react-app/contexts/AppContext';
 import { apiFetch } from '@/react-app/utils/api';
 import { loadStripe } from '@stripe/stripe-js';
@@ -40,6 +40,17 @@ const pageShellStyle = (darkMode: boolean) => ({
   backgroundColor: darkMode ? '#111827' : '#f9fafb',
   color: darkMode ? '#ffffff' : '#111827',
 });
+
+const CardMethodBadge = () => (
+  <div className="flex h-14 w-full items-center justify-center">
+    <div className="relative h-10 w-[70px] overflow-hidden rounded-xl bg-slate-900 shadow-sm ring-1 ring-white/10">
+      <div className="absolute left-0 top-2 h-2 w-full bg-slate-700" />
+      <div className="absolute left-3 top-6 h-1.5 w-7 rounded-full bg-slate-500" />
+      <div className="absolute right-4 top-[18px] h-4 w-4 rounded-full bg-red-500/90" />
+      <div className="absolute right-8 top-[18px] h-4 w-4 rounded-full bg-amber-400/90" />
+    </div>
+  </div>
+);
 
 // ─── MBWay ────────────────────────────────────────────────────────────────────
 const MBWayForm = ({ amount, onSuccess }: { amount: number; onSuccess: () => void }) => {
@@ -537,6 +548,7 @@ export default function DepositPage() {
     key: Method;
     label: string;
     logo?: { src: string; alt: string };
+    customLogo?: ReactNode;
     framed?: boolean;
     logoClassName?: string;
     imageClassName?: string;
@@ -544,10 +556,7 @@ export default function DepositPage() {
     {
       key: 'cartao',
       label: 'Cartão',
-      logo: PAYMENT_LOGOS.card,
-      framed: false,
-      logoClassName: 'h-14 w-full',
-      imageClassName: 'max-h-10 w-[64px]',
+      customLogo: <CardMethodBadge />,
     },
     {
       key: 'mbway',
@@ -655,7 +664,9 @@ export default function DepositPage() {
                 {methodTabs.map(tab => (
                   <button key={tab.key} onClick={() => setMethod(tab.key)}
                     className={`py-3 px-2 flex flex-col items-center justify-center gap-2 text-xs font-semibold transition-colors ${method === tab.key ? 'text-red-500 border-b-2 border-red-500 bg-red-500/10' : darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}>
-                    {tab.logo ? (
+                    {tab.customLogo ? (
+                      tab.customLogo
+                    ) : tab.logo ? (
                       <PaymentLogo
                         src={tab.logo.src}
                         alt={tab.logo.alt}
