@@ -43,11 +43,11 @@ const pageShellStyle = (darkMode: boolean) => ({
 
 const CardMethodBadge = () => (
   <div className="flex h-14 w-full items-center justify-center">
-    <div className="relative h-10 w-[70px] overflow-hidden rounded-xl bg-slate-900 shadow-sm ring-1 ring-white/10">
+    <div className="relative h-9 w-[62px] overflow-hidden rounded-lg bg-slate-900 shadow-sm ring-1 ring-white/10">
       <div className="absolute left-0 top-2 h-2 w-full bg-slate-700" />
-      <div className="absolute left-3 top-6 h-1.5 w-7 rounded-full bg-slate-500" />
-      <div className="absolute right-4 top-[18px] h-4 w-4 rounded-full bg-red-500/90" />
-      <div className="absolute right-8 top-[18px] h-4 w-4 rounded-full bg-amber-400/90" />
+      <div className="absolute left-3 top-5.5 h-1.5 w-6 rounded-full bg-slate-500" />
+      <div className="absolute right-3.5 top-[16px] h-3.5 w-3.5 rounded-full bg-red-500/90" />
+      <div className="absolute right-7 top-[16px] h-3.5 w-3.5 rounded-full bg-amber-400/90" />
     </div>
   </div>
 );
@@ -554,11 +554,6 @@ export default function DepositPage() {
     imageClassName?: string;
   }[] = [
     {
-      key: 'cartao',
-      label: 'Cartão',
-      customLogo: <CardMethodBadge />,
-    },
-    {
       key: 'mbway',
       label: 'MB WAY',
       logo: PAYMENT_LOGOS.mbway,
@@ -573,6 +568,11 @@ export default function DepositPage() {
       framed: false,
       logoClassName: 'h-14 w-full',
       imageClassName: 'max-h-11 w-[110px]',
+    },
+    {
+      key: 'cartao',
+      label: 'Cartão',
+      customLogo: <CardMethodBadge />,
     },
   ];
 
