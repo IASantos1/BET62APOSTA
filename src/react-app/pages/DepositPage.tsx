@@ -23,13 +23,15 @@ const PaymentLogo = ({
   alt,
   className = '',
   imgClassName = '',
+  framed = true,
 }: {
   src: string;
   alt: string;
   className?: string;
   imgClassName?: string;
+  framed?: boolean;
 }) => (
-  <div className={`flex items-center justify-center rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-black/5 ${className}`}>
+  <div className={`flex items-center justify-center ${framed ? 'rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-black/5' : ''} ${className}`}>
     <img src={src} alt={alt} className={`max-h-6 w-auto object-contain ${imgClassName}`} loading="lazy" />
   </div>
 );
@@ -468,15 +470,6 @@ const StripeCardFormInner = ({ amount, onSuccess }: { amount: number; onSuccess:
         }
       </button>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <PaymentLogo src={PAYMENT_LOGOS.visa.src} alt={PAYMENT_LOGOS.visa.alt} imgClassName="max-h-5" />
-        <PaymentLogo src={PAYMENT_LOGOS.mastercard.src} alt={PAYMENT_LOGOS.mastercard.alt} imgClassName="max-h-7" />
-        <PaymentLogo src={PAYMENT_LOGOS.mbway.src} alt={PAYMENT_LOGOS.mbway.alt} imgClassName="max-h-5" />
-        <PaymentLogo src={PAYMENT_LOGOS.multibanco.src} alt={PAYMENT_LOGOS.multibanco.alt} imgClassName="max-h-7" />
-      </div>
-      <div className={`text-center text-[11px] ${uiDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-        Processado com tecnologia Stripe e métodos oficiais suportados.
-      </div>
     </form>
   );
 };
@@ -540,10 +533,38 @@ export default function DepositPage() {
   const handleQuickAmount = (val: number) => { setAmount(String(val)); setAmountError(''); };
   const handleSuccess = () => setSuccess(true);
 
-  const methodTabs: { key: Method; label: string; logo?: { src: string; alt: string } }[] = [
-    { key: 'cartao', label: 'Cartão', logo: PAYMENT_LOGOS.card },
-    { key: 'mbway', label: 'MB WAY', logo: PAYMENT_LOGOS.mbway },
-    { key: 'multibanco', label: 'Multibanco', logo: PAYMENT_LOGOS.multibanco },
+  const methodTabs: {
+    key: Method;
+    label: string;
+    logo?: { src: string; alt: string };
+    framed?: boolean;
+    logoClassName?: string;
+    imageClassName?: string;
+  }[] = [
+    {
+      key: 'cartao',
+      label: 'Cartão',
+      logo: PAYMENT_LOGOS.card,
+      framed: true,
+      logoClassName: 'h-14 w-16 px-0 py-0 shadow-none',
+      imageClassName: 'max-h-10 w-12',
+    },
+    {
+      key: 'mbway',
+      label: 'MB WAY',
+      logo: PAYMENT_LOGOS.mbway,
+      framed: false,
+      logoClassName: 'h-14 w-full',
+      imageClassName: 'max-h-10 w-[112px]',
+    },
+    {
+      key: 'multibanco',
+      label: 'Multibanco',
+      logo: PAYMENT_LOGOS.multibanco,
+      framed: false,
+      logoClassName: 'h-14 w-full',
+      imageClassName: 'max-h-11 w-[110px]',
+    },
   ];
 
   if (!user) return (
@@ -638,8 +659,9 @@ export default function DepositPage() {
                       <PaymentLogo
                         src={tab.logo.src}
                         alt={tab.logo.alt}
-                        className="px-2 py-1 shadow-none"
-                        imgClassName={tab.key === 'multibanco' ? 'max-h-5' : tab.key === 'cartao' ? 'max-h-6' : 'max-h-4'}
+                        framed={tab.framed !== false}
+                        className={tab.logoClassName || 'h-14 w-full max-w-[120px] px-3 py-2 shadow-none'}
+                        imgClassName={tab.imageClassName || 'max-h-7 w-[54px]'}
                       />
                     ) : null}
                     <span>{tab.label}</span>
