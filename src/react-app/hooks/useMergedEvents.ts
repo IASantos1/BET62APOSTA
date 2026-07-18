@@ -157,6 +157,34 @@ const pickElapsed = (wsElapsed: any, httpElapsed: any) => {
   return 0;
 };
 
+const normalizeStatusValue = (value: any) =>
+  String(value || '')
+    .toUpperCase()
+    .trim()
+    .replace(/[^A-Z0-9_]+/g, '');
+
+const readStatusSnapshot = (e: any) => {
+  const statusObj = e?.status && typeof e?.status === 'object' ? e.status : null;
+  const short = normalizeStatusValue(statusObj?.short ?? e?.status_short ?? e?.fixture?.status?.short ?? e?.status);
+  const long = String(statusObj?.long ?? e?.status_long ?? e?.fixture?.status?.long ?? '').trim();
+  return { short, long };
+};
+
+const selectMergedStatus = (httpEvt: any, wsEvt: any) => {
+  const http = readStatusSnapshot(httpEvt);
+  const ws = readStatusSnapshot(wsEvt);
+  const allShorts = [ws.short, http.short].filter(Boolean);
+  const intervalPriority = ['HT', 'BT'];
+  const preferredInterval = intervalPriority.find((key) => allShorts.includes(key));
+  const short = preferredInterval || ws.short || http.short || '';
+  const long =
+    (preferredInterval && (ws.long || http.long)) ||
+    ws.long ||
+    http.long ||
+    '';
+  return { short, long };
+};
+
 const statusKeyOf = (e: any) => {
   const raw =
     (typeof e?.status === 'string' ? e.status : (e?.status?.short ?? e?.status?.long)) ??
@@ -232,6 +260,7 @@ export function useMergedEvents(
 
       const mergedScore = mergeScores((httpEvt as any)?.score, (e as any)?.score);
       const mergedGoals = mergeGoals(httpEvt as any, e as any, mergedScore);
+      const mergedStatus = selectMergedStatus(httpEvt, e);
       const wsSuspendedMarkets = Array.isArray((e as any)?.suspended_markets) ? (e as any).suspended_markets : null;
       const httpSuspendedMarkets = Array.isArray((httpEvt as any)?.suspended_markets) ? (httpEvt as any).suspended_markets : null;
       const providerSuspended =
@@ -277,6 +306,9 @@ export function useMergedEvents(
         markets,
         score: mergedScore,
         goals: mergedGoals,
+        status: mergedStatus.short || (e as any)?.status || (httpEvt as any)?.status,
+        status_short: mergedStatus.short || undefined,
+        status_long: mergedStatus.long || undefined,
         elapsed: pickElapsed((e as any)?.elapsed ?? (e as any)?.fixture?.status?.elapsed, (httpEvt as any)?.elapsed ?? (httpEvt as any)?.fixture?.status?.elapsed),
         timer: pickTimer((e as any)?.timer ?? (e as any)?.fixture?.status?.timer, (httpEvt as any)?.timer ?? (httpEvt as any)?.fixture?.status?.timer),
         suspended: legacySuspended,
@@ -299,6 +331,18 @@ export function useMergedEvents(
         provider_suspended_reason: providerSuspendedReason,
         event_frozen: eventFrozen,
         freeze_reason: freezeReason,
+        fixture: {
+          ...((httpEvt as any)?.fixture || {}),
+          ...((e as any)?.fixture || {}),
+          status: {
+            ...(((httpEvt as any)?.fixture?.status && typeof (httpEvt as any)?.fixture?.status === 'object') ? (httpEvt as any).fixture.status : {}),
+            ...(((e as any)?.fixture?.status && typeof (e as any)?.fixture?.status === 'object') ? (e as any).fixture.status : {}),
+            short: mergedStatus.short || (e as any)?.fixture?.status?.short || (httpEvt as any)?.fixture?.status?.short || '',
+            long: mergedStatus.long || (e as any)?.fixture?.status?.long || (httpEvt as any)?.fixture?.status?.long || '',
+            elapsed: pickElapsed((e as any)?.elapsed ?? (e as any)?.fixture?.status?.elapsed, (httpEvt as any)?.elapsed ?? (httpEvt as any)?.fixture?.status?.elapsed),
+            timer: pickTimer((e as any)?.timer ?? (e as any)?.fixture?.status?.timer, (httpEvt as any)?.timer ?? (httpEvt as any)?.fixture?.status?.timer),
+          },
+        },
       } as Event;
 
       map.set(canonical, mergedEvt);

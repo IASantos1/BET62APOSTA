@@ -516,6 +516,14 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     return 'idle' as const;
   }, [normalizedSuspendReason]);
 
+  const statusShortKey = useMemo(() => {
+    const raw = typeof (event as any)?.status === 'object'
+      ? (event as any)?.status?.short
+      : (event as any)?.status_short ?? (event as any)?.status ?? (event as any)?.fixture?.status?.short;
+    return String(raw || '').toUpperCase().trim().replace(/[^A-Z0-9_]+/g, '');
+  }, [event]);
+  const isIntervalStatus = statusShortKey === 'HT' || statusShortKey === 'BT';
+
   const apiCritState = useMemo(() => {
     if (apiVarActive) return 'var_review' as const
     const c = signals?.cta
@@ -1127,6 +1135,9 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
             }
 
             const effectiveCrit: CritState =
+              isIntervalStatus
+                ? 'idle'
+                :
               apiCritState !== 'idle'
                 ? (apiCritState as CritState)
                 : backendCritState !== 'idle'
@@ -1181,6 +1192,17 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
                       </span>
                     )}
                   </button>
+                </div>
+              );
+            }
+
+            if (isIntervalStatus && isLiveEvent) {
+              return (
+                <div className="w-full sm:w-[320px] lg:w-[400px]">
+                  <div className="w-full h-12 rounded-lg font-black text-sm uppercase tracking-wider text-slate-100 bg-gradient-to-r from-slate-700 to-slate-800 ring-1 ring-slate-400/30 flex items-center justify-center gap-2 select-none cursor-default">
+                    <span>⏸</span>
+                    <span>{statusShortKey === 'HT' ? 'Intervalo' : 'Pausa Técnica'}</span>
+                  </div>
                 </div>
               );
             }

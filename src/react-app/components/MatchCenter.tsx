@@ -71,7 +71,7 @@ export function MatchCenter({ event, initialMatch, darkMode }: { event: any; ini
       'IN', 'IN1', 'IN2', 'IN3', 'IN4', 'IN5', 'IN6', 'IN7', 'IN8', 'IN9',
       'IN_PROGRESS',
     ]).has(status)
-    const t = isLive ? setInterval(fetchOdds, 5000) : null
+    const t = isLive ? setInterval(fetchOdds, 1000) : null
     return () => { if (t) clearInterval(t); ac.abort() }
   }, [event])
 

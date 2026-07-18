@@ -873,7 +873,7 @@ export function useSportsEvents(
     // Initial fetch
     fetchData();
 
-            const intervalTime = only === 'live' ? 5_000 : safeCategory === 'all' ? 10_000 : 15_000;
+            const intervalTime = only === 'live' ? 1_000 : safeCategory === 'all' ? 10_000 : 15_000;
     let timeoutId: NodeJS.Timeout;
 
     const scheduleNext = () => {

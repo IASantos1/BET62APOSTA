@@ -135,6 +135,74 @@ function computeProbabilitiesFromH2H(summary: ReturnType<typeof computeH2HSummar
   }
 }
 
+function normalizeSportKey(value: any) {
+  const v = String(value || '').toLowerCase().trim()
+  if (v.includes('ice') && v.includes('hockey')) return 'ice-hockey'
+  if (v.includes('hockey')) return 'ice-hockey'
+  return v || 'soccer'
+}
+
+type StatConfig = { key: string; label: string; matchers: RegExp[]; isPercent?: boolean }
+
+const SPORT_STAT_CONFIGS: Record<string, StatConfig[]> = {
+  soccer: [
+    { key: 'possession', label: 'Posse de Bola', matchers: [/possession/i], isPercent: true },
+    { key: 'shotsOnTarget', label: 'Remates à Baliza', matchers: [/shots?\s*on\s*target/i, /on target/i] },
+    { key: 'corners', label: 'Cantos', matchers: [/corner/i] },
+    { key: 'yellowCards', label: 'Cartões Amarelos', matchers: [/yellow.*card/i] },
+    { key: 'redCards', label: 'Cartões Vermelhos', matchers: [/red.*card/i] },
+    { key: 'dangerousAttacks', label: 'Ataques Perigosos', matchers: [/dangerous.*attack/i] },
+    { key: 'freeKicks', label: 'Livres', matchers: [/free.*kick/i] },
+  ],
+  basketball: [
+    { key: 'points', label: 'Pontos', matchers: [/^points?$/i, /score/i] },
+    { key: 'rebounds', label: 'Ressaltos', matchers: [/rebounds?/i] },
+    { key: 'assists', label: 'Assistências', matchers: [/assists?/i] },
+    { key: 'turnovers', label: 'Turnovers', matchers: [/turnovers?/i] },
+    { key: 'steals', label: 'Roubos', matchers: [/steals?/i] },
+    { key: 'blocks', label: 'Blocos', matchers: [/blocks?/i] },
+    { key: 'fouls', label: 'Faltas', matchers: [/fouls?/i] },
+  ],
+  tennis: [
+    { key: 'aces', label: 'Aces', matchers: [/aces?/i] },
+    { key: 'doubleFaults', label: 'Duplas Faltas', matchers: [/double.*fault/i] },
+    { key: 'firstServePct', label: '1º Serviço', matchers: [/first.*serve.*%/i, /1st.*serve.*%/i], isPercent: true },
+    { key: 'breakPointsWon', label: 'Break Points', matchers: [/break.*points?.*won/i, /break.*points?/i] },
+    { key: 'winners', label: 'Winners', matchers: [/winners?/i] },
+    { key: 'unforcedErrors', label: 'Erros Não Forçados', matchers: [/unforced.*errors?/i] },
+  ],
+  baseball: [
+    { key: 'runs', label: 'Runs', matchers: [/^runs?$/i] },
+    { key: 'hits', label: 'Hits', matchers: [/^hits?$/i] },
+    { key: 'errors', label: 'Errors', matchers: [/^errors?$/i] },
+    { key: 'strikeouts', label: 'Strikeouts', matchers: [/strikeouts?/i] },
+    { key: 'walks', label: 'Walks', matchers: [/walks?/i, /bases on balls/i] },
+  ],
+  'ice-hockey': [
+    { key: 'shotsOnGoal', label: 'Remates à Baliza', matchers: [/shots?\s*on\s*goal/i, /shots?\s*on\s*target/i] },
+    { key: 'saves', label: 'Defesas', matchers: [/saves?/i] },
+    { key: 'penalties', label: 'Penalidades', matchers: [/penalties/i] },
+    { key: 'penaltyMinutes', label: 'Min. Penalidade', matchers: [/penalty.*minutes?/i, /\bpim\b/i] },
+    { key: 'faceoffs', label: 'Faceoffs', matchers: [/faceoffs?/i] },
+    { key: 'blockedShots', label: 'Blocos', matchers: [/blocked.*shots?/i] },
+  ],
+  volleyball: [
+    { key: 'sets', label: 'Sets', matchers: [/^sets?$/i] },
+    { key: 'aces', label: 'Aces', matchers: [/aces?/i] },
+    { key: 'blocks', label: 'Blocos', matchers: [/blocks?/i] },
+    { key: 'attackPoints', label: 'Ataque', matchers: [/attack.*points?/i, /kills?/i] },
+    { key: 'serviceErrors', label: 'Erros de Serviço', matchers: [/service.*errors?/i] },
+    { key: 'receptionErrors', label: 'Erros de Receção', matchers: [/reception.*errors?/i] },
+  ],
+  mma: [
+    { key: 'knockdowns', label: 'Knockdowns', matchers: [/knockdowns?/i] },
+    { key: 'sigStrikes', label: 'Golpes Significativos', matchers: [/significant.*strikes?/i, /sig.*strikes?/i] },
+    { key: 'totalStrikes', label: 'Golpes Totais', matchers: [/total.*strikes?/i] },
+    { key: 'takedowns', label: 'Takedowns', matchers: [/takedowns?/i] },
+    { key: 'subAttempts', label: 'Tent. Submissão', matchers: [/submission.*attempts?/i, /sub.*attempts?/i] },
+  ],
+}
+
 function CircularProbabilityCard({
   label,
   percentage,
@@ -393,6 +461,7 @@ export default function EventStatsPage() {
   )
 
   const isLive = !!displayEvent && (displayEvent.is_live === 1 || liveStatuses.has(statusKey))
+  const sportKey = normalizeSportKey((displayEvent as any)?.sport)
   const liveTimerRaw = String((displayEvent as any)?.timer || displayEvent?.fixture?.status?.timer || '').trim()
   const liveTimer = liveTimerRaw
     ? liveTimerRaw.includes(':')
@@ -422,7 +491,7 @@ export default function EventStatsPage() {
 
     fetchStats()
     if (isLive) {
-      const intervalMs = String((displayEvent as any)?.sport || '').toLowerCase() === 'soccer' ? 60000 : 15000
+      const intervalMs = 1000
       timer = setInterval(fetchStats, intervalMs)
     }
 
@@ -459,16 +528,11 @@ export default function EventStatsPage() {
   const statPairs = useMemo(() => {
     const rawStats = liveStats.stats
     const groupedStats = liveStats.groupedStats
-    return {
-      possession: extractStatPair(rawStats, groupedStats, [/possession/i]),
-      corners: extractStatPair(rawStats, groupedStats, [/corner/i]),
-      yellowCards: extractStatPair(rawStats, groupedStats, [/yellow.*card/i]),
-      redCards: extractStatPair(rawStats, groupedStats, [/red.*card/i]),
-      shotsOnTarget: extractStatPair(rawStats, groupedStats, [/shots?\s*on\s*target/i, /on target/i]),
-      dangerousAttacks: extractStatPair(rawStats, groupedStats, [/dangerous.*attack/i]),
-      freeKicks: extractStatPair(rawStats, groupedStats, [/free.*kick/i]),
-    }
-  }, [liveStats])
+    const configs = SPORT_STAT_CONFIGS[sportKey] || SPORT_STAT_CONFIGS.soccer
+    return Object.fromEntries(
+      configs.map((config) => [config.key, extractStatPair(rawStats, groupedStats, config.matchers)])
+    ) as Record<string, { home: number; away: number } | null>
+  }, [liveStats, sportKey])
 
   const probabilityMarkets = useMemo(() => {
     const matches = Math.max(h2hSummary.matches, 1)
@@ -477,27 +541,127 @@ export default function EventStatsPage() {
     const over25 = h2hSummary.matches > 0 ? (h2hSummary.over25 / matches) * 100 : 40
     const btts = h2hSummary.matches > 0 ? (h2hSummary.btts / matches) * 100 : 35
     const avgGoalsBar = clamp(avgGoals * 35, 0, 100)
-
-    return [
-      { label: 'Mais de 1.5 Golos', percent: over15, trailing: formatOdd(over15), fillColor: '#10d292' },
-      { label: 'Mais de 2.5 Golos', percent: over25, trailing: formatOdd(over25), fillColor: '#10d292' },
-      { label: 'Ambas Marcam', percent: btts, trailing: formatOdd(btts), fillColor: '#3b82f6' },
-      { label: 'Média golos H2H', percent: avgGoalsBar, trailing: `${avgGoals.toFixed(2)} gls`, fillColor: '#f4b400' },
-    ]
-  }, [h2hSummary])
+    const configs: Record<string, Array<{ label: string; percent: number; trailing: string; fillColor: string }>> = {
+      soccer: [
+        { label: 'Mais de 1.5 Golos', percent: over15, trailing: formatOdd(over15), fillColor: '#10d292' },
+        { label: 'Mais de 2.5 Golos', percent: over25, trailing: formatOdd(over25), fillColor: '#10d292' },
+        { label: 'Ambas Marcam', percent: btts, trailing: formatOdd(btts), fillColor: '#3b82f6' },
+        { label: 'Média golos H2H', percent: avgGoalsBar, trailing: `${avgGoals.toFixed(2)} gls`, fillColor: '#f4b400' },
+      ],
+      basketball: [
+        { label: 'Vitória Casa', percent: probabilities.home, trailing: formatOdd(probabilities.home), fillColor: '#3b82f6' },
+        { label: 'Vitória Fora', percent: probabilities.away, trailing: formatOdd(probabilities.away), fillColor: '#ff4d5e' },
+        { label: 'Ritmo H2H', percent: clamp(avgGoals * 20, 0, 100), trailing: `${avgGoals.toFixed(1)} pts`, fillColor: '#10d292' },
+      ],
+      tennis: [
+        { label: 'Vitória Casa', percent: probabilities.home, trailing: formatOdd(probabilities.home), fillColor: '#3b82f6' },
+        { label: 'Vitória Fora', percent: probabilities.away, trailing: formatOdd(probabilities.away), fillColor: '#ff4d5e' },
+        { label: 'Jogos H2H', percent: clamp(avgGoals * 20, 0, 100), trailing: `${avgGoals.toFixed(1)} jogos`, fillColor: '#f4b400' },
+      ],
+      baseball: [
+        { label: 'Vitória Casa', percent: probabilities.home, trailing: formatOdd(probabilities.home), fillColor: '#3b82f6' },
+        { label: 'Vitória Fora', percent: probabilities.away, trailing: formatOdd(probabilities.away), fillColor: '#ff4d5e' },
+        { label: 'Runs H2H', percent: clamp(avgGoals * 20, 0, 100), trailing: `${avgGoals.toFixed(1)} runs`, fillColor: '#10d292' },
+      ],
+      'ice-hockey': [
+        { label: 'Vitória Casa', percent: probabilities.home, trailing: formatOdd(probabilities.home), fillColor: '#3b82f6' },
+        { label: 'Vitória Fora', percent: probabilities.away, trailing: formatOdd(probabilities.away), fillColor: '#ff4d5e' },
+        { label: 'Golos H2H', percent: clamp(avgGoals * 25, 0, 100), trailing: `${avgGoals.toFixed(1)} golos`, fillColor: '#10d292' },
+      ],
+      volleyball: [
+        { label: 'Vitória Casa', percent: probabilities.home, trailing: formatOdd(probabilities.home), fillColor: '#3b82f6' },
+        { label: 'Vitória Fora', percent: probabilities.away, trailing: formatOdd(probabilities.away), fillColor: '#ff4d5e' },
+        { label: 'Sets H2H', percent: clamp(avgGoals * 25, 0, 100), trailing: `${avgGoals.toFixed(1)} sets`, fillColor: '#f4b400' },
+      ],
+      mma: [
+        { label: 'Vitória Lutador A', percent: probabilities.home, trailing: formatOdd(probabilities.home), fillColor: '#3b82f6' },
+        { label: 'Vitória Lutador B', percent: probabilities.away, trailing: formatOdd(probabilities.away), fillColor: '#ff4d5e' },
+        { label: 'Ritmo H2H', percent: clamp(avgGoals * 30, 0, 100), trailing: `${avgGoals.toFixed(1)} rounds`, fillColor: '#f4b400' },
+      ],
+    }
+    return configs[sportKey] || configs.soccer
+  }, [h2hSummary, probabilities, sportKey])
 
   const detailedStats = useMemo(() => {
-    const rows = [
-      statPairs.possession ? { label: 'Posse de Bola', home: Math.round(statPairs.possession.home), away: Math.round(statPairs.possession.away), isPercent: true } : null,
-      statPairs.corners ? { label: 'Cantos', home: Math.round(statPairs.corners.home), away: Math.round(statPairs.corners.away) } : null,
-      statPairs.yellowCards ? { label: 'Cartões Amarelos', home: Math.round(statPairs.yellowCards.home), away: Math.round(statPairs.yellowCards.away) } : null,
-      statPairs.redCards ? { label: 'Cartões Vermelhos', home: Math.round(statPairs.redCards.home), away: Math.round(statPairs.redCards.away) } : null,
-      statPairs.shotsOnTarget ? { label: 'Remates à Baliza', home: Math.round(statPairs.shotsOnTarget.home), away: Math.round(statPairs.shotsOnTarget.away) } : null,
-      statPairs.dangerousAttacks ? { label: 'Ataques Perigosos', home: Math.round(statPairs.dangerousAttacks.home), away: Math.round(statPairs.dangerousAttacks.away) } : null,
-      statPairs.freeKicks ? { label: 'Livres', home: Math.round(statPairs.freeKicks.home), away: Math.round(statPairs.freeKicks.away) } : null,
-    ]
+    const rows = (SPORT_STAT_CONFIGS[sportKey] || SPORT_STAT_CONFIGS.soccer).map((config) => {
+      const pair = statPairs[config.key]
+      if (!pair) return null
+      return {
+        label: config.label,
+        home: Math.round(pair.home),
+        away: Math.round(pair.away),
+        isPercent: config.isPercent,
+      }
+    })
     return rows.filter(Boolean) as Array<{ label: string; home: number; away: number; isPercent?: boolean }>
-  }, [statPairs])
+  }, [sportKey, statPairs])
+
+  const probabilityCards = useMemo(() => {
+    const cards = [
+      {
+        label: sportKey === 'mma' ? homeTeam || 'Lutador A' : homeTeam,
+        percentage: probabilities.home,
+        odd: homeOdd > 1.01 ? homeOdd.toFixed(2) : formatOdd(probabilities.home),
+        color: '#3b82f6',
+      },
+    ]
+    if (sportKey === 'soccer' || drawOdd > 1.01) {
+      cards.push({
+        label: sportKey === 'soccer' ? 'Empate' : 'Draw',
+        percentage: probabilities.draw,
+        odd: drawOdd > 1.01 ? drawOdd.toFixed(2) : formatOdd(probabilities.draw),
+        color: '#f4b400',
+      })
+    }
+    cards.push({
+      label: sportKey === 'mma' ? awayTeam || 'Lutador B' : awayTeam,
+      percentage: probabilities.away,
+      odd: awayOdd > 1.01 ? awayOdd.toFixed(2) : formatOdd(probabilities.away),
+      color: '#ff4d5e',
+    })
+    return cards
+  }, [sportKey, homeTeam, awayTeam, probabilities, homeOdd, drawOdd, awayOdd])
+
+  const snapshotCards = useMemo(() => {
+    const bySport: Record<string, Array<{ value: string; label: string; subLabel: string }>> = {
+      soccer: [
+        { value: h2hSummary.matches > 0 ? (h2hSummary.totalGoals / h2hSummary.matches).toFixed(1) : '--', label: 'Golos/Jogo', subLabel: String((ev as any)?.league || 'Partida') },
+        { value: h2hSummary.matches > 0 ? formatPercent((h2hSummary.btts / h2hSummary.matches) * 100) : '--', label: 'AEM', subLabel: 'Ambas Equipas Marcam' },
+        { value: statPairs.corners ? ((statPairs.corners.home + statPairs.corners.away) / 2).toFixed(1) : '--', label: 'Cantos/Jogo', subLabel: 'Média atual' },
+      ],
+      basketball: [
+        { value: statPairs.points ? String(Math.round(statPairs.points.home + statPairs.points.away)) : `${g.home + g.away}`, label: 'Pontos Totais', subLabel: 'Partida atual' },
+        { value: statPairs.assists ? String(Math.round(statPairs.assists.home + statPairs.assists.away)) : '--', label: 'Assistências', subLabel: 'Total combinado' },
+        { value: statPairs.rebounds ? String(Math.round(statPairs.rebounds.home + statPairs.rebounds.away)) : '--', label: 'Ressaltos', subLabel: 'Total combinado' },
+      ],
+      tennis: [
+        { value: String(g.home + g.away), label: 'Games', subLabel: 'Parciais atuais' },
+        { value: statPairs.aces ? String(Math.round(statPairs.aces.home + statPairs.aces.away)) : '--', label: 'Aces', subLabel: 'Total combinado' },
+        { value: statPairs.breakPointsWon ? String(Math.round(statPairs.breakPointsWon.home + statPairs.breakPointsWon.away)) : '--', label: 'Break Points', subLabel: 'Convertidos' },
+      ],
+      baseball: [
+        { value: `${g.home + g.away}`, label: 'Runs', subLabel: 'Total atual' },
+        { value: statPairs.hits ? String(Math.round(statPairs.hits.home + statPairs.hits.away)) : '--', label: 'Hits', subLabel: 'Total combinado' },
+        { value: statPairs.strikeouts ? String(Math.round(statPairs.strikeouts.home + statPairs.strikeouts.away)) : '--', label: 'Strikeouts', subLabel: 'Total combinado' },
+      ],
+      'ice-hockey': [
+        { value: `${g.home + g.away}`, label: 'Golos', subLabel: 'Total atual' },
+        { value: statPairs.shotsOnGoal ? String(Math.round(statPairs.shotsOnGoal.home + statPairs.shotsOnGoal.away)) : '--', label: 'Shots', subLabel: 'À baliza' },
+        { value: statPairs.penalties ? String(Math.round(statPairs.penalties.home + statPairs.penalties.away)) : '--', label: 'Penalidades', subLabel: 'Total combinado' },
+      ],
+      volleyball: [
+        { value: `${g.home} - ${g.away}`, label: 'Sets', subLabel: 'Parcial atual' },
+        { value: statPairs.aces ? String(Math.round(statPairs.aces.home + statPairs.aces.away)) : '--', label: 'Aces', subLabel: 'Total combinado' },
+        { value: statPairs.blocks ? String(Math.round(statPairs.blocks.home + statPairs.blocks.away)) : '--', label: 'Blocos', subLabel: 'Total combinado' },
+      ],
+      mma: [
+        { value: statusKey || '--', label: 'Estado', subLabel: 'Round atual' },
+        { value: statPairs.sigStrikes ? String(Math.round(statPairs.sigStrikes.home + statPairs.sigStrikes.away)) : '--', label: 'Golpes Sig.', subLabel: 'Total combinado' },
+        { value: statPairs.takedowns ? String(Math.round(statPairs.takedowns.home + statPairs.takedowns.away)) : '--', label: 'Takedowns', subLabel: 'Total combinado' },
+      ],
+    }
+    return bySport[sportKey] || bySport.soccer
+  }, [sportKey, h2hSummary, ev, statPairs, g.home, g.away, statusKey])
 
   if (loading) {
     return (
@@ -623,35 +787,24 @@ export default function EventStatsPage() {
             <div className="space-y-4">
               <div className={`rounded-[28px] border p-5 ${darkMode ? 'border-gray-800 bg-[#11131d]' : 'border-gray-200 bg-white'}`}>
                 <div className={`text-sm font-black uppercase tracking-[0.2em] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Probabilidade de Resultado
+                  Probabilidade {sportKey === 'soccer' ? 'de Resultado' : `de ${sportKey === 'mma' ? 'Combate' : 'Partida'}`}
                 </div>
-                <div className="mt-5 grid grid-cols-3 gap-3 sm:gap-6">
-                  <CircularProbabilityCard
-                    label={homeTeam}
-                    percentage={probabilities.home}
-                    odd={homeOdd > 1.01 ? homeOdd.toFixed(2) : formatOdd(probabilities.home)}
-                    color="#3b82f6"
-                    darkMode={darkMode}
-                  />
-                  <CircularProbabilityCard
-                    label="Empate"
-                    percentage={probabilities.draw}
-                    odd={drawOdd > 1.01 ? drawOdd.toFixed(2) : formatOdd(probabilities.draw)}
-                    color="#f4b400"
-                    darkMode={darkMode}
-                  />
-                  <CircularProbabilityCard
-                    label={awayTeam}
-                    percentage={probabilities.away}
-                    odd={awayOdd > 1.01 ? awayOdd.toFixed(2) : formatOdd(probabilities.away)}
-                    color="#ff4d5e"
-                    darkMode={darkMode}
-                  />
+                <div className={`mt-5 grid gap-3 sm:gap-6 ${probabilityCards.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                  {probabilityCards.map((card) => (
+                    <CircularProbabilityCard
+                      key={card.label}
+                      label={card.label}
+                      percentage={card.percentage}
+                      odd={card.odd}
+                      color={card.color}
+                      darkMode={darkMode}
+                    />
+                  ))}
                 </div>
               </div>
               <div className={`rounded-[28px] border p-5 ${darkMode ? 'border-gray-800 bg-[#11131d]' : 'border-gray-200 bg-white'}`}>
                 <div className={`text-sm font-black uppercase tracking-[0.2em] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Mercados Principais
+                  Indicadores do {sportKey === 'mma' ? 'Combate' : 'Jogo'}
                 </div>
                 <div className="mt-5 space-y-5">
                   {probabilityMarkets.map((market) => (
@@ -661,28 +814,15 @@ export default function EventStatsPage() {
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <SnapshotCard
-                  value={h2hSummary.matches > 0 ? (h2hSummary.totalGoals / h2hSummary.matches).toFixed(1) : '--'}
-                  label="Golos/Jogo"
-                  subLabel={`Liga: ${h2hSummary.matches > 0 ? (h2hSummary.totalGoals / h2hSummary.matches).toFixed(1) : '--'}`}
-                  darkMode={darkMode}
-                />
-                <SnapshotCard
-                  value={h2hSummary.matches > 0 ? formatPercent((h2hSummary.btts / h2hSummary.matches) * 100) : '--'}
-                  label="AEM"
-                  subLabel={`Liga: ${h2hSummary.matches > 0 ? formatPercent((h2hSummary.btts / h2hSummary.matches) * 100) : '--'}`}
-                  darkMode={darkMode}
-                />
-                <SnapshotCard
-                  value={
-                    statPairs.corners
-                      ? ((statPairs.corners.home + statPairs.corners.away) / 2).toFixed(1)
-                      : '--'
-                  }
-                  label="Cantos/Jogo"
-                  subLabel={String((ev as any).league || (ev as any).league_name || 'Partida')}
-                  darkMode={darkMode}
-                />
+                {snapshotCards.map((card) => (
+                  <SnapshotCard
+                    key={card.label}
+                    value={card.value}
+                    label={card.label}
+                    subLabel={card.subLabel}
+                    darkMode={darkMode}
+                  />
+                ))}
               </div>
 
               <div className={`rounded-[28px] border p-5 ${darkMode ? 'border-gray-800 bg-[#11131d]' : 'border-gray-200 bg-white'}`}>
