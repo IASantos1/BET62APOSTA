@@ -360,7 +360,7 @@ const parseLiveEvent = (item: any) => {
 // ── Module-level live-feed cache ──────────────────────────────────────────────
 // Keyed by sport string. Survives remounts so /live → / → /live is instant.
 const _liveCache = new Map<string, { map: Map<string, any>; ts: number }>();
-const _LIVE_FRESH_MS = 5_000;
+const _LIVE_FRESH_MS = 1_000;
 const _EMPTY_FEED_GRACE_MS = 75_000;
 
 const retainRecentLiveEvents = (prev: Map<string, any>, now: number, graceMs: number) => {

@@ -133,7 +133,7 @@ type OnlyMode = 'live' | 'pregame' | 'both';
 // Survives React remounts so navigating between / and /live is instant.
 interface _SCacheEntry { live: Event[]; pregame: Event[]; ts: number; }
 const _sCache = new Map<string, _SCacheEntry>();
-const _S_FRESH_MS = 5_000;
+const _S_FRESH_MS = 1_000;
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function useSportsEvents(

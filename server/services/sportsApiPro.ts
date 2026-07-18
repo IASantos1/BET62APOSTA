@@ -53,7 +53,7 @@ function envInt(name: string, fallback: number, min: number, max: number): numbe
 }
 
 const PROVIDER_TIMEOUT_MS = envInt('SPORTS_PROVIDER_TIMEOUT_MS', 15_000, 1_000, 60_000);
-const PROVIDER_LIVE_TIMEOUT_MS = envInt('SPORTS_PROVIDER_LIVE_TIMEOUT_MS', 8_000, 1_000, 30_000);
+const PROVIDER_LIVE_TIMEOUT_MS = envInt('SPORTS_PROVIDER_LIVE_TIMEOUT_MS', 1_000, 1_000, 30_000);
 
 function normalizeSportKey(sport: string): string {
   const raw = String(sport || '').toLowerCase().trim();

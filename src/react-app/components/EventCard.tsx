@@ -529,7 +529,6 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
   type CritState = 'idle' | 'big_chance' | 'var_review' | 'var_penalty' | 'goal' | 'penalty' | 'cards';
   const [critState, setCritState] = useState<CritState>('idle');
   const lastEventIdRef = useRef<string>('');
-  const lastNotifCritRef = useRef<string>('');   // dedup toast notifications
 
   const liveEventList: any[] = useMemo(() => {
     const a = (event as any)?.events;
@@ -567,16 +566,6 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     var_review: 30000, big_chance: 12000, cards: 10000,
   };
 
-  // Notification messages per state
-  const CRIT_NOTIF: Partial<Record<CritState, string>> = {
-    goal:        '⚽ GOL! Odds bloqueadas.',
-    var_review:  '📺 Revisão VAR em curso.',
-    var_penalty: '🎯 VAR: Pênalti confirmado!',
-    penalty:     '🎯 Pênalti marcado!',
-    big_chance:  '🔥 Grande chance de gol!',
-    cards:       '🟨 Cartão mostrado.',
-  };
-
   // ODD suspend reason per crit state
   const CRIT_TO_REASON: Partial<Record<CritState, string>> = {
     goal:        'GOAL',
@@ -612,23 +601,6 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
     }
   }, [liveEventList, isLiveEvent]);
 
-  useEffect(() => {
-    if (!isLiveEvent) return;
-    const effectiveCrit: CritState =
-      apiCritState !== 'idle'
-        ? (apiCritState as CritState)
-        : backendCritState !== 'idle'
-          ? (backendCritState as CritState)
-          : critState;
-    if (effectiveCrit === 'idle') return;
-    const key = `${eventId}|${effectiveCrit}`;
-    if (lastNotifCritRef.current === key) return;
-    lastNotifCritRef.current = key;
-    const msg = CRIT_NOTIF[effectiveCrit];
-    if (!msg) return;
-    const matchStr = String((event as any)?.match || `${homeTeamName} vs ${awayTeamName}`);
-    addNotification({ type: 'info', message: `${matchStr}: ${msg}` });
-  }, [addNotification, apiCritState, backendCritState, critState, event, eventId, homeTeamName, awayTeamName, isLiveEvent]);
   const apostaJaActive = useMemo(() => {
     if (!isLiveEvent) return false;
     if (hh > 0 && hh <= 1.01) return true;

@@ -175,6 +175,11 @@ export default function AdminAccessPage() {
                       <i className={showPassword ? 'ri-eye-off-line' : 'ri-eye-line'}></i>
                     </button>
                   </div>
+                  <div className="mt-2 flex justify-end">
+                    <Link to="/admin/recover-password" className="text-sm font-bold text-red-500 hover:text-red-600">
+                      Recuperar senha
+                    </Link>
+                  </div>
                 </div>
 
                 <button

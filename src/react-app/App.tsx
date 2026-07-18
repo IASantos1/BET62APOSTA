@@ -38,6 +38,7 @@ import MyBetsPage from "./pages/MyBetsPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import AdminAccessPage from "./pages/AdminAccessPage";
+import RecoverPasswordPage from "./pages/RecoverPasswordPage";
 import { AdminRoute } from './routes/AdminRoute';
 import AdminKycPage from "./pages/AdminKycPage";
 import AdminWithdrawalsPage from "./pages/AdminWithdrawalsPage";
@@ -193,8 +194,10 @@ function AppContent() {
             <Route path="/my-bets" element={<MyBetsPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/recover-password" element={<RecoverPasswordPage />} />
             <Route path="/admin" element={<AdminAccessPage />} />
             <Route path="/admin/login" element={<Navigate to="/admin" replace />} />
+            <Route path="/admin/recover-password" element={<RecoverPasswordPage />} />
             <Route path="/administrador" element={<Navigate to="/admin" replace />} />
             <Route path="/administrador/login" element={<Navigate to="/admin" replace />} />
             <Route path="/admin/dashboard" element={

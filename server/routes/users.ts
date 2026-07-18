@@ -156,26 +156,6 @@ async function createUserNotification(
   );
 }
 
-async function seedDefaultNotifications(pool: pg.Pool, userId: string): Promise<void> {
-  const count = await pool.query(`SELECT COUNT(*)::int AS count FROM user_notifications WHERE user_id = $1`, [userId]);
-  if (Number(count.rows?.[0]?.count || 0) > 0) return;
-
-  await createUserNotification(pool, userId, {
-    kind: 'news',
-    title: 'Novidades BET62',
-    body: 'O Ao Vivo foi atualizado para priorizar ligas maiores e melhorar a estabilidade das odds.',
-    cta_label: 'Ver Ao Vivo',
-    cta_target: '/live',
-  });
-  await createUserNotification(pool, userId, {
-    kind: 'promo',
-    title: 'Convida um amigo',
-    body: 'Partilhe o seu código pessoal e ganhe 5€ em freebets quando o amigo se registar com ele.',
-    cta_label: 'Abrir convite',
-    cta_target: '/profile?tab=Convida%20um%20amigo',
-  });
-}
-
 async function readBinaryBody(req: http.IncomingMessage, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
@@ -218,7 +198,6 @@ export async function handleUsersRoutes(
   if (req.method === 'GET' && path === '/api/users/notifications') {
     const u = await requireUser(pool, req);
     if (!u) return unauthorized(res), true;
-    await seedDefaultNotifications(pool, u.id);
     const r = await pool.query(
       `SELECT id, kind, title, body, cta_label, cta_target, is_read, created_at
        FROM user_notifications

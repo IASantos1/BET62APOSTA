@@ -3,10 +3,38 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { Settings } from '@/react-app/components/Settings';
 import { apiFetch } from '@/react-app/utils/api';
+import {
+  Activity,
+  ArrowDownCircle,
+  BadgeEuro,
+  CreditCard,
+  FileCheck2,
+  Gift,
+  LayoutGrid,
+  Menu,
+  Search,
+  Settings2,
+  ShieldAlert,
+  Sparkles,
+  Users as UsersIcon,
+  Wallet,
+  X,
+} from 'lucide-react';
 
 type Tab = 'overview' | 'risk' | 'users' | 'bets' | 'payments' | 'reports' | 'odds' | 'settings' | 'api';
 
-interface User { id: string; email: string; is_operator: number }
+interface User {
+  id: string;
+  email: string;
+  full_name?: string;
+  is_operator: number;
+  balance?: number;
+  free_bet_balance?: number;
+  kyc_status?: string;
+  pending_docs?: number;
+  total_docs?: number;
+  last_document_at?: string | null;
+}
 interface Bet { id: string; user_id: string; amount: number; potential_win: number; status: string; created_at: string }
 interface OddsEvent { id: string; home_team: string; away_team: string; league: string; home_odd: number; draw_odd: number; away_odd: number; is_live: number; sport: string }
 interface Withdrawal { id: string; user_id: string; amount: number; status: string; method: string; created_at: string }
@@ -35,6 +63,19 @@ const NAV: { key: Tab; label: string; icon: string }[] = [
   { key: 'reports',   label: 'Relatórios',            icon: '📈' },
   { key: 'settings',  label: 'Configurações',         icon: '⚙️' },
 ];
+
+const MOBILE_PRIMARY_NAV: Tab[] = ['overview', 'users', 'bets', 'payments', 'settings'];
+const TAB_ICONS: Record<Tab, any> = {
+  overview: LayoutGrid,
+  users: UsersIcon,
+  bets: Activity,
+  payments: CreditCard,
+  reports: BadgeEuro,
+  settings: Settings2,
+  odds: Sparkles,
+  risk: ShieldAlert,
+  api: Sparkles,
+};
 
 function Badge({ v, color = 'gray' }: { v: React.ReactNode; color?: string }) {
   const c: Record<string, string> = {
@@ -251,6 +292,7 @@ const AdminPanel: React.FC = () => {
   const { darkMode, setShowAdminPanel } = useApp();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [users, setUsers]             = useState<User[]>([]);
   const [bets, setBets]               = useState<Bet[]>([]);
   const [oddsEvents, setOddsEvents]   = useState<OddsEvent[]>([]);
@@ -263,6 +305,11 @@ const AdminPanel: React.FC = () => {
   const [oddsSearch, setOddsSearch]   = useState('');
   const [editingOdds, setEditingOdds] = useState<string | null>(null);
   const [oddsEdit, setOddsEdit]       = useState({ home: '', draw: '', away: '' });
+  const [userSearch, setUserSearch] = useState('');
+  const [userActionBusy, setUserActionBusy] = useState<string | null>(null);
+  const [promoTitle, setPromoTitle] = useState('');
+  const [promoBody, setPromoBody] = useState('');
+  const [sendingPromo, setSendingPromo] = useState(false);
 
   const load = useCallback(async (t: Tab) => {
     try {
@@ -284,10 +331,60 @@ const AdminPanel: React.FC = () => {
   }, []);
 
   useEffect(() => { load(tab); }, [tab, load]);
+  useEffect(() => { setMobileMenuOpen(false); }, [tab]);
 
   const toggleOperator = async (userId: string, val: boolean) => {
     await apiFetch(`/api/admin/users/${userId}/toggle-operator`, { method: 'POST', body: JSON.stringify({ is_operator: val }) }).catch(() => {});
     setUsers(u => u.map(x => x.id === userId ? { ...x, is_operator: val ? 1 : 0 } : x));
+  };
+
+  const refreshUsers = async () => {
+    const d = await apiFetch<User[]>('/api/admin/users').catch(() => []);
+    setUsers(Array.isArray(d) ? d : []);
+  };
+
+  const runUserAction = async (
+    user: User,
+    kind: 'wallet' | 'bonus' | 'withdraw',
+  ) => {
+    const endpoint =
+      kind === 'wallet'
+        ? `/api/admin/users/${encodeURIComponent(user.id)}/wallet-adjust`
+        : kind === 'bonus'
+          ? `/api/admin/users/${encodeURIComponent(user.id)}/bonus-adjust`
+          : `/api/admin/users/${encodeURIComponent(user.id)}/manual-withdrawal`;
+
+    const amountRaw = prompt(
+      kind === 'wallet'
+        ? `Valor para carteira de ${user.email}.\nUse negativo para débito ou positivo para crédito.`
+        : kind === 'bonus'
+          ? `Valor de bónus/freebet para ${user.email}.`
+          : `Valor de retirada manual para ${user.email}.`,
+      '',
+    );
+    if (amountRaw == null) return;
+    const parsed = Number(String(amountRaw).replace(',', '.').trim());
+    if (!Number.isFinite(parsed) || parsed === 0) return;
+    const note = prompt('Observação interna (opcional):', '') || '';
+    setUserActionBusy(`${kind}:${user.id}`);
+    try {
+      if (kind === 'wallet') {
+        await apiFetch(endpoint, {
+          method: 'POST',
+          body: JSON.stringify({ amount: Math.abs(parsed), mode: parsed < 0 ? 'debit' : 'credit', note }),
+        });
+      } else {
+        await apiFetch(endpoint, {
+          method: 'POST',
+          body: JSON.stringify({ amount: Math.abs(parsed), note }),
+        });
+      }
+      await refreshUsers();
+    } catch {
+      void 0;
+    } finally {
+      setUserActionBusy(null);
+    }
   };
 
   const saveOdds = async (id: string) => {
@@ -303,9 +400,33 @@ const AdminPanel: React.FC = () => {
     .filter(e => { if (oddsFilter === 'missing') return e.home_odd <= 0; if (oddsFilter === 'live') return e.is_live === 1; return true; })
     .filter(e => !oddsSearch || `${e.home_team} ${e.away_team} ${e.league}`.toLowerCase().includes(oddsSearch.toLowerCase()));
 
+  const filteredUsers = users.filter((u) => {
+    const hay = `${u.email} ${u.full_name || ''} ${u.id}`.toLowerCase();
+    return !userSearch || hay.includes(userSearch.toLowerCase());
+  });
+
+  const sendPromotionNotification = async () => {
+    const title = promoTitle.trim();
+    const body = promoBody.trim();
+    if (!title || !body) return;
+    setSendingPromo(true);
+    try {
+      await apiFetch('/api/admin/notifications/promotion', {
+        method: 'POST',
+        body: JSON.stringify({ title, body, cta_label: 'Abrir promoções', cta_target: '/promotions' }),
+      });
+      setPromoTitle('');
+      setPromoBody('');
+    } catch {
+      void 0;
+    } finally {
+      setSendingPromo(false);
+    }
+  };
+
   return (
-    <div className={`flex h-screen overflow-hidden ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
-      <aside className={`w-56 flex-shrink-0 flex flex-col ${darkMode ? 'bg-gray-800' : 'bg-white'} border-r ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+    <div className={`flex h-screen overflow-hidden ${darkMode ? 'bg-black text-white' : 'bg-gray-50 text-gray-900'}`}>
+      <aside className={`hidden md:flex w-56 flex-shrink-0 flex-col ${darkMode ? 'bg-[#11111b]' : 'bg-white'} border-r ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
         <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <span className="font-bold text-red-600 text-lg">Admin</span>
           <button onClick={() => setShowAdminPanel(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
@@ -324,8 +445,75 @@ const AdminPanel: React.FC = () => {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="p-6 max-w-6xl mx-auto">
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/70"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <aside className={`absolute inset-y-0 left-0 w-[84%] max-w-[320px] ${darkMode ? 'bg-[#12121d] text-white border-r border-white/10' : 'bg-white border-r border-gray-200'} p-4 flex flex-col`}>
+            <div className="flex items-center justify-between pb-4 border-b border-white/10">
+              <div>
+                <div className="text-2xl font-black tracking-tight text-white"><span className="text-white">BET</span><span className="text-red-500">62</span> <span className="text-base font-medium text-gray-400">Admin</span></div>
+                <div className="mt-1 text-[11px] uppercase tracking-[0.24em] text-gray-500">Operações</div>
+              </div>
+              <button type="button" onClick={() => setMobileMenuOpen(false)} className="rounded-xl p-2 text-gray-400 hover:bg-white/5">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <nav className="flex-1 overflow-y-auto pt-4 space-y-2">
+              {NAV.map((n) => {
+                const Icon = TAB_ICONS[n.key] || LayoutGrid;
+                return (
+                  <button
+                    key={n.key}
+                    onClick={() => setTab(n.key)}
+                    className={`w-full rounded-2xl px-4 py-3 text-left flex items-center gap-3 transition ${
+                      tab === n.key
+                        ? 'bg-red-600/20 text-red-400 ring-1 ring-red-500/40'
+                        : darkMode
+                          ? 'text-gray-300 hover:bg-white/5'
+                          : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    <span className="font-semibold">{n.label}</span>
+                  </button>
+                );
+              })}
+              <div className="pt-3 mt-3 border-t border-white/10 space-y-2">
+                <button onClick={() => { setShowAdminPanel(false); navigate('/admin/kyc'); }} className="w-full rounded-2xl px-4 py-3 text-left flex items-center gap-3 text-gray-300 hover:bg-white/5">
+                  <FileCheck2 className="h-5 w-5" />
+                  <span className="font-semibold">Documentos / KYC</span>
+                </button>
+                <button onClick={() => { setShowAdminPanel(false); navigate('/admin/withdrawals'); }} className="w-full rounded-2xl px-4 py-3 text-left flex items-center gap-3 text-gray-300 hover:bg-white/5">
+                  <ArrowDownCircle className="h-5 w-5" />
+                  <span className="font-semibold">Levantamentos</span>
+                </button>
+              </div>
+            </nav>
+          </aside>
+        </div>
+      )}
+
+      <main className="flex-1 overflow-y-auto pb-24 md:pb-0">
+        <div className="sticky top-0 z-20 md:hidden px-4 py-3 border-b border-white/10 bg-black/90 backdrop-blur">
+          <div className="flex items-center justify-between">
+            <button type="button" onClick={() => setMobileMenuOpen(true)} className="rounded-2xl p-2.5 bg-white/5 text-white">
+              <Menu className="h-5 w-5" />
+            </button>
+            <div className="text-center">
+              <div className="text-lg font-black tracking-tight">BET62 Admin</div>
+              <div className="text-[11px] uppercase tracking-[0.22em] text-gray-500">{NAV.find((n) => n.key === tab)?.label || 'Dashboard'}</div>
+            </div>
+            <button type="button" onClick={() => load(tab)} className="rounded-2xl p-2.5 bg-white/5 text-white">
+              <Activity className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 md:p-6 max-w-6xl mx-auto">
 
           {tab === 'overview' && (
             <div>
@@ -356,6 +544,38 @@ const AdminPanel: React.FC = () => {
                     <div className="flex justify-between"><span>Feed principal</span><Badge v={pipeline?.provider || 'SPORTSAPIPRO'} color="green" /></div>
                     <div className="flex justify-between"><span>Validacao do feed</span><Badge v={pipeline ? `${pipeline.validation.feedQualityScore}%` : '—'} color={(pipeline?.validation.feedQualityScore || 0) >= 80 ? 'green' : 'yellow'} /></div>
                   </div>
+                </div>
+              </div>
+              <div className={`mt-4 rounded-3xl border p-4 ${darkMode ? 'bg-[#11111b] border-white/10' : 'bg-white border-gray-200'} shadow-sm`}>
+                <div className="flex items-center gap-3 mb-4">
+                  <Gift className="h-5 w-5 text-red-500" />
+                  <div>
+                    <h3 className="font-semibold">Promoções e notificações</h3>
+                    <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Envia uma promoção para os utilizadores e ela aparece em Novidades/Notificações.</p>
+                  </div>
+                </div>
+                <div className="grid gap-3">
+                  <input
+                    value={promoTitle}
+                    onChange={(e) => setPromoTitle(e.target.value)}
+                    placeholder="Título da promoção"
+                    className={`px-4 py-3 rounded-2xl border text-sm ${darkMode ? 'bg-black border-white/10 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                  />
+                  <textarea
+                    value={promoBody}
+                    onChange={(e) => setPromoBody(e.target.value)}
+                    placeholder="Mensagem para os utilizadores"
+                    rows={3}
+                    className={`px-4 py-3 rounded-2xl border text-sm resize-none ${darkMode ? 'bg-black border-white/10 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={sendPromotionNotification}
+                    disabled={sendingPromo || !promoTitle.trim() || !promoBody.trim()}
+                    className="rounded-2xl bg-red-600 px-4 py-3 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {sendingPromo ? 'A enviar promoção...' : 'Enviar promoção aos utilizadores'}
+                  </button>
                 </div>
               </div>
               {pipeline && (
@@ -501,28 +721,59 @@ const AdminPanel: React.FC = () => {
 
           {tab === 'users' && (
             <div>
-              <h1 className="text-2xl font-bold mb-6">Utilizadores <span className="text-base font-normal text-gray-400">({users.length})</span></h1>
-              <div className={`rounded-lg overflow-hidden border ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                <table className="w-full text-sm">
-                  <thead className={darkMode ? 'bg-gray-700' : 'bg-gray-50'}>
-                    <tr>
-                      <th className="text-left px-4 py-2 font-medium">Email</th>
-                      <th className="text-left px-4 py-2 font-medium hidden md:table-cell">ID</th>
-                      <th className="text-center px-4 py-2 font-medium">Operador</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map(u => (
-                      <tr key={u.id} className={`border-t ${darkMode ? 'border-gray-700' : 'border-gray-100'}`}>
-                        <td className="px-4 py-2">{u.email}</td>
-                        <td className="px-4 py-2 text-xs text-gray-400 font-mono hidden md:table-cell">{u.id}</td>
-                        <td className="px-4 py-2 text-center">
-                          <input type="checkbox" checked={!!u.is_operator} onChange={e => toggleOperator(u.id, e.target.checked)} className="w-4 h-4 cursor-pointer" />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
+                <h1 className="text-2xl font-bold">Utilizadores <span className="text-base font-normal text-gray-400">({filteredUsers.length})</span></h1>
+                <div className={`flex items-center gap-3 rounded-2xl border px-4 py-3 w-full md:w-[340px] ${darkMode ? 'border-white/10 bg-[#11111b]' : 'border-gray-200 bg-white'}`}>
+                  <Search className={`h-4 w-4 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+                  <input
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    placeholder="Buscar utilizador..."
+                    className={`w-full bg-transparent text-sm outline-none ${darkMode ? 'text-white placeholder:text-gray-500' : 'text-gray-900 placeholder:text-gray-400'}`}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-3">
+                {filteredUsers.map((u) => (
+                  <div key={u.id} className={`rounded-3xl border p-4 ${darkMode ? 'bg-[#11111b] border-white/10' : 'bg-white border-gray-200'} shadow-sm`}>
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <div className="font-semibold truncate">{u.full_name || u.email}</div>
+                        <div className={`text-sm truncate ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{u.email}</div>
+                        <div className={`text-[11px] font-mono mt-1 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{u.id}</div>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full md:w-auto">
+                        <button onClick={() => runUserAction(u, 'wallet')} disabled={userActionBusy === `wallet:${u.id}`} className={`rounded-2xl px-3 py-3 text-left ${darkMode ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-50 hover:bg-gray-100'}`}>
+                          <Wallet className="h-4 w-4 mb-2 text-emerald-400" />
+                          <div className="text-xs font-semibold">Carteira</div>
+                          <div className="text-[11px] text-gray-400">€{Number(u.balance || 0).toFixed(2)}</div>
+                        </button>
+                        <button onClick={() => runUserAction(u, 'bonus')} disabled={userActionBusy === `bonus:${u.id}`} className={`rounded-2xl px-3 py-3 text-left ${darkMode ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-50 hover:bg-gray-100'}`}>
+                          <Gift className="h-4 w-4 mb-2 text-yellow-400" />
+                          <div className="text-xs font-semibold">Bónus</div>
+                          <div className="text-[11px] text-gray-400">€{Number(u.free_bet_balance || 0).toFixed(2)}</div>
+                        </button>
+                        <button onClick={() => runUserAction(u, 'withdraw')} disabled={userActionBusy === `withdraw:${u.id}`} className={`rounded-2xl px-3 py-3 text-left ${darkMode ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-50 hover:bg-gray-100'}`}>
+                          <ArrowDownCircle className="h-4 w-4 mb-2 text-red-400" />
+                          <div className="text-xs font-semibold">Retirar</div>
+                          <div className="text-[11px] text-gray-400">Manual</div>
+                        </button>
+                        <button onClick={() => navigate('/admin/kyc')} className={`rounded-2xl px-3 py-3 text-left ${darkMode ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-50 hover:bg-gray-100'}`}>
+                          <FileCheck2 className="h-4 w-4 mb-2 text-blue-400" />
+                          <div className="text-xs font-semibold">Documentos</div>
+                          <div className="text-[11px] text-gray-400">{u.pending_docs || 0} pend.</div>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <Badge v={u.kyc_status === 'verified' ? 'KYC verificado' : u.pending_docs ? 'KYC pendente' : 'Sem KYC'} color={u.kyc_status === 'verified' ? 'green' : u.pending_docs ? 'yellow' : 'gray'} />
+                      <label className="flex items-center gap-2 text-xs text-gray-400">
+                        <input type="checkbox" checked={!!u.is_operator} onChange={e => toggleOperator(u.id, e.target.checked)} className="w-4 h-4 cursor-pointer" />
+                        Operador
+                      </label>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -634,6 +885,26 @@ const AdminPanel: React.FC = () => {
 
         </div>
       </main>
+      <div className={`fixed bottom-0 inset-x-0 z-30 md:hidden border-t ${darkMode ? 'border-white/10 bg-[#11111b]/95' : 'border-gray-200 bg-white/95'} backdrop-blur`}>
+        <div className="grid grid-cols-5">
+          {MOBILE_PRIMARY_NAV.map((key) => {
+            const item = NAV.find((entry) => entry.key === key)!;
+            const Icon = TAB_ICONS[key] || LayoutGrid;
+            return (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`flex flex-col items-center justify-center gap-1 px-2 py-3 text-[11px] ${
+                  tab === key ? 'text-red-500' : darkMode ? 'text-gray-400' : 'text-gray-500'
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+                <span>{item.label === 'Visão Geral' ? 'Início' : item.label === 'Pagamentos' ? 'Depósitos' : item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 };

@@ -231,7 +231,10 @@ const ProfilePage: React.FC = () => {
     return list[0] || null;
   };
 
-  const uploadSingleDoc = async (type: 'iban_proof'|'id_card'|'bank_statement', file: File) => {
+  const uploadSingleDoc = async (
+    type: 'identity_front' | 'identity_back' | 'passport' | 'selfie' | 'proof_of_address' | 'iban_proof' | 'id_card' | 'bank_statement',
+    file: File,
+  ) => {
     try {
       const res = await fetch(`/api/users/documents/upload?type=${encodeURIComponent(type)}&filename=${encodeURIComponent(file.name)}`, {
         method: 'POST',
@@ -1164,6 +1167,10 @@ const ProfilePage: React.FC = () => {
         </div>
         {[
           { type: 'id_card', title: 'Documento de identificação', desc: 'Cartão de Cidadão ou Passaporte válido e legível.' },
+          { type: 'identity_front', title: 'Frente do documento', desc: 'Imagem nítida da frente do documento oficial.' },
+          { type: 'identity_back', title: 'Verso do documento', desc: 'Imagem nítida do verso do documento oficial.' },
+          { type: 'selfie', title: 'Selfie de validação', desc: 'Selfie atual e nítida para confirmar identidade.' },
+          { type: 'proof_of_address', title: 'Comprovativo de morada', desc: 'Fatura ou documento recente com a sua morada.' },
           { type: 'iban_proof', title: 'Comprovativo de IBAN', desc: 'Documento oficial do banco com o seu nome e IBAN.' },
           { type: 'bank_statement', title: 'Extrato bancário', desc: 'Documento recente (máx. 3 meses) com nome e IBAN.' },
         ].map(d => (
@@ -1177,7 +1184,7 @@ const ProfilePage: React.FC = () => {
             </div>
             <label className="flex items-center gap-3 cursor-pointer group">
               <div className={`flex-1 rounded-xl border border-dashed px-4 py-3 transition ${darkMode ? 'border-white/15 bg-white/3 group-hover:bg-white/5' : 'border-gray-300 bg-gray-50 group-hover:bg-gray-100'}`}>
-                <p className={`text-[12px] ${t.sub(darkMode)}`}>Clique para selecionar ficheiro <span className={t.label(darkMode)}>· JPG, PNG, PDF (máx. 8 MB)</span></p>
+                <p className={`text-[12px] ${t.sub(darkMode)}`}>Clique para selecionar imagem ou ficheiro <span className={t.label(darkMode)}>· JPG, PNG, PDF (máx. 8 MB)</span></p>
               </div>
               <input type="file" accept=".jpg,.jpeg,.png,.pdf" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) uploadSingleDoc(d.type as any, f); }} />

@@ -1,5 +1,7 @@
 import type http from 'http';
 import type pg from 'pg';
+import path from 'node:path';
+import { promises as fs } from 'node:fs';
 import { randomId } from '../lib/crypto';
 import { readJsonBody, sendJson, badRequest, unauthorized, forbid } from '../lib/http';
 import { requireUser, isAdmin } from '../lib/auth';
@@ -13,8 +15,21 @@ import {
 } from '../services/settlement';
 import { APP_BETS_TABLE, APP_TRANSACTIONS_TABLE, ensureAppBetsTable, ensureAppTransactionsTable } from '../lib/appTables';
 import { buildSportsDataPipelineStatus } from '../services/dataPipeline';
+import { getKycStorageRoot } from '../lib/kycStorage';
 
 interface TestKeyBody { key: string; sport?: string; matchId?: string }
+type WalletAdjustBody = { amount?: number | string; note?: string; mode?: 'credit' | 'debit' };
+type BonusAdjustBody = { amount?: number | string; note?: string };
+type ManualWithdrawalBody = { amount?: number | string; note?: string; method?: string };
+type KycDecisionBody = { kyc_id?: string; decision?: 'verified' | 'rejected'; reason?: string };
+type SuspendUserBody = { reason?: string };
+type PromotionNotifyBody = {
+  title?: string;
+  body?: string;
+  cta_label?: string;
+  cta_target?: string;
+  user_ids?: string[];
+};
 
 function toSub(sport: string): string {
   const s = String(sport || '').toLowerCase().replace(/[_\s]+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -83,6 +98,172 @@ function toNum(v: any, def = 0): number {
   return Number.isFinite(n) ? n : def;
 }
 
+function toMoney(v: any): number {
+  const n = typeof v === 'string' ? Number(String(v).replace(',', '.').trim()) : Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+type Queryable = pg.Pool | pg.PoolClient;
+
+async function ensureProfileRecord(client: Queryable, userId: string): Promise<void> {
+  const exists = await client.query(`SELECT 1 FROM profiles WHERE user_id = $1 LIMIT 1`, [userId]);
+  if (exists.rows?.[0]) return;
+  const userRow = await client.query(`SELECT email, name FROM users WHERE id = $1 LIMIT 1`, [userId]);
+  const user = userRow.rows?.[0];
+  if (!user) return;
+  await client.query(
+    `INSERT INTO profiles (id, user_id, email, full_name, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+    [randomId(16), userId, String(user.email || ''), String(user.name || '') || null],
+  );
+}
+
+async function getLockedBalances(client: Queryable, userId: string): Promise<{ balance: number; free_bet_balance: number }> {
+  await ensureProfileRecord(client, userId);
+  const r = await client.query(
+    `SELECT balance, free_bet_balance
+     FROM profiles
+     WHERE user_id = $1
+     FOR UPDATE`,
+    [userId],
+  );
+  const row = r.rows?.[0] || {};
+  return {
+    balance: toMoney(row.balance),
+    free_bet_balance: toMoney(row.free_bet_balance),
+  };
+}
+
+async function listAdminUsers(pool: pg.Pool): Promise<any[]> {
+  const r = await pool.query(
+    `SELECT
+       u.id,
+       u.email,
+       u.name,
+       u.role,
+       COALESCE(p.balance, 0) AS balance,
+       COALESCE(p.free_bet_balance, 0) AS free_bet_balance,
+       COALESCE(p.kyc_verified, FALSE) AS kyc_verified,
+       COALESCE(doc.pending_docs, 0) AS pending_docs,
+       COALESCE(doc.total_docs, 0) AS total_docs,
+       doc.last_document_at
+     FROM users u
+     LEFT JOIN profiles p ON p.user_id = u.id
+     LEFT JOIN (
+       SELECT
+         user_id,
+         COUNT(*)::int AS total_docs,
+         COUNT(*) FILTER (WHERE UPPER(COALESCE(status, 'SUBMITTED')) IN ('SUBMITTED', 'PENDING'))::int AS pending_docs,
+         MAX(created_at) AS last_document_at
+       FROM user_documents
+       GROUP BY user_id
+     ) doc ON doc.user_id = u.id
+     ORDER BY u.created_at DESC
+     LIMIT 500`,
+  );
+  return (r.rows || []).map((x: any) => ({
+    id: String(x.id),
+    email: String(x.email || ''),
+    full_name: String(x.name || ''),
+    is_operator: String(x.role || '') === 'admin' ? 1 : 0,
+    balance: toMoney(x.balance),
+    free_bet_balance: toMoney(x.free_bet_balance),
+    kyc_status: x.kyc_verified ? 'verified' : Number(x.pending_docs || 0) > 0 ? 'pending' : 'unverified',
+    pending_docs: Number(x.pending_docs || 0),
+    total_docs: Number(x.total_docs || 0),
+    last_document_at: x.last_document_at ? new Date(x.last_document_at).toISOString() : null,
+  }));
+}
+
+async function buildAdminKycList(pool: pg.Pool, filterUserId = ''): Promise<any[]> {
+  const params: any[] = [];
+  let where = '';
+  if (filterUserId) {
+    params.push(filterUserId);
+    where = `WHERE d.user_id = $${params.length}`;
+  }
+  const docsResult = await pool.query(
+    `SELECT
+       d.id,
+       d.user_id,
+       d.doc_type,
+       d.filename,
+       d.mime_type,
+       d.status,
+       d.created_at,
+       u.email,
+       u.name,
+       u.created_at AS registration_date,
+       COALESCE(p.full_name, u.name, '') AS full_name,
+       COALESCE(p.kyc_verified, FALSE) AS kyc_verified
+     FROM user_documents d
+     JOIN users u ON u.id = d.user_id
+     LEFT JOIN profiles p ON p.user_id = d.user_id
+     ${where}
+     ORDER BY d.created_at DESC`,
+    params,
+  );
+
+  const grouped = new Map<string, any>();
+  for (const row of docsResult.rows || []) {
+    const userId = String(row.user_id || '');
+    if (!grouped.has(userId)) {
+      grouped.set(userId, {
+        kyc_id: userId,
+        user_id: userId,
+        email: String(row.email || ''),
+        username: String(row.email || ''),
+        full_name: String(row.full_name || row.name || ''),
+        registration_date: row.registration_date ? new Date(row.registration_date).toISOString() : '',
+        country: '',
+        status: row.kyc_verified ? 'verified' : 'pending',
+        created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        documents: [],
+      });
+    }
+    const entry = grouped.get(userId);
+    entry.documents.push({
+      id: String(row.id),
+      type: String(row.doc_type || ''),
+      url: `/api/admin/kyc/documents/${encodeURIComponent(String(row.id))}`,
+      created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+      ip_address: '',
+      status: String(row.status || 'SUBMITTED'),
+      filename: String(row.filename || ''),
+      mime_type: String(row.mime_type || ''),
+    });
+    if (String(row.status || '').toLowerCase() === 'rejected') entry.status = 'rejected';
+  }
+
+  return Array.from(grouped.values()).filter((entry) => filterUserId || entry.documents.some((d: any) => {
+    const s = String(d.status || '').toUpperCase();
+    return s === 'SUBMITTED' || s === 'PENDING';
+  }));
+}
+
+async function createUserNotification(
+  pool: pg.Pool,
+  userId: string,
+  input: { kind?: string; title: string; body: string; cta_label?: string; cta_target?: string },
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO user_notifications (
+       id, user_id, kind, title, body, cta_label, cta_target, is_read, created_at, updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, NOW(), NOW())`,
+    [
+      randomId(16),
+      userId,
+      String(input.kind || 'system'),
+      String(input.title || ''),
+      String(input.body || ''),
+      input.cta_label ? String(input.cta_label) : null,
+      input.cta_target ? String(input.cta_target) : null,
+    ],
+  );
+}
+
 export async function handleAdminRoutes(
   pool: pg.Pool,
   events: EventsService,
@@ -101,16 +282,7 @@ export async function handleAdminRoutes(
 
   // ── Users ────────────────────────────────────────────────────────────────────
   if (req.method === 'GET' && path === '/api/admin/users') {
-    const r = await pool.query(`SELECT id, email, role FROM users ORDER BY created_at DESC LIMIT 500`);
-    sendJson(
-      res,
-      200,
-      (r.rows || []).map((x: any) => ({
-        id: String(x.id),
-        email: String(x.email),
-        is_operator: String(x.role) === 'admin' ? 1 : 0,
-      })),
-    );
+    sendJson(res, 200, await listAdminUsers(pool));
     return true;
   }
 
@@ -122,6 +294,215 @@ export async function handleAdminRoutes(
     const val = toBool(body.is_operator);
     await pool.query(`UPDATE users SET role = $2, updated_at = NOW() WHERE id = $1`, [userId, val ? 'admin' : 'user']);
     sendJson(res, 200, { success: true });
+    return true;
+  }
+
+  const walletAdjust = path.match(/^\/api\/admin\/users\/([^/]+)\/wallet-adjust$/);
+  if (walletAdjust && req.method === 'POST') {
+    const userId = decodeURIComponent(walletAdjust[1] || '');
+    const body = await readJsonBody<WalletAdjustBody>(req).catch(() => null);
+    const amount = toMoney(body?.amount);
+    const mode = body?.mode === 'debit' ? 'debit' : 'credit';
+    if (!amount || amount <= 0) return badRequest(res, 'Valor inválido'), true;
+    await ensureAppTransactionsTable(pool);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const profile = await getLockedBalances(client, userId);
+      if (mode === 'debit' && profile.balance < amount) {
+        await client.query('ROLLBACK');
+        return badRequest(res, 'Saldo insuficiente para débito manual'), true;
+      }
+      const nextBalance = mode === 'credit' ? profile.balance + amount : profile.balance - amount;
+      await client.query(
+        `UPDATE profiles SET balance = $2, updated_at = NOW() WHERE user_id = $1`,
+        [userId, nextBalance],
+      );
+      await client.query(
+        `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, completed_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, 'completed', 'admin_manual', $5, NOW(), NOW(), NOW())`,
+        [randomId(16), userId, mode === 'credit' ? 'admin_credit' : 'admin_debit', amount, String(body?.note || 'Ajuste manual de carteira')],
+      );
+      await client.query('COMMIT');
+      sendJson(res, 200, { success: true, balance: nextBalance });
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => null);
+      throw e;
+    } finally {
+      client.release();
+    }
+    return true;
+  }
+
+  const bonusAdjust = path.match(/^\/api\/admin\/users\/([^/]+)\/bonus-adjust$/);
+  if (bonusAdjust && req.method === 'POST') {
+    const userId = decodeURIComponent(bonusAdjust[1] || '');
+    const body = await readJsonBody<BonusAdjustBody>(req).catch(() => null);
+    const amount = toMoney(body?.amount);
+    if (!amount || amount <= 0) return badRequest(res, 'Valor inválido'), true;
+    await ensureAppTransactionsTable(pool);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const profile = await getLockedBalances(client, userId);
+      const nextBonus = profile.free_bet_balance + amount;
+      await client.query(
+        `UPDATE profiles SET free_bet_balance = $2, updated_at = NOW() WHERE user_id = $1`,
+        [userId, nextBonus],
+      );
+      await client.query(
+        `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, completed_at, created_at, updated_at)
+         VALUES ($1, $2, 'admin_bonus', $3, 'completed', 'admin_bonus', $4, NOW(), NOW(), NOW())`,
+        [randomId(16), userId, amount, String(body?.note || 'Crédito manual de bónus/freebet')],
+      );
+      await client.query('COMMIT');
+      sendJson(res, 200, { success: true, free_bet_balance: nextBonus });
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => null);
+      throw e;
+    } finally {
+      client.release();
+    }
+    return true;
+  }
+
+  const manualWithdrawal = path.match(/^\/api\/admin\/users\/([^/]+)\/manual-withdrawal$/);
+  if (manualWithdrawal && req.method === 'POST') {
+    const userId = decodeURIComponent(manualWithdrawal[1] || '');
+    const body = await readJsonBody<ManualWithdrawalBody>(req).catch(() => null);
+    const amount = toMoney(body?.amount);
+    if (!amount || amount <= 0) return badRequest(res, 'Valor inválido'), true;
+    await ensureAppTransactionsTable(pool);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const profile = await getLockedBalances(client, userId);
+      if (profile.balance < amount) {
+        await client.query('ROLLBACK');
+        return badRequest(res, 'Saldo insuficiente para retirada manual'), true;
+      }
+      const nextBalance = profile.balance - amount;
+      await client.query(
+        `UPDATE profiles SET balance = $2, updated_at = NOW() WHERE user_id = $1`,
+        [userId, nextBalance],
+      );
+      await client.query(
+        `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, completed_at, created_at, updated_at)
+         VALUES ($1, $2, 'withdrawal', $3, 'completed', $4, $5, NOW(), NOW(), NOW())`,
+        [randomId(16), userId, amount, String(body?.method || 'admin_manual'), String(body?.note || 'Retirada manual pelo admin')],
+      );
+      await client.query('COMMIT');
+      sendJson(res, 200, { success: true, balance: nextBalance });
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => null);
+      throw e;
+    } finally {
+      client.release();
+    }
+    return true;
+  }
+
+  const suspendUser = path.match(/^\/api\/admin\/users\/([^/]+)\/suspend$/);
+  if (suspendUser && req.method === 'POST') {
+    const userId = decodeURIComponent(suspendUser[1] || '');
+    const body = await readJsonBody<SuspendUserBody>(req).catch(() => null);
+    const reason = String(body?.reason || 'Conta suspensa pelo admin').trim();
+    await ensureProfileRecord(pool, userId);
+    await pool.query(
+      `UPDATE profiles
+       SET self_exclude = TRUE,
+           self_exclude_until = NOW() + INTERVAL '10 years',
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      [userId],
+    );
+    await ensureAppTransactionsTable(pool);
+    await pool.query(
+      `INSERT INTO ${APP_TRANSACTIONS_TABLE} (id, user_id, type, amount, status, payment_method, description, created_at, updated_at)
+       VALUES ($1, $2, 'admin_note', 0, 'completed', 'admin_suspend', $3, NOW(), NOW())`,
+      [randomId(16), userId, reason],
+    );
+    sendJson(res, 200, { success: true });
+    return true;
+  }
+
+  if (req.method === 'GET' && path === '/api/admin/kyc/pending') {
+    const filterUserId = String(url.searchParams.get('user') || '').trim();
+    sendJson(res, 200, await buildAdminKycList(pool, filterUserId));
+    return true;
+  }
+
+  if (req.method === 'POST' && path === '/api/admin/kyc/decision') {
+    const body = await readJsonBody<KycDecisionBody>(req).catch(() => null);
+    const userId = String(body?.kyc_id || '').trim();
+    const decision = body?.decision;
+    if (!userId || !decision) return badRequest(res, 'Missing decision payload'), true;
+    const docStatus = decision === 'verified' ? 'verified' : 'rejected';
+    await ensureProfileRecord(pool, userId);
+    await pool.query(
+      `UPDATE user_documents
+       SET status = $2,
+           updated_at = NOW()
+       WHERE user_id = $1
+         AND UPPER(COALESCE(status, 'SUBMITTED')) IN ('SUBMITTED', 'PENDING', 'REJECTED', 'VERIFIED')`,
+      [userId, docStatus],
+    );
+    await pool.query(
+      `UPDATE profiles
+       SET kyc_verified = $2,
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      [userId, decision === 'verified'],
+    );
+    sendJson(res, 200, { success: true });
+    return true;
+  }
+
+  if (req.method === 'POST' && path === '/api/admin/notifications/promotion') {
+    const body = await readJsonBody<PromotionNotifyBody>(req).catch(() => null);
+    const title = String(body?.title || '').trim();
+    const message = String(body?.body || '').trim();
+    if (!title || !message) return badRequest(res, 'Título e mensagem são obrigatórios'), true;
+    const targetIds = Array.isArray(body?.user_ids)
+      ? body!.user_ids.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const r = targetIds.length > 0
+      ? await pool.query(`SELECT id FROM users WHERE id = ANY($1::text[])`, [targetIds])
+      : await pool.query(`SELECT id FROM users ORDER BY created_at DESC LIMIT 1000`);
+    const userIds = (r.rows || []).map((row: any) => String(row.id || '')).filter(Boolean);
+    for (const userId of userIds) {
+      await createUserNotification(pool, userId, {
+        kind: 'promo',
+        title,
+        body: message,
+        cta_label: body?.cta_label || 'Abrir promoções',
+        cta_target: body?.cta_target || '/promotions',
+      });
+    }
+    sendJson(res, 200, { success: true, sent: userIds.length });
+    return true;
+  }
+
+  const kycDoc = path.match(/^\/api\/admin\/kyc\/documents\/([^/]+)$/);
+  if (kycDoc && req.method === 'GET') {
+    const docId = decodeURIComponent(kycDoc[1] || '');
+    const r = await pool.query(
+      `SELECT filename, mime_type, storage_path
+       FROM user_documents
+       WHERE id = $1
+       LIMIT 1`,
+      [docId],
+    );
+    const row = r.rows?.[0];
+    if (!row?.storage_path) return badRequest(res, 'Documento não encontrado'), true;
+    const abs = path.join(getKycStorageRoot(), String(row.storage_path));
+    const file = await fs.readFile(abs).catch(() => null);
+    if (!file) return badRequest(res, 'Ficheiro não encontrado'), true;
+    res.statusCode = 200;
+    res.setHeader('cache-control', 'no-store');
+    res.setHeader('content-type', String(row.mime_type || 'application/octet-stream'));
+    res.setHeader('content-disposition', `inline; filename="${encodeURIComponent(String(row.filename || 'documento'))}"`);
+    res.end(file);
     return true;
   }
 
