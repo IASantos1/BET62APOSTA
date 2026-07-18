@@ -85,16 +85,20 @@ export function Header() {
       }
 
       try {
-        const [balances, freebetData] = await Promise.all([
+        const [balances, freebetData, profileData] = await Promise.all([
           apiFetch<{ currency: string; balance: number }[]>('/api/wallet/balances', { cache: 'no-store' }),
           apiFetch<{ amount_eur: number }>('/api/promotions/freebets', { cache: 'no-store' }),
+          apiFetch<any>('/api/users/profile', { cache: 'no-store' }).catch(() => null),
         ]);
 
         if (!alive) return;
 
         const eur = Array.isArray(balances) ? balances.find((x) => x.currency === 'EUR') : null;
-        setEurBalance(eur ? Number(eur.balance || 0) : 0);
-        setFreebets(Number(freebetData?.amount_eur || 0));
+        const profileBalance = Number(profileData?.balance);
+        const profileFreebets = Number(profileData?.free_bet_balance);
+
+        setEurBalance(Number.isFinite(profileBalance) ? profileBalance : (eur ? Number(eur.balance || 0) : 0));
+        setFreebets(Number.isFinite(profileFreebets) ? profileFreebets : Number(freebetData?.amount_eur || 0));
       } catch {
         if (!alive) return;
         setEurBalance(null);
@@ -112,8 +116,20 @@ export function Header() {
       }
     };
 
+    const onWalletSync = (event: Event) => {
+      const detail = (event as CustomEvent<{ balance?: number; freebets?: number }>).detail || {};
+      if (!alive) return;
+      if (typeof detail.balance === 'number' && Number.isFinite(detail.balance)) {
+        setEurBalance(detail.balance);
+      }
+      if (typeof detail.freebets === 'number' && Number.isFinite(detail.freebets)) {
+        setFreebets(detail.freebets);
+      }
+    };
+
     refreshWallet();
     window.addEventListener('wallet:refresh', refreshWallet as EventListener);
+    window.addEventListener('wallet:sync', onWalletSync as EventListener);
     window.addEventListener('focus', refreshWallet);
     document.addEventListener('visibilitychange', onVisibility);
     const intervalId = window.setInterval(refreshWallet, 10000);
@@ -121,6 +137,7 @@ export function Header() {
     return () => {
       alive = false;
       window.removeEventListener('wallet:refresh', refreshWallet as EventListener);
+      window.removeEventListener('wallet:sync', onWalletSync as EventListener);
       window.removeEventListener('focus', refreshWallet);
       document.removeEventListener('visibilitychange', onVisibility);
       window.clearInterval(intervalId);

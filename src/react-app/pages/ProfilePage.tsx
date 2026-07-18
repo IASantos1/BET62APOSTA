@@ -216,6 +216,17 @@ const ProfilePage: React.FC = () => {
           setNotificationsUnread(Number(nt.unread || 0));
         }
         if (rf) setReferral(rf);
+
+        const eurBalance = Array.isArray(wb)
+          ? Number((wb.find((entry) => entry.currency === 'EUR')?.balance) || 0)
+          : Number(pf?.balance || 0);
+        const freebetBalance = Number(pf?.free_bet_balance || 0);
+        window.dispatchEvent(new CustomEvent('wallet:sync', {
+          detail: {
+            balance: Number.isFinite(eurBalance) ? eurBalance : 0,
+            freebets: Number.isFinite(freebetBalance) ? freebetBalance : 0,
+          },
+        }));
       } catch (err: any) {
         const msg = String(err?.message || '');
         if (/Abort|ERR_ABORTED|ERR_CANCELED/i.test(msg)) return;
