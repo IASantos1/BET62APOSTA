@@ -150,10 +150,32 @@ function extractEvents(payload: any): any[] {
     }
     return out;
   };
+  const flattenTournamentWeeks = (weeks: any[], tournamentMeta?: any): any[] => {
+    const out: any[] = [];
+    for (const week of weeks) {
+      const rows = week?.match ?? week?.matches ?? week?.events ?? [];
+      if (!Array.isArray(rows)) continue;
+      for (const row of rows) {
+        out.push({
+          ...row,
+          __league: {
+            id: tournamentMeta?.id ?? '',
+            name: tournamentMeta?.league ?? tournamentMeta?.name ?? '',
+            country: payload?.matches?.country ?? tournamentMeta?.country ?? '',
+            cup: tournamentMeta?.cup ?? '',
+          },
+        });
+      }
+    }
+    return out;
+  };
 
   if (Array.isArray(payload?.live_matches?.league)) return flattenLeagueBlocks(payload.live_matches.league);
   if (Array.isArray(payload?.upcoming_matches?.league)) return flattenLeagueBlocks(payload.upcoming_matches.league);
   if (Array.isArray(payload?.league)) return flattenLeagueBlocks(payload.league);
+  if (Array.isArray(payload?.matches?.tournament?.week)) {
+    return flattenTournamentWeeks(payload.matches.tournament.week, payload.matches.tournament);
+  }
   for (const [key, value] of Object.entries(payload)) {
     if (!/^matches_\d{2}_\d{2}_\d{4}$/i.test(String(key))) continue;
     if (Array.isArray((value as any)?.league)) return flattenLeagueBlocks((value as any).league);
@@ -614,6 +636,34 @@ export async function fetchStatPalStandings(apiKey: string, sport: string, tourn
       `/league/${encodeURIComponent(tournamentId)}/standings`,
       `/tournaments/${encodeURIComponent(tournamentId)}/standings`,
       `/tournament/${encodeURIComponent(tournamentId)}/standings`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalLeagueMatches(apiKey: string, leagueId: string): Promise<NormalizedEvent[]> {
+  const json = await fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      `/leagues/${encodeURIComponent(leagueId)}/matches`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+  return extractEvents(json).map((row) => normalizeEvent(row, 'soccer')).filter(Boolean) as NormalizedEvent[];
+}
+
+export async function fetchStatPalLeagueMatchStats(apiKey: string, leagueId: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      `/leagues/${encodeURIComponent(leagueId)}/matches/stats`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalLeagueStats(apiKey: string, leagueId: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      `/leagues/${encodeURIComponent(leagueId)}/stats`,
     ]),
     PROVIDER_TIMEOUT_MS,
   );

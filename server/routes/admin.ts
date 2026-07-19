@@ -18,7 +18,7 @@ import { buildSportsDataPipelineStatus } from '../services/dataPipeline';
 import { getKycStorageRoot } from '../lib/kycStorage';
 import { getSportsDataProviderConfig } from '../services/sportsDataProvider';
 
-interface TestKeyBody { key: string; sport?: string; matchId?: string }
+interface TestKeyBody { key: string; sport?: string; matchId?: string; leagueId?: string }
 type WalletAdjustBody = { amount?: number | string; note?: string; mode?: 'credit' | 'debit' };
 type BonusAdjustBody = { amount?: number | string; note?: string };
 type ManualWithdrawalBody = { amount?: number | string; note?: string; method?: string };
@@ -875,6 +875,7 @@ export async function handleAdminRoutes(
     const key = String(body.key).trim();
     const sport = String(body.sport || 'soccer').trim() || 'soccer';
     const matchId = String(body.matchId || '').trim();
+    const leagueId = String(body.leagueId || '').trim();
     const sub = toSub(sport);
     const today = new Date().toISOString().slice(0, 10);
     const provider = getSportsDataProviderConfig().provider;
@@ -899,6 +900,12 @@ export async function handleAdminRoutes(
           { label: `Schedule (${sport} - hoje)`, url: `https://v2.${sub}.sportsapipro.com/api/events/schedule?date=${today}` },
           { label: `Live events (${sport})`, url: `https://v2.${sub}.sportsapipro.com/api/events/live` },
         ];
+    if (leagueId && provider === 'statpal' && statpalSport === 'soccer') {
+      probes.push({ label: `League matches (${sport})`, url: `https://statpal.io/api/v2/soccer/leagues/${encodeURIComponent(leagueId)}/matches` });
+      probes.push({ label: `League match stats (${sport})`, url: `https://statpal.io/api/v2/soccer/leagues/${encodeURIComponent(leagueId)}/matches/stats` });
+      probes.push({ label: `League standings (${sport})`, url: `https://statpal.io/api/v2/soccer/leagues/${encodeURIComponent(leagueId)}/standings` });
+      probes.push({ label: `League stats (${sport})`, url: `https://statpal.io/api/v2/soccer/leagues/${encodeURIComponent(leagueId)}/stats` });
+    }
     if (matchId && provider !== 'statpal') {
       probes.push({ label: `Odds All   (id=${matchId})`,    url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/all` });
       probes.push({ label: `Odds Live  (id=${matchId})`,    url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/live` });
