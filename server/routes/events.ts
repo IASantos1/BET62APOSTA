@@ -108,6 +108,53 @@ function parseMarkets(v: any): any {
   }
 }
 
+function normalizeMarketsShape(v: any): Record<string, any[]> {
+  const raw = parseMarkets(v);
+  if (!raw || typeof raw !== 'object') return {};
+
+  if (Array.isArray(raw)) {
+    const out: Record<string, any[]> = {};
+    for (const row of raw) {
+      if (!row || typeof row !== 'object') continue;
+      const key = String((row as any)?.key ?? (row as any)?.title ?? (row as any)?.name ?? (row as any)?.label ?? '').trim();
+      if (!key) continue;
+      const selections = Array.isArray((row as any)?.outcomes)
+        ? (row as any).outcomes
+        : Array.isArray((row as any)?.selections)
+          ? (row as any).selections
+          : Array.isArray((row as any)?.values)
+            ? (row as any).values
+            : Array.isArray((row as any)?.lines)
+              ? (row as any).lines
+              : [];
+      if (!Array.isArray(selections) || selections.length === 0) continue;
+      out[key] = selections;
+    }
+    return out;
+  }
+
+  const out: Record<string, any[]> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (Array.isArray(value)) {
+      out[key] = value;
+      continue;
+    }
+    if (value && typeof value === 'object') {
+      const selections = Array.isArray((value as any)?.outcomes)
+        ? (value as any).outcomes
+        : Array.isArray((value as any)?.selections)
+          ? (value as any).selections
+          : Array.isArray((value as any)?.values)
+            ? (value as any).values
+            : Array.isArray((value as any)?.lines)
+              ? (value as any).lines
+              : [];
+      if (selections.length > 0) out[key] = selections;
+    }
+  }
+  return out;
+}
+
 function pruneMarketsForList(sport: string, markets: Record<string, any[]>): Record<string, any[]> {
   if (!markets || typeof markets !== 'object') return {};
   // Return all markets — no cap
@@ -121,13 +168,22 @@ function canonicalMarketKey(raw: string): string {
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
   if (!key) return 'other';
-  if (['h2h', '1x2', 'match_winner', 'winner', 'match_result', 'full_time_result', 'resultado_final', 'home_away'].includes(key)) return 'h2h';
+  if (['h2h', '1x2', 'main', 'match_winner', 'winner', 'match_result', 'full_time_result', 'resultado_final', 'home_away'].includes(key)) return 'h2h';
   if (['totals', 'goals_over_under', 'goal_line', 'match_goals', 'goals_total', 'over_under', 'totals_full_time'].includes(key)) return 'totals';
   if (['spreads', 'spread', 'handicap', 'asian_handicap', 'run_line', 'puck_line'].includes(key)) return 'spreads';
   if (['double_chance', 'doublechance'].includes(key)) return 'double_chance';
   if (['btts', 'both_teams_score', 'both_teams_to_score'].includes(key)) return 'btts';
   if (['correct_score', 'exact_score', 'score_exact'].includes(key)) return 'correct_score';
   return key;
+}
+
+function marketLineLabel(line: any): string {
+  return canonicalSelectionLabel(
+    line?.label ??
+      line?.name ??
+      line?.outcome ??
+      (typeof line?.value === 'string' ? line.value : '')
+  );
 }
 
 function canonicalSelectionLabel(raw: any): string {
@@ -149,19 +205,37 @@ function dedupeCanonicalMarkets(markets: Record<string, any[]>): Record<string, 
     const key = canonicalMarketKey(rawKey);
     if (!out[key]) out[key] = [];
     const seen = new Set(out[key].map((line: any) =>
-      `${canonicalSelectionLabel(line?.label ?? line?.value ?? '')}|${String(line?.handicap ?? line?.point ?? '').trim()}`
+      `${marketLineLabel(line)}|${String(line?.handicap ?? line?.point ?? '').trim()}`
     ));
     for (const line of rawLines) {
-      const dedupeKey = `${canonicalSelectionLabel(line?.label ?? line?.value ?? '')}|${String(line?.handicap ?? line?.point ?? '').trim()}`;
+      const dedupeKey = `${marketLineLabel(line)}|${String(line?.handicap ?? line?.point ?? '').trim()}`;
       if (!dedupeKey || seen.has(dedupeKey)) continue;
       const normalized = { ...line };
-      if (normalized.label != null) normalized.label = canonicalSelectionLabel(normalized.label) || normalized.label;
-      if (normalized.value != null) normalized.value = canonicalSelectionLabel(normalized.value) || normalized.value;
+      const normalizedLabel = marketLineLabel(normalized);
+      if (normalized.label != null) normalized.label = normalizedLabel || normalized.label;
+      if (typeof normalized.value === 'string') normalized.value = canonicalSelectionLabel(normalized.value) || normalized.value;
       out[key].push(normalized);
       seen.add(dedupeKey);
     }
   }
   return out;
+}
+
+function derivePrimaryOddsFromMarkets(markets: Record<string, any[]>): { home: number; draw: number; away: number } {
+  const h2h = markets?.h2h;
+  if (!Array.isArray(h2h) || h2h.length === 0) return { home: 0, draw: 0, away: 0 };
+  let home = 0;
+  let draw = 0;
+  let away = 0;
+  for (const line of h2h) {
+    const label = marketLineLabel(line);
+    const odd = Number((line as any)?.odd ?? (line as any)?.price ?? (line as any)?.value_odd ?? 0);
+    if (!(odd > 1.01)) continue;
+    if (label === 'home' && home <= 1.01) home = odd;
+    else if (label === 'draw' && draw <= 1.01) draw = odd;
+    else if (label === 'away' && away <= 1.01) away = odd;
+  }
+  return { home, draw, away };
 }
 
 export type EventsService = {
@@ -1305,15 +1379,13 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const rawDraw0 = Number((e as any).draw_odd || 0);
     const rawAway0 = Number((e as any).away_odd || 0);
     const existingMkRaw = (e as any)?.markets ?? (e as any)?.odds;
-    const existingMk =
-      existingMkRaw && typeof existingMkRaw === 'object'
-        ? existingMkRaw
-        : parseMarkets(existingMkRaw);
+    const existingMk = normalizeMarketsShape(existingMkRaw);
     const hasExistingMarkets = !!(existingMk && typeof existingMk === 'object' && Object.keys(existingMk).length > 0);
     const hasExistingOdds = rawHome0 > 1 && rawAway0 > 1;
 
     if (hasExistingOdds || hasExistingMarkets) {
       const marketsAll = dedupeCanonicalMarkets(existingMk && typeof existingMk === 'object' ? existingMk : {});
+      const derivedPrimary = derivePrimaryOddsFromMarkets(marketsAll);
       const markets =
         fullMarkets
           ? marketsAll
@@ -1321,9 +1393,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const base = {
         ...e,
         id,
-        home_odd: rawHome0,
-        draw_odd: rawDraw0,
-        away_odd: rawAway0,
+        home_odd: rawHome0 > 1 ? rawHome0 : derivedPrimary.home,
+        draw_odd: rawDraw0 > 1 ? rawDraw0 : derivedPrimary.draw,
+        away_odd: rawAway0 > 1 ? rawAway0 : derivedPrimary.away,
         markets,
         markets_count: marketsAll && typeof marketsAll === 'object' ? Object.keys(marketsAll).length : 0,
       };
@@ -1803,13 +1875,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       if (h > 1.01 && d > 1.01) return true;
       if (d > 1.01 && a > 1.01) return true;
 
-      let mk: any = (e as any)?.markets ?? (e as any)?.odds;
-      if (typeof mk === 'string') {
-        const s = mk.trim();
-        if (s && ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']')))) {
-          try { mk = JSON.parse(s); } catch { void 0; }
-        }
-      }
+      const mk = normalizeMarketsShape((e as any)?.markets ?? (e as any)?.odds);
       if (!mk || typeof mk !== 'object') return false;
 
       const h2h = (mk as any).h2h || (mk as any).main || (mk as any)['1x2'] || (mk as any).match_winner;
@@ -1828,13 +1894,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     };
 
     const hasAnyMarketOdds = (e: any): boolean => {
-      let mk: any = (e as any)?.markets ?? (e as any)?.odds;
-      if (typeof mk === 'string') {
-        const s = mk.trim();
-        if (s && ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']')))) {
-          try { mk = JSON.parse(s); } catch { void 0; }
-        }
-      }
+      const mk = normalizeMarketsShape((e as any)?.markets ?? (e as any)?.odds);
       if (!mk || typeof mk !== 'object') return false;
 
       const seen = new Set<any>();
@@ -1875,14 +1935,14 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         const awayTeam = String((e as any)?.away_team || '');
         if (hasBlockedTeamMarker(homeTeam) || hasBlockedTeamMarker(awayTeam)) continue;
         softFallback.push(e);
-        const hasOdds = hasRenderablePrimaryOdds(e) || hasAnyMarketOdds(e);
         if (isUniversallyBlockedLeague(leagueName)) continue;
-        if (!hasOdds) continue;
 
         if (sport && sport !== 'soccer' && sport !== 'football') {
           nonSoccer.push(e);
           continue;
         }
+        const hasOdds = hasRenderablePrimaryOdds(e) || hasAnyMarketOdds(e);
+        if (!hasOdds) continue;
         if (isBlockedLeague(leagueName, country, true)) continue;
 
         if (isClubFriendlyLeagueName(leagueName)) {
@@ -2086,7 +2146,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       if (h > 1 && a > 1) return true;
       if (d > 1) return true;
       const mkRaw = (e as any)?.markets ?? (e as any)?.odds;
-      const mkObj = mkRaw && typeof mkRaw === 'object' ? mkRaw : parseMarkets(mkRaw);
+      const mkObj = normalizeMarketsShape(mkRaw);
       return hasAnyMarkets(mkObj);
     };
 
