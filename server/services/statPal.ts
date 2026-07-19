@@ -73,6 +73,30 @@ function parseStatPalDateTime(dateRaw: any, timeRaw?: any): string {
     : `${yyyy}-${mm}-${dd}T${pad2(hh)}:${pad2(min)}:00.000Z`;
 }
 
+function dateOnlyIso(raw: string): string {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (isoMatch) return isoMatch[0];
+  const match = /^(\d{2})[./-](\d{2})[./-](\d{4})$/.exec(value);
+  if (!match) return '';
+  const [, dd, mm, yyyy] = match;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function utcDayDiffFromToday(dateIso: string): number | null {
+  const target = dateOnlyIso(dateIso);
+  if (!target) return null;
+  const today = new Date();
+  const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(target);
+  if (!match) return null;
+  const [, yyyy, mm, dd] = match;
+  const targetUtc = Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd));
+  const diffDays = Math.round((targetUtc - todayUtc) / 86_400_000);
+  return Number.isFinite(diffDays) ? diffDays : null;
+}
+
 function appendAccessKey(url: string, apiKey: string): string {
   const u = new URL(url);
   u.searchParams.set('access_key', apiKey);
@@ -130,6 +154,10 @@ function extractEvents(payload: any): any[] {
   if (Array.isArray(payload?.live_matches?.league)) return flattenLeagueBlocks(payload.live_matches.league);
   if (Array.isArray(payload?.upcoming_matches?.league)) return flattenLeagueBlocks(payload.upcoming_matches.league);
   if (Array.isArray(payload?.league)) return flattenLeagueBlocks(payload.league);
+  for (const [key, value] of Object.entries(payload)) {
+    if (!/^matches_\d{2}_\d{2}_\d{4}$/i.test(String(key))) continue;
+    if (Array.isArray((value as any)?.league)) return flattenLeagueBlocks((value as any).league);
+  }
   if (Array.isArray(payload.data)) return payload.data;
   if (Array.isArray(payload.matches)) return payload.matches;
   if (Array.isArray(payload.events)) return payload.events;
@@ -462,6 +490,20 @@ export async function fetchStatPalLive(apiKey: string, sport: string): Promise<N
 
 export async function fetchStatPalSchedule(apiKey: string, sport: string, date: string): Promise<NormalizedEvent[]> {
   const s = statPalSportPath(sport);
+  if (s === 'soccer') {
+    const offset = utcDayDiffFromToday(date);
+    if (offset === 0) {
+      return fetchStatPalLive(apiKey, sport);
+    }
+    if (offset != null && offset >= -7 && offset <= 7) {
+      const dailyUrl = buildCandidateUrls(apiKey, sport, [
+        `/matches/daily?offset=${encodeURIComponent(String(offset))}`,
+      ]);
+      const dailyJson = await fetchFirstJson(dailyUrl, PROVIDER_TIMEOUT_MS);
+      const dailyEvents = extractEvents(dailyJson).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
+      if (dailyEvents.length > 0) return dailyEvents;
+    }
+  }
   const dateVariants = Array.from(new Set(formatDateVariants(date)));
   const paths = s === 'soccer'
     ? dateVariants.flatMap((d) => [
