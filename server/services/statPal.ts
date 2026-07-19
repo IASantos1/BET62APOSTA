@@ -669,6 +669,44 @@ export async function fetchStatPalSoccerTeam(apiKey: string, teamId: string): Pr
   );
 }
 
+export async function fetchStatPalSoccerPlayer(apiKey: string, playerId: string): Promise<any | null> {
+  if (!playerId) return null;
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      `/players/${encodeURIComponent(playerId)}`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalSoccerCoach(apiKey: string, coachId: string): Promise<any | null> {
+  if (!coachId) return null;
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      `/coaches/${encodeURIComponent(coachId)}`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalSoccerLiveStorylines(apiKey: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      '/live-storylines',
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalSoccerTeamLineups(apiKey: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      '/team-lineups',
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
 export async function fetchStatPalStandings(apiKey: string, sport: string, tournamentId: string): Promise<any | null> {
   return fetchFirstJson(
     buildCandidateUrls(apiKey, sport, [

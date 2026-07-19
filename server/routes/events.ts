@@ -16,6 +16,12 @@ import {
   fetchSportsApiProH2H,
   fetchSportsSoccerH2HByTeams,
   fetchSportsApiProStandings,
+  fetchSportsSoccerInjuriesSuspensions,
+  fetchSportsSoccerTeam,
+  fetchSportsSoccerPlayer,
+  fetchSportsSoccerCoach,
+  fetchSportsSoccerLiveStorylines,
+  fetchSportsSoccerTeamLineups,
   getSportsDataProviderConfig,
 } from '../services/sportsDataProvider';
 import { deriveAdditionalMarkets } from '../services/marketDerivation';
@@ -2773,6 +2779,52 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       ]);
       incidentsCache.set(cacheKey, { ts: nowMs(), data: payload });
       sendJson(res, 200, payload);
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/soccer/injuries-suspensions') {
+      const raw = await callProvider('soccer_injuries', () => fetchSportsSoccerInjuriesSuspensions(apiKey)).catch(() => null);
+      const leagues = Array.isArray(raw?.injuries_suspensions?.league) ? raw.injuries_suspensions.league : [];
+      sendJson(res, 200, { injuries_suspensions: raw?.injuries_suspensions ?? null, leagues });
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/soccer/live-storylines') {
+      const raw = await callProvider('soccer_storylines', () => fetchSportsSoccerLiveStorylines(apiKey)).catch(() => null);
+      sendJson(res, 200, { storylines: raw?.live_storylines ?? null, meta: raw?.meta ?? null, raw });
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/soccer/team-lineups') {
+      const raw = await callProvider('soccer_team_lineups', () => fetchSportsSoccerTeamLineups(apiKey)).catch(() => null);
+      sendJson(res, 200, { lineups: raw ?? null });
+      return true;
+    }
+
+    const teamMatch = path.match(/^\/api\/teams\/([^/]+)$/);
+    if (teamMatch && req.method === 'GET') {
+      const teamId = decodeURIComponent(teamMatch[1] || '').trim();
+      if (!teamId) return sendJson(res, 400, { error: 'Missing team id' }), true;
+      const raw = await callProvider('soccer_team', () => fetchSportsSoccerTeam(apiKey, teamId)).catch(() => null);
+      sendJson(res, 200, { team: raw?.team ?? null, raw });
+      return true;
+    }
+
+    const playerMatch = path.match(/^\/api\/players\/([^/]+)$/);
+    if (playerMatch && req.method === 'GET') {
+      const playerId = decodeURIComponent(playerMatch[1] || '').trim();
+      if (!playerId) return sendJson(res, 400, { error: 'Missing player id' }), true;
+      const raw = await callProvider('soccer_player', () => fetchSportsSoccerPlayer(apiKey, playerId)).catch(() => null);
+      sendJson(res, 200, { player: raw?.player ?? null, raw });
+      return true;
+    }
+
+    const coachMatch = path.match(/^\/api\/coaches\/([^/]+)$/);
+    if (coachMatch && req.method === 'GET') {
+      const coachId = decodeURIComponent(coachMatch[1] || '').trim();
+      if (!coachId) return sendJson(res, 400, { error: 'Missing coach id' }), true;
+      const raw = await callProvider('soccer_coach', () => fetchSportsSoccerCoach(apiKey, coachId)).catch(() => null);
+      sendJson(res, 200, { coach: raw?.coach ?? null, raw });
       return true;
     }
 

@@ -19,6 +19,10 @@ import {
   fetchStatPalH2H,
   fetchStatPalSoccerH2HByTeams,
   fetchStatPalSoccerInjuriesSuspensions,
+  fetchStatPalSoccerLiveStorylines,
+  fetchStatPalSoccerTeamLineups,
+  fetchStatPalSoccerPlayer,
+  fetchStatPalSoccerCoach,
   fetchStatPalSoccerTeam,
   fetchStatPalLive,
   fetchStatPalMatchIncidents,
@@ -174,5 +178,25 @@ export async function fetchSportsSoccerInjuriesSuspensions(apiKey: string) {
 
 export async function fetchSportsSoccerTeam(apiKey: string, teamId: string) {
   if (resolveProviderName() === 'statpal') return fetchStatPalSoccerTeam(apiKey, teamId);
+  return null;
+}
+
+export async function fetchSportsSoccerPlayer(apiKey: string, playerId: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerPlayer(apiKey, playerId);
+  return null;
+}
+
+export async function fetchSportsSoccerCoach(apiKey: string, coachId: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerCoach(apiKey, coachId);
+  return null;
+}
+
+export async function fetchSportsSoccerLiveStorylines(apiKey: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerLiveStorylines(apiKey);
+  return null;
+}
+
+export async function fetchSportsSoccerTeamLineups(apiKey: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerTeamLineups(apiKey);
   return null;
 }
