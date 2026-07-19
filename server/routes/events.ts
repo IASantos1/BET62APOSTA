@@ -114,6 +114,56 @@ function pruneMarketsForList(sport: string, markets: Record<string, any[]>): Rec
   return markets;
 }
 
+function canonicalMarketKey(raw: string): string {
+  const key = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!key) return 'other';
+  if (['h2h', '1x2', 'match_winner', 'winner', 'match_result', 'full_time_result', 'resultado_final', 'home_away'].includes(key)) return 'h2h';
+  if (['totals', 'goals_over_under', 'goal_line', 'match_goals', 'goals_total', 'over_under', 'totals_full_time'].includes(key)) return 'totals';
+  if (['spreads', 'spread', 'handicap', 'asian_handicap', 'run_line', 'puck_line'].includes(key)) return 'spreads';
+  if (['double_chance', 'doublechance'].includes(key)) return 'double_chance';
+  if (['btts', 'both_teams_score', 'both_teams_to_score'].includes(key)) return 'btts';
+  if (['correct_score', 'exact_score', 'score_exact'].includes(key)) return 'correct_score';
+  return key;
+}
+
+function canonicalSelectionLabel(raw: any): string {
+  const s = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (!s) return '';
+  if (['home', 'casa', '1', 'home team', 'team 1', 'player 1'].includes(s)) return 'home';
+  if (['away', 'fora', '2', 'away team', 'team 2', 'player 2'].includes(s)) return 'away';
+  if (['draw', 'empate', 'x'].includes(s)) return 'draw';
+  return s;
+}
+
+function dedupeCanonicalMarkets(markets: Record<string, any[]>): Record<string, any[]> {
+  const out: Record<string, any[]> = {};
+  for (const [rawKey, rawLines] of Object.entries(markets || {})) {
+    if (!Array.isArray(rawLines) || rawLines.length === 0) continue;
+    const key = canonicalMarketKey(rawKey);
+    if (!out[key]) out[key] = [];
+    const seen = new Set(out[key].map((line: any) =>
+      `${canonicalSelectionLabel(line?.label ?? line?.value ?? '')}|${String(line?.handicap ?? line?.point ?? '').trim()}`
+    ));
+    for (const line of rawLines) {
+      const dedupeKey = `${canonicalSelectionLabel(line?.label ?? line?.value ?? '')}|${String(line?.handicap ?? line?.point ?? '').trim()}`;
+      if (!dedupeKey || seen.has(dedupeKey)) continue;
+      const normalized = { ...line };
+      if (normalized.label != null) normalized.label = canonicalSelectionLabel(normalized.label) || normalized.label;
+      if (normalized.value != null) normalized.value = canonicalSelectionLabel(normalized.value) || normalized.value;
+      out[key].push(normalized);
+      seen.add(dedupeKey);
+    }
+  }
+  return out;
+}
+
 export type EventsService = {
   handleEventsRoutes: (
     req: http.IncomingMessage,
@@ -1076,24 +1126,31 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const mergeOddsResults = (results: any[]): any | null => {
     const valid = results.filter(r => r != null);
     if (valid.length === 0) return null;
-    if (valid.length === 1) return valid[0];
+    if (valid.length === 1) {
+      const markets = dedupeCanonicalMarkets(valid[0]?.markets && typeof valid[0].markets === 'object' ? valid[0].markets : {});
+      return { ...valid[0], markets };
+    }
     const merged: Record<string, any[]> = {};
     for (const r of valid) {
       const markets = r.markets && typeof r.markets === 'object' ? r.markets : {};
       for (const [key, lines] of Object.entries(markets)) {
+        const canonicalKey = canonicalMarketKey(key);
         if (!Array.isArray(lines) || lines.length === 0) continue;
-        if (!merged[key]) {
-          merged[key] = lines;
-        } else {
-          const existing = merged[key];
-          const existingSet = new Set(existing.map((l: any) => `${String(l.label || l.value || '')}|${String(l.point || '')}`));
-          for (const line of lines) {
-            const k = `${String(line.label || line.value || '')}|${String(line.point || '')}`;
-            if (!existingSet.has(k)) {
-              existing.push(line);
-              existingSet.add(k);
-            }
-          }
+        if (!merged[canonicalKey]) {
+          merged[canonicalKey] = [];
+        }
+        const existing = merged[canonicalKey];
+        const existingSet = new Set(existing.map((l: any) =>
+          `${canonicalSelectionLabel(l.label || l.value || '')}|${String(l.handicap || l.point || '')}`
+        ));
+        for (const line of lines) {
+          const k = `${canonicalSelectionLabel(line?.label || line?.value || '')}|${String(line?.handicap || line?.point || '')}`;
+          if (!k || existingSet.has(k)) continue;
+          const normalized = { ...line };
+          if (normalized.label != null) normalized.label = canonicalSelectionLabel(normalized.label) || normalized.label;
+          if (normalized.value != null) normalized.value = canonicalSelectionLabel(normalized.value) || normalized.value;
+          existing.push(normalized);
+          existingSet.add(k);
         }
       }
     }
@@ -1108,7 +1165,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       home: pick('home'),
       draw: pick('draw'),
       away: pick('away'),
-      markets: merged,
+      markets: dedupeCanonicalMarkets(merged),
     };
   };
 
@@ -1140,7 +1197,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
           ctx.awayTeam || '',
         );
         // Derived markets fill gaps — real API odds always take priority
-        merged.markets = { ...derived, ...merged.markets };
+        merged.markets = dedupeCanonicalMarkets({ ...derived, ...merged.markets });
       }
       return merged;
     })()
@@ -1218,7 +1275,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const hasExistingOdds = rawHome0 > 1 && rawAway0 > 1;
 
     if (hasExistingOdds || hasExistingMarkets) {
-      const marketsAll = existingMk && typeof existingMk === 'object' ? existingMk : {};
+      const marketsAll = dedupeCanonicalMarkets(existingMk && typeof existingMk === 'object' ? existingMk : {});
       const markets =
         fullMarkets
           ? marketsAll
@@ -1257,7 +1314,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       },
       refreshBudget,
     ).catch(() => null);
-    const marketsAll = odds?.markets ? odds.markets : (existingMk && typeof existingMk === 'object' ? existingMk : {});
+    const marketsAll = dedupeCanonicalMarkets(odds?.markets ? odds.markets : (existingMk && typeof existingMk === 'object' ? existingMk : {}));
     const markets =
       fullMarkets
         ? marketsAll
@@ -1996,7 +2053,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     };
 
     if (realtime) {
-      const budget0 = { remaining: 0 };
+      const budget0 = { remaining: Math.min(24, live.length + Math.min(pregame.length, 8)) };
 
       const liveFiltered = includeLive ? live : [];
       const preFiltered = includePregame ? pregame : [];

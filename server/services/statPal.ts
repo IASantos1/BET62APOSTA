@@ -533,6 +533,26 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
     if (found) return { odds: found?.odds ?? [], match_info: found?.match_info ?? null };
   }
 
+  const genericCollections = [
+    Array.isArray(payload?.response) ? payload.response : null,
+    Array.isArray(payload?.data) ? payload.data : null,
+    Array.isArray(payload?.matches) ? payload.matches : null,
+    Array.isArray(payload?.events) ? payload.events : null,
+  ].filter(Boolean) as any[][];
+  for (const rows of genericCollections) {
+    const found = rows.find((match: any) => {
+      const ids = [
+        ...extractStatPalMatchIds(match),
+        String(match?.id ?? '').trim(),
+        String(match?.fixture?.id ?? '').trim(),
+        String(match?.match_id ?? '').trim(),
+        String(match?.event_id ?? '').trim(),
+      ].filter(Boolean);
+      return (matchId && ids.includes(matchId)) || matchByTeams(match);
+    });
+    if (found) return found;
+  }
+
   const prematchLeagues = payload?.prematch_odds?.league;
   if (prematchLeagues) {
     const leagues = Array.isArray(prematchLeagues) ? prematchLeagues : [prematchLeagues];
