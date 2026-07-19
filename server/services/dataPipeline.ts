@@ -148,16 +148,20 @@ export function buildSportsDataPipelineStatus(input: {
   apiKey?: string;
   eventsCache?: unknown;
   adminOddsEvents?: unknown;
+  provider?: string;
 }): SportsDataPipelineStatus {
   const cacheEvents = collectEvents(input.eventsCache);
   const adminOddsEvents = collectEvents(input.adminOddsEvents);
   const allEvents = [...cacheEvents, ...adminOddsEvents];
   const validation = buildFeedValidationReport(allEvents);
+  const provider = String(input.provider || 'sportsapipro').trim().toLowerCase() || 'sportsapipro';
+  const providerLabel = provider === 'statpal' ? 'StatPal' : 'SportsAPIPro';
 
   const feeds: FeedSourceStatus[] = [
     { key: 'sportradar', label: 'Sportradar', enabled: false, role: 'secondary' },
     { key: 'stats-perform', label: 'Stats Perform', enabled: false, role: 'secondary' },
-    { key: 'sportsapipro', label: 'SportsAPIPro', enabled: Boolean(String(input.apiKey || '').trim()), role: 'primary' },
+    { key: 'sportsapipro', label: 'SportsAPIPro', enabled: provider === 'sportsapipro' && Boolean(String(input.apiKey || '').trim()), role: provider === 'sportsapipro' ? 'primary' : 'secondary' },
+    { key: 'statpal', label: 'StatPal', enabled: provider === 'statpal' && Boolean(String(input.apiKey || '').trim()), role: provider === 'statpal' ? 'primary' : 'secondary' },
     { key: 'internal-scout', label: 'Feed proprio / Scout', enabled: false, role: 'manual' },
   ];
 
@@ -169,8 +173,8 @@ export function buildSportsDataPipelineStatus(input: {
     {
       key: 'ingestion',
       label: 'Feed Ingestion Service',
-      status: feeds.some((f) => f.key === 'sportsapipro' && f.enabled) ? 'active' : 'partial',
-      details: 'SportsAPIPro alimenta live, schedule, odds, stats, incidents e standings.',
+      status: feeds.some((f) => f.role === 'primary' && f.enabled) ? 'active' : 'partial',
+      details: `${providerLabel} alimenta live, schedule, odds, stats, incidents e standings.`,
     },
     {
       key: 'normalization',
@@ -211,7 +215,7 @@ export function buildSportsDataPipelineStatus(input: {
   ];
 
   return {
-    provider: 'SPORTSAPIPRO',
+    provider: provider.toUpperCase(),
     providerConfigured: Boolean(String(input.apiKey || '').trim()),
     feeds,
     stages,

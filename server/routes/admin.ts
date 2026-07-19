@@ -769,6 +769,7 @@ export async function handleAdminRoutes(
         apiKey,
         adminOddsEvents,
         eventsCache,
+        provider: getSportsDataProviderConfig().provider,
       }),
     );
     return true;
