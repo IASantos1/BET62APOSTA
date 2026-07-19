@@ -21,6 +21,10 @@ import {
   fetchStatPalSoccerInjuriesSuspensions,
   fetchStatPalSoccerLiveStorylines,
   fetchStatPalSoccerTeamLineups,
+  fetchStatPalSoccerWeatherForecast,
+  fetchStatPalSoccerPredictions,
+  fetchStatPalSoccerLiveOddsMarkets,
+  fetchStatPalSoccerLiveOddsMatchStates,
   fetchStatPalSoccerPlayer,
   fetchStatPalSoccerCoach,
   fetchStatPalSoccerTeam,
@@ -111,7 +115,7 @@ export async function fetchSportsApiProMatchOddsAll(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
 ) {
   if (resolveProviderName() === 'statpal') return fetchStatPalMatchOddsAll(apiKey, sport, matchId, opts);
   return sportsApiProFetchMatchOddsAll(apiKey, sport, matchId, opts);
@@ -121,7 +125,7 @@ export async function fetchSportsApiProMatchOddsLive(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
 ) {
   if (resolveProviderName() === 'statpal') return fetchStatPalMatchOddsLive(apiKey, sport, matchId, opts);
   return sportsApiProFetchMatchOddsLive(apiKey, sport, matchId, opts);
@@ -131,7 +135,7 @@ export async function fetchSportsApiProMatchOddsPreMatch(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
 ) {
   if (resolveProviderName() === 'statpal') return fetchStatPalMatchOddsPreMatch(apiKey, sport, matchId, opts);
   return sportsApiProFetchMatchOddsPreMatch(apiKey, sport, matchId, opts);
@@ -140,7 +144,7 @@ export async function fetchSportsApiProMatchOddsPreMatch(
 export function parseSportsApiProMatchOddsPayload(
   sport: string,
   payload: any,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
 ) {
   if (resolveProviderName() === 'statpal') return parseStatPalMatchOddsPayload(sport, payload, opts);
   return parseSportsApiProOddsPayload(sport, payload, opts);
@@ -198,5 +202,25 @@ export async function fetchSportsSoccerLiveStorylines(apiKey: string) {
 
 export async function fetchSportsSoccerTeamLineups(apiKey: string) {
   if (resolveProviderName() === 'statpal') return fetchStatPalSoccerTeamLineups(apiKey);
+  return null;
+}
+
+export async function fetchSportsSoccerWeatherForecast(apiKey: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerWeatherForecast(apiKey);
+  return null;
+}
+
+export async function fetchSportsSoccerPredictions(apiKey: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerPredictions(apiKey);
+  return null;
+}
+
+export async function fetchSportsSoccerLiveOddsMarkets(apiKey: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerLiveOddsMarkets(apiKey);
+  return null;
+}
+
+export async function fetchSportsSoccerLiveOddsMatchStates(apiKey: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerLiveOddsMatchStates(apiKey);
   return null;
 }

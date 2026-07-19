@@ -22,6 +22,10 @@ import {
   fetchSportsSoccerCoach,
   fetchSportsSoccerLiveStorylines,
   fetchSportsSoccerTeamLineups,
+  fetchSportsSoccerWeatherForecast,
+  fetchSportsSoccerPredictions,
+  fetchSportsSoccerLiveOddsMarkets,
+  fetchSportsSoccerLiveOddsMatchStates,
   getSportsDataProviderConfig,
 } from '../services/sportsDataProvider';
 import { deriveAdditionalMarkets } from '../services/marketDerivation';
@@ -1111,14 +1115,14 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const fetchOddsStrict = async (
     sport: string,
     matchId: string,
-    ctx: { isLive?: boolean; homeTeam?: string; awayTeam?: string; forceAll?: boolean } = {},
+    ctx: { isLive?: boolean; homeTeam?: string; awayTeam?: string; leagueId?: string; forceAll?: boolean } = {},
   ): Promise<any | null> => {
     const normalizedId = normalizeMatchId(sport, matchId);
     const key = `${sport}:${normalizedId}`;
     const inflight = oddsInflight.get(key);
     if (inflight) return inflight;
     const p = (async () => {
-      const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam };
+      const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam, leagueId: ctx.leagueId };
       const [allResult, liveResult, preResult] = await Promise.all([
         callProvider('odds', () => fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts)).catch(() => null),
         callProvider('odds', () => fetchSportsApiProMatchOddsLive(apiKey, sport, normalizedId, opts)).catch(() => null),
@@ -1155,7 +1159,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const fetchOddsBestEffort = async (
     sport: string,
     matchId: string,
-    ctx: { isLive?: boolean; homeTeam?: string; awayTeam?: string; forceAll?: boolean },
+    ctx: { isLive?: boolean; homeTeam?: string; awayTeam?: string; leagueId?: string; forceAll?: boolean },
     refreshBudget: { remaining: number } | null,
   ): Promise<any | null> => {
     const key = `${sport}:${matchId}`;
@@ -1249,6 +1253,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         isLive: isLiveLike(e),
         homeTeam: String(e?.home_team || ''),
         awayTeam: String(e?.away_team || ''),
+        leagueId: String(e?.fixture?.__league?.id ?? e?.fixture?.league_id ?? ''),
       },
       refreshBudget,
     ).catch(() => null);
@@ -2798,6 +2803,30 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     if (req.method === 'GET' && path === '/api/soccer/team-lineups') {
       const raw = await callProvider('soccer_team_lineups', () => fetchSportsSoccerTeamLineups(apiKey)).catch(() => null);
       sendJson(res, 200, { lineups: raw ?? null });
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/soccer/weather-forecast') {
+      const raw = await callProvider('soccer_weather_forecast', () => fetchSportsSoccerWeatherForecast(apiKey)).catch(() => null);
+      sendJson(res, 200, { weather: raw ?? null });
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/soccer/predictions') {
+      const raw = await callProvider('soccer_predictions', () => fetchSportsSoccerPredictions(apiKey)).catch(() => null);
+      sendJson(res, 200, { prediction: raw?.prediction ?? null, meta: raw?.meta ?? null, raw });
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/soccer/odds/live/markets') {
+      const raw = await callProvider('soccer_live_odds_markets', () => fetchSportsSoccerLiveOddsMarkets(apiKey)).catch(() => null);
+      sendJson(res, 200, { markets: Array.isArray(raw) ? raw : [] });
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/api/soccer/odds/live/match-states') {
+      const raw = await callProvider('soccer_live_match_states', () => fetchSportsSoccerLiveOddsMatchStates(apiKey)).catch(() => null);
+      sendJson(res, 200, { states: Array.isArray(raw) ? raw : [] });
       return true;
     }
 

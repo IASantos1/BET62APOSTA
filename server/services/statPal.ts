@@ -400,6 +400,23 @@ function buildCandidateUrls(apiKey: string, sport: string, paths: string[]): str
 
 function extractOddsRows(payload: any): any[] {
   if (!payload) return [];
+  if (Array.isArray(payload.odds)) {
+    const bookmakerRows = payload.odds.flatMap((market: any) => {
+      const books = Array.isArray(market?.bookmaker) ? market.bookmaker : [];
+      return books.map((book: any) => ({
+        title: market?.name ?? market?.label ?? market?.market ?? '',
+        suspended: String(market?.stop ?? '').toLowerCase() === 'true',
+        selections: Array.isArray(book?.odd)
+          ? book.odd.map((odd: any) => ({
+              name: odd?.name ?? odd?.label ?? '',
+              value: odd?.value ?? odd?.odd ?? '',
+              suspended: String(market?.stop ?? '').toLowerCase() === 'true',
+            }))
+          : [],
+      }));
+    });
+    if (bookmakerRows.length > 0) return bookmakerRows;
+  }
   if (Array.isArray(payload.markets)) return payload.markets;
   if (Array.isArray(payload.data?.markets)) return payload.data.markets;
   if (Array.isArray(payload.odds)) return payload.odds;
@@ -415,6 +432,67 @@ function extractOddsRows(payload: any): any[] {
     }
   }
   return [];
+}
+
+type StatPalOddsOpts = { homeTeam?: string; awayTeam?: string; matchId?: string; leagueId?: string };
+
+function extractStatPalMatchIds(match: any): string[] {
+  const ids = [
+    match?.main_id,
+    match?.fallback_id_1,
+    match?.fallback_id_2,
+    match?.fallback_id_3,
+    match?.match_info?.main_id,
+    match?.match_info?.fallback_id_1,
+    match?.match_info?.fallback_id_2,
+    match?.match_info?.fallback_id_3,
+  ]
+    .map((v) => String(v ?? '').trim())
+    .filter(Boolean);
+  return Array.from(new Set(ids));
+}
+
+function normalizeVsName(value: any): string {
+  return normalizeLabel(String(value ?? '').replace(/\s+vs\s+/i, ' '));
+}
+
+function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
+  if (!payload || !opts) return payload;
+  const matchId = String(opts.matchId || '').trim();
+  const homeKey = normalizeLabel(opts.homeTeam || '');
+  const awayKey = normalizeLabel(opts.awayTeam || '');
+  const matchByTeams = (match: any): boolean => {
+    const home = normalizeLabel(match?.home?.name ?? match?.team_info?.home?.name ?? '');
+    const away = normalizeLabel(match?.away?.name ?? match?.team_info?.away?.name ?? '');
+    if (homeKey && awayKey) {
+      return home === homeKey && away === awayKey;
+    }
+    const name = normalizeVsName(match?.match_info?.name ?? '');
+    return !!homeKey && !!awayKey && name.includes(homeKey) && name.includes(awayKey);
+  };
+
+  if (Array.isArray(payload?.live_matches)) {
+    const found = payload.live_matches.find((match: any) => {
+      const ids = extractStatPalMatchIds(match);
+      return (matchId && ids.includes(matchId)) || matchByTeams(match);
+    });
+    if (found) return { odds: found?.odds ?? [], match_info: found?.match_info ?? null };
+  }
+
+  const prematchLeagues = payload?.prematch_odds?.league;
+  if (prematchLeagues) {
+    const leagues = Array.isArray(prematchLeagues) ? prematchLeagues : [prematchLeagues];
+    for (const league of leagues) {
+      const matches = Array.isArray(league?.match) ? league.match : [];
+      const found = matches.find((match: any) => {
+        const ids = extractStatPalMatchIds(match);
+        return (matchId && ids.includes(matchId)) || matchByTeams(match);
+      });
+      if (found) return { odds: found?.odds ?? [], match: found, league };
+    }
+  }
+
+  return payload;
 }
 
 function normalizeLabel(raw: any): string {
@@ -464,9 +542,10 @@ function readSelectionOdd(selection: any): number {
 export function parseStatPalMatchOddsPayload(
   _sport: string,
   payload: any,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: StatPalOddsOpts
 ): OddsResult | null {
-  const rows = extractOddsRows(payload);
+  const scopedPayload = selectStatPalOddsPayload(payload, opts);
+  const rows = extractOddsRows(scopedPayload);
   if (!rows.length) return null;
   const markets: Record<string, any[]> = {};
   let home = 0;
@@ -555,7 +634,7 @@ export async function fetchStatPalMatchOddsAll(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: StatPalOddsOpts
 ): Promise<OddsResult | null> {
   const json = await fetchFirstJson(
     buildCandidateUrls(apiKey, sport, [
@@ -572,7 +651,7 @@ export async function fetchStatPalMatchOddsLive(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: StatPalOddsOpts
 ): Promise<OddsResult | null> {
   const json = await fetchFirstJson(
     buildCandidateUrls(apiKey, sport, [
@@ -582,14 +661,24 @@ export async function fetchStatPalMatchOddsLive(
     ]),
     PROVIDER_TIMEOUT_MS,
   );
-  return parseStatPalMatchOddsPayload(sport, json, opts);
+  let parsed = parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId });
+  if (!parsed && statPalSportPath(sport) === 'soccer') {
+    const liveJson = await fetchFirstJson(
+      buildCandidateUrls(apiKey, sport, [
+        '/odds/live',
+      ]),
+      PROVIDER_TIMEOUT_MS,
+    );
+    parsed = parseStatPalMatchOddsPayload(sport, liveJson, { ...opts, matchId });
+  }
+  return parsed;
 }
 
 export async function fetchStatPalMatchOddsPreMatch(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: StatPalOddsOpts
 ): Promise<OddsResult | null> {
   const json = await fetchFirstJson(
     buildCandidateUrls(apiKey, sport, [
@@ -600,7 +689,17 @@ export async function fetchStatPalMatchOddsPreMatch(
     ]),
     PROVIDER_TIMEOUT_MS,
   );
-  return parseStatPalMatchOddsPayload(sport, json, opts);
+  let parsed = parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId });
+  if (!parsed && statPalSportPath(sport) === 'soccer' && opts?.leagueId) {
+    const prematchJson = await fetchFirstJson(
+      buildCandidateUrls(apiKey, sport, [
+        `/leagues/${encodeURIComponent(opts.leagueId)}/odds/prematch`,
+      ]),
+      PROVIDER_TIMEOUT_MS,
+    );
+    parsed = parseStatPalMatchOddsPayload(sport, prematchJson, { ...opts, matchId });
+  }
+  return parsed;
 }
 
 export async function fetchStatPalMatchStatistics(apiKey: string, sport: string, matchId: string): Promise<any | null> {
@@ -702,6 +801,42 @@ export async function fetchStatPalSoccerTeamLineups(apiKey: string): Promise<any
   return fetchFirstJson(
     buildCandidateUrls(apiKey, 'soccer', [
       '/team-lineups',
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalSoccerWeatherForecast(apiKey: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      '/weather-forecast',
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalSoccerPredictions(apiKey: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      '/predictions',
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalSoccerLiveOddsMarkets(apiKey: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      '/odds/live/markets',
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalSoccerLiveOddsMatchStates(apiKey: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      '/odds/live/match-states',
     ]),
     PROVIDER_TIMEOUT_MS,
   );

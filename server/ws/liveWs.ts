@@ -68,7 +68,7 @@ export function createLiveWs(apiKey: string) {
   const snapshotCache = new Map<string, { ts: number; live: any[] }>();
   const snapshotInflight = new Set<string>();
   const upstreamState = new Map<string, Map<string, UpstreamStateEntry>>();
-  const matchMeta = new Map<string, { ts: number; sport: string; homeTeam: string; awayTeam: string }>();
+  const matchMeta = new Map<string, { ts: number; sport: string; homeTeam: string; awayTeam: string; leagueId?: string }>();
   const oddsSubscribed = new Map<string, number>();
   const criticalIncidentCache = new Map<string, CriticalIncidentEntry>();
   const criticalIncidentInflight = new Map<string, Promise<void>>();
@@ -1163,7 +1163,7 @@ export function createLiveWs(apiKey: string) {
     if (inflight) return inflight;
 
     const p = (async () => {
-      const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam };
+      const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam, leagueId: ctx.leagueId };
       const [allResult, liveResult, preResult] = await Promise.all([
         fetchSportsApiProMatchOddsAll(apiKey, sport, id, opts).catch(() => null),
         fetchSportsApiProMatchOddsLive(apiKey, sport, id, opts).catch(() => null),
@@ -1204,7 +1204,13 @@ export function createLiveWs(apiKey: string) {
       const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
       const evSport = String(e?.sport || sp);
       const key = `${evSport}:${normalizeMatchId(evSport, id)}`;
-      matchMeta.set(key, { ts: Date.now(), sport: evSport, homeTeam: String(e?.home_team || ''), awayTeam: String(e?.away_team || '') });
+      matchMeta.set(key, {
+        ts: Date.now(),
+        sport: evSport,
+        homeTeam: String(e?.home_team || ''),
+        awayTeam: String(e?.away_team || ''),
+        leagueId: String(e?.fixture?.__league?.id ?? e?.fixture?.league_id ?? ''),
+      });
       const st = upstreamState.get(evSport)?.get(id) || upstreamState.get(sp)?.get(id) || null;
       if (st && Date.now() - st.ts < 2 * 60_000) {
         const patched: any = { ...e, id, sport: evSport };

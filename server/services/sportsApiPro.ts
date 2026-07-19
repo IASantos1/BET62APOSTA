@@ -1351,7 +1351,7 @@ export async function fetchSportsApiProMatchOddsAll(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
 ): Promise<OddsResult | null> {
   return fetchSportsApiProMatchOddsGeneric(apiKey, sport, matchId, 'all', opts);
 }
@@ -1360,7 +1360,7 @@ export async function fetchSportsApiProMatchOddsLive(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
 ): Promise<OddsResult | null> {
   return fetchSportsApiProMatchOddsGeneric(apiKey, sport, matchId, 'live', opts);
 }
@@ -1369,7 +1369,7 @@ export async function fetchSportsApiProMatchOddsPreMatch(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
 ): Promise<OddsResult | null> {
   return fetchSportsApiProMatchOddsGeneric(apiKey, sport, matchId, 'pre-match', opts);
 }
@@ -1377,7 +1377,7 @@ export async function fetchSportsApiProMatchOddsPreMatch(
 export function parseSportsApiProMatchOddsPayload(
   sport: string,
   payload: any,
-  opts?: { homeTeam?: string; awayTeam?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
 ): OddsResult | null {
   if (!payload) return null;
   const rows = extractOddsAll(payload);

@@ -896,6 +896,10 @@ export async function handleAdminRoutes(
                 { label: `Injuries & suspensions (${sport})`, url: 'https://statpal.io/api/v2/soccer/injuries-suspensions' },
                 { label: `Live storylines (${sport})`, url: 'https://statpal.io/api/v2/soccer/live-storylines' },
                 { label: `Team lineups (${sport})`, url: 'https://statpal.io/api/v2/soccer/team-lineups' },
+                { label: `Weather forecast (${sport})`, url: 'https://statpal.io/api/v2/soccer/weather-forecast' },
+                { label: `Predictions (${sport})`, url: 'https://statpal.io/api/v2/soccer/predictions' },
+                { label: `Live odds markets (${sport})`, url: 'https://statpal.io/api/v2/soccer/odds/live/markets' },
+                { label: `Live match states (${sport})`, url: 'https://statpal.io/api/v2/soccer/odds/live/match-states' },
               ]
             : [
                 { label: `Live scores (${sport})`, url: `https://statpal.io/api/v1/${statpalSport}/livescores` },
