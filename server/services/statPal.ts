@@ -576,6 +576,11 @@ type StatPalOddsOpts = { homeTeam?: string; awayTeam?: string; matchId?: string;
 
 function extractStatPalMatchIds(match: any): string[] {
   const ids = [
+    match?.id,
+    match?.match_id,
+    match?.event_id,
+    match?.fixture_id,
+    match?.fixture?.id,
     match?.main_id,
     match?.fallback_id_1,
     match?.fallback_id_2,
@@ -584,6 +589,8 @@ function extractStatPalMatchIds(match: any): string[] {
     match?.match_info?.fallback_id_1,
     match?.match_info?.fallback_id_2,
     match?.match_info?.fallback_id_3,
+    match?.match_info?.match_id,
+    match?.match_info?.id,
   ]
     .map((v) => String(v ?? '').trim())
     .filter(Boolean);
@@ -592,6 +599,16 @@ function extractStatPalMatchIds(match: any): string[] {
 
 function normalizeVsName(value: any): string {
   return normalizeLabel(String(value ?? '').replace(/\s+vs\s+/i, ' '));
+}
+
+function flattenStatPalLeagueMatches(blocks: any[]): any[] {
+  const out: any[] = [];
+  for (const block of blocks) {
+    const rows = block?.match ?? block?.matches ?? block?.events ?? block?.games ?? [];
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) out.push(row);
+  }
+  return out;
 }
 
 function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
@@ -608,46 +625,46 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
     const name = normalizeVsName(match?.match_info?.name ?? '');
     return !!homeKey && !!awayKey && name.includes(homeKey) && name.includes(awayKey);
   };
-
-  if (Array.isArray(payload?.live_matches)) {
-    const found = payload.live_matches.find((match: any) => {
+  const findMatch = (rows: any[]): any | null => {
+    const found = rows.find((match: any) => {
       const ids = extractStatPalMatchIds(match);
       return (matchId && ids.includes(matchId)) || matchByTeams(match);
     });
-    if (found) return { odds: found?.odds ?? [], match_info: found?.match_info ?? null };
+    return found || null;
+  };
+
+  const directLiveMatches = [
+    ...(Array.isArray(payload?.live_matches) ? payload.live_matches : []),
+    ...(Array.isArray(payload?.data?.live_matches) ? payload.data.live_matches : []),
+    ...(Array.isArray(payload?.upcoming_matches) ? payload.upcoming_matches : []),
+    ...(Array.isArray(payload?.data?.upcoming_matches) ? payload.data.upcoming_matches : []),
+  ];
+  const directFound = findMatch(directLiveMatches);
+  if (directFound) return { odds: directFound?.odds ?? [], match_info: directFound?.match_info ?? null, match: directFound };
+
+  const leagueCollections = [
+    ...(Array.isArray(payload?.live_matches?.league) ? [payload.live_matches.league] : []),
+    ...(Array.isArray(payload?.data?.live_matches?.league) ? [payload.data.live_matches.league] : []),
+    ...(Array.isArray(payload?.upcoming_matches?.league) ? [payload.upcoming_matches.league] : []),
+    ...(Array.isArray(payload?.data?.upcoming_matches?.league) ? [payload.data.upcoming_matches.league] : []),
+    ...(Array.isArray(payload?.prematch_odds?.league) ? [payload.prematch_odds.league] : []),
+    ...(Array.isArray(payload?.data?.prematch_odds?.league) ? [payload.data.prematch_odds.league] : []),
+  ];
+  for (const leagues of leagueCollections) {
+    const found = findMatch(flattenStatPalLeagueMatches(leagues));
+    if (found) return { odds: found?.odds ?? [], match_info: found?.match_info ?? null, match: found };
   }
 
   const genericCollections = [
     Array.isArray(payload?.response) ? payload.response : null,
     Array.isArray(payload?.data) ? payload.data : null,
+    Array.isArray(payload?.data?.response) ? payload.data.response : null,
     Array.isArray(payload?.matches) ? payload.matches : null,
     Array.isArray(payload?.events) ? payload.events : null,
   ].filter(Boolean) as any[][];
   for (const rows of genericCollections) {
-    const found = rows.find((match: any) => {
-      const ids = [
-        ...extractStatPalMatchIds(match),
-        String(match?.id ?? '').trim(),
-        String(match?.fixture?.id ?? '').trim(),
-        String(match?.match_id ?? '').trim(),
-        String(match?.event_id ?? '').trim(),
-      ].filter(Boolean);
-      return (matchId && ids.includes(matchId)) || matchByTeams(match);
-    });
+    const found = findMatch(rows);
     if (found) return found;
-  }
-
-  const prematchLeagues = payload?.prematch_odds?.league;
-  if (prematchLeagues) {
-    const leagues = Array.isArray(prematchLeagues) ? prematchLeagues : [prematchLeagues];
-    for (const league of leagues) {
-      const matches = Array.isArray(league?.match) ? league.match : [];
-      const found = matches.find((match: any) => {
-        const ids = extractStatPalMatchIds(match);
-        return (matchId && ids.includes(matchId)) || matchByTeams(match);
-      });
-      if (found) return { odds: found?.odds ?? [], match: found, league };
-    }
   }
 
   return payload;
@@ -674,11 +691,25 @@ function isAwayLikeLabel(labelKey: string): boolean {
 function inferMarketKey(title: string): string {
   const t = normalizeLabel(title);
   if (!t) return 'other';
-  if (/(match winner|1x2|full time result|resultado final|winner)/.test(t)) return 'h2h';
-  if (/(both teams to score|btts)/.test(t)) return 'btts';
-  if (/(over under|total goals|totals|total games|games total|total rounds)/.test(t)) return 'totals';
-  if (/(double chance)/.test(t)) return 'double_chance';
+  if (/(double chance).*(first half|1st half)|(^first half|^1st half).*(double chance)/.test(t)) return 'double_chance_1st_half';
+  if (/(double chance).*(second half|2nd half)|(^second half|^2nd half).*(double chance)/.test(t)) return 'double_chance_2nd_half';
+  if (/(draw no bet|dnb|empate anula).*(first half|1st half)|(^first half|^1st half).*(draw no bet|dnb|empate anula)/.test(t)) return 'draw_no_bet_1st_half';
+  if (/(draw no bet|dnb|empate anula).*(second half|2nd half)|(^second half|^2nd half).*(draw no bet|dnb|empate anula)/.test(t)) return 'draw_no_bet_2nd_half';
+  if (/(draw no bet|dnb|empate anula)/.test(t)) return 'draw_no_bet';
+  if (/(results? both teams score|results? both teams to score|both teams score result|both teams to score result)/.test(t)) return 'btts_and_result';
+  if (/(both teams (to )?score|btts).*(first half|1st half)|(^first half|^1st half).*(both teams (to )?score|btts)/.test(t)) return 'btts_first_half';
+  if (/(both teams (to )?score|btts).*(second half|2nd half)|(^second half|^2nd half).*(both teams (to )?score|btts)/.test(t)) return 'btts_second_half';
+  if (/(both teams (to )?score|btts)/.test(t)) return 'btts';
+  if (/(goals over under|goal line|over under|total goals|totals|total games|games total|total rounds).*(first half|1st half)|(^first half|^1st half).*(goals over under|goal line|over under|total goals|totals|total games|games total|total rounds)/.test(t)) return '1st_half_totals';
+  if (/(goals over under|goal line|over under|total goals|totals|total games|games total|total rounds).*(second half|2nd half)|(^second half|^2nd half).*(goals over under|goal line|over under|total goals|totals|total games|games total|total rounds)/.test(t)) return '2nd_half_totals';
+  if (/(over under|goal line|total goals|totals|total games|games total|total rounds)/.test(t)) return 'totals';
+  if (/(first half winner|1st half winner|half time result|first half result)/.test(t)) return 'first_half_h2h';
+  if (/(second half winner|2nd half winner|second half result)/.test(t)) return 'second_half_h2h';
+  if (/^(match winner|1x2|full time result|resultado final|winner)$/.test(t)) return 'h2h';
+  if (/^home away$/.test(t)) return 'home_away';
   if (/(correct score|placar exato)/.test(t)) return 'correct_score';
+  if (/(asian handicap).*(first half|1st half)|(^first half|^1st half).*(asian handicap)/.test(t)) return '1st_half_spreads';
+  if (/(asian handicap).*(second half|2nd half)|(^second half|^2nd half).*(asian handicap)/.test(t)) return '2nd_half_spreads';
   if (/(handicap|spread)/.test(t)) return 'spreads';
   if (/(next game winner)/.test(t)) return 'next_game_winner';
   if (/(set winner|current set winner)/.test(t)) return 'current_set_winner';
