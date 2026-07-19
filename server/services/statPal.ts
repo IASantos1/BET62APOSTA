@@ -189,13 +189,21 @@ function extractEvents(payload: any): any[] {
   };
 
   if (Array.isArray(payload?.live_matches?.league)) return flattenLeagueBlocks(payload.live_matches.league);
+  if (Array.isArray(payload?.data?.live_matches?.league)) return flattenLeagueBlocks(payload.data.live_matches.league);
   if (Array.isArray(payload?.upcoming_matches?.league)) return flattenLeagueBlocks(payload.upcoming_matches.league);
+  if (Array.isArray(payload?.data?.upcoming_matches?.league)) return flattenLeagueBlocks(payload.data.upcoming_matches.league);
   if (Array.isArray(payload?.live_matches)) return flattenDirectMatchRows(payload.live_matches, { __from_live_endpoint: true });
+  if (Array.isArray(payload?.data?.live_matches)) return flattenDirectMatchRows(payload.data.live_matches, { __from_live_endpoint: true });
   if (Array.isArray(payload?.upcoming_matches)) return flattenDirectMatchRows(payload.upcoming_matches);
+  if (Array.isArray(payload?.data?.upcoming_matches)) return flattenDirectMatchRows(payload.data.upcoming_matches);
   if (Array.isArray(payload?.prematch_odds?.league)) return flattenPrematchLeagueBlocks(payload.prematch_odds.league);
+  if (Array.isArray(payload?.data?.prematch_odds?.league)) return flattenPrematchLeagueBlocks(payload.data.prematch_odds.league);
   if (Array.isArray(payload?.league)) return flattenLeagueBlocks(payload.league);
   if (Array.isArray(payload?.matches?.tournament?.week)) {
     return flattenTournamentWeeks(payload.matches.tournament.week, payload.matches.tournament);
+  }
+  if (Array.isArray(payload?.data?.matches?.tournament?.week)) {
+    return flattenTournamentWeeks(payload.data.matches.tournament.week, payload.data.matches.tournament);
   }
   for (const [key, value] of Object.entries(payload)) {
     if (!/^matches_\d{2}_\d{2}_\d{4}$/i.test(String(key))) continue;
@@ -213,7 +221,9 @@ function extractEvents(payload: any): any[] {
   if (Array.isArray(payload.livescores)) return payload.livescores;
   if (Array.isArray(payload.data?.livescores)) return payload.data.livescores;
   if (Array.isArray(payload?.live_matches?.matches)) return payload.live_matches.matches;
+  if (Array.isArray(payload?.data?.live_matches?.matches)) return payload.data.live_matches.matches;
   if (Array.isArray(payload?.upcoming_matches?.matches)) return payload.upcoming_matches.matches;
+  if (Array.isArray(payload?.data?.upcoming_matches?.matches)) return payload.data.upcoming_matches.matches;
   const blocks = payload.data?.tournaments ?? payload.tournaments ?? payload.data?.leagues ?? payload.leagues;
   if (Array.isArray(blocks)) {
     const out: any[] = [];
@@ -469,6 +479,12 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
 function sportBaseUrls(sport: string): string[] {
   const mapped = statPalSportPath(sport);
   const version = statPalVersion(sport);
+  if (mapped === 'soccer') {
+    return [
+      'https://statpal.io/api/v2/soccer',
+      'https://statpal.io/api/v1/soccer',
+    ];
+  }
   return [`https://statpal.io/api/${version}/${mapped}`];
 }
 
