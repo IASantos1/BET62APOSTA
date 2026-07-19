@@ -691,7 +691,9 @@ export function useSportsEvents(
                   const pregameMax = safeCategory === 'all' ? 500 : 500;
                   const filteredPregame = limitPregameAll(pregameBase, pregameMax);
           const maxLive = safeCategory === 'all' ? 100 : 60;
-          const finalLive = preferOdds(filteredLive, maxLive * 2).filter(hasPrimaryOdds).slice(0, maxLive);
+          const preferredLive = preferOdds(filteredLive, maxLive * 2);
+          const liveWithOdds = preferredLive.filter(hasPrimaryOdds);
+          const finalLive = (liveWithOdds.length > 0 ? liveWithOdds : preferredLive).slice(0, maxLive);
           
           const finalPregame = filteredPregame;
 
@@ -774,7 +776,9 @@ export function useSportsEvents(
             const isAllowedSport = (e: Event) => !blockedSports.has(sportKey(e));
 
             const maxLive = safeCategory === 'all' ? 100 : 60;
-            const finalLive = preferOdds(activeLive.filter(isAllowedSport), maxLive * 2).filter(hasPrimaryOdds).slice(0, maxLive);
+            const preferredLive = preferOdds(activeLive.filter(isAllowedSport), maxLive * 2);
+            const liveWithOdds = preferredLive.filter(hasPrimaryOdds);
+            const finalLive = (liveWithOdds.length > 0 ? liveWithOdds : preferredLive).slice(0, maxLive);
             const pregameBase = preferOdds(activePregame.filter(isTodayAdjusted), 500);
 
             const sportRank = (s: string) => {
