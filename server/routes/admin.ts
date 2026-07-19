@@ -1,6 +1,6 @@
 import type http from 'http';
 import type pg from 'pg';
-import path from 'node:path';
+import nodePath from 'node:path';
 import { promises as fs } from 'node:fs';
 import { randomId } from '../lib/crypto';
 import { readJsonBody, sendJson, badRequest, unauthorized, forbid } from '../lib/http';
@@ -40,6 +40,7 @@ function toSub(sport: string): string {
 }
 
 function detectSportsApiEnvSource(): string {
+  if (process.env.STATPAL_ACCESS_KEY) return 'STATPAL_ACCESS_KEY';
   if (process.env.SPORTS_API_PRO_KEY) return 'SPORTS_API_PRO_KEY';
   if (process.env.SPORTSAPIPRO_KEY) return 'SPORTSAPIPRO_KEY';
   if (process.env.SPORTSAPI_PRO_KEY) return 'SPORTSAPI_PRO_KEY';
@@ -518,7 +519,7 @@ export async function handleAdminRoutes(
     );
     const row = r.rows?.[0];
     if (!row?.storage_path) return badRequest(res, 'Documento não encontrado'), true;
-    const abs = path.join(getKycStorageRoot(), String(row.storage_path));
+    const abs = nodePath.join(getKycStorageRoot(), String(row.storage_path));
     const file = await fs.readFile(abs).catch(() => null);
     if (!file) return badRequest(res, 'Ficheiro não encontrado'), true;
     res.statusCode = 200;
@@ -793,7 +794,7 @@ export async function handleAdminRoutes(
       config: providerConfig,
       metrics: providerMetrics,
       warnings: [
-        !apiKey ? `${activeProvider === 'statpal' ? 'STATPAL_KEY' : 'SPORTS_API_PRO_KEY'} ausente` : '',
+        !apiKey ? `${activeProvider === 'statpal' ? 'STATPAL_ACCESS_KEY' : 'SPORTS_API_PRO_KEY'} ausente` : '',
         activeProvider !== 'statpal' && detectSportsApiEnvSource() && detectSportsApiEnvSource() !== 'SPORTS_API_PRO_KEY'
           ? `alias legado em uso: ${detectSportsApiEnvSource()}`
           : '',

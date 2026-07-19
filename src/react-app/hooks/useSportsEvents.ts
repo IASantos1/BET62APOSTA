@@ -503,12 +503,26 @@ export function useSportsEvents(
                 : (sportParam === 'all' ? '2' : '7'));
         params.set('days', days);
 
-                const url = `/api/events/by-sport?${params.toString()}`;
+        const url = `/api/events/by-sport?${params.toString()}`;
         __dbg('H2', 'http-fetch-start', { category: String(safeCategory || ''), sports: String(sportParam || ''), league: leagueFilter || null, url });
-        const data = await apiFetch<any>(url, { signal: controller.signal, timeout: only === 'pregame' ? 20000 : 12000 });
+        let data = await apiFetch<any>(url, { signal: controller.signal, timeout: only === 'pregame' ? 20000 : 12000 });
 
         const liveCount = Array.isArray(data?.live) ? data.live.length : 0;
         const pregameCount = Array.isArray(data?.pregame) ? data.pregame.length : 0;
+        if (requireOdds && liveCount === 0 && pregameCount === 0) {
+          const retryParams = new URLSearchParams(params);
+          retryParams.delete('requireOdds');
+          const retryUrl = `/api/events/by-sport?${retryParams.toString()}`;
+          const retryData = await apiFetch<any>(
+            retryUrl,
+            { signal: controller.signal, timeout: only === 'pregame' ? 20000 : 12000 },
+          ).catch(() => null);
+          const retryLiveCount = Array.isArray(retryData?.live) ? retryData.live.length : 0;
+          const retryPregameCount = Array.isArray(retryData?.pregame) ? retryData.pregame.length : 0;
+          if (retryData && (retryLiveCount > 0 || retryPregameCount > 0)) {
+            data = retryData;
+          }
+        }
 
         __dbg('H2', 'http-fetch-done', { category: String(safeCategory || ''), sports: String(sportParam || ''), liveCount, pregameCount });
 

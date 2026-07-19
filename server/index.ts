@@ -97,10 +97,10 @@ const sportsApiKeyEnv = providerConfig.envSource || '';
 const sportsApiKey = providerConfig.apiKey;
 if (!sportsApiKey) {
   console.warn(
-    `[server] WARNING: No sports provider key found for "${sportsProvider}". Sports data endpoints will return empty. Set ${sportsProvider === 'statpal' ? 'STATPAL_KEY' : 'SPORTS_API_PRO_KEY'}.`,
+    `[server] WARNING: No sports provider key found for "${sportsProvider}". Sports data endpoints will return empty. Set ${sportsProvider === 'statpal' ? 'STATPAL_ACCESS_KEY' : 'SPORTS_API_PRO_KEY'}.`,
   );
 } else if (sportsProvider === 'statpal' && sportsApiKeyEnv === 'SPORTS_API_KEY') {
-  console.warn('[server] WARNING: Using generic SPORTS_API_KEY for "statpal". Prefer STATPAL_KEY.');
+  console.warn('[server] WARNING: Using generic SPORTS_API_KEY for "statpal". Prefer STATPAL_ACCESS_KEY.');
 } else if (sportsProvider !== 'statpal' && sportsApiKeyEnv && sportsApiKeyEnv !== 'SPORTS_API_PRO_KEY') {
   console.warn(
     `[server] WARNING: Using legacy sports key env "${sportsApiKeyEnv}". Prefer SPORTS_API_PRO_KEY.`,

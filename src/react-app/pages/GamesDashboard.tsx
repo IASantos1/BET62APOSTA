@@ -128,10 +128,29 @@ export default function GamesDashboard() {
 
   const fetchEvents = async () => {
     try {
-      const data = await apiFetch<any>(
-        '/api/events/by-sport?sports=all&include=odds&only=both&days=3&realtime=0',
+      let data = await apiFetch<any>(
+        '/api/events/by-sport?sports=all&include=odds&only=both&days=3&realtime=0&requireOdds=1',
         { cache: 'no-store', timeout: 20000 },
       );
+      const structuredCount =
+        (Array.isArray(data?.live) ? data.live.length : 0) +
+        (Array.isArray(data?.pregame) ? data.pregame.length : 0);
+      const flatCount =
+        Array.isArray(data?.response) ? data.response.length :
+        Array.isArray(data) ? data.length : 0;
+      if (structuredCount === 0 && flatCount === 0) {
+        const retryData = await apiFetch<any>(
+          '/api/events/by-sport?sports=all&include=odds&only=both&days=3&realtime=0',
+          { cache: 'no-store', timeout: 20000 },
+        ).catch(() => null);
+        const retryStructuredCount =
+          (Array.isArray(retryData?.live) ? retryData.live.length : 0) +
+          (Array.isArray(retryData?.pregame) ? retryData.pregame.length : 0);
+        const retryFlatCount =
+          Array.isArray(retryData?.response) ? retryData.response.length :
+          Array.isArray(retryData) ? retryData.length : 0;
+        if (retryData && (retryStructuredCount > 0 || retryFlatCount > 0)) data = retryData;
+      }
       
       let raw: Event[] = [];
       if (Array.isArray(data)) {

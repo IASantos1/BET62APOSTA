@@ -4,6 +4,8 @@ export interface NormalizedEvent {
   league: string;
   home_team: string;
   away_team: string;
+  home_team_id?: string;
+  away_team_id?: string;
   team_match: string;
   event_date: string;
   status: string;

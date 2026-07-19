@@ -1133,7 +1133,7 @@ export function createLiveWs(apiKey: string) {
   const fetchOddsBestEffort = async (
     sport: string,
     matchId: string,
-    ctx: { homeTeam?: string; awayTeam?: string },
+    ctx: { homeTeam?: string; awayTeam?: string; leagueId?: string },
     budget: { remaining: number } | null,
   ): Promise<any | null> => {
     const id = normalizeMatchId(sport, matchId);

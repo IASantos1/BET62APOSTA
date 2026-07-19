@@ -42,18 +42,20 @@ import {
   fetchStatPalWorldCup2026Info,
   fetchStatPalWorldCup2026Matches,
   parseStatPalMatchOddsPayload,
-} from './statPal.js';
+} from './statpal.js';
 
 export type SportsDataProviderName = 'sportsapipro' | 'statpal';
 
 function resolveProviderName(): SportsDataProviderName {
   const raw = String(process.env.SPORTS_PROVIDER || '').trim().toLowerCase();
   if (raw === 'statpal') return 'statpal';
+  if (process.env.STATPAL_ACCESS_KEY || process.env.STATPAL_KEY) return 'statpal';
   return 'sportsapipro';
 }
 
 function resolveProviderApiKey(provider: SportsDataProviderName): { apiKey: string; envSource: string } {
   if (provider === 'statpal') {
+    if (process.env.STATPAL_ACCESS_KEY) return { apiKey: String(process.env.STATPAL_ACCESS_KEY || '').trim(), envSource: 'STATPAL_ACCESS_KEY' };
     if (process.env.STATPAL_KEY) return { apiKey: String(process.env.STATPAL_KEY || '').trim(), envSource: 'STATPAL_KEY' };
     if (process.env.SPORTS_API_KEY) return { apiKey: String(process.env.SPORTS_API_KEY || '').trim(), envSource: 'SPORTS_API_KEY' };
     return { apiKey: '', envSource: '' };
@@ -76,9 +78,14 @@ export function getSportsDataProviderConfig() {
   };
 }
 
-export async function fetchSportsApiProV1AllScoresDelta(apiKey: string, sport: string) {
+export async function fetchSportsApiProV1AllScoresDelta(
+  apiKey: string,
+  sport: string,
+  lastUpdateId?: string | null,
+  date?: Date,
+) {
   if (resolveProviderName() === 'statpal') return fetchStatPalV1AllScoresDelta(apiKey, sport);
-  return sportsApiProFetchV1AllScoresDelta(apiKey, sport);
+  return sportsApiProFetchV1AllScoresDelta(apiKey, sport, lastUpdateId, date);
 }
 
 export async function fetchSportsApiProLive(apiKey: string, sport: string) {

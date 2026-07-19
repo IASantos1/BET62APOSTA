@@ -163,7 +163,24 @@ export function useEvents(category?: string) {
       if (path.includes('?')) path += '&include=odds&requireOdds=1';
       else path += '?include=odds&requireOdds=1';
 
-      const data = await apiFetch<any>(path, { cache: 'no-store', signal: ctrl.signal });
+      let data = await apiFetch<any>(path, { cache: 'no-store', signal: ctrl.signal });
+      const structuredCount =
+        (Array.isArray((data as any)?.live) ? (data as any).live.length : 0) +
+        (Array.isArray((data as any)?.pregame) ? (data as any).pregame.length : 0);
+      const flatCount =
+        Array.isArray((data as any)?.response) ? (data as any).response.length :
+        Array.isArray(data) ? data.length : 0;
+      if (structuredCount === 0 && flatCount === 0 && path.includes('requireOdds=1')) {
+        const retryPath = path.replace(/([?&])requireOdds=1(&)?/, (_m, prefix, suffix) => suffix ? prefix : '');
+        const retryData = await apiFetch<any>(retryPath, { cache: 'no-store', signal: ctrl.signal }).catch(() => null);
+        const retryStructuredCount =
+          (Array.isArray((retryData as any)?.live) ? (retryData as any).live.length : 0) +
+          (Array.isArray((retryData as any)?.pregame) ? (retryData as any).pregame.length : 0);
+        const retryFlatCount =
+          Array.isArray((retryData as any)?.response) ? (retryData as any).response.length :
+          Array.isArray(retryData) ? retryData.length : 0;
+        if (retryData && (retryStructuredCount > 0 || retryFlatCount > 0)) data = retryData;
+      }
       console.log('[useEvents] Raw API data:', data);
       // Handle API response formats:
       // 1. { response: [...] } - API-Football style
