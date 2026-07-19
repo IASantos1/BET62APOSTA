@@ -883,11 +883,10 @@ export async function handleAdminRoutes(
       ? (
           statpalSport === 'soccer'
             ? [
+                { label: `Leagues (${sport})`, url: 'https://statpal.io/api/v2/soccer/leagues' },
+                { label: `League seasons (${sport})`, url: 'https://statpal.io/api/v2/soccer/leagues/seasons' },
                 { label: `Live matches (${sport})`, url: 'https://statpal.io/api/v2/soccer/matches/live' },
-                // The provider has returned intermittent 500s on /matches/daily?offset=0.
-                // Keep the admin probe aligned with the runtime adapter, which uses live
-                // data for "today" and only falls back to date-based schedule paths later.
-                { label: `Matches by date (${sport})`, url: `https://statpal.io/api/v2/soccer/matches?date=${today}` },
+                { label: `Daily matches -1 (${sport})`, url: 'https://statpal.io/api/v2/soccer/matches/daily?offset=-1' },
                 { label: `Live odds (${sport})`, url: 'https://statpal.io/api/v2/soccer/odds/live' },
               ]
             : [

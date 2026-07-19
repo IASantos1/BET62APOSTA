@@ -5,6 +5,7 @@
 import type pg from 'pg';
 import { randomId } from '../lib/crypto.js';
 import { APP_BETS_TABLE, APP_TRANSACTIONS_TABLE, ensureAppBetsTable, ensureAppTransactionsTable } from '../lib/appTables';
+import { fetchSportsApiProSchedule, getSportsDataProviderConfig } from './sportsDataProvider.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1675,6 +1676,28 @@ async function fetchMatchResult(
   sport: string,
 ): Promise<MatchResult | null> {
   if (!apiKey) return null;
+  const provider = getSportsDataProviderConfig().provider;
+  if (provider === 'statpal') {
+    const today = new Date();
+    const days = [
+      new Date(today.getTime() - 86_400_000),
+      today,
+      new Date(today.getTime() + 86_400_000),
+    ].map((d) => d.toISOString().slice(0, 10));
+    for (const day of days) {
+      try {
+        const events = await fetchSportsApiProSchedule(apiKey, sport, day);
+        const ev = (events || []).find((item: any) => {
+          const id = String(item?.external_event_id ?? item?.id ?? item?.fixture?.id ?? item?.match_id ?? '');
+          return id === String(eventId);
+        });
+        if (ev) return extractResultFromEvent(ev?.fixture ?? ev, eventId, sport);
+      } catch {
+        void 0;
+      }
+    }
+    return null;
+  }
   
   // Map sport to the correct SportsAPI Pro subdomain
   const sportLower = String(sport || '').toLowerCase().trim();

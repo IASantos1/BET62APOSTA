@@ -481,7 +481,7 @@ export async function fetchStatPalV1AllScoresDelta(apiKey: string, sport: string
 export async function fetchStatPalLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const s = statPalSportPath(sport);
   const paths = s === 'soccer'
-    ? ['/matches/live', '/livescores', '/matches?status=live']
+    ? ['/matches/live']
     : ['/livescores', '/matches/live', '/matches?status=live'];
   const json = await fetchFirstJson(buildCandidateUrls(apiKey, sport, paths), PROVIDER_LIVE_TIMEOUT_MS);
   const events = extractEvents(json).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
@@ -503,17 +503,10 @@ export async function fetchStatPalSchedule(apiKey: string, sport: string, date: 
       const dailyEvents = extractEvents(dailyJson).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
       if (dailyEvents.length > 0) return dailyEvents;
     }
+    return [];
   }
   const dateVariants = Array.from(new Set(formatDateVariants(date)));
-  const paths = s === 'soccer'
-    ? dateVariants.flatMap((d) => [
-        `/matches/date/${encodeURIComponent(d)}`,
-        `/matches?date=${encodeURIComponent(d)}`,
-        `/schedule?date=${encodeURIComponent(d)}`,
-        `/fixtures?date=${encodeURIComponent(d)}`,
-        `/matches/upcoming?date=${encodeURIComponent(d)}`,
-      ])
-    : dateVariants.flatMap((d) => [
+  const paths = dateVariants.flatMap((d) => [
         `/schedule?date=${encodeURIComponent(d)}`,
         `/matches?date=${encodeURIComponent(d)}`,
         `/fixtures?date=${encodeURIComponent(d)}`,

@@ -41,16 +41,26 @@ function resolveProviderName(): SportsDataProviderName {
   return 'sportsapipro';
 }
 
+function resolveProviderApiKey(provider: SportsDataProviderName): { apiKey: string; envSource: string } {
+  if (provider === 'statpal') {
+    if (process.env.STATPAL_KEY) return { apiKey: String(process.env.STATPAL_KEY || '').trim(), envSource: 'STATPAL_KEY' };
+    if (process.env.SPORTS_API_KEY) return { apiKey: String(process.env.SPORTS_API_KEY || '').trim(), envSource: 'SPORTS_API_KEY' };
+    return { apiKey: '', envSource: '' };
+  }
+  if (process.env.SPORTS_API_PRO_KEY) return { apiKey: String(process.env.SPORTS_API_PRO_KEY || '').trim(), envSource: 'SPORTS_API_PRO_KEY' };
+  if (process.env.SPORTSAPIPRO_KEY) return { apiKey: String(process.env.SPORTSAPIPRO_KEY || '').trim(), envSource: 'SPORTSAPIPRO_KEY' };
+  if (process.env.SPORTSAPI_PRO_KEY) return { apiKey: String(process.env.SPORTSAPI_PRO_KEY || '').trim(), envSource: 'SPORTSAPI_PRO_KEY' };
+  if (process.env.SPORTS_API_KEY) return { apiKey: String(process.env.SPORTS_API_KEY || '').trim(), envSource: 'SPORTS_API_KEY' };
+  return { apiKey: '', envSource: '' };
+}
+
 export function getSportsDataProviderConfig() {
   const provider = resolveProviderName();
-  const apiKey = String(
-    provider === 'statpal'
-      ? (process.env.STATPAL_KEY || process.env.SPORTS_API_KEY || '')
-      : (process.env.SPORTS_API_KEY || process.env.STATPAL_KEY || ''),
-  ).trim();
+  const { apiKey, envSource } = resolveProviderApiKey(provider);
   return {
     provider,
     apiKey,
+    envSource,
     supportsUpstreamWs: provider === 'sportsapipro',
   };
 }

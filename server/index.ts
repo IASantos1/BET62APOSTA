@@ -13,6 +13,7 @@ import { handleAdminRoutes } from './routes/admin';
 import { handleStripeRoutes } from './routes/stripe';
 import { createLiveWs } from './ws/liveWs';
 import { autoSettleFromCache } from './services/settlement';
+import { getSportsDataProviderConfig } from './services/sportsDataProvider';
 
 const loadEnvFile = (filePath: string) => {
   try {
@@ -80,22 +81,16 @@ const safePool: any =
     }),
   } as any);
 
-const sportsProvider = String(process.env.SPORTS_PROVIDER || 'sportsapipro').trim().toLowerCase() || 'sportsapipro';
-const sportsApiKeyEnv =
-  (sportsProvider === 'statpal' && process.env.STATPAL_KEY && 'STATPAL_KEY') ||
-  (process.env.SPORTS_API_PRO_KEY && 'SPORTS_API_PRO_KEY') ||
-  (process.env.SPORTSAPIPRO_KEY && 'SPORTSAPIPRO_KEY') ||
-  (process.env.SPORTSAPI_PRO_KEY && 'SPORTSAPI_PRO_KEY') ||
-  (process.env.SPORTS_API_KEY && 'SPORTS_API_KEY') ||
-  (process.env.STATPAL_KEY && 'STATPAL_KEY') ||
-  '';
-const sportsApiKey = String(
-  process.env[sportsApiKeyEnv as keyof NodeJS.ProcessEnv] || '',
-).trim();
+const providerConfig = getSportsDataProviderConfig();
+const sportsProvider = providerConfig.provider;
+const sportsApiKeyEnv = providerConfig.envSource || '';
+const sportsApiKey = providerConfig.apiKey;
 if (!sportsApiKey) {
   console.warn(
     `[server] WARNING: No sports provider key found for "${sportsProvider}". Sports data endpoints will return empty. Set ${sportsProvider === 'statpal' ? 'STATPAL_KEY' : 'SPORTS_API_PRO_KEY'}.`,
   );
+} else if (sportsProvider === 'statpal' && sportsApiKeyEnv === 'SPORTS_API_KEY') {
+  console.warn('[server] WARNING: Using generic SPORTS_API_KEY for "statpal". Prefer STATPAL_KEY.');
 } else if (sportsProvider !== 'statpal' && sportsApiKeyEnv && sportsApiKeyEnv !== 'SPORTS_API_PRO_KEY') {
   console.warn(
     `[server] WARNING: Using legacy sports key env "${sportsApiKeyEnv}". Prefer SPORTS_API_PRO_KEY.`,
