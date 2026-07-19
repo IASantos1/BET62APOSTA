@@ -38,6 +38,41 @@ function statPalVersion(sport: string): 'v1' | 'v2' {
   return statPalSportPath(sport) === 'soccer' ? 'v2' : 'v1';
 }
 
+function pad2(v: number): string {
+  return String(v).padStart(2, '0');
+}
+
+function formatDateVariants(raw: string): string[] {
+  const value = String(raw || '').trim();
+  if (!value) return [];
+  const match = /^(\d{2})[./-](\d{2})[./-](\d{4})$/.exec(value);
+  if (!match) return [value];
+  const [, dd, mm, yyyy] = match;
+  return [
+    `${yyyy}-${mm}-${dd}`,
+    `${dd}.${mm}.${yyyy}`,
+    `${dd}/${mm}/${yyyy}`,
+  ];
+}
+
+function parseStatPalDateTime(dateRaw: any, timeRaw?: any): string {
+  const dateValue = String(dateRaw ?? '').trim();
+  const timeValue = String(timeRaw ?? '').trim();
+  if (!dateValue) return '';
+  const directIso = new Date(`${dateValue}${timeValue ? ` ${timeValue}` : ''}`);
+  if (Number.isFinite(directIso.getTime())) return directIso.toISOString();
+  const match = /^(\d{2})[./-](\d{2})[./-](\d{4})$/.exec(dateValue);
+  if (!match) return [dateValue, timeValue].filter(Boolean).join(' ').trim();
+  const [, dd, mm, yyyy] = match;
+  const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(timeValue);
+  const hh = timeMatch ? Number(timeMatch[1]) : 0;
+  const min = timeMatch ? Number(timeMatch[2]) : 0;
+  const isoUtc = new Date(Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd), hh, min, 0));
+  return Number.isFinite(isoUtc.getTime())
+    ? isoUtc.toISOString()
+    : `${yyyy}-${mm}-${dd}T${pad2(hh)}:${pad2(min)}:00.000Z`;
+}
+
 function appendAccessKey(url: string, apiKey: string): string {
   const u = new URL(url);
   u.searchParams.set('access_key', apiKey);
@@ -256,7 +291,7 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     '',
   ).trim();
   const eventDateTime = String(event?.time ?? '').trim();
-  const eventDate = [eventDateDate, eventDateTime].filter(Boolean).join(' ').trim();
+  const eventDate = parseStatPalDateTime(eventDateDate, eventDateTime);
   return {
     external_event_id: id,
     sport: normalizeSportKey(sport),
@@ -427,19 +462,22 @@ export async function fetchStatPalLive(apiKey: string, sport: string): Promise<N
 
 export async function fetchStatPalSchedule(apiKey: string, sport: string, date: string): Promise<NormalizedEvent[]> {
   const s = statPalSportPath(sport);
+  const dateVariants = Array.from(new Set(formatDateVariants(date)));
   const paths = s === 'soccer'
-    ? [
-        `/matches/date/${encodeURIComponent(date)}`,
-        `/matches?date=${encodeURIComponent(date)}`,
-        `/schedule?date=${encodeURIComponent(date)}`,
-        `/fixtures?date=${encodeURIComponent(date)}`,
-      ]
-    : [
-        `/schedule?date=${encodeURIComponent(date)}`,
-        `/matches?date=${encodeURIComponent(date)}`,
-        `/fixtures?date=${encodeURIComponent(date)}`,
-        `/upcoming?date=${encodeURIComponent(date)}`,
-      ];
+    ? dateVariants.flatMap((d) => [
+        `/matches/date/${encodeURIComponent(d)}`,
+        `/matches?date=${encodeURIComponent(d)}`,
+        `/schedule?date=${encodeURIComponent(d)}`,
+        `/fixtures?date=${encodeURIComponent(d)}`,
+        `/matches/upcoming?date=${encodeURIComponent(d)}`,
+      ])
+    : dateVariants.flatMap((d) => [
+        `/schedule?date=${encodeURIComponent(d)}`,
+        `/matches?date=${encodeURIComponent(d)}`,
+        `/fixtures?date=${encodeURIComponent(d)}`,
+        `/upcoming?date=${encodeURIComponent(d)}`,
+        `/matches/upcoming?date=${encodeURIComponent(d)}`,
+      ]);
   const json = await fetchFirstJson(buildCandidateUrls(apiKey, sport, paths), PROVIDER_TIMEOUT_MS);
   const events = extractEvents(json).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
   return events;
