@@ -16,6 +16,7 @@ import {
 import { APP_BETS_TABLE, APP_TRANSACTIONS_TABLE, ensureAppBetsTable, ensureAppTransactionsTable } from '../lib/appTables';
 import { buildSportsDataPipelineStatus } from '../services/dataPipeline';
 import { getKycStorageRoot } from '../lib/kycStorage';
+import { getSportsDataProviderConfig } from '../services/sportsDataProvider';
 
 interface TestKeyBody { key: string; sport?: string; matchId?: string }
 type WalletAdjustBody = { amount?: number | string; note?: string; mode?: 'credit' | 'debit' };
@@ -50,7 +51,17 @@ function detectSportsApiEnvSource(): string {
 async function probeUrl(url: string, key: string): Promise<{ url: string; status: number; ok: boolean; ms: number; keys: string[]; sample: string; error?: string }> {
   const t0 = Date.now();
   try {
-    const r = await fetch(url, { headers: { 'x-api-key': key, accept: 'application/json' }, signal: AbortSignal.timeout(10000) });
+    const provider = getSportsDataProviderConfig().provider;
+    const target = new URL(url);
+    if (provider === 'statpal') {
+      target.searchParams.set('access_key', key);
+    }
+    const r = await fetch(target.toString(), {
+      headers: provider === 'statpal'
+        ? { accept: 'application/json' }
+        : { 'x-api-key': key, accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
     const text = await r.text().catch(() => '');
     const ms = Date.now() - t0;
     let keys: string[] = [];
@@ -62,6 +73,18 @@ async function probeUrl(url: string, key: string): Promise<{ url: string; status
   } catch (e: any) {
     return { url, status: 0, ok: false, ms: Date.now() - t0, keys: [], sample: '', error: String(e?.message || e) };
   }
+}
+
+function mapStatPalSportPath(sport: string): string {
+  const s = String(sport || '').trim().toLowerCase();
+  if (s === 'soccer' || s === 'football' || s === 'futebol') return 'soccer';
+  if (s === 'tennis') return 'tennis';
+  if (s === 'basketball') return 'nba';
+  if (s === 'baseball') return 'mlb';
+  if (s === 'ice-hockey' || s === 'icehockey' || s === 'hockey') return 'nhl';
+  if (s === 'volleyball' || s === 'volei') return 'volleyball';
+  if (s === 'mma' || s === 'ufc') return 'mma';
+  return s || 'soccer';
 }
 
 type ToggleOperatorBody = { is_operator?: boolean };
@@ -758,8 +781,9 @@ export async function handleAdminRoutes(
     ]);
     const providerMetrics = events.getProviderMetrics?.() ?? { operations: [] };
     const providerConfig = events.getProviderConfig?.() ?? {};
+    const activeProvider = String((providerConfig as any)?.provider || getSportsDataProviderConfig().provider || 'sportsapipro');
     sendJson(res, 200, {
-      provider: 'SportsAPIPro',
+      provider: activeProvider,
       configured: Boolean(apiKey),
       envSource: detectSportsApiEnvSource(),
       debugTokenConfigured: Boolean(String(process.env.ODDS_DEBUG_TOKEN || '').trim()),
@@ -768,8 +792,8 @@ export async function handleAdminRoutes(
       config: providerConfig,
       metrics: providerMetrics,
       warnings: [
-        !apiKey ? 'SPORTS_API_PRO_KEY ausente' : '',
-        detectSportsApiEnvSource() && detectSportsApiEnvSource() !== 'SPORTS_API_PRO_KEY'
+        !apiKey ? `${activeProvider === 'statpal' ? 'STATPAL_KEY' : 'SPORTS_API_PRO_KEY'} ausente` : '',
+        activeProvider !== 'statpal' && detectSportsApiEnvSource() && detectSportsApiEnvSource() !== 'SPORTS_API_PRO_KEY'
           ? `alias legado em uso: ${detectSportsApiEnvSource()}`
           : '',
       ].filter(Boolean),
@@ -816,8 +840,9 @@ export async function handleAdminRoutes(
   if (req.method === 'GET' && path === '/api/metrics/sports') {
     const metrics = events.getProviderMetrics?.() ?? { operations: [] };
     const config = events.getProviderConfig?.() ?? {};
+    const activeProvider = String((config as any)?.provider || getSportsDataProviderConfig().provider || 'sportsapipro');
     sendJson(res, 200, {
-      provider: 'SportsAPIPro',
+      provider: activeProvider,
       configured: Boolean(apiKey),
       envSource: detectSportsApiEnvSource(),
       config,
@@ -852,15 +877,31 @@ export async function handleAdminRoutes(
     const matchId = String(body.matchId || '').trim();
     const sub = toSub(sport);
     const today = new Date().toISOString().slice(0, 10);
-    const probes: Array<{ label: string; url: string }> = [
-      { label: `Schedule (${sport} - hoje)`,    url: `https://v2.${sub}.sportsapipro.com/api/events/schedule?date=${today}` },
-      { label: `Live events (${sport})`,         url: `https://v2.${sub}.sportsapipro.com/api/events/live` },
-    ];
-    if (matchId) {
-      probes.push({ label: `Odds All   (id=${matchId})`,       url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/all` });
-      probes.push({ label: `Odds Live  (id=${matchId})`,       url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/live` });
-      probes.push({ label: `Odds PreMatch (id=${matchId})`,    url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/pre-match` });
-      probes.push({ label: `Match Stats (id=${matchId})`,      url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/statistics` });
+    const provider = getSportsDataProviderConfig().provider;
+    const statpalSport = mapStatPalSportPath(sport);
+    const probes: Array<{ label: string; url: string }> = provider === 'statpal'
+      ? (
+          statpalSport === 'soccer'
+            ? [
+                { label: `Live matches (${sport})`, url: 'https://statpal.io/api/v2/soccer/matches/live' },
+                { label: `Daily matches (${sport})`, url: 'https://statpal.io/api/v2/soccer/matches/daily?offset=0' },
+                { label: `Live odds (${sport})`, url: 'https://statpal.io/api/v2/soccer/odds/live' },
+              ]
+            : [
+                { label: `Live scores (${sport})`, url: `https://statpal.io/api/v1/${statpalSport}/livescores` },
+                { label: `Live stats (${sport})`, url: `https://statpal.io/api/v1/${statpalSport}/livestats` },
+                { label: `Odds (${sport})`, url: `https://statpal.io/api/v1/${statpalSport}/odds` },
+              ]
+        )
+      : [
+          { label: `Schedule (${sport} - hoje)`, url: `https://v2.${sub}.sportsapipro.com/api/events/schedule?date=${today}` },
+          { label: `Live events (${sport})`, url: `https://v2.${sub}.sportsapipro.com/api/events/live` },
+        ];
+    if (matchId && provider !== 'statpal') {
+      probes.push({ label: `Odds All   (id=${matchId})`,    url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/all` });
+      probes.push({ label: `Odds Live  (id=${matchId})`,    url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/live` });
+      probes.push({ label: `Odds PreMatch (id=${matchId})`, url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/pre-match` });
+      probes.push({ label: `Match Stats (id=${matchId})`,   url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/statistics` });
     }
     const results = await Promise.all(probes.map(async (p) => ({ label: p.label, ...(await probeUrl(p.url, key)) })));
     sendJson(res, 200, { results });
