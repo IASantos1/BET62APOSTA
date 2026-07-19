@@ -43,32 +43,42 @@ const PORT = Number(process.env.PORT || process.env.RAILWAY_PORT || process.env.
 let pool: ReturnType<typeof createPool> | null = null;
 let dbReady = false;
 let dbInitError: string | null = null;
-try {
-  pool = createPool();
-  if (!pool) {
-    dbReady = false;
-    console.warn('[server] WARNING: DATABASE_URL is not set. Auth/bets/wallet/admin routes are disabled.');
-  } else {
-    await pool.query('SELECT 1');
+let dbInitInFlight: Promise<void> | null = null;
+
+async function initDb(): Promise<void> {
+  if (dbInitInFlight) return dbInitInFlight;
+  dbInitInFlight = (async () => {
     try {
+      if (!pool) pool = createPool();
+      if (!pool) {
+        dbReady = false;
+        dbInitError = 'DATABASE_URL is not set';
+        console.warn('[server] WARNING: DATABASE_URL is not set. Auth/bets/wallet/admin routes are disabled.');
+        return;
+      }
+      await pool.query('SELECT 1');
       await ensureSchema(pool);
       dbReady = true;
       dbInitError = null;
+      console.log('[server] database ready');
     } catch (e: any) {
       dbReady = false;
       dbInitError = String(e?.message || e);
-      console.error('[server] DB schema ensure failed:', dbInitError);
+      console.error('[server] DB init failed:', dbInitError);
+    } finally {
+      dbInitInFlight = null;
     }
-  }
-} catch (e: any) {
-  console.error('[server] DB init failed:', String(e?.message || e));
-  pool = null;
-  dbReady = false;
-  dbInitError = String(e?.message || e);
+  })();
+  return dbInitInFlight;
 }
 
-if (process.env.NODE_ENV === 'production' && dbInitError) {
-  throw new Error(`[server] Refusing to start with invalid database schema: ${dbInitError}`);
+pool = createPool();
+if (!pool) {
+  dbReady = false;
+  dbInitError = 'DATABASE_URL is not set';
+  console.warn('[server] WARNING: DATABASE_URL is not set. Auth/bets/wallet/admin routes are disabled.');
+} else {
+  initDb().catch(() => null);
 }
 
 const safePool: any =
@@ -343,13 +353,21 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[server] listening on :${PORT}`);
 });
 
+if (pool) {
+  setInterval(() => {
+    if (dbReady || dbInitInFlight) return;
+    initDb().catch(() => null);
+  }, 30_000);
+}
+
 // ── Auto-Settlement Scheduler ─────────────────────────────────────────────────
 // Runs every 90 seconds. Scans finished events in cache and settles pending bets.
-if (pool && dbReady) {
+if (pool) {
   const SETTLE_INTERVAL_MS = 90_000;
 
   const runAutoSettle = async () => {
     try {
+      if (!dbReady || !pool) return;
       const eventsCache = events.getEventsCache();
       if (eventsCache.size === 0) return;
       const report = await autoSettleFromCache(pool!, sportsApiKey, eventsCache);
