@@ -621,16 +621,26 @@ export async function fetchStatPalSchedule(apiKey: string, sport: string, date: 
   const s = statPalSportPath(sport);
   if (s === 'soccer') {
     const offset = utcDayDiffFromToday(date);
-    if (offset === 0) {
-      return fetchStatPalLive(apiKey, sport);
-    }
     if (offset != null && offset >= -7 && offset <= 7) {
-      const dailyUrl = buildCandidateUrls(apiKey, sport, [
-        `/matches/daily?offset=${encodeURIComponent(String(offset))}`,
-      ]);
-      const dailyJson = await fetchFirstJson(dailyUrl, PROVIDER_TIMEOUT_MS);
-      const dailyEvents = extractEvents(dailyJson).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
-      if (dailyEvents.length > 0) return dailyEvents;
+      const targetDate = dateOnlyIso(date);
+      // StatPal soccer daily has been unstable with offset=0 in production.
+      // For "today", prefer the known-good -1 feed and keep only rows that
+      // actually normalize to the requested date so pregame does not reuse live.
+      const offsetsToTry = offset === 0 ? [-1, 0] : [offset];
+      for (const dailyOffset of offsetsToTry) {
+        const dailyUrl = buildCandidateUrls(apiKey, sport, [
+          `/matches/daily?offset=${encodeURIComponent(String(dailyOffset))}`,
+        ]);
+        const dailyJson = await fetchFirstJson(dailyUrl, PROVIDER_TIMEOUT_MS);
+        const dailyEvents = extractEvents(dailyJson)
+          .map((row) => normalizeEvent(row, sport))
+          .filter(Boolean) as NormalizedEvent[];
+        if (dailyEvents.length === 0) continue;
+        if (!targetDate) return dailyEvents;
+        const sameDay = dailyEvents.filter((event) => dateOnlyIso(String(event?.event_date || '')) === targetDate);
+        if (sameDay.length > 0) return sameDay;
+        if (dailyOffset === offset) return dailyEvents;
+      }
     }
     return [];
   }
