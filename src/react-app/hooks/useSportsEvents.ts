@@ -522,9 +522,19 @@ export function useSportsEvents(
         if (!isActive) return; 
 
         const hasStructured = Array.isArray(data?.live) || Array.isArray(data?.pregame);
-        if (hasStructured) { 
-          const rawLive = (data.live || []) as Event[];
-          const rawPregame = (data.pregame || []) as Event[];
+        const legacyResponse =
+          Array.isArray(data?.response) ? data.response :
+          Array.isArray(data?.data?.response) ? data.data.response :
+          Array.isArray(data?.data) ? data.data :
+          [];
+        if (hasStructured || legacyResponse.length > 0) { 
+          const fallbackList = (legacyResponse || []) as Event[];
+          const rawLive = hasStructured
+            ? ((data.live || []) as Event[])
+            : fallbackList.filter((e) => Number((e as any)?.is_live || 0) === 1);
+          const rawPregame = hasStructured
+            ? ((data.pregame || []) as Event[])
+            : fallbackList.filter((e) => Number((e as any)?.is_live || 0) !== 1);
           
           let liveEvents = dedupEvents(rawLive).filter(e => !shouldHideEvent(e)).map(normalizeMarkets);
           let pregameEvents = dedupEvents(rawPregame).filter(e => !shouldHideEvent(e)).map(normalizeMarkets);  

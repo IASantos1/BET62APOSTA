@@ -225,7 +225,7 @@ function Home({ mode = 'home' }: HomeProps) {
 
   const { pregame: pregame7Days, ready: pregame7Ready } = useSportsEvents('all', {
     only: 'pregame',
-    days: 3,
+    days: 7,
     enabled: mode === 'live',
     requireOdds: false,
   });
@@ -241,11 +241,6 @@ function Home({ mode = 'home' }: HomeProps) {
     }
     return Array.from(map.values());
   }, [mergedLive]);
-  const hasAnyRenderableLive = useMemo(
-    () => processedLive.some((ev) => hasRenderableLiveOdds(ev)),
-    [processedLive],
-  );
-
   const { upcomingEvents } = useUpcomingCache(pregame);
 
   // ── Live critical-event signals (VAR, gol, pênalti, grande chance) ──────
@@ -282,9 +277,7 @@ function Home({ mode = 'home' }: HomeProps) {
     const primaryReady = eventsReady;
     // Em "ao vivo" também esperamos o feed ao vivo e os próximos 7 dias.
     const liveSourcesReady = mode === 'live' ? (liveFeedLoaded && pregame7Ready) : true;
-    const liveOddsReady = mode === 'live'
-      ? (processedLive.length === 0 || hasAnyRenderableLive)
-      : true;
+    const liveOddsReady = true;
 
     if (primaryReady && liveSourcesReady && liveOddsReady) {
       // Pequena janela de assentamento para o merge final entrar num único lote.
@@ -292,7 +285,7 @@ function Home({ mode = 'home' }: HomeProps) {
       const t = setTimeout(() => setRevealed(true), settleMs);
       return () => clearTimeout(t);
     }
-  }, [revealed, eventsReady, liveFeedLoaded, pregame7Ready, mode, processedLive.length, hasAnyRenderableLive]);
+  }, [revealed, eventsReady, liveFeedLoaded, pregame7Ready, mode]);
 
   // Tecto de segurança: nunca segurar o ecrã mais do que 6s.
   useEffect(() => {
@@ -324,7 +317,7 @@ function Home({ mode = 'home' }: HomeProps) {
         if (!h || !a || h === 'undefined' || a === 'undefined' || h === 'Home Team' || a === 'Away Team') return false;
         if (e.id === 'undefined' || !e.id) return false;
 
-        return hasRenderableLiveOdds(e);
+        return true;
       })
       .sort((a, b) => {
         const ta = new Date(a.event_date || a.start_time || a.fixture?.date || 0).getTime();
@@ -349,7 +342,7 @@ function Home({ mode = 'home' }: HomeProps) {
         const a = (e.away_team || '').trim();
         if (!h || !a || h === 'undefined' || a === 'undefined' || h === 'Home Team' || a === 'Away Team') return false;
         if (e.id === 'undefined' || !e.id) return false;
-        return hasRenderableLiveOdds(e);
+        return true;
       })
       .sort((a, b) => {
         const ta = new Date(a.event_date || a.start_time || a.fixture?.date || 0).getTime();

@@ -139,6 +139,14 @@ const hasLiveSignal = (e: any) => {
   );
 };
 
+const isRecentLiveWindow = (e: any) => {
+  const raw = e?.event_date ?? e?.fixture?.date ?? e?.date;
+  if (!raw) return true;
+  const ts = new Date(raw).getTime();
+  if (!Number.isFinite(ts) || ts <= 0) return true;
+  return ts >= Date.now() - 12 * 60 * 60 * 1000;
+};
+
 const pickTimer = (wsTimer: any, httpTimer: any) => {
   if (isNonEmptyString(wsTimer)) return String(wsTimer).trim();
   if (isNonEmptyString(httpTimer)) return String(httpTimer).trim();
@@ -360,7 +368,7 @@ export function useMergedEvents(
           Number((e as any).is_live) === 1 ||
           status === 'LIVE' ||
           ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(status);
-        if (isLiveLike && !hasAnyOdds(e) && !hasLiveSignal(e)) return false;
+        if (isLiveLike && !hasAnyOdds(e) && !hasLiveSignal(e) && !isRecentLiveWindow(e)) return false;
 
         return true;
     }).sort((a, b) => {

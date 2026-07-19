@@ -541,7 +541,7 @@ const AdminPanel: React.FC = () => {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between"><span>Live eventos</span><Badge v={metrics.live ?? '—'} color="green" /></div>
                     <div className="flex justify-between"><span>Cobertura odds</span><Badge v={metrics.events > 0 ? `${Math.round((metrics.imported_odds / metrics.events) * 100)}%` : '—'} color="blue" /></div>
-                    <div className="flex justify-between"><span>Feed principal</span><Badge v={pipeline?.provider || 'SPORTSAPIPRO'} color="green" /></div>
+                    <div className="flex justify-between"><span>Feed principal</span><Badge v={pipeline?.provider || '—'} color="green" /></div>
                     <div className="flex justify-between"><span>Validacao do feed</span><Badge v={pipeline ? `${pipeline.validation.feedQualityScore}%` : '—'} color={(pipeline?.validation.feedQualityScore || 0) >= 80 ? 'green' : 'yellow'} /></div>
                   </div>
                 </div>

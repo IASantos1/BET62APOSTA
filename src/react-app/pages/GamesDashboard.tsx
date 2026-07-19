@@ -67,11 +67,6 @@ const priceOf = (o: any) => {
   return Number.isFinite(p) && p > 1 ? p : 0;
 };
 
-const hasRowPrimaryOdds = (row: any) => {
-  const prices = [Number(row?.homeOdd || 0), Number(row?.drawOdd || 0), Number(row?.awayOdd || 0)].filter((x) => x > 1.01);
-  return prices.length >= 2;
-};
-
 // Helper Component for Odds Button in Table
 const TableOddButton = ({ label, price, event, selectionLabel, marketSuspended }: any) => {
     const { addToBetSlip, addNotification } = useApp();
@@ -134,7 +129,7 @@ export default function GamesDashboard() {
   const fetchEvents = async () => {
     try {
       const data = await apiFetch<any>(
-        '/api/events/by-sport?sports=all&include=odds&only=both&days=3&realtime=0&requireOdds=1',
+        '/api/events/by-sport?sports=all&include=odds&only=both&days=3&realtime=0',
         { cache: 'no-store', timeout: 20000 },
       );
       
@@ -276,8 +271,8 @@ export default function GamesDashboard() {
   const rows = useMemo(() => (mergedEvents || []).map(processRow), [mergedEvents]);
 
   // Separate Live and Pregame
-  const liveRows = rows.filter(r => r.isLive && hasRowPrimaryOdds(r));
-  const pregameRows = rows.filter(r => !r.isLive && hasRowPrimaryOdds(r));
+  const liveRows = rows.filter(r => r.isLive);
+  const pregameRows = rows.filter(r => !r.isLive);
 
   const groupedPregame = useMemo(() => {
     return pregameRows.reduce((acc: Record<string, Record<string, any[]>>, r: any) => {
