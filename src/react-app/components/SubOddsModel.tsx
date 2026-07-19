@@ -2533,10 +2533,6 @@ export function SubOddsModel({
           return FIXED_TABS;
       }
 
-      const isSoccer =
-        s.includes('soccer') ||
-        s.includes('futebol') ||
-        (s.includes('football') && !s.includes('american'));
       const isBasketball = s.includes('basketball') || s.includes('basquete') || s.includes('nba');
       const isTennis = s.includes('tennis') || s.includes('tênis') || s.includes('atp') || s.includes('wta');
       const isBaseball = s.includes('baseball') || s.includes('beisebol') || s.includes('mlb');
