@@ -1839,7 +1839,7 @@ export function SubOddsModel({
           const susp = getSuspendedReason('btts');
           return (
             <MarketCard title={title} darkMode={darkMode}>
-              <MarketButtonGroup items={bttsItems.map((item) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+              <MarketButtonGroup items={bttsItems.map((item: MarketItem) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
             </MarketCard>
           )
       }
@@ -2088,7 +2088,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title={title} darkMode={darkMode}>
-            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item: MarketItem) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2101,7 +2101,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title={title} darkMode={darkMode}>
-            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item: MarketItem) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2114,7 +2114,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title={titleMap[key] || key} darkMode={darkMode}>
-            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: titleMap[key] || key }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item: MarketItem) => ({ ...item, marketTitle: titleMap[key] || key }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2132,7 +2132,7 @@ export function SubOddsModel({
         const cols = key === 'btts_and_result' ? undefined : 2;
         return (
           <MarketCard title={titleMap[key] || key} darkMode={darkMode}>
-            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: titleMap[key] || key }))} onSelect={onSelect} suspendedReason={susp} columns={cols} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item: MarketItem) => ({ ...item, marketTitle: titleMap[key] || key }))} onSelect={onSelect} suspendedReason={susp} columns={cols} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2146,7 +2146,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title={title} darkMode={darkMode}>
-            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item: MarketItem) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2183,7 +2183,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title="Marca nos Dois Tempos" darkMode={darkMode}>
-            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: 'Marca nos Dois Tempos' }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item: MarketItem) => ({ ...item, marketTitle: 'Marca nos Dois Tempos' }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2195,7 +2195,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title="Pênalti Marcado" darkMode={darkMode}>
-            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: 'Pênalti Marcado' }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item: MarketItem) => ({ ...item, marketTitle: 'Pênalti Marcado' }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2386,7 +2386,7 @@ export function SubOddsModel({
       
       return (
           <MarketCard key={key} title={title} darkMode={darkMode}>
-          <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
+          <MarketButtonGroup items={items.map((item: MarketItem) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
         </MarketCard>
       )
   }
