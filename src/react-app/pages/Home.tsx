@@ -114,9 +114,12 @@ const hasRenderableLiveOdds = (ev: any): boolean => {
         : Array.isArray(h2h?.values)
           ? h2h.values
           : [];
-  return Array.isArray(sels)
+  const hasPrimary =
+    Array.isArray(sels)
     ? sels.filter((s: any) => Number(s?.odd ?? s?.price ?? s?.value ?? 0) > 1.01).length >= 2
     : false;
+  if (hasPrimary) return true;
+  return hasAnyMarketOdds(ev);
 };
 
 const hasAnyMarketOdds = (ev: any): boolean => {
@@ -208,7 +211,7 @@ function Home({ mode = 'home' }: HomeProps) {
     {
       only: mode === 'home' ? 'pregame' : mode === 'live' ? 'live' : 'both',
       days: apiDays,
-      requireOdds: mode !== 'live',
+      requireOdds: false,
     },
   );
 
