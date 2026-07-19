@@ -26,6 +26,7 @@ export interface MarketItem {
   header?: string
   handicap?: string
   suspended?: boolean
+  marketTitle?: string
 }
 
 export interface Markets {
@@ -85,7 +86,7 @@ const detectSoccerPhase = (
 // Single odd row: label outside (left), red button (right)
 const OddRow = memo(({ item, onSelect, suspended, compact }: {
   item: MarketItem
-  onSelect: (label: string, odd: number) => void
+  onSelect: (label: string, odd: number, market?: string) => void
   suspended?: string
   compact?: boolean
 }) => {
@@ -115,7 +116,7 @@ const OddRow = memo(({ item, onSelect, suspended, compact }: {
       </span>
       <div className="relative flex-shrink-0">
         <button
-          onClick={isSusp ? undefined : () => onSelect(String(item.selection || item.label), val)}
+          onClick={isSusp ? undefined : () => onSelect(String(item.selection || item.label), val, item.marketTitle)}
           disabled={isSusp}
           className={`
             min-w-[72px] md:min-w-[80px] h-11 px-3 rounded-lg font-bold text-sm tabular-nums
@@ -178,7 +179,7 @@ const MarketCard = memo(({ title, darkMode, children, noPad }: {
 // Button group with pagination — uses OddRow layout
 const MarketButtonGroup = memo(({ items, onSelect, suspendedReason, columns, darkMode }: {
   items: MarketItem[]
-  onSelect: (label: string, odd: number) => void
+  onSelect: (label: string, odd: number, market?: string) => void
   suspendedReason?: string
   columns?: number
   darkMode?: boolean
@@ -1400,7 +1401,7 @@ export function SubOddsModel({
               <MarketCard title={title} darkMode={darkMode} noPad>
                 <div className="p-3">
                   <button
-                    onClick={disabled ? undefined : () => fav && onSelect(fav.label, favOdd)}
+                    onClick={disabled ? undefined : () => fav && onSelect(fav.label, favOdd, title)}
                     disabled={disabled}
                     className={`w-full h-16 rounded-xl font-black text-xl uppercase tracking-wider text-white shadow-lg
                       bg-gradient-to-r from-red-600 to-rose-700 ring-4 ring-red-400 ring-opacity-50 animate-pulse
@@ -1428,7 +1429,7 @@ export function SubOddsModel({
                       label={String(item.label || '')}
                       price={val}
                       trend="stable"
-                      onClick={() => onSelect(String(item.selection || item.label), val)}
+                      onClick={() => onSelect(String(item.selection || item.label), val, title)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                       suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined}
                     />
@@ -1458,7 +1459,7 @@ export function SubOddsModel({
                       label={String(item.label || '')}
                       price={val}
                       trend="stable"
-                      onClick={() => onSelect(String(item.selection || item.label), val)}
+                      onClick={() => onSelect(String(item.selection || item.label), val, title)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                       suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined}
                     />
@@ -1489,7 +1490,7 @@ export function SubOddsModel({
                       label={String(item.label || '')}
                       price={val}
                       trend="stable"
-                      onClick={() => onSelect(String(item.selection || item.label), val)}
+                      onClick={() => onSelect(String(item.selection || item.label), val, title)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                       suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined}
                     />
@@ -1529,7 +1530,7 @@ export function SubOddsModel({
                       label={String(item.label || '')}
                       price={val}
                       trend="stable"
-                      onClick={() => onSelect(String(item.selection || item.label), val)}
+                      onClick={() => onSelect(String(item.selection || item.label), val, title)}
                       className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                       suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined}
                     />
@@ -1596,7 +1597,7 @@ export function SubOddsModel({
             const blocked = !!susp || item.suspended === true;
             return (
               <button
-                onClick={blocked ? undefined : () => onSelect(item.selection, item.odd)}
+                onClick={blocked ? undefined : () => onSelect(item.selection, item.odd, title)}
                 disabled={blocked}
                 className={`w-28 h-12 rounded-lg font-bold tabular-nums transition-all duration-200 relative
                   ${blocked ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
@@ -1795,7 +1796,7 @@ export function SubOddsModel({
                     const priceStr = Number(item.odd) > 0 ? Number(item.odd).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
                     return (
                       <button
-                        onClick={isBlocked ? undefined : () => onSelect(String(item.selection || item.label), item.odd)}
+                        onClick={isBlocked ? undefined : () => onSelect(String(item.selection || item.label), item.odd, title)}
                         disabled={isBlocked}
                         title={f ? `Odd justa: ${formatFairOdd(f.fair)}${f.isValue ? ` · valor +${(f.edge * 100).toFixed(1)}%` : ''}` : undefined}
                         className={`w-full h-12 rounded-lg font-bold tabular-nums transition-all duration-200 relative
@@ -1838,7 +1839,7 @@ export function SubOddsModel({
           const susp = getSuspendedReason('btts');
           return (
             <MarketCard title={title} darkMode={darkMode}>
-              <MarketButtonGroup items={bttsItems} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+              <MarketButtonGroup items={bttsItems.map((item) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
             </MarketCard>
           )
       }
@@ -1934,7 +1935,7 @@ export function SubOddsModel({
               const priceStr = val > 0 ? val.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
               return (
                 <button
-                  onClick={isBlocked ? undefined : () => onSelect(String(item.selection || item.label), val)}
+                  onClick={isBlocked ? undefined : () => onSelect(String(item.selection || item.label), val, title)}
                   disabled={isBlocked}
                   className={`w-full min-h-[48px] rounded-xl px-3 py-2 font-black tabular-nums transition-all duration-200 flex items-center justify-between gap-3 ${
                     isBlocked ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'
@@ -2023,7 +2024,7 @@ export function SubOddsModel({
                       return (
                         <button
                           key={i}
-                          onClick={isBlocked ? undefined : () => onSelect(item.label, val)}
+                          onClick={isBlocked ? undefined : () => onSelect(item.label, val, title)}
                           disabled={isBlocked}
                           title={isImpossible ? 'Resultado impossível dado o marcador actual' : undefined}
                           className={`w-full h-12 rounded-xl font-black tabular-nums transition-all duration-200 flex flex-col items-center justify-center leading-[1.05] ${
@@ -2069,7 +2070,7 @@ export function SubOddsModel({
                 const disabled = isSusp || item.suspended === true || !(val > 0);
                 return (
                   <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
-                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    onClick={() => onSelect(String(item.selection || item.label), val, title)}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                     suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined} />
                 );
@@ -2087,7 +2088,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title={title} darkMode={darkMode}>
-            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2100,7 +2101,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title={title} darkMode={darkMode}>
-            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2113,7 +2114,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title={titleMap[key] || key} darkMode={darkMode}>
-            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: titleMap[key] || key }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2131,7 +2132,7 @@ export function SubOddsModel({
         const cols = key === 'btts_and_result' ? undefined : 2;
         return (
           <MarketCard title={titleMap[key] || key} darkMode={darkMode}>
-            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} columns={cols} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: titleMap[key] || key }))} onSelect={onSelect} suspendedReason={susp} columns={cols} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2145,7 +2146,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title={title} darkMode={darkMode}>
-            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2165,7 +2166,7 @@ export function SubOddsModel({
                 const disabled = isSusp || item.suspended === true || !(val > 0);
                 return (
                   <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
-                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    onClick={() => onSelect(String(item.selection || item.label), val, 'Tempo com Mais Golos')}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                     suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined} />
                 );
@@ -2182,7 +2183,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title="Marca nos Dois Tempos" darkMode={darkMode}>
-            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: 'Marca nos Dois Tempos' }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2194,7 +2195,7 @@ export function SubOddsModel({
         const susp = getSuspendedReason(key);
         return (
           <MarketCard title="Pênalti Marcado" darkMode={darkMode}>
-            <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
+            <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: 'Pênalti Marcado' }))} onSelect={onSelect} suspendedReason={susp} columns={2} darkMode={darkMode} />
           </MarketCard>
         );
       }
@@ -2217,7 +2218,7 @@ export function SubOddsModel({
                 const disabled = isSusp || item.suspended === true || !(val > 0);
                 return (
                   <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
-                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    onClick={() => onSelect(String(item.selection || item.label), val, `Handicap Europeu ${sign}${num}`)}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                     suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined} />
                 );
@@ -2242,7 +2243,7 @@ export function SubOddsModel({
                 const disabled = isSusp || item.suspended === true || !(val > 0);
                 return (
                   <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
-                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    onClick={() => onSelect(String(item.selection || item.label), val, 'Dupla Chance — 1º Tempo')}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                     suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined} />
                 );
@@ -2266,7 +2267,7 @@ export function SubOddsModel({
                 const disabled = isSusp || item.suspended === true || !(val > 0);
                 return (
                   <OddButton key={i} label={String(item.label || '')} price={val} trend="stable"
-                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    onClick={() => onSelect(String(item.selection || item.label), val, 'Empate Anula Aposta — 1º Tempo')}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                     suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined} />
                 );
@@ -2317,7 +2318,7 @@ export function SubOddsModel({
                     const val = Number(item.odd);
                     const pStr = val > 0 ? val.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
                     return (
-                      <button key={i} onClick={isSusp || item.suspended === true ? undefined : () => onSelect(item.label, val)} disabled={isSusp || item.suspended === true}
+                      <button key={i} onClick={isSusp || item.suspended === true ? undefined : () => onSelect(item.label, val, title)} disabled={isSusp || item.suspended === true}
                         className={`w-full h-12 rounded-xl font-black tabular-nums flex flex-col items-center justify-center ${isSusp || item.suspended === true ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500 active:scale-95'}`}>
                         <span className="text-[12px] font-extrabold">{item.label}</span>
                         <span className="text-sm">{pStr}</span>
@@ -2372,7 +2373,7 @@ export function SubOddsModel({
                     label={String(item.label || '')}
                     price={val}
                     trend="stable"
-                    onClick={() => onSelect(String(item.selection || item.label), val)}
+                    onClick={() => onSelect(String(item.selection || item.label), val, title)}
                     className="w-full h-full min-h-[48px] px-2 py-2 rounded-lg bg-red-600 text-white hover:opacity-90 flex items-center justify-between gap-1"
                     suspended={disabled ? { reason: toBadgeReason(susp || (item.suspended ? 'SUSPENSO' : '')) } : undefined}
                   />
@@ -2384,8 +2385,8 @@ export function SubOddsModel({
       }
       
       return (
-        <MarketCard key={key} title={title} darkMode={darkMode}>
-          <MarketButtonGroup items={items} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
+          <MarketCard key={key} title={title} darkMode={darkMode}>
+          <MarketButtonGroup items={items.map((item) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
         </MarketCard>
       )
   }
@@ -2625,7 +2626,7 @@ export function SubOddsModel({
       }
 
       const hasTodos = groups.some((g) => g.title.toLowerCase() === 'todos');
-      if (!hasTodos && !isTennis) {
+      if (!hasTodos) {
         const allKeys = Array.from(new Set(groups.flatMap((g) => g.keys)));
         groups.unshift({ title: 'Todos', keys: allKeys });
       } else if (hasTodos) {
@@ -2658,7 +2659,7 @@ export function SubOddsModel({
      
      if (isSoccer) return 'Todos';
     if (isBasketball) return BASKETBALL_GROUPS[0].title;
-    if (isTennis) return 'Sets';
+    if (isTennis) return 'Todos';
      if (isVolleyball) return VOLLEYBALL_GROUPS[0].title;
      if (isAFL) return AFL_GROUPS[0].title;
      if (isBaseball) return BASEBALL_GROUPS[0].title;

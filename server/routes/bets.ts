@@ -206,6 +206,59 @@ function matchSelectionToOdd(input: {
   return null;
 }
 
+function guessMarketPriorityFromSelection(selection: string): string[] {
+  const s = normalizeText(selection);
+  if (!s) return [];
+  if (s.includes('acima') || s.includes('abaixo') || s.includes('over') || s.includes('under')) {
+    return ['totals', 'match_goals', 'goals_total', 'total_goals', 'match_total_games', 'team_totals'];
+  }
+  if (s === '1x' || s === 'x2' || s === '12') {
+    return ['double_chance'];
+  }
+  if (s.includes('sim') || s.includes('nao') || s.includes('yes') || s.includes('no')) {
+    return ['btts', 'tie_break', 'match_has_tiebreak', 'penalty_scored'];
+  }
+  if (s.includes('handicap') || /[+-]\s*\d/.test(s)) {
+    return ['spreads', 'handicap', 'asian_handicap', 'sets_handicap', 'games_handicap', 'puck_line', 'run_line'];
+  }
+  if (/\d+\s*[-:]\s*\d+/.test(s)) {
+    return ['correct_score', 'score_exact', 'exact_score'];
+  }
+  return [];
+}
+
+function findMatchingMarketBySelection(input: {
+  markets: Record<string, any>;
+  selection: string;
+  event: any;
+  topLevelOdds?: { home?: number; draw?: number; away?: number };
+}): { key: string; entries: any[]; matched: { odd: number; label: string; suspended?: boolean } } | null {
+  const markets = input.markets && typeof input.markets === 'object' ? input.markets : {};
+  const seen = new Set<string>();
+  const priority = guessMarketPriorityFromSelection(input.selection);
+  const orderedKeys = [
+    ...priority,
+    ...Object.keys(markets).filter((key) => !priority.includes(key)),
+  ];
+
+  for (const key of orderedKeys) {
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const entries = (markets as any)[key];
+    if (!Array.isArray(entries) || entries.length === 0) continue;
+    const matched = matchSelectionToOdd({
+      selection: input.selection,
+      marketKey: key,
+      marketEntries: entries,
+      event: input.event,
+      topLevelOdds: input.topLevelOdds,
+    });
+    if (matched) return { key, entries, matched };
+  }
+
+  return null;
+}
+
 async function getProfile(pool: pg.Pool, userId: string): Promise<{ balance: number; free_bet_balance: number }> {
   const r = await pool.query(`SELECT balance, free_bet_balance FROM profiles WHERE user_id = $1 LIMIT 1`, [userId]);
   const row = r.rows?.[0] || {};
@@ -490,17 +543,27 @@ export async function handleBetRoutes(
       const markets = ctx.odds?.markets && typeof ctx.odds.markets === 'object'
         ? ctx.odds.markets
         : ((ctx.event as any)?.markets && typeof (ctx.event as any).markets === 'object' ? (ctx.event as any).markets : {});
-      const pickedMarket = pickMarketEntries(markets, requestedMarket) || pickMarketEntries(markets, 'Resultado Final');
+      let pickedMarket = pickMarketEntries(markets, requestedMarket) || pickMarketEntries(markets, 'Resultado Final');
       if (!pickedMarket) {
-        sendBetSelectionError(res, `Mercado indisponível para o evento ${eventId}`, {
-          index,
-          event_id: eventId,
+        const fallbackBySelection = findMatchingMarketBySelection({
+          markets,
           selection: requestedSelection,
-          market: requestedMarket,
-          code: 'MARKET_UNAVAILABLE',
-          reason: 'Mercado não encontrado nas odds atuais',
+          event: ctx.event,
+          topLevelOdds: { home: ctx.odds?.home, draw: ctx.odds?.draw, away: ctx.odds?.away },
         });
-        return true;
+        if (fallbackBySelection) {
+          pickedMarket = { key: fallbackBySelection.key, entries: fallbackBySelection.entries };
+        } else {
+          sendBetSelectionError(res, `Mercado indisponível para o evento ${eventId}`, {
+            index,
+            event_id: eventId,
+            selection: requestedSelection,
+            market: requestedMarket,
+            code: 'MARKET_UNAVAILABLE',
+            reason: 'Mercado não encontrado nas odds atuais',
+          });
+          return true;
+        }
       }
 
       if (ctx.providerSuspended || ctx.eventFrozen) {
@@ -526,13 +589,25 @@ export async function handleBetRoutes(
         return true;
       }
 
-      const matched = matchSelectionToOdd({
+      let matched = matchSelectionToOdd({
         selection: requestedSelection,
         marketKey: pickedMarket.key,
         marketEntries: pickedMarket.entries,
         event: ctx.event,
         topLevelOdds: { home: ctx.odds?.home, draw: ctx.odds?.draw, away: ctx.odds?.away },
       });
+      if (!matched) {
+        const fallbackBySelection = findMatchingMarketBySelection({
+          markets,
+          selection: requestedSelection,
+          event: ctx.event,
+          topLevelOdds: { home: ctx.odds?.home, draw: ctx.odds?.draw, away: ctx.odds?.away },
+        });
+        if (fallbackBySelection) {
+          pickedMarket = { key: fallbackBySelection.key, entries: fallbackBySelection.entries };
+          matched = fallbackBySelection.matched;
+        }
+      }
       if (!matched) {
         sendBetSelectionError(res, `Seleção inválida para o evento ${eventId}`, {
           index,
