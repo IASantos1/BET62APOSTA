@@ -42,7 +42,7 @@ import {
   fetchStatPalWorldCup2026Info,
   fetchStatPalWorldCup2026Matches,
   parseStatPalMatchOddsPayload,
-} from './statpal.js';
+} from './statPal.js';
 
 export type SportsDataProviderName = 'sportsapipro' | 'statpal';
 
