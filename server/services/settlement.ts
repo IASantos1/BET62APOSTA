@@ -1884,7 +1884,7 @@ export function resultFromCachedEvent(ev: any): MatchResult | null {
   if (!ev) return null;
   const statusRaw = String(ev.status ?? ev.status_short ?? '').toUpperCase();
   const isCancelled = /CANCEL|POSTPON|ABANDON/.test(statusRaw);
-  const isFinished = /FT|FINAL|FINISH|ENDED|END|FULL_TIME|AET|PEN/.test(statusRaw);
+  const isFinished = /FT|FINAL|FINISH|ENDED|END|FULL_TIME|AET|FT_PEN|FTPEN/.test(statusRaw);
   if (!isFinished && !isCancelled) return null;
   const parsed =
     parseScoreValue(ev.score) ||

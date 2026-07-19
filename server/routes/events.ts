@@ -571,6 +571,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const statusShort = String(event?.status_short ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
       const statusLong = String(event?.status_long ?? event?.fixture?.status?.long ?? '').toLowerCase().trim();
       const elapsed = Number(event?.elapsed ?? event?.fixture?.status?.elapsed ?? 0);
+      if (statusShort === 'P' || statusShort === 'PEN' || statusLong.includes('penalt')) return 'penalties' as const;
+      if (statusShort === 'ET' || statusShort === 'ET1' || statusShort === 'ET2' || statusShort === 'OT' || statusLong.includes('extra time') || statusLong.includes('overtime') || statusLong.includes('prorrog')) return 'extra_time' as const;
       if (statusShort === '1H' || statusLong.includes('first half')) return 'first_half' as const;
       if (statusShort === 'HT' || statusLong.includes('half-time') || statusLong.includes('halftime')) return 'half_time' as const;
       if (statusShort === '2H' || statusLong.includes('second half')) return 'second_half' as const;
@@ -636,6 +638,10 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
           '2nd_half_correct_score', 'btts_second_half',
           '2nd_half_corners', '2nd_half_cards',
         ]);
+        const isExtraTimeKey = (key: string) =>
+          /extra[_-]?time|overtime|ot_|_ot|including_extra_time|after_extra_time|aet/.test(key);
+        const isPenaltyKey = (key: string) =>
+          /penalt|shootout|to_qualify|qualif|champion|competition_winner/.test(key);
         if (soccerPhase !== 'first_half') closeIf((key) => firstHalfOnly.has(key));
         if (soccerPhase !== 'second_half') closeIf((key) => secondHalfOnly.has(key));
 
@@ -657,8 +663,19 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
           /^asian_handicap_/.test(key) ||
           /^handicap_european_/.test(key)
         );
-        if (elapsed >= 90) closeIf((key) => !keep90(key));
-        else if (elapsed >= 85) closeIf((key) => !keep85(key));
+        if (soccerPhase === 'extra_time') {
+          keepOnly((key) =>
+            keep90(key) ||
+            isExtraTimeKey(key) ||
+            /^1st_extra_time|^first_extra_time|^2nd_extra_time|^second_extra_time/.test(key)
+          );
+        } else if (soccerPhase === 'penalties') {
+          keepOnly((key) => isPenaltyKey(key));
+        } else if (elapsed >= 90) {
+          closeIf((key) => !keep90(key));
+        } else if (elapsed >= 85) {
+          closeIf((key) => !keep85(key));
+        }
       } else if (sportKey === 'tennis') {
         const currentSet = getTennisLikeSetNumber();
         closeIf((key) => {
@@ -894,6 +911,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       s === 'END' ||
       s === 'FULL_TIME' ||
       s === 'MATCH_FINISHED' ||
+      s === 'FT_PEN' ||
+      s === 'FTPEN' ||
       s === 'COMPLETED' ||
       s === 'CANCELLED' ||
       s === 'CANCELED' ||
@@ -930,15 +949,34 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       s === '2H' ||
       s === 'HT' ||
       s === 'ET' ||
+      s === 'ET1' ||
+      s === 'ET2' ||
       s === 'P' ||
+      s === 'PEN' ||
+      s === 'SO' ||
+      s === 'BT' ||
+      s === 'AT' ||
+      s === 'ST' ||
       s === 'Q1' ||
       s === 'Q2' ||
       s === 'Q3' ||
       s === 'Q4' ||
       s === 'OT' ||
-      s === 'IN'
+      s === 'P1' ||
+      s === 'P2' ||
+      s === 'P3' ||
+      s === 'S1' ||
+      s === 'S2' ||
+      s === 'S3' ||
+      s === 'S4' ||
+      s === 'S5' ||
+      s === 'IN' ||
+      s === 'IN_PROGRESS' ||
+      s === '2MW' ||
+      s === '2MIN' ||
+      /^IN\d+$/.test(s)
     ) return true;
-    if (/(LIVE|INPLAY|IN_PLAY|1H|2H|HT|Q[1-4]|OVERTIME|EXTRA_TIME)/.test(s)) return true;
+    if (/(LIVE|INPLAY|IN_PLAY|1H|2H|HT|PEN|SHOOTOUT|Q[1-4]|OVERTIME|EXTRA_TIME)/.test(s)) return true;
     return false;
   };
 
@@ -1390,7 +1428,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     };
 
     if (includeLive && sports.length > 0) {
-      // Only fetch live for sports whose /api/live endpoint actually works (football only)
+      // Only fetch live for sports whose /api/live endpoint is supported by the active provider
       const liveSports = liveSportsRequested.filter((s) => LIVE_CAPABLE.has(String(s || '').toLowerCase().trim()));
       const lists = await mapLimit(liveSports, 2, (s) => fetchLive(s).catch(() => []));
       for (const live of lists) {

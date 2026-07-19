@@ -244,8 +244,10 @@ export function BetSlip() {
         bets: betSlip.map(b => ({
           event_id: b.event_id,
           selection: b.selection,
+          market: b.market,
           odd: b.odd,
-          stake: mode === 'single' ? b.stake : undefined
+          stake: mode === 'single' ? b.stake : undefined,
+          comboMeta: b.comboMeta,
         }))
       };
 

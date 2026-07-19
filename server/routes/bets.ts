@@ -75,7 +75,8 @@ function isFinishedLike(event: any): boolean {
     normalized === 'FINISHED' ||
     normalized === 'ENDED' ||
     normalized === 'AET' ||
-    normalized === 'PEN' ||
+    normalized === 'FT_PEN' ||
+    normalized === 'FTPEN' ||
     normalized === 'MATCH_FINISHED'
   );
 }
@@ -86,12 +87,20 @@ function canonicalMarketAliases(market: string): string[] {
     return ['h2h', 'main', '1x2', 'match_winner', 'match_result', 'full_time_result', 'moneyline', 'winner'];
   }
   if (m.includes('ambas marcam') || m === 'btts') return ['btts'];
+  if (m.includes('dupla chance') || m === 'double chance') return ['double_chance'];
+  if (m === 'dnb' || m.includes('empate anula') || m.includes('draw no bet')) return ['dnb', 'draw_no_bet'];
   if (m.includes('escante')) return ['corners_total', 'corners_h2h'];
   if (m.includes('cart')) return ['cards_total', 'cards_h2h'];
   if (m.includes('handicap asiat')) return ['spreads', 'asian_handicap', 'handicap'];
   if (m.includes('handicap')) return ['spreads', 'handicap', 'asian_handicap', 'puck_line', 'run_line', 'sets_handicap'];
+  if (m.includes('prorrog') || m.includes('prolong') || m.includes('extra time') || m.includes('overtime')) {
+    return ['result_including_extra_time', 'winner_including_extra_time', 'extra_time_result', 'overtime', 'ot_h2h'];
+  }
+  if (m.includes('penalt') || m.includes('penalti') || m.includes('penalty')) {
+    return ['penalty_shootout_winner', 'penalty_winner', 'to_qualify', 'winner', 'champion', 'competition_winner'];
+  }
   if (m.includes('total') || m.includes('golos') || m.includes('gols') || m.includes('acima') || m.includes('abaixo') || m.includes('over') || m.includes('under')) {
-    return ['totals', 'team_totals', 'match_total_games', 'total_sets', 'corners_total', 'cards_total'];
+    return ['totals', 'alternate_totals', 'team_totals', 'match_total_games', 'total_sets', 'corners_total', 'cards_total'];
   }
   return [m.replace(/\s+/g, '_')];
 }

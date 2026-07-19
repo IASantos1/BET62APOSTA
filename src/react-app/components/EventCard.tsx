@@ -211,8 +211,8 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
       : String(rawSt ?? event?.fixture?.status?.short ?? '')
     ).toUpperCase().trim();
     const liveStatuses = new Set([
-      '1H', '2H', 'HT', 'ET', 'BT', 'P', 'LIVE',
-      'AT', 'ST',
+      '1H', '2H', 'HT', 'ET', 'ET1', 'ET2', 'BT', 'P', 'PEN', 'LIVE',
+      'AT', 'ST', 'SO',
       'Q1', 'Q2', 'Q3', 'Q4', 'OT',
       'P1', 'P2', 'P3',
       'SO',

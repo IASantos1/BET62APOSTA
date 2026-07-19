@@ -154,7 +154,7 @@ const isLiveLikeEvent = (ev: any): boolean => {
   return (
     Number(ev?.is_live) === 1 ||
     status === 'LIVE' ||
-    ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(status)
+    ['1H','2H','HT','ET','ET1','ET2','P','PEN','SO','BT','AT','ST','Q1','Q2','Q3','Q4','OT','P1','P2','P3','IN','S1','S2','S3','S4','S5','IN_PROGRESS','2MW','2MIN'].includes(status)
   );
 };
 
@@ -1205,7 +1205,7 @@ function Home({ mode = 'home' }: HomeProps) {
                   <div className="space-y-6">
                      {limitedLive.length > 0 && (
                         <div className="flex items-center gap-3 px-2 pt-4 border-t border-gray-700/50">
-                           <h2 className="text-xl font-bold uppercase tracking-wide">Próximos 7 dias</h2>
+                           <h2 className="text-xl font-bold uppercase tracking-wide">Próximos Jogos</h2>
                         </div>
                      )}
                      <div className="flex flex-col gap-4">

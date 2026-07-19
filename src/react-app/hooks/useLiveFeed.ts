@@ -99,6 +99,48 @@ const normalizeLiveStatus = (value: any) =>
     .trim()
     .replace(/[^A-Z0-9_]+/g, '');
 
+const isActiveLiveStatus = (value: any) => {
+  const status = normalizeLiveStatus(value);
+  if (!status) return false;
+  return (
+    status === 'LIVE' ||
+    status === 'INPLAY' ||
+    status === 'IN_PLAY' ||
+    status === '1H' ||
+    status === '2H' ||
+    status === 'HT' ||
+    status === 'ET' ||
+    status === 'ET1' ||
+    status === 'ET2' ||
+    status === 'P' ||
+    status === 'PEN' ||
+    status === 'PENALTY' ||
+    status === 'SO' ||
+    status === 'OT' ||
+    status === 'BT' ||
+    status === 'AT' ||
+    status === 'ST' ||
+    status === 'Q1' ||
+    status === 'Q2' ||
+    status === 'Q3' ||
+    status === 'Q4' ||
+    status === 'P1' ||
+    status === 'P2' ||
+    status === 'P3' ||
+    status === 'S1' ||
+    status === 'S2' ||
+    status === 'S3' ||
+    status === 'S4' ||
+    status === 'S5' ||
+    status === 'IN' ||
+    /^IN\d+$/.test(status) ||
+    status === '2MW' ||
+    status === '2MIN' ||
+    status === 'IN_PROGRESS' ||
+    /(OVERTIME|EXTRATIME|PENALTYSHOOTOUT|SHOOTOUT)/.test(status)
+  );
+};
+
 const isFinishedLiveStatus = (value: any) => {
   const status = normalizeLiveStatus(value);
   if (!status) return false;
@@ -106,7 +148,6 @@ const isFinishedLiveStatus = (value: any) => {
     status === 'FT' ||
     status.startsWith('FT') ||
     status === 'AET' ||
-    status === 'PEN' ||
     status === 'FT_PEN' ||
     status === 'FTPEN' ||
     status === 'FIN' ||
@@ -325,12 +366,18 @@ const parseLiveEvent = (item: any) => {
 
     const rawScore = item.score ?? item.goals;
     const scoreObj = parseScore(rawScore);
+    const rawStatusShort = fixture?.status?.short || item.status?.short || item.status || '';
+    const rawStatusLong = fixture?.status?.long || item.status?.long || item.status_long || item.fixture?.status?.long || '';
+    const explicitLiveFlag =
+      Number(item.is_live ?? item.isLive ?? item.live ?? 0) === 1 ||
+      Number(fixture?.status?.live ?? 0) === 1;
+    const inferredLive = explicitLiveFlag || isActiveLiveStatus(rawStatusShort) || isActiveLiveStatus(rawStatusLong);
 
     const ev: any = {
         ...item,
         id: String(item.external_event_id || item.id || fixture.id || ''),
         external_event_id: String(item.external_event_id || item.id || fixture.id || ''),
-        is_live: Number(item.is_live || 1) === 1,
+        is_live: inferredLive ? 1 : 0,
         home_team: teams.home.name,
         away_team: teams.away.name,
         league: item.league?.name || item.league || '',

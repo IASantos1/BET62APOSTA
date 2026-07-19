@@ -57,7 +57,7 @@ function isLiveLike(event: any): boolean {
   return (
     Number(event?.is_live) === 1 ||
     status === 'LIVE' ||
-    ['1H', '2H', 'HT', 'ET', 'P', 'Q1', 'Q2', 'Q3', 'Q4', 'OT', 'IN'].includes(status)
+    ['1H', '2H', 'HT', 'ET', 'ET1', 'ET2', 'P', 'PEN', 'SO', 'Q1', 'Q2', 'Q3', 'Q4', 'OT', 'P1', 'P2', 'P3', 'IN', 'IN_PROGRESS'].includes(status)
   );
 }
 
@@ -66,7 +66,8 @@ function isFinishedLike(event: any): boolean {
   return (
     status === 'FT' ||
     status === 'AET' ||
-    status === 'PEN' ||
+    status === 'FT_PEN' ||
+    status === 'FTPEN' ||
     status === 'FINAL' ||
     status === 'ENDED' ||
     status === 'FINISHED'

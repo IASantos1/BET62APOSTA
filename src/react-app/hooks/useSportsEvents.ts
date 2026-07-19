@@ -577,7 +577,7 @@ export function useSportsEvents(
              const done =
                s === 'FT' || s.startsWith('FT') ||
                s === 'AET' ||
-               s === 'PEN' || s === 'FTPEN' || s === 'FT_PEN' ||
+               s === 'FTPEN' || s === 'FT_PEN' ||
                s === 'FIN' || s === 'FINAL' || s === 'FINISHED' || s === 'ENDED' || s === 'FIM' ||
                s === 'PST' || s === 'POST' ||
                s === 'CANC' || s === 'CANCELLED' || s === 'CANCELED' ||
@@ -753,7 +753,7 @@ export function useSportsEvents(
                 const done =
                   s === 'FT' || s.startsWith('FT') ||
                   s === 'AET' ||
-                  s === 'PEN' || s === 'FTPEN' || s === 'FT_PEN' ||
+                  s === 'FTPEN' || s === 'FT_PEN' ||
                   s === 'FIN' || s === 'FINAL' || s === 'FINISHED' || s === 'ENDED' || s === 'FIM' ||
                   s === 'PST' || s === 'POST' ||
                   s === 'CANC' || s === 'CANCELLED' || s === 'CANCELED' ||

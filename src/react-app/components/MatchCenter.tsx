@@ -143,7 +143,7 @@ export function MatchCenter({ event, initialMatch, darkMode }: { event: any; ini
           const altTotals = arr('alternate_totals')
           const any = dc.length || dnb.length || totals.length || btts.length || handicap.length || altTotals.length
           if (!any) return null
-          const addSel = (label: string, price: number, marketSuspended = false) => {
+          const addSel = (label: string, price: number, market: string, marketSuspended = false) => {
             if (!(price > 0)) { addNotification({ type: 'warning', message: 'Odd indisponível' }); return }
             const idStr = `ev-${event.id}-${label.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`
             addToBetSlip({
@@ -151,6 +151,7 @@ export function MatchCenter({ event, initialMatch, darkMode }: { event: any; ini
               event_id: Number(event.id),
               match: String(event.match || `${event.home_team} vs ${event.away_team}`),
               selection: label,
+              market,
               odd: price,
               stake: 0,
               suspended: Boolean(eventSuspended),
@@ -164,7 +165,7 @@ export function MatchCenter({ event, initialMatch, darkMode }: { event: any; ini
             const label = `Dupla Chance ${name}`
             const blocked = isSelectionSuspended(o)
             return (
-              <button key={`dc-${i}`} disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-indigo-600 text-white hover:opacity-90'}`}>{name} {p>0?p.toFixed(2):'-'}</button>
+              <button key={`dc-${i}`} disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, 'double_chance', blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-indigo-600 text-white hover:opacity-90'}`}>{name} {p>0?p.toFixed(2):'-'}</button>
             )
           })
           const renderDnb = dnb.slice(0, 2).map((o: any, i: number) => {
@@ -173,7 +174,7 @@ export function MatchCenter({ event, initialMatch, darkMode }: { event: any; ini
             const label = `DNB ${name}`
             const blocked = isSelectionSuspended(o)
             return (
-              <button key={`dnb-${i}`} disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-teal-600 text-white hover:opacity-90'}`}>{name} {p>0?p.toFixed(2):'-'}</button>
+              <button key={`dnb-${i}`} disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, 'dnb', blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-teal-600 text-white hover:opacity-90'}`}>{name} {p>0?p.toFixed(2):'-'}</button>
             )
           })
           const pick25 = (() => {
@@ -189,7 +190,7 @@ export function MatchCenter({ event, initialMatch, darkMode }: { event: any; ini
             const label = `Totais ${n}`
             const blocked = isSelectionSuspended(pick25)
             return (
-              <button disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-amber-600 text-white hover:opacity-90'}`}>{n} {p>0?p.toFixed(2):'-'}</button>
+              <button disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, 'totals', blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-amber-600 text-white hover:opacity-90'}`}>{n} {p>0?p.toFixed(2):'-'}</button>
             )
           })() : null
           const renderBtts = btts.slice(0, 2).map((o: any, i: number) => {
@@ -198,7 +199,7 @@ export function MatchCenter({ event, initialMatch, darkMode }: { event: any; ini
             const label = `BTTS ${n}`
             const blocked = isSelectionSuspended(o)
             return (
-              <button key={`btts-${i}`} disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-purple-600 text-white hover:opacity-90'}`}>{n} {p>0?p.toFixed(2):'-'}</button>
+              <button key={`btts-${i}`} disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, 'btts', blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-purple-600 text-white hover:opacity-90'}`}>{n} {p>0?p.toFixed(2):'-'}</button>
             )
           })
           const renderHandicap = handicap.slice(0, 2).map((o: any, i: number) => {
@@ -207,7 +208,7 @@ export function MatchCenter({ event, initialMatch, darkMode }: { event: any; ini
             const label = `Handicap ${n}`
             const blocked = isSelectionSuspended(o)
             return (
-              <button key={`hcp-${i}`} disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-sky-700 text-white hover:opacity-90'}`}>{n} {p>0?p.toFixed(2):'-'}</button>
+              <button key={`hcp-${i}`} disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, 'handicap', blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-sky-700 text-white hover:opacity-90'}`}>{n} {p>0?p.toFixed(2):'-'}</button>
             )
           })
           const renderAltTotals = altTotals.slice(0, 2).map((o: any, i: number) => {
@@ -216,7 +217,7 @@ export function MatchCenter({ event, initialMatch, darkMode }: { event: any; ini
             const label = `Totais Alt ${n}`
             const blocked = isSelectionSuspended(o)
             return (
-              <button key={`alt-${i}`} disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-slate-700 text-white hover:opacity-90'}`}>{n} {p>0?p.toFixed(2):'-'}</button>
+              <button key={`alt-${i}`} disabled={blocked} onClick={(e) => { e.stopPropagation(); if (!blocked) addSel(label, p, 'alternate_totals', blocked) }} className={`text-xs px-2 py-0.5 rounded ${blocked ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' : 'bg-slate-700 text-white hover:opacity-90'}`}>{n} {p>0?p.toFixed(2):'-'}</button>
             )
           })
           return (

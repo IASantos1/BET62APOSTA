@@ -409,6 +409,8 @@ export function createLiveWs(apiKey: string) {
       const statusShort = String(event?.status_short ?? event?.fixture?.status?.short ?? '').toUpperCase().trim();
       const statusLong = String(event?.status_long ?? event?.fixture?.status?.long ?? '').toLowerCase().trim();
       const elapsed = Number(event?.elapsed ?? event?.fixture?.status?.elapsed ?? 0);
+      if (statusShort === 'P' || statusShort === 'PEN' || statusLong.includes('penalt')) return 'penalties' as const;
+      if (statusShort === 'ET' || statusShort === 'ET1' || statusShort === 'ET2' || statusShort === 'OT' || statusLong.includes('extra time') || statusLong.includes('overtime') || statusLong.includes('prorrog')) return 'extra_time' as const;
       if (statusShort === '1H' || statusLong.includes('first half')) return 'first_half' as const;
       if (statusShort === 'HT' || statusLong.includes('half-time') || statusLong.includes('halftime')) return 'half_time' as const;
       if (statusShort === '2H' || statusLong.includes('second half')) return 'second_half' as const;
@@ -451,6 +453,10 @@ export function createLiveWs(apiKey: string) {
           '2nd_half_correct_score', 'btts_second_half',
           '2nd_half_corners', '2nd_half_cards',
         ]);
+        const isExtraTimeKey = (key: string) =>
+          /extra[_-]?time|overtime|ot_|_ot|including_extra_time|after_extra_time|aet/.test(key);
+        const isPenaltyKey = (key: string) =>
+          /penalt|shootout|to_qualify|qualif|champion|competition_winner/.test(key);
         if (soccerPhase !== 'first_half') closeIf((key) => firstHalfOnly.has(key));
         if (soccerPhase !== 'second_half') closeIf((key) => secondHalfOnly.has(key));
         const keep85 = (key: string) => (
@@ -471,8 +477,19 @@ export function createLiveWs(apiKey: string) {
           /^asian_handicap_/.test(key) ||
           /^handicap_european_/.test(key)
         );
-        if (elapsed >= 90) closeIf((key) => !keep90(key));
-        else if (elapsed >= 85) closeIf((key) => !keep85(key));
+        if (soccerPhase === 'extra_time') {
+          keepOnly((key) =>
+            keep90(key) ||
+            isExtraTimeKey(key) ||
+            /^1st_extra_time|^first_extra_time|^2nd_extra_time|^second_extra_time/.test(key)
+          );
+        } else if (soccerPhase === 'penalties') {
+          keepOnly((key) => isPenaltyKey(key));
+        } else if (elapsed >= 90) {
+          closeIf((key) => !keep90(key));
+        } else if (elapsed >= 85) {
+          closeIf((key) => !keep85(key));
+        }
       } else if (sportKey === 'tennis') {
         const currentSet = getTennisLikeSetNumber();
         closeIf((key) => {

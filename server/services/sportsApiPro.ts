@@ -181,6 +181,8 @@ function isFinishedStatus(status: any): boolean {
     k === 'END' ||
     k === 'FULL_TIME' ||
     k === 'MATCH_FINISHED' ||
+    k === 'FT_PEN' ||
+    k === 'FTPEN' ||
     k === 'COMPLETED' ||
     k === 'CANCELLED' ||
     k === 'CANCELED' ||
@@ -206,6 +208,7 @@ function isLive(status: any): boolean {
   if (isFinishedStatus(status)) return false;
   if (isNotStartedStatus(status)) return false;
   const s = statusText(status).toLowerCase();
+  const k = statusKey(status);
   if (!s) return false;
   if ([
     '1h', '2h', 'ht', 'et', 'pen',
@@ -213,8 +216,14 @@ function isLive(status: any): boolean {
     's1', 's2', 's3', 's4', 's5',
     'in', 'in_progress', 'live',
   ].includes(s)) return true;
+  if ([
+    'ET1', 'ET2', 'P', 'PEN', 'PENALTY', 'SO', 'BT', 'AT', 'ST',
+    'P1', 'P2', 'P3', '2MW', '2MIN',
+  ].includes(k)) return true;
+  if (/^IN\d+$/.test(k)) return true;
   if (s.includes('inprogress') || s.includes('in progress') || s.includes('live')) return true;
   if (s.includes('half') || s.includes('quarter') || s.includes('inning') || s.includes('set')) return true;
+  if (s.includes('extra time') || s.includes('overtime') || s.includes('shootout') || s.includes('penalty')) return true;
   if (s.includes('1st') || s.includes('2nd') || s.includes('3rd') || s.includes('4th')) return true;
   return false;
 }
@@ -451,6 +460,9 @@ function deriveTennisSetNumber(status: any, tennisSets: Record<string, { home: n
 }
 
 function deriveStatusShort(sport: string, status: any, elapsed: number, tennisSets: Record<string, { home: number | null; away: number | null }> | null): string {
+  const key = statusKey(status);
+  if (key === 'AET') return 'AET';
+  if (key === 'FT_PEN' || key === 'FTPEN') return 'FT_PEN';
   if (isFinishedStatus(status)) return 'FT';
   if (isNotStartedStatus(status)) return 'NS';
   const sKey = normalizeSportKey(sport);
@@ -460,10 +472,15 @@ function deriveStatusShort(sport: string, status: any, elapsed: number, tennisSe
     return 'LIVE';
   }
   if (sKey === 'soccer' || sKey === 'football') {
+    if (key === 'HT') return 'HT';
+    if (key === 'ET' || key === 'ET1' || key === 'ET2' || key === 'OT') return 'ET';
+    if (key === 'P' || key === 'PEN' || key === 'PENALTY') return 'PEN';
     if (elapsed >= 46) return '2H';
     if (elapsed > 0) return '1H';
     return 'LIVE';
   }
+  if (['Q1', 'Q2', 'Q3', 'Q4', 'OT', 'P1', 'P2', 'P3', 'SO', 'BT', 'AT', 'ST', '2MW', '2MIN'].includes(key)) return key;
+  if (/^IN\d+$/.test(key)) return key;
   return 'LIVE';
 }
 

@@ -205,6 +205,15 @@ const statusKeyOf = (e: any) => {
     .replace(/[^A-Z0-9_]+/g, '');
 };
 
+const isLiveStatusKey = (status: string) =>
+  [
+    'LIVE', '1H', '2H', 'HT', 'ET', 'ET1', 'ET2', 'P', 'PEN', 'SO', 'BT', 'AT', 'ST',
+    'Q1', 'Q2', 'Q3', 'Q4', 'OT',
+    'P1', 'P2', 'P3',
+    'S1', 'S2', 'S3', 'S4', 'S5',
+    'IN', 'IN_PROGRESS', '2MW', '2MIN',
+  ].includes(status) || /^IN\d+$/.test(status);
+
 /**
  * Merges HTTP Snapshot events with Real-time WebSocket events.
  * 
@@ -366,16 +375,15 @@ export function useMergedEvents(
         const status = statusKeyOf(e);
         const isLiveLike =
           Number((e as any).is_live) === 1 ||
-          status === 'LIVE' ||
-          ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(status);
+          isLiveStatusKey(status);
         if (isLiveLike && !hasAnyOdds(e) && !hasLiveSignal(e) && !isRecentLiveWindow(e)) return false;
 
         return true;
     }).sort((a, b) => {
       const aStatus = statusKeyOf(a);
       const bStatus = statusKeyOf(b);
-      const aLive = Number((a as any).is_live) === 1 || aStatus === 'LIVE' || ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(aStatus);
-      const bLive = Number((b as any).is_live) === 1 || bStatus === 'LIVE' || ['1H','2H','HT','ET','P','Q1','Q2','Q3','Q4','OT','IN','S1','S2','S3','S4','S5','IN_PROGRESS'].includes(bStatus);
+      const aLive = Number((a as any).is_live) === 1 || isLiveStatusKey(aStatus);
+      const bLive = Number((b as any).is_live) === 1 || isLiveStatusKey(bStatus);
       
       if (aLive && !bLive) return -1;
       if (!aLive && bLive) return 1;
