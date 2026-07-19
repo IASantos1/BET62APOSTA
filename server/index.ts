@@ -80,7 +80,9 @@ const safePool: any =
     }),
   } as any);
 
+const sportsProvider = String(process.env.SPORTS_PROVIDER || 'sportsapipro').trim().toLowerCase() || 'sportsapipro';
 const sportsApiKeyEnv =
+  (sportsProvider === 'statpal' && process.env.STATPAL_KEY && 'STATPAL_KEY') ||
   (process.env.SPORTS_API_PRO_KEY && 'SPORTS_API_PRO_KEY') ||
   (process.env.SPORTSAPIPRO_KEY && 'SPORTSAPIPRO_KEY') ||
   (process.env.SPORTSAPI_PRO_KEY && 'SPORTSAPI_PRO_KEY') ||
@@ -92,9 +94,9 @@ const sportsApiKey = String(
 ).trim();
 if (!sportsApiKey) {
   console.warn(
-    '[server] WARNING: No SportsAPI Pro key found. Sports data endpoints will return empty. Set SPORTS_API_PRO_KEY to enable.',
+    `[server] WARNING: No sports provider key found for "${sportsProvider}". Sports data endpoints will return empty. Set ${sportsProvider === 'statpal' ? 'STATPAL_KEY' : 'SPORTS_API_PRO_KEY'}.`,
   );
-} else if (sportsApiKeyEnv && sportsApiKeyEnv !== 'SPORTS_API_PRO_KEY') {
+} else if (sportsProvider !== 'statpal' && sportsApiKeyEnv && sportsApiKeyEnv !== 'SPORTS_API_PRO_KEY') {
   console.warn(
     `[server] WARNING: Using legacy sports key env "${sportsApiKeyEnv}". Prefer SPORTS_API_PRO_KEY.`,
   );

@@ -966,6 +966,15 @@ function tennisSetNumberFromPeriod(period: string): number | null {
   if (p === '3rd set' || p === 'third set') return 3;
   if (p === '4th set' || p === 'fourth set') return 4;
   if (p === '5th set' || p === 'fifth set') return 5;
+  const direct =
+    /\bset\s*([1-5])\b/.exec(p) ||
+    /\bs([1-5])\b/.exec(p) ||
+    /\b([1-5])(st|nd|rd|th)?\s+set\b/.exec(p);
+  if (direct) {
+    const raw = direct[1];
+    const setNumber = Number(raw);
+    if (Number.isFinite(setNumber) && setNumber >= 1 && setNumber <= 5) return setNumber;
+  }
   return null;
 }
 

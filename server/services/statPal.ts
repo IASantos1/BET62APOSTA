@@ -1,0 +1,520 @@
+import process from 'node:process';
+import type { NormalizedEvent, OddsResult, V1AllScoresDelta } from './sportsApiPro.js';
+
+function envInt(name: string, fallback: number, min: number, max: number): number {
+  const raw = Number(process.env[name] || '');
+  if (!Number.isFinite(raw)) return fallback;
+  const value = Math.floor(raw);
+  return Math.max(min, Math.min(max, value));
+}
+
+const PROVIDER_TIMEOUT_MS = envInt('SPORTS_PROVIDER_TIMEOUT_MS', 15_000, 1_000, 60_000);
+const PROVIDER_LIVE_TIMEOUT_MS = envInt('SPORTS_PROVIDER_LIVE_TIMEOUT_MS', 5_000, 1_000, 30_000);
+
+function normalizeSportKey(sport: string): string {
+  return String(sport || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[_\s]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+}
+
+function statPalSportPath(sport: string): string {
+  const s = normalizeSportKey(sport);
+  if (s === 'football' || s === 'futebol' || s === 'soccer') return 'soccer';
+  if (s === 'tennis') return 'tennis';
+  if (s === 'basketball') return 'nba';
+  if (s === 'baseball') return 'mlb';
+  if (s === 'ice-hockey' || s === 'icehockey' || s === 'hockey') return 'nhl';
+  if (s === 'volleyball' || s === 'volei' || s === 'voleyball') return 'volleyball';
+  if (s === 'mma' || s === 'ufc') return 'mma';
+  return s || 'soccer';
+}
+
+function statPalVersion(sport: string): 'v1' | 'v2' {
+  return statPalSportPath(sport) === 'soccer' ? 'v2' : 'v1';
+}
+
+function appendAccessKey(url: string, apiKey: string): string {
+  const u = new URL(url);
+  u.searchParams.set('access_key', apiKey);
+  return u.toString();
+}
+
+async function fetchJson(url: string, timeoutMs: number = PROVIDER_TIMEOUT_MS): Promise<any | null> {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function fetchFirstJson(urls: string[], timeoutMs: number): Promise<any | null> {
+  for (const url of urls) {
+    const json = await fetchJson(url, timeoutMs);
+    if (json) return json;
+  }
+  return null;
+}
+
+function extractEvents(payload: any): any[] {
+  if (!payload) return [];
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.matches)) return payload.matches;
+  if (Array.isArray(payload.events)) return payload.events;
+  if (Array.isArray(payload.games)) return payload.games;
+  if (Array.isArray(payload.response)) return payload.response;
+  if (Array.isArray(payload.data?.matches)) return payload.data.matches;
+  if (Array.isArray(payload.data?.events)) return payload.data.events;
+  if (Array.isArray(payload.data?.games)) return payload.data.games;
+  if (Array.isArray(payload.data?.response)) return payload.data.response;
+  if (Array.isArray(payload.livescores)) return payload.livescores;
+  if (Array.isArray(payload.data?.livescores)) return payload.data.livescores;
+  const blocks = payload.data?.tournaments ?? payload.tournaments ?? payload.data?.leagues ?? payload.leagues;
+  if (Array.isArray(blocks)) {
+    const out: any[] = [];
+    for (const block of blocks) {
+      const rows = block?.matches ?? block?.events ?? block?.games ?? block?.fixtures ?? [];
+      if (Array.isArray(rows)) out.push(...rows);
+    }
+    return out;
+  }
+  return [];
+}
+
+function readScoreNumber(v: any): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeStatusShort(v: any): string {
+  const raw = String(v ?? '').trim();
+  return raw || 'NS';
+}
+
+function normalizeStatusLong(v: any): string {
+  const raw = String(v ?? '').trim();
+  return raw || 'Not Started';
+}
+
+function isLiveStatus(shortStatus: string, longStatus: string): boolean {
+  const s = `${shortStatus} ${longStatus}`.toLowerCase();
+  return /(live|in play|1h|2h|ht|q1|q2|q3|q4|set|period|inning|half|playing|started)/.test(s);
+}
+
+function extractEventId(event: any): string {
+  return String(
+    event?.id ??
+    event?.match_id ??
+    event?.matchId ??
+    event?.fixture_id ??
+    event?.fixtureId ??
+    event?.event_id ??
+    event?.eventId ??
+    '',
+  ).trim();
+}
+
+function extractTournamentId(event: any): string {
+  return String(
+    event?.league_id ??
+    event?.leagueId ??
+    event?.competition_id ??
+    event?.competitionId ??
+    event?.tournament_id ??
+    event?.tournamentId ??
+    event?.league?.id ??
+    event?.competition?.id ??
+    event?.tournament?.id ??
+    '',
+  ).trim();
+}
+
+function extractTeamName(event: any, side: 'home' | 'away'): string {
+  const team = side === 'home'
+    ? event?.home_team ?? event?.homeTeam ?? event?.teams?.home?.name ?? event?.home?.name ?? event?.players?.home?.name
+    : event?.away_team ?? event?.awayTeam ?? event?.teams?.away?.name ?? event?.away?.name ?? event?.players?.away?.name;
+  return String(team ?? '').trim();
+}
+
+function extractTeamLogo(event: any, side: 'home' | 'away'): string {
+  const logo = side === 'home'
+    ? event?.home_team_logo ?? event?.teams?.home?.logo ?? event?.home?.logo
+    : event?.away_team_logo ?? event?.teams?.away?.logo ?? event?.away?.logo;
+  return String(logo ?? '').trim();
+}
+
+function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
+  const id = extractEventId(event);
+  if (!id) return null;
+  const statusShort = normalizeStatusShort(event?.status_short ?? event?.status?.short ?? event?.status ?? event?.state ?? event?.status_code);
+  const statusLong = normalizeStatusLong(event?.status_long ?? event?.status?.long ?? event?.status_description ?? event?.statusText);
+  const home = extractTeamName(event, 'home');
+  const away = extractTeamName(event, 'away');
+  const homeGoals = readScoreNumber(
+    event?.home_score ??
+    event?.score?.home ??
+    event?.scores?.home ??
+    event?.goals?.home ??
+    event?.result?.home,
+  );
+  const awayGoals = readScoreNumber(
+    event?.away_score ??
+    event?.score?.away ??
+    event?.scores?.away ??
+    event?.goals?.away ??
+    event?.result?.away,
+  );
+  const elapsedRaw = event?.elapsed ?? event?.timer?.elapsed ?? event?.clock?.elapsed ?? event?.minute;
+  const elapsed = Number.isFinite(Number(elapsedRaw)) ? Number(elapsedRaw) : 0;
+  const timer = String(event?.timer?.display ?? event?.clock?.display ?? event?.timer ?? '').trim();
+  const score = JSON.stringify({
+    home: homeGoals,
+    away: awayGoals,
+    raw: event?.score ?? event?.scores ?? event?.result ?? null,
+  });
+  const league = String(
+    event?.league_name ??
+    event?.league?.name ??
+    event?.competition_name ??
+    event?.competition?.name ??
+    event?.tournament_name ??
+    event?.tournament?.name ??
+    '',
+  ).trim();
+  const country = String(
+    event?.country ??
+    event?.league?.country ??
+    event?.competition?.country ??
+    event?.tournament?.country ??
+    '',
+  ).trim();
+  const eventDate = String(
+    event?.event_date ??
+    event?.start_time ??
+    event?.startTime ??
+    event?.match_time ??
+    event?.date ??
+    event?.scheduled_at ??
+    '',
+  ).trim();
+  return {
+    external_event_id: id,
+    sport: normalizeSportKey(sport),
+    league,
+    home_team: home,
+    away_team: away,
+    team_match: home && away ? `${home} vs ${away}` : String(event?.name ?? '').trim(),
+    event_date: eventDate,
+    status: statusLong,
+    status_short: statusShort,
+    status_long: statusLong,
+    is_live: isLiveStatus(statusShort, statusLong) ? 1 : 0,
+    home_odd: Number(event?.home_odd ?? event?.odds?.home ?? 0) || 0,
+    draw_odd: Number(event?.draw_odd ?? event?.odds?.draw ?? 0) || 0,
+    away_odd: Number(event?.away_odd ?? event?.odds?.away ?? 0) || 0,
+    elapsed,
+    timer,
+    score,
+    markets: JSON.stringify(event?.markets ?? event?.odds ?? {}),
+    country,
+    home_team_logo: extractTeamLogo(event, 'home'),
+    away_team_logo: extractTeamLogo(event, 'away'),
+    fixture: event,
+    teams: event?.teams ?? null,
+    goals: { home: homeGoals, away: awayGoals },
+    provider_status: event?.status ?? null,
+  };
+}
+
+function sportBaseUrls(sport: string): string[] {
+  const mapped = statPalSportPath(sport);
+  const version = statPalVersion(sport);
+  return [`https://statpal.io/api/${version}/${mapped}`];
+}
+
+function buildCandidateUrls(apiKey: string, sport: string, paths: string[]): string[] {
+  const out: string[] = [];
+  for (const base of sportBaseUrls(sport)) {
+    for (const path of paths) {
+      out.push(appendAccessKey(`${base}${path}`, apiKey));
+    }
+  }
+  return out;
+}
+
+function extractOddsRows(payload: any): any[] {
+  if (!payload) return [];
+  if (Array.isArray(payload.markets)) return payload.markets;
+  if (Array.isArray(payload.data?.markets)) return payload.data.markets;
+  if (Array.isArray(payload.odds)) return payload.odds;
+  if (Array.isArray(payload.data?.odds)) return payload.data.odds;
+  if (Array.isArray(payload.bookmakers)) {
+    for (const book of payload.bookmakers) {
+      if (Array.isArray(book?.markets) && book.markets.length > 0) return book.markets;
+    }
+  }
+  if (Array.isArray(payload.providers)) {
+    for (const provider of payload.providers) {
+      if (Array.isArray(provider?.markets) && provider.markets.length > 0) return provider.markets;
+    }
+  }
+  return [];
+}
+
+function normalizeLabel(raw: any): string {
+  return String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function inferMarketKey(title: string): string {
+  const t = normalizeLabel(title);
+  if (!t) return 'other';
+  if (/(match winner|1x2|full time result|resultado final|winner)/.test(t)) return 'h2h';
+  if (/(both teams to score|btts)/.test(t)) return 'btts';
+  if (/(over under|total goals|totals|total games|games total|total rounds)/.test(t)) return 'totals';
+  if (/(double chance)/.test(t)) return 'double_chance';
+  if (/(correct score|placar exato)/.test(t)) return 'correct_score';
+  if (/(handicap|spread)/.test(t)) return 'spreads';
+  if (/(next game winner)/.test(t)) return 'next_game_winner';
+  if (/(set winner|current set winner)/.test(t)) return 'current_set_winner';
+  return t.replace(/\s+/g, '_');
+}
+
+function readSelectionLabel(selection: any): string {
+  return String(
+    selection?.label ??
+    selection?.name ??
+    selection?.value ??
+    selection?.outcome ??
+    selection?.participant ??
+    selection?.runner ??
+    selection?.team ??
+    selection?.title ??
+    '',
+  ).trim();
+}
+
+function readSelectionOdd(selection: any): number {
+  const raw = selection?.odd ?? selection?.price ?? selection?.value ?? selection?.decimal ?? selection?.decimal_odds ?? selection?.odds;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function parseStatPalMatchOddsPayload(
+  _sport: string,
+  payload: any,
+  opts?: { homeTeam?: string; awayTeam?: string }
+): OddsResult | null {
+  const rows = extractOddsRows(payload);
+  if (!rows.length) return null;
+  const markets: Record<string, any[]> = {};
+  let home = 0;
+  let draw = 0;
+  let away = 0;
+  const homeKey = normalizeLabel(opts?.homeTeam || '');
+  const awayKey = normalizeLabel(opts?.awayTeam || '');
+
+  for (const row of rows) {
+    const title = String(row?.title ?? row?.name ?? row?.label ?? row?.market ?? row?.type ?? '').trim();
+    const key = inferMarketKey(title);
+    const selections = row?.selections ?? row?.outcomes ?? row?.choices ?? row?.options ?? row?.odds ?? row?.lines ?? [];
+    if (!Array.isArray(selections) || selections.length === 0) continue;
+    const out: any[] = [];
+    for (const selection of selections) {
+      const label = readSelectionLabel(selection);
+      const odd = readSelectionOdd(selection);
+      if (!label || !(odd > 1)) continue;
+      const item: any = { label, value: label, odd };
+      const point = selection?.point ?? selection?.line ?? selection?.handicap ?? selection?.total ?? null;
+      if (point != null && String(point).trim()) item.handicap = String(point).trim();
+      const suspended = Boolean(selection?.suspended || selection?.is_suspended || selection?.status === 'suspended');
+      if (suspended) item.suspended = true;
+      out.push(item);
+
+      if (key === 'h2h') {
+        const labelKey = normalizeLabel(label);
+        if (labelKey === 'draw' || labelKey === 'empate' || labelKey === 'x') draw = odd;
+        else if (homeKey && (labelKey === homeKey || labelKey.includes(homeKey) || homeKey.includes(labelKey))) home = odd;
+        else if (awayKey && (labelKey === awayKey || labelKey.includes(awayKey) || awayKey.includes(labelKey))) away = odd;
+      }
+    }
+    if (out.length > 0) markets[key] = out;
+  }
+
+  if (home <= 1 && away <= 1 && draw <= 1 && !Object.keys(markets).length) return null;
+  return { home, draw, away, markets };
+}
+
+export async function fetchStatPalV1AllScoresDelta(apiKey: string, sport: string): Promise<V1AllScoresDelta> {
+  const events = await fetchStatPalLive(apiKey, sport);
+  return { events, lastUpdateId: null };
+}
+
+export async function fetchStatPalLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
+  const s = statPalSportPath(sport);
+  const paths = s === 'soccer'
+    ? ['/matches/live', '/livescores', '/matches?status=live']
+    : ['/livescores', '/matches/live', '/matches?status=live'];
+  const json = await fetchFirstJson(buildCandidateUrls(apiKey, sport, paths), PROVIDER_LIVE_TIMEOUT_MS);
+  const events = extractEvents(json).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
+  return events;
+}
+
+export async function fetchStatPalSchedule(apiKey: string, sport: string, date: string): Promise<NormalizedEvent[]> {
+  const s = statPalSportPath(sport);
+  const paths = s === 'soccer'
+    ? [
+        `/matches/date/${encodeURIComponent(date)}`,
+        `/matches?date=${encodeURIComponent(date)}`,
+        `/schedule?date=${encodeURIComponent(date)}`,
+        `/fixtures?date=${encodeURIComponent(date)}`,
+      ]
+    : [
+        `/schedule?date=${encodeURIComponent(date)}`,
+        `/matches?date=${encodeURIComponent(date)}`,
+        `/fixtures?date=${encodeURIComponent(date)}`,
+        `/upcoming?date=${encodeURIComponent(date)}`,
+      ];
+  const json = await fetchFirstJson(buildCandidateUrls(apiKey, sport, paths), PROVIDER_TIMEOUT_MS);
+  const events = extractEvents(json).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
+  return events;
+}
+
+export async function fetchStatPalMatchOddsAll(
+  apiKey: string,
+  sport: string,
+  matchId: string,
+  opts?: { homeTeam?: string; awayTeam?: string }
+): Promise<OddsResult | null> {
+  const json = await fetchFirstJson(
+    buildCandidateUrls(apiKey, sport, [
+      `/matches/${encodeURIComponent(matchId)}/odds`,
+      `/match/${encodeURIComponent(matchId)}/odds`,
+      `/matches/${encodeURIComponent(matchId)}/liveodds`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+  return parseStatPalMatchOddsPayload(sport, json, opts);
+}
+
+export async function fetchStatPalMatchOddsLive(
+  apiKey: string,
+  sport: string,
+  matchId: string,
+  opts?: { homeTeam?: string; awayTeam?: string }
+): Promise<OddsResult | null> {
+  const json = await fetchFirstJson(
+    buildCandidateUrls(apiKey, sport, [
+      `/matches/${encodeURIComponent(matchId)}/liveodds`,
+      `/match/${encodeURIComponent(matchId)}/liveodds`,
+      `/matches/${encodeURIComponent(matchId)}/odds/live`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+  return parseStatPalMatchOddsPayload(sport, json, opts);
+}
+
+export async function fetchStatPalMatchOddsPreMatch(
+  apiKey: string,
+  sport: string,
+  matchId: string,
+  opts?: { homeTeam?: string; awayTeam?: string }
+): Promise<OddsResult | null> {
+  const json = await fetchFirstJson(
+    buildCandidateUrls(apiKey, sport, [
+      `/matches/${encodeURIComponent(matchId)}/odds/pre-match`,
+      `/match/${encodeURIComponent(matchId)}/odds/pre-match`,
+      `/matches/${encodeURIComponent(matchId)}/prematch-odds`,
+      `/matches/${encodeURIComponent(matchId)}/odds`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+  return parseStatPalMatchOddsPayload(sport, json, opts);
+}
+
+export async function fetchStatPalMatchStatistics(apiKey: string, sport: string, matchId: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, sport, [
+      `/matches/${encodeURIComponent(matchId)}/statistics`,
+      `/match/${encodeURIComponent(matchId)}/statistics`,
+      `/matches/${encodeURIComponent(matchId)}/stats`,
+      `/match/${encodeURIComponent(matchId)}/stats`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalMatchIncidents(apiKey: string, sport: string, matchId: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, sport, [
+      `/matches/${encodeURIComponent(matchId)}/incidents`,
+      `/match/${encodeURIComponent(matchId)}/incidents`,
+      `/matches/${encodeURIComponent(matchId)}/events`,
+      `/match/${encodeURIComponent(matchId)}/events`,
+      `/matches/${encodeURIComponent(matchId)}/play-by-play`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalH2H(apiKey: string, sport: string, matchId: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, sport, [
+      `/matches/${encodeURIComponent(matchId)}/head-to-head`,
+      `/match/${encodeURIComponent(matchId)}/head-to-head`,
+      `/matches/${encodeURIComponent(matchId)}/h2h`,
+      `/match/${encodeURIComponent(matchId)}/h2h`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalStandings(apiKey: string, sport: string, tournamentId: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, sport, [
+      `/leagues/${encodeURIComponent(tournamentId)}/standings`,
+      `/league/${encodeURIComponent(tournamentId)}/standings`,
+      `/tournaments/${encodeURIComponent(tournamentId)}/standings`,
+      `/tournament/${encodeURIComponent(tournamentId)}/standings`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalWorldCup2026(_apiKey: string): Promise<any | null> {
+  return null;
+}
+
+export async function fetchStatPalWorldCup2026Info(_apiKey: string): Promise<any | null> {
+  return null;
+}
+
+export async function fetchStatPalWorldCup2026Groups(_apiKey: string): Promise<any | null> {
+  return null;
+}
+
+export async function fetchStatPalWorldCup2026Matches(_apiKey: string, _page: number): Promise<NormalizedEvent[]> {
+  return [];
+}
+
+export function getStatPalTournamentId(event: any): string {
+  return extractTournamentId(event);
+}

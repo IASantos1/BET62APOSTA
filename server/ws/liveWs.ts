@@ -8,8 +8,9 @@ import {
   fetchSportsApiProMatchOddsAll,
   fetchSportsApiProMatchOddsLive,
   fetchSportsApiProMatchOddsPreMatch,
+  getSportsDataProviderConfig,
   parseSportsApiProMatchOddsPayload,
-} from '../services/sportsApiPro.js';
+} from '../services/sportsDataProvider.js';
 
 type ClientInfo = { ws: WebSocket; sport: string };
 type UpstreamInfo = {
@@ -45,6 +46,7 @@ function envInt(name: string, fallback: number, min: number, max: number): numbe
 }
 
 export function createLiveWs(apiKey: string) {
+  const provider = getSportsDataProviderConfig();
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<ClientInfo>();
   const timers = new Map<string, NodeJS.Timeout>();
@@ -59,6 +61,7 @@ export function createLiveWs(apiKey: string) {
   const SNAPSHOT_TENNIS_CACHE_TTL_MS = envInt('SPORTS_WS_SNAPSHOT_TENNIS_CACHE_TTL_MS', 500, 500, 10_000);
   const WS_RECONNECT_MIN_MS = envInt('SPORTS_WS_RECONNECT_MIN_MS', 1_000, 250, 10_000);
   const WS_RECONNECT_MAX_MS = envInt('SPORTS_WS_RECONNECT_MAX_MS', 20_000, 1_000, 60_000);
+  const STATPAL_SNAPSHOT_INTERVAL_MS = envInt('STATPAL_WS_SNAPSHOT_INTERVAL_MS', 10_000, 3_000, 30_000);
   const CRITICAL_INCIDENT_TARGET_LIMIT = envInt('SPORTS_WS_CRITICAL_INCIDENT_TARGET_LIMIT', 40, 12, 100);
   const oddsCache = new Map<string, { ts: number; data: any | null }>();
   const oddsInflight = new Map<string, Promise<any | null>>();
@@ -1106,6 +1109,7 @@ export function createLiveWs(apiKey: string) {
   };
 
   const trySubscribeMatchOdds = (sport: string, matchId: string) => {
+    if (!provider.supportsUpstreamWs) return;
     const localSport = String(sport || '').trim().toLowerCase();
     const id = String(matchId || '').trim();
     if (!localSport || !id) return;
@@ -1608,6 +1612,7 @@ export function createLiveWs(apiKey: string) {
   };
 
   const connectUpstream = (sport: string) => {
+    if (!provider.supportsUpstreamWs) return;
     const localSport = String(sport || '').trim().toLowerCase();
     if (!localSport || localSport === 'all') return;
     const wsSport = toWsSport(localSport);
@@ -1851,12 +1856,12 @@ export function createLiveWs(apiKey: string) {
 
   const ensureTimer = (sport: string) => {
     if (timers.has(sport)) return;
-    if (sport === 'all') {
+    if (provider.supportsUpstreamWs && sport === 'all') {
       for (const s of SPORTS_DEFAULT) connectUpstream(s);
-    } else {
+    } else if (provider.supportsUpstreamWs) {
       connectUpstream(sport);
     }
-    const intervalMs = 1000;
+    const intervalMs = provider.supportsUpstreamWs ? 1000 : STATPAL_SNAPSHOT_INTERVAL_MS;
     const id = setInterval(() => {
       sendSnapshot(sport).catch(() => null);
     }, intervalMs);

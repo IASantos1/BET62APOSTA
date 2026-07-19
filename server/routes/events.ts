@@ -4,6 +4,8 @@ import {
   fetchSportsApiProLive,
   fetchSportsApiProV1AllScoresDelta,
   fetchSportsApiProMatchOddsAll,
+  fetchSportsApiProMatchOddsLive,
+  fetchSportsApiProMatchOddsPreMatch,
   fetchSportsApiProMatchStatistics,
   fetchSportsApiProMatchIncidents,
   fetchSportsApiProSchedule,
@@ -13,7 +15,8 @@ import {
   fetchSportsApiProWorldCup2026Matches,
   fetchSportsApiProH2H,
   fetchSportsApiProStandings,
-} from '../services/sportsApiPro';
+  getSportsDataProviderConfig,
+} from '../services/sportsDataProvider';
 import { deriveAdditionalMarkets } from '../services/marketDerivation';
 import { sendJson, badRequest } from '../lib/http';
 
@@ -2841,21 +2844,26 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     };
   };
 
-  const getProviderConfig = () => ({
-    rest: {
-      prematchOddsTtlMs: ODDS_FRESH_TTL_MS,
-      liveOddsTtlMs: LIVE_ODDS_FRESH_TTL_MS,
-      oddsStaleTtlMs: ODDS_STALE_TTL_MS,
-      liveHoldMs: LIVE_HOLD_MS,
-      realtimeCacheTtlMs: REALTIME_CACHE_TTL_MS,
-      realtimeTennisCacheTtlMs: REALTIME_TENNIS_CACHE_TTL_MS,
-      realtimeStaleTtlMs: REALTIME_STALE_TTL_MS,
-      realtimeTennisStaleTtlMs: REALTIME_TENNIS_STALE_TTL_MS,
-      realtimeColdTimeoutMs: REALTIME_COLD_TIMEOUT_MS,
-      oddsColdTimeoutMs: ODDS_COLD_TIMEOUT_MS,
-      pregameColdTimeoutMs: PREGAME_COLD_TIMEOUT_MS,
-    },
-  });
+  const getProviderConfig = () => {
+    const provider = getSportsDataProviderConfig();
+    return {
+      provider: provider.provider,
+      supportsUpstreamWs: provider.supportsUpstreamWs,
+      rest: {
+        prematchOddsTtlMs: ODDS_FRESH_TTL_MS,
+        liveOddsTtlMs: LIVE_ODDS_FRESH_TTL_MS,
+        oddsStaleTtlMs: ODDS_STALE_TTL_MS,
+        liveHoldMs: LIVE_HOLD_MS,
+        realtimeCacheTtlMs: REALTIME_CACHE_TTL_MS,
+        realtimeTennisCacheTtlMs: REALTIME_TENNIS_CACHE_TTL_MS,
+        realtimeStaleTtlMs: REALTIME_STALE_TTL_MS,
+        realtimeTennisStaleTtlMs: REALTIME_TENNIS_STALE_TTL_MS,
+        realtimeColdTimeoutMs: REALTIME_COLD_TIMEOUT_MS,
+        oddsColdTimeoutMs: ODDS_COLD_TIMEOUT_MS,
+        pregameColdTimeoutMs: PREGAME_COLD_TIMEOUT_MS,
+      },
+    };
+  };
 
   const findEventById = async (sport: string, id: string): Promise<any | null> => {
     const live = await fetchLive(sport).catch(() => []);

@@ -1439,7 +1439,7 @@ export function SubOddsModel({
             </MarketCard>
           );
       }
-      
+
       // Double Chance — layout horizontal lado a lado (igual a Resultado Final)
       if (key === 'double_chance') {
           if (doubleChanceItems.length === 0) return null;
@@ -2383,7 +2383,7 @@ export function SubOddsModel({
           </MarketCard>
         );
       }
-      
+
       return (
           <MarketCard key={key} title={title} darkMode={darkMode}>
           <MarketButtonGroup items={items.map((item: MarketItem) => ({ ...item, marketTitle: title }))} onSelect={onSelect} suspendedReason={susp} darkMode={darkMode} />
@@ -2533,6 +2533,10 @@ export function SubOddsModel({
           return FIXED_TABS;
       }
 
+      const isSoccer =
+        s.includes('soccer') ||
+        s.includes('futebol') ||
+        (s.includes('football') && !s.includes('american'));
       const isBasketball = s.includes('basketball') || s.includes('basquete') || s.includes('nba');
       const isTennis = s.includes('tennis') || s.includes('tênis') || s.includes('atp') || s.includes('wta');
       const isBaseball = s.includes('baseball') || s.includes('beisebol') || s.includes('mlb');
@@ -2544,38 +2548,6 @@ export function SubOddsModel({
       });
       const uniqueCategories = new Set(keysWithCategory.map(k => (eventOdds as any)[k].category));
       
-      if (uniqueCategories.size >= 2) {
-          const categoryMap = new Map<string, Set<string>>();
-          const ORDERED_CATEGORIES = [
-              "Mercado Raiz",
-              "Mercados de Resultado",
-              "Mercados de Gols",
-              "Mercados Temporais",
-              "Mercados Estatísticos",
-              "Mercados de Jogadores",
-              "Mercados Especiais"
-          ];
-
-          for (const key of keysWithCategory) {
-              const cat = (eventOdds as any)[key].category;
-              if (cat === 'Outros Mercados') continue;
-              if (!categoryMap.has(cat)) categoryMap.set(cat, new Set());
-              categoryMap.get(cat)!.add(key);
-          }
-
-          const groups = [];
-          for (const catName of ORDERED_CATEGORIES) {
-              if (categoryMap.has(catName)) {
-                  groups.push({ title: catName, keys: Array.from(categoryMap.get(catName)!) });
-                  categoryMap.delete(catName);
-              }
-          }
-          for (const [catName, keys] of categoryMap.entries()) {
-              groups.push({ title: catName, keys: Array.from(keys) });
-          }
-          return groups;
-      }
-
       const isVolleyball = s.includes('volleyball') || s.includes('vôlei') || s.includes('volei');
       const isAFL = s.includes('afl') || s.includes('australian football') || s.includes('futebol australiano');
       const isF1 = s.includes('formula 1') || s.includes('f1') || s.includes('formula one') || s.includes('automobilismo') || s.includes('motor sports');
@@ -2583,7 +2555,7 @@ export function SubOddsModel({
       const isHandball = s.includes('handball') || s.includes('handebol');
       const isMMA = s.includes('mma') || s.includes('ufc') || s.includes('mixed martial arts') || s.includes('luta');
       const isRugby = s.includes('rugby') || s.includes('union') || s.includes('league');
-      
+
       let BASE_GROUPS = MARKET_GROUPS;
       if (isBasketball) BASE_GROUPS = BASKETBALL_GROUPS;
       else if (isTennis) BASE_GROUPS = TENNIS_GROUPS;
@@ -2603,6 +2575,59 @@ export function SubOddsModel({
         if (k === 'btts') return bttsItems.length > 0 || getMarketItems(k).length > 0;
         return getMarketItems(k).length > 0;
       };
+
+      const renderableAllKeys = Array.from(new Set([
+        ...Object.keys((eventOdds && typeof eventOdds === 'object') ? eventOdds : {}),
+        ...Object.keys((normalizedMarkets && typeof normalizedMarkets === 'object') ? normalizedMarkets : {}),
+      ])).filter((k) => {
+        if (k === 'main' || k === '1x2' || k === 'match_winner' || k === 'spreads') return false;
+        return hasKeyContent(k);
+      });
+
+      const renderableCategorizedKeys = renderableAllKeys.filter((k) => {
+        if (!(eventOdds as any)?.[k]?.category) return false;
+        return true;
+      });
+
+      const categorizedCoverage =
+        renderableAllKeys.length > 0
+          ? renderableCategorizedKeys.length / renderableAllKeys.length
+          : 0;
+
+      // Only trust provider categories when they cover almost all visible markets.
+      // Otherwise they hide uncategorized normalized/derived markets, especially in live soccer/tennis.
+      if (!isSoccer && !isTennis && uniqueCategories.size >= 2 && categorizedCoverage >= 0.85) {
+          const categoryMap = new Map<string, Set<string>>();
+          const ORDERED_CATEGORIES = [
+              "Mercado Raiz",
+              "Mercados de Resultado",
+              "Mercados de Gols",
+              "Mercados Temporais",
+              "Mercados Estatísticos",
+              "Mercados de Jogadores",
+              "Mercados Especiais"
+          ];
+
+          for (const key of keysWithCategory) {
+              if (!hasKeyContent(key)) continue;
+              const cat = (eventOdds as any)[key].category;
+              if (cat === 'Outros Mercados') continue;
+              if (!categoryMap.has(cat)) categoryMap.set(cat, new Set());
+              categoryMap.get(cat)!.add(key);
+          }
+
+          const groups = [];
+          for (const catName of ORDERED_CATEGORIES) {
+              if (categoryMap.has(catName)) {
+                  groups.push({ title: catName, keys: Array.from(categoryMap.get(catName)!) });
+                  categoryMap.delete(catName);
+              }
+          }
+          for (const [catName, keys] of categoryMap.entries()) {
+              groups.push({ title: catName, keys: Array.from(keys) });
+          }
+          return groups;
+      }
 
       const aliasBlocked = new Set([
         'main', '1x2', 'h2h_3_way', 'match_winner',
