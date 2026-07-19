@@ -195,13 +195,13 @@ export async function fetchSportsSoccerCoach(apiKey: string, coachId: string) {
   return null;
 }
 
-export async function fetchSportsSoccerLiveStorylines(apiKey: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerLiveStorylines(apiKey);
+export async function fetchSportsSoccerLiveStorylines(apiKey: string, matchId?: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerLiveStorylines(apiKey, matchId);
   return null;
 }
 
-export async function fetchSportsSoccerTeamLineups(apiKey: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerTeamLineups(apiKey);
+export async function fetchSportsSoccerTeamLineups(apiKey: string, matchId?: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerTeamLineups(apiKey, matchId);
   return null;
 }
 

@@ -234,6 +234,15 @@ function isLiveStatus(shortStatus: string, longStatus: string): boolean {
   return false;
 }
 
+function isFinishedStatus(shortStatus: string, longStatus: string): boolean {
+  const short = String(shortStatus || '').trim().toLowerCase();
+  const long = String(longStatus || '').trim().toLowerCase();
+  if (!short && !long) return false;
+  if (/^(ft|aet|pen|postp|postponed|canc|cancelled|ended|final|finished)$/i.test(short)) return true;
+  if (/full[\s-]?time|match finished|ended|final|finished|postponed|cancelled|abandoned/.test(`${short} ${long}`)) return true;
+  return false;
+}
+
 function extractEventId(event: any): string {
   return String(
     event?.id ??
@@ -351,6 +360,12 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
   ).trim();
   const eventDateTime = String(event?.time ?? '').trim();
   const eventDate = parseStatPalDateTime(eventDateDate, eventDateTime);
+  const fromLiveEndpoint = Boolean(event?.__from_live_endpoint);
+  const inplayOddsRunning = String(event?.inplay_odds_running ?? '').trim().toLowerCase() === 'true';
+  const liveFlag =
+    isLiveStatus(statusShort, statusLong) ||
+    inplayOddsRunning ||
+    (fromLiveEndpoint && !isFinishedStatus(statusShort, statusLong));
   return {
     external_event_id: id,
     sport: normalizeSportKey(sport),
@@ -362,7 +377,7 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     status: statusLong,
     status_short: statusShort,
     status_long: statusLong,
-    is_live: isLiveStatus(statusShort, statusLong) ? 1 : 0,
+    is_live: liveFlag ? 1 : 0,
     home_odd: Number(event?.home_odd ?? event?.odds?.home ?? 0) || 0,
     draw_odd: Number(event?.draw_odd ?? event?.odds?.draw ?? 0) || 0,
     away_odd: Number(event?.away_odd ?? event?.odds?.away ?? 0) || 0,
@@ -596,7 +611,9 @@ export async function fetchStatPalLive(apiKey: string, sport: string): Promise<N
     ? ['/matches/live']
     : ['/livescores', '/matches/live', '/matches?status=live'];
   const json = await fetchFirstJson(buildCandidateUrls(apiKey, sport, paths), PROVIDER_LIVE_TIMEOUT_MS);
-  const events = extractEvents(json).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
+  const events = extractEvents(json)
+    .map((row) => normalizeEvent({ ...row, __from_live_endpoint: true }, sport))
+    .filter(Boolean) as NormalizedEvent[];
   return events;
 }
 
@@ -788,19 +805,21 @@ export async function fetchStatPalSoccerCoach(apiKey: string, coachId: string): 
   );
 }
 
-export async function fetchStatPalSoccerLiveStorylines(apiKey: string): Promise<any | null> {
+export async function fetchStatPalSoccerLiveStorylines(apiKey: string, matchId?: string): Promise<any | null> {
+  const suffix = matchId ? `?match_id=${encodeURIComponent(String(matchId).trim())}` : '';
   return fetchFirstJson(
     buildCandidateUrls(apiKey, 'soccer', [
-      '/live-storylines',
+      `/live-storylines${suffix}`,
     ]),
     PROVIDER_TIMEOUT_MS,
   );
 }
 
-export async function fetchStatPalSoccerTeamLineups(apiKey: string): Promise<any | null> {
+export async function fetchStatPalSoccerTeamLineups(apiKey: string, matchId?: string): Promise<any | null> {
+  const suffix = matchId ? `?match_id=${encodeURIComponent(String(matchId).trim())}` : '';
   return fetchFirstJson(
     buildCandidateUrls(apiKey, 'soccer', [
-      '/team-lineups',
+      `/team-lineups${suffix}`,
     ]),
     PROVIDER_TIMEOUT_MS,
   );

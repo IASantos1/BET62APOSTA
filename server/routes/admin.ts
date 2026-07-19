@@ -894,8 +894,6 @@ export async function handleAdminRoutes(
                 { label: `Daily matches -1 (${sport})`, url: 'https://statpal.io/api/v2/soccer/matches/daily?offset=-1' },
                 { label: `Live odds (${sport})`, url: 'https://statpal.io/api/v2/soccer/odds/live' },
                 { label: `Injuries & suspensions (${sport})`, url: 'https://statpal.io/api/v2/soccer/injuries-suspensions' },
-                { label: `Live storylines (${sport})`, url: 'https://statpal.io/api/v2/soccer/live-storylines' },
-                { label: `Team lineups (${sport})`, url: 'https://statpal.io/api/v2/soccer/team-lineups' },
                 { label: `Weather forecast (${sport})`, url: 'https://statpal.io/api/v2/soccer/weather-forecast' },
                 { label: `Predictions (${sport})`, url: 'https://statpal.io/api/v2/soccer/predictions' },
                 { label: `Live odds markets (${sport})`, url: 'https://statpal.io/api/v2/soccer/odds/live/markets' },
@@ -925,6 +923,10 @@ export async function handleAdminRoutes(
     }
     if (coachId && provider === 'statpal' && statpalSport === 'soccer') {
       probes.push({ label: `Coach (${sport})`, url: `https://statpal.io/api/v2/soccer/coaches/${encodeURIComponent(coachId)}` });
+    }
+    if (matchId && provider === 'statpal' && statpalSport === 'soccer') {
+      probes.push({ label: `Live storylines (${sport})`, url: `https://statpal.io/api/v2/soccer/live-storylines?match_id=${encodeURIComponent(matchId)}` });
+      probes.push({ label: `Team lineups (${sport})`, url: `https://statpal.io/api/v2/soccer/team-lineups?match_id=${encodeURIComponent(matchId)}` });
     }
     if (matchId && provider !== 'statpal') {
       probes.push({ label: `Odds All   (id=${matchId})`,    url: `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(matchId)}/odds/all` });

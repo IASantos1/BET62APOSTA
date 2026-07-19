@@ -2795,13 +2795,17 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     }
 
     if (req.method === 'GET' && path === '/api/soccer/live-storylines') {
-      const raw = await callProvider('soccer_storylines', () => fetchSportsSoccerLiveStorylines(apiKey)).catch(() => null);
+      const matchId = String(url.searchParams.get('matchId') || url.searchParams.get('match_id') || '').trim();
+      if (!matchId) return sendJson(res, 400, { error: 'Missing matchId parameter' }), true;
+      const raw = await callProvider('soccer_storylines', () => fetchSportsSoccerLiveStorylines(apiKey, matchId)).catch(() => null);
       sendJson(res, 200, { storylines: raw?.live_storylines ?? null, meta: raw?.meta ?? null, raw });
       return true;
     }
 
     if (req.method === 'GET' && path === '/api/soccer/team-lineups') {
-      const raw = await callProvider('soccer_team_lineups', () => fetchSportsSoccerTeamLineups(apiKey)).catch(() => null);
+      const matchId = String(url.searchParams.get('matchId') || url.searchParams.get('match_id') || '').trim();
+      if (!matchId) return sendJson(res, 400, { error: 'Missing matchId parameter' }), true;
+      const raw = await callProvider('soccer_team_lineups', () => fetchSportsSoccerTeamLineups(apiKey, matchId)).catch(() => null);
       sendJson(res, 200, { lineups: raw ?? null });
       return true;
     }
