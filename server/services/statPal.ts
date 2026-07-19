@@ -71,6 +71,30 @@ async function fetchFirstJson(urls: string[], timeoutMs: number): Promise<any | 
 
 function extractEvents(payload: any): any[] {
   if (!payload) return [];
+  const flattenLeagueBlocks = (blocks: any[]): any[] => {
+    const out: any[] = [];
+    for (const block of blocks) {
+      const leagueMeta = {
+        id: block?.id ?? '',
+        name: block?.name ?? '',
+        country: block?.country ?? '',
+        cup: block?.cup ?? '',
+      };
+      const rows = block?.match ?? block?.matches ?? block?.events ?? block?.games ?? block?.fixtures ?? [];
+      if (Array.isArray(rows)) {
+        for (const row of rows) out.push({ ...row, __league: leagueMeta });
+        continue;
+      }
+      if (rows && typeof rows === 'object') {
+        out.push({ ...rows, __league: leagueMeta });
+      }
+    }
+    return out;
+  };
+
+  if (Array.isArray(payload?.live_matches?.league)) return flattenLeagueBlocks(payload.live_matches.league);
+  if (Array.isArray(payload?.upcoming_matches?.league)) return flattenLeagueBlocks(payload.upcoming_matches.league);
+  if (Array.isArray(payload?.league)) return flattenLeagueBlocks(payload.league);
   if (Array.isArray(payload.data)) return payload.data;
   if (Array.isArray(payload.matches)) return payload.matches;
   if (Array.isArray(payload.events)) return payload.events;
@@ -82,6 +106,8 @@ function extractEvents(payload: any): any[] {
   if (Array.isArray(payload.data?.response)) return payload.data.response;
   if (Array.isArray(payload.livescores)) return payload.livescores;
   if (Array.isArray(payload.data?.livescores)) return payload.data.livescores;
+  if (Array.isArray(payload?.live_matches?.matches)) return payload.live_matches.matches;
+  if (Array.isArray(payload?.upcoming_matches?.matches)) return payload.upcoming_matches.matches;
   const blocks = payload.data?.tournaments ?? payload.tournaments ?? payload.data?.leagues ?? payload.leagues;
   if (Array.isArray(blocks)) {
     const out: any[] = [];
@@ -95,6 +121,9 @@ function extractEvents(payload: any): any[] {
 }
 
 function readScoreNumber(v: any): number | null {
+  if (v == null) return null;
+  const raw = String(v).trim();
+  if (!raw || raw === '?' || raw === '-') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
@@ -110,13 +139,24 @@ function normalizeStatusLong(v: any): string {
 }
 
 function isLiveStatus(shortStatus: string, longStatus: string): boolean {
-  const s = `${shortStatus} ${longStatus}`.toLowerCase();
-  return /(live|in play|1h|2h|ht|q1|q2|q3|q4|set|period|inning|half|playing|started)/.test(s);
+  const short = String(shortStatus || '').trim().toLowerCase();
+  const long = String(longStatus || '').trim().toLowerCase();
+  if (!short && !long) return false;
+  if (/^(ft|postp|postponed|ns|not started|canc|cancelled|ended|final)$/i.test(short)) return false;
+  if (/^(ft|postp|postponed|not started|cancelled|ended|final)$/i.test(long)) return false;
+  if (/^\d{1,3}(\+\d{1,2})?$/.test(short)) return true;
+  if (/live|in play|1h|2h|ht|q1|q2|q3|q4|set|period|inning|half|playing/.test(`${short} ${long}`)) return true;
+  return false;
 }
 
 function extractEventId(event: any): string {
   return String(
     event?.id ??
+    event?.main_id ??
+    event?.mainId ??
+    event?.fallback_id_1 ??
+    event?.fallback_id_2 ??
+    event?.fallback_id_3 ??
     event?.match_id ??
     event?.matchId ??
     event?.fixture_id ??
@@ -129,6 +169,7 @@ function extractEventId(event: any): string {
 
 function extractTournamentId(event: any): string {
   return String(
+    event?.__league?.id ??
     event?.league_id ??
     event?.leagueId ??
     event?.competition_id ??
@@ -164,6 +205,7 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
   const home = extractTeamName(event, 'home');
   const away = extractTeamName(event, 'away');
   const homeGoals = readScoreNumber(
+    event?.home?.goals ??
     event?.home_score ??
     event?.score?.home ??
     event?.scores?.home ??
@@ -171,21 +213,23 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     event?.result?.home,
   );
   const awayGoals = readScoreNumber(
+    event?.away?.goals ??
     event?.away_score ??
     event?.score?.away ??
     event?.scores?.away ??
     event?.goals?.away ??
     event?.result?.away,
   );
-  const elapsedRaw = event?.elapsed ?? event?.timer?.elapsed ?? event?.clock?.elapsed ?? event?.minute;
+  const elapsedRaw = event?.elapsed ?? event?.timer?.elapsed ?? event?.clock?.elapsed ?? event?.minute ?? event?.inj_minute;
   const elapsed = Number.isFinite(Number(elapsedRaw)) ? Number(elapsedRaw) : 0;
-  const timer = String(event?.timer?.display ?? event?.clock?.display ?? event?.timer ?? '').trim();
+  const timer = String(event?.timer?.display ?? event?.clock?.display ?? event?.inj_time ?? event?.time ?? '').trim();
   const score = JSON.stringify({
     home: homeGoals,
     away: awayGoals,
     raw: event?.score ?? event?.scores ?? event?.result ?? null,
   });
   const league = String(
+    event?.__league?.name ??
     event?.league_name ??
     event?.league?.name ??
     event?.competition_name ??
@@ -195,13 +239,14 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     '',
   ).trim();
   const country = String(
+    event?.__league?.country ??
     event?.country ??
     event?.league?.country ??
     event?.competition?.country ??
     event?.tournament?.country ??
     '',
   ).trim();
-  const eventDate = String(
+  const eventDateDate = String(
     event?.event_date ??
     event?.start_time ??
     event?.startTime ??
@@ -210,13 +255,15 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     event?.scheduled_at ??
     '',
   ).trim();
+  const eventDateTime = String(event?.time ?? '').trim();
+  const eventDate = [eventDateDate, eventDateTime].filter(Boolean).join(' ').trim();
   return {
     external_event_id: id,
     sport: normalizeSportKey(sport),
     league,
     home_team: home,
     away_team: away,
-    team_match: home && away ? `${home} vs ${away}` : String(event?.name ?? '').trim(),
+    team_match: home && away ? `${home} vs ${away}` : String(event?.name ?? event?.match_name ?? '').trim(),
     event_date: eventDate,
     status: statusLong,
     status_short: statusShort,
