@@ -362,6 +362,7 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
   const eventDate = parseStatPalDateTime(eventDateDate, eventDateTime);
   const fromLiveEndpoint = Boolean(event?.__from_live_endpoint);
   const inplayOddsRunning = String(event?.inplay_odds_running ?? '').trim().toLowerCase() === 'true';
+  const embeddedOdds = parseStatPalMatchOddsPayload(sport, event, { matchId: id, homeTeam: home, awayTeam: away });
   const liveFlag =
     isLiveStatus(statusShort, statusLong) ||
     inplayOddsRunning ||
@@ -378,13 +379,13 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     status_short: statusShort,
     status_long: statusLong,
     is_live: liveFlag ? 1 : 0,
-    home_odd: Number(event?.home_odd ?? event?.odds?.home ?? 0) || 0,
-    draw_odd: Number(event?.draw_odd ?? event?.odds?.draw ?? 0) || 0,
-    away_odd: Number(event?.away_odd ?? event?.odds?.away ?? 0) || 0,
+    home_odd: Number(event?.home_odd ?? event?.odds?.home ?? embeddedOdds?.home ?? 0) || 0,
+    draw_odd: Number(event?.draw_odd ?? event?.odds?.draw ?? embeddedOdds?.draw ?? 0) || 0,
+    away_odd: Number(event?.away_odd ?? event?.odds?.away ?? embeddedOdds?.away ?? 0) || 0,
     elapsed,
     timer,
     score,
-    markets: JSON.stringify(event?.markets ?? event?.odds ?? {}),
+    markets: JSON.stringify(event?.markets ?? embeddedOdds?.markets ?? event?.odds ?? {}),
     country,
     home_team_id: homeTeamId,
     away_team_id: awayTeamId,
@@ -415,6 +416,18 @@ function buildCandidateUrls(apiKey: string, sport: string, paths: string[]): str
 
 function extractOddsRows(payload: any): any[] {
   if (!payload) return [];
+  if (Array.isArray(payload.response) && payload.response.length > 0) {
+    for (const row of payload.response) {
+      const extracted = extractOddsRows(row);
+      if (extracted.length > 0) return extracted;
+    }
+  }
+  if (Array.isArray(payload.data) && payload.data.length > 0) {
+    for (const row of payload.data) {
+      const extracted = extractOddsRows(row);
+      if (extracted.length > 0) return extracted;
+    }
+  }
   if (Array.isArray(payload.odds)) {
     const bookmakerRows = payload.odds.flatMap((market: any) => {
       const books = Array.isArray(market?.bookmaker) ? market.bookmaker : [];
@@ -432,12 +445,38 @@ function extractOddsRows(payload: any): any[] {
     });
     if (bookmakerRows.length > 0) return bookmakerRows;
   }
+  if (Array.isArray(payload.bets)) {
+    const rows = payload.bets.map((bet: any) => ({
+      title: bet?.name ?? bet?.label ?? bet?.market ?? '',
+      suspended: false,
+      selections: Array.isArray(bet?.values)
+        ? bet.values.map((value: any) => ({
+            name: value?.value ?? value?.name ?? value?.label ?? '',
+            odd: value?.odd ?? value?.price ?? value?.value_odd ?? '',
+          }))
+        : [],
+    }));
+    if (rows.length > 0) return rows;
+  }
   if (Array.isArray(payload.markets)) return payload.markets;
   if (Array.isArray(payload.data?.markets)) return payload.data.markets;
   if (Array.isArray(payload.odds)) return payload.odds;
   if (Array.isArray(payload.data?.odds)) return payload.data.odds;
   if (Array.isArray(payload.bookmakers)) {
     for (const book of payload.bookmakers) {
+      if (Array.isArray(book?.bets) && book.bets.length > 0) {
+        const rows = book.bets.map((bet: any) => ({
+          title: bet?.name ?? bet?.label ?? bet?.market ?? '',
+          suspended: false,
+          selections: Array.isArray(bet?.values)
+            ? bet.values.map((value: any) => ({
+                name: value?.value ?? value?.name ?? value?.label ?? '',
+                odd: value?.odd ?? value?.price ?? value?.value_odd ?? '',
+              }))
+            : [],
+        }));
+        if (rows.length > 0) return rows;
+      }
       if (Array.isArray(book?.markets) && book.markets.length > 0) return book.markets;
     }
   }
@@ -520,6 +559,14 @@ function normalizeLabel(raw: any): string {
     .trim();
 }
 
+function isHomeLikeLabel(labelKey: string): boolean {
+  return /^(home|1|home team|team 1|player 1|participant 1|host|local|casa)$/.test(labelKey);
+}
+
+function isAwayLikeLabel(labelKey: string): boolean {
+  return /^(away|2|away team|team 2|player 2|participant 2|visitor|visitante|fora)$/.test(labelKey);
+}
+
 function inferMarketKey(title: string): string {
   const t = normalizeLabel(title);
   if (!t) return 'other';
@@ -589,6 +636,8 @@ export function parseStatPalMatchOddsPayload(
       if (key === 'h2h') {
         const labelKey = normalizeLabel(label);
         if (labelKey === 'draw' || labelKey === 'empate' || labelKey === 'x') draw = odd;
+        else if (isHomeLikeLabel(labelKey)) home = odd;
+        else if (isAwayLikeLabel(labelKey)) away = odd;
         else if (homeKey && (labelKey === homeKey || labelKey.includes(homeKey) || homeKey.includes(labelKey))) home = odd;
         else if (awayKey && (labelKey === awayKey || labelKey.includes(awayKey) || awayKey.includes(labelKey))) away = odd;
       }
@@ -668,10 +717,21 @@ export async function fetchStatPalMatchOddsAll(
       `/matches/${encodeURIComponent(matchId)}/odds`,
       `/match/${encodeURIComponent(matchId)}/odds`,
       `/matches/${encodeURIComponent(matchId)}/liveodds`,
+      `/odds?match_id=${encodeURIComponent(matchId)}`,
+      `/odds?event_id=${encodeURIComponent(matchId)}`,
+      '/odds',
     ]),
     PROVIDER_TIMEOUT_MS,
   );
-  return parseStatPalMatchOddsPayload(sport, json, opts);
+  let parsed = parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId });
+  if (!parsed) {
+    const genericJson = await fetchFirstJson(
+      buildCandidateUrls(apiKey, sport, ['/odds']),
+      PROVIDER_TIMEOUT_MS,
+    );
+    parsed = parseStatPalMatchOddsPayload(sport, genericJson, { ...opts, matchId });
+  }
+  return parsed;
 }
 
 export async function fetchStatPalMatchOddsLive(
@@ -685,14 +745,17 @@ export async function fetchStatPalMatchOddsLive(
       `/matches/${encodeURIComponent(matchId)}/liveodds`,
       `/match/${encodeURIComponent(matchId)}/liveodds`,
       `/matches/${encodeURIComponent(matchId)}/odds/live`,
+      `/odds/live?match_id=${encodeURIComponent(matchId)}`,
+      `/odds/live?event_id=${encodeURIComponent(matchId)}`,
     ]),
     PROVIDER_TIMEOUT_MS,
   );
   let parsed = parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId });
-  if (!parsed && statPalSportPath(sport) === 'soccer') {
+  if (!parsed) {
     const liveJson = await fetchFirstJson(
       buildCandidateUrls(apiKey, sport, [
         '/odds/live',
+        '/liveodds',
       ]),
       PROVIDER_TIMEOUT_MS,
     );
@@ -713,6 +776,9 @@ export async function fetchStatPalMatchOddsPreMatch(
       `/match/${encodeURIComponent(matchId)}/odds/pre-match`,
       `/matches/${encodeURIComponent(matchId)}/prematch-odds`,
       `/matches/${encodeURIComponent(matchId)}/odds`,
+      `/odds/prematch?match_id=${encodeURIComponent(matchId)}`,
+      `/odds/prematch?event_id=${encodeURIComponent(matchId)}`,
+      `/prematch-odds?match_id=${encodeURIComponent(matchId)}`,
     ]),
     PROVIDER_TIMEOUT_MS,
   );
@@ -725,6 +791,17 @@ export async function fetchStatPalMatchOddsPreMatch(
       PROVIDER_TIMEOUT_MS,
     );
     parsed = parseStatPalMatchOddsPayload(sport, prematchJson, { ...opts, matchId });
+  }
+  if (!parsed) {
+    const genericJson = await fetchFirstJson(
+      buildCandidateUrls(apiKey, sport, [
+        '/odds/prematch',
+        '/prematch-odds',
+        '/odds',
+      ]),
+      PROVIDER_TIMEOUT_MS,
+    );
+    parsed = parseStatPalMatchOddsPayload(sport, genericJson, { ...opts, matchId });
   }
   return parsed;
 }
