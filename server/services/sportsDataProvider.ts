@@ -17,6 +17,9 @@ import {
 } from './sportsApiPro.js';
 import {
   fetchStatPalH2H,
+  fetchStatPalSoccerH2HByTeams,
+  fetchStatPalSoccerInjuriesSuspensions,
+  fetchStatPalSoccerTeam,
   fetchStatPalLive,
   fetchStatPalMatchIncidents,
   fetchStatPalMatchOddsAll,
@@ -154,7 +157,22 @@ export async function fetchSportsApiProH2H(apiKey: string, sport: string, matchI
   return sportsApiProFetchH2H(apiKey, sport, matchId);
 }
 
+export async function fetchSportsSoccerH2HByTeams(apiKey: string, team1Id: string, team2Id: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerH2HByTeams(apiKey, team1Id, team2Id);
+  return null;
+}
+
 export async function fetchSportsApiProStandings(apiKey: string, sport: string, tournamentId: string) {
   if (resolveProviderName() === 'statpal') return fetchStatPalStandings(apiKey, sport, tournamentId);
   return sportsApiProFetchStandings(apiKey, sport, tournamentId);
+}
+
+export async function fetchSportsSoccerInjuriesSuspensions(apiKey: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerInjuriesSuspensions(apiKey);
+  return null;
+}
+
+export async function fetchSportsSoccerTeam(apiKey: string, teamId: string) {
+  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerTeam(apiKey, teamId);
+  return null;
 }

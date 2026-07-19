@@ -275,6 +275,13 @@ function extractTeamName(event: any, side: 'home' | 'away'): string {
   return String(team ?? '').trim();
 }
 
+function extractTeamId(event: any, side: 'home' | 'away'): string {
+  const teamId = side === 'home'
+    ? event?.home_team_id ?? event?.homeTeamId ?? event?.teams?.home?.id ?? event?.home?.id ?? event?.players?.home?.id
+    : event?.away_team_id ?? event?.awayTeamId ?? event?.teams?.away?.id ?? event?.away?.id ?? event?.players?.away?.id;
+  return String(teamId ?? '').trim();
+}
+
 function extractTeamLogo(event: any, side: 'home' | 'away'): string {
   const logo = side === 'home'
     ? event?.home_team_logo ?? event?.teams?.home?.logo ?? event?.home?.logo
@@ -289,6 +296,8 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
   const statusLong = normalizeStatusLong(event?.status_long ?? event?.status?.long ?? event?.status_description ?? event?.statusText);
   const home = extractTeamName(event, 'home');
   const away = extractTeamName(event, 'away');
+  const homeTeamId = extractTeamId(event, 'home');
+  const awayTeamId = extractTeamId(event, 'away');
   const homeGoals = readScoreNumber(
     event?.home?.goals ??
     event?.home_score ??
@@ -362,6 +371,8 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     score,
     markets: JSON.stringify(event?.markets ?? event?.odds ?? {}),
     country,
+    home_team_id: homeTeamId,
+    away_team_id: awayTeamId,
     home_team_logo: extractTeamLogo(event, 'home'),
     away_team_logo: extractTeamLogo(event, 'away'),
     fixture: event,
@@ -624,6 +635,35 @@ export async function fetchStatPalH2H(apiKey: string, sport: string, matchId: st
       `/match/${encodeURIComponent(matchId)}/head-to-head`,
       `/matches/${encodeURIComponent(matchId)}/h2h`,
       `/match/${encodeURIComponent(matchId)}/h2h`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalSoccerH2HByTeams(apiKey: string, team1Id: string, team2Id: string): Promise<any | null> {
+  if (!team1Id || !team2Id) return null;
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      `/head-to-head?team1_id=${encodeURIComponent(team1Id)}&team2_id=${encodeURIComponent(team2Id)}`,
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalSoccerInjuriesSuspensions(apiKey: string): Promise<any | null> {
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      '/injuries-suspensions',
+    ]),
+    PROVIDER_TIMEOUT_MS,
+  );
+}
+
+export async function fetchStatPalSoccerTeam(apiKey: string, teamId: string): Promise<any | null> {
+  if (!teamId) return null;
+  return fetchFirstJson(
+    buildCandidateUrls(apiKey, 'soccer', [
+      `/teams/${encodeURIComponent(teamId)}`,
     ]),
     PROVIDER_TIMEOUT_MS,
   );

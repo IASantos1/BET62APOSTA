@@ -14,6 +14,7 @@ import {
   fetchSportsApiProWorldCup2026Info,
   fetchSportsApiProWorldCup2026Matches,
   fetchSportsApiProH2H,
+  fetchSportsSoccerH2HByTeams,
   fetchSportsApiProStandings,
   getSportsDataProviderConfig,
 } from '../services/sportsDataProvider';
@@ -2542,11 +2543,28 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const id = normalizeIdLoose(idRaw);
       const sportParam = String(url.searchParams.get('sport') || '').trim();
       const sport = sportParam || await resolveSport(id) || 'soccer';
-      const raw = await fetchSportsApiProH2H(apiKey, sport, id).catch(() => null);
+      const provider = getSportsDataProviderConfig().provider;
+      const cachedEvent = lastEventById.get(id)?.data;
+      const statPalTeam1Id = String(
+        cachedEvent?.home_team_id ??
+        cachedEvent?.fixture?.home?.id ??
+        cachedEvent?.fixture?.home_team_id ??
+        '',
+      ).trim();
+      const statPalTeam2Id = String(
+        cachedEvent?.away_team_id ??
+        cachedEvent?.fixture?.away?.id ??
+        cachedEvent?.fixture?.away_team_id ??
+        '',
+      ).trim();
+      const raw = provider === 'statpal' && sport === 'soccer' && statPalTeam1Id && statPalTeam2Id
+        ? await fetchSportsSoccerH2HByTeams(apiKey, statPalTeam1Id, statPalTeam2Id).catch(() => null)
+        : await fetchSportsApiProH2H(apiKey, sport, id).catch(() => null);
       if (!raw) return sendJson(res, 200, { matches: [] }), true;
 
       const extractH2H = (r: any): any[] => {
         if (Array.isArray(r)) return r;
+        if (Array.isArray(r?.['head-to-head']?.recent_meetings?.match)) return r['head-to-head'].recent_meetings.match;
         if (Array.isArray(r.data?.matches)) return r.data.matches;
         if (Array.isArray(r.matches)) return r.matches;
         if (Array.isArray(r.data?.h2h)) return r.data.h2h;
@@ -2581,6 +2599,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       if (!raw) return sendJson(res, 200, { standings: [] }), true;
 
       const extractRows = (r: any): any[] => {
+        if (Array.isArray(r?.standings?.tournament?.team)) return r.standings.tournament.team;
         if (Array.isArray(r?.data?.standings)) return r.data.standings;
         if (Array.isArray(r?.standings)) return r.standings;
         if (Array.isArray(r?.data?.rows)) return r.data.rows;
@@ -2602,14 +2621,14 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const rawRows = extractRows(raw);
       const standings = rawRows.map((row: any, i: number) => ({
         position: Number(row.position ?? row.rank ?? row.pos ?? i + 1),
-        team: String(row.team?.name ?? row.teamName ?? row.team ?? ''),
-        played: Number(row.matches ?? row.played ?? row.mp ?? 0),
-        wins: Number(row.wins ?? row.w ?? 0),
-        draws: Number(row.draws ?? row.d ?? 0),
-        losses: Number(row.losses ?? row.l ?? 0),
-        goalsFor: Number(row.scoresFor ?? row.goalsFor ?? row.gf ?? row.scored ?? 0),
-        goalsAgainst: Number(row.scoresAgainst ?? row.goalsAgainst ?? row.ga ?? row.conceded ?? 0),
-        points: Number(row.points ?? row.pts ?? 0),
+        team: String(row.name ?? row.team?.name ?? row.teamName ?? row.team ?? ''),
+        played: Number(row.matches ?? row.played ?? row.mp ?? row.overall?.games_played ?? 0),
+        wins: Number(row.wins ?? row.w ?? row.overall?.wins ?? 0),
+        draws: Number(row.draws ?? row.d ?? row.overall?.draws ?? 0),
+        losses: Number(row.losses ?? row.l ?? row.overall?.losses ?? 0),
+        goalsFor: Number(row.scoresFor ?? row.goalsFor ?? row.gf ?? row.scored ?? row.overall?.goals_scored ?? 0),
+        goalsAgainst: Number(row.scoresAgainst ?? row.goalsAgainst ?? row.ga ?? row.conceded ?? row.overall?.goals_allowed ?? 0),
+        points: Number(row.points ?? row.pts ?? row.total?.points ?? 0),
       })).filter((r: any) => r.team);
 
       sendJson(res, 200, { standings });
