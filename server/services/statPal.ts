@@ -150,6 +150,24 @@ function extractEvents(payload: any): any[] {
     }
     return out;
   };
+  const flattenDirectMatchRows = (rows: any[], extra?: Record<string, any>): any[] =>
+    rows.map((row) => ({ ...(row || {}), ...(extra || {}) }));
+  const flattenPrematchLeagueBlocks = (blocks: any[]): any[] => {
+    const out: any[] = [];
+    for (const block of blocks) {
+      const leagueMeta = {
+        id: block?.id ?? block?.league_id ?? block?.league?.id ?? '',
+        name: block?.name ?? block?.league_name ?? block?.league?.name ?? '',
+        country: block?.country ?? block?.league?.country ?? '',
+        cup: block?.cup ?? '',
+      };
+      const rows = block?.match ?? block?.matches ?? block?.events ?? block?.games ?? [];
+      if (Array.isArray(rows)) {
+        for (const row of rows) out.push({ ...row, __league: leagueMeta });
+      }
+    }
+    return out;
+  };
   const flattenTournamentWeeks = (weeks: any[], tournamentMeta?: any): any[] => {
     const out: any[] = [];
     for (const week of weeks) {
@@ -172,6 +190,9 @@ function extractEvents(payload: any): any[] {
 
   if (Array.isArray(payload?.live_matches?.league)) return flattenLeagueBlocks(payload.live_matches.league);
   if (Array.isArray(payload?.upcoming_matches?.league)) return flattenLeagueBlocks(payload.upcoming_matches.league);
+  if (Array.isArray(payload?.live_matches)) return flattenDirectMatchRows(payload.live_matches, { __from_live_endpoint: true });
+  if (Array.isArray(payload?.upcoming_matches)) return flattenDirectMatchRows(payload.upcoming_matches);
+  if (Array.isArray(payload?.prematch_odds?.league)) return flattenPrematchLeagueBlocks(payload.prematch_odds.league);
   if (Array.isArray(payload?.league)) return flattenLeagueBlocks(payload.league);
   if (Array.isArray(payload?.matches?.tournament?.week)) {
     return flattenTournamentWeeks(payload.matches.tournament.week, payload.matches.tournament);
@@ -257,6 +278,12 @@ function extractEventId(event: any): string {
     event?.fixtureId ??
     event?.event_id ??
     event?.eventId ??
+    event?.match_info?.main_id ??
+    event?.match_info?.fallback_id_1 ??
+    event?.match_info?.fallback_id_2 ??
+    event?.match_info?.fallback_id_3 ??
+    event?.match_info?.match_id ??
+    event?.match_info?.id ??
     '',
   ).trim();
 }
@@ -273,47 +300,81 @@ function extractTournamentId(event: any): string {
     event?.league?.id ??
     event?.competition?.id ??
     event?.tournament?.id ??
+    event?.match_info?.league_id ??
+    event?.match_info?.competition_id ??
+    event?.match_info?.tournament_id ??
     '',
   ).trim();
 }
 
 function extractTeamName(event: any, side: 'home' | 'away'): string {
   const team = side === 'home'
-    ? event?.home_team ?? event?.homeTeam ?? event?.teams?.home?.name ?? event?.home?.name ?? event?.players?.home?.name
-    : event?.away_team ?? event?.awayTeam ?? event?.teams?.away?.name ?? event?.away?.name ?? event?.players?.away?.name;
+    ? event?.home_team ?? event?.homeTeam ?? event?.teams?.home?.name ?? event?.home?.name ?? event?.players?.home?.name ?? event?.team_info?.home?.name ?? event?.match_info?.team_info?.home?.name
+    : event?.away_team ?? event?.awayTeam ?? event?.teams?.away?.name ?? event?.away?.name ?? event?.players?.away?.name ?? event?.team_info?.away?.name ?? event?.match_info?.team_info?.away?.name;
   return String(team ?? '').trim();
 }
 
 function extractTeamId(event: any, side: 'home' | 'away'): string {
   const teamId = side === 'home'
-    ? event?.home_team_id ?? event?.homeTeamId ?? event?.teams?.home?.id ?? event?.home?.id ?? event?.players?.home?.id
-    : event?.away_team_id ?? event?.awayTeamId ?? event?.teams?.away?.id ?? event?.away?.id ?? event?.players?.away?.id;
+    ? event?.home_team_id ?? event?.homeTeamId ?? event?.teams?.home?.id ?? event?.home?.id ?? event?.players?.home?.id ?? event?.team_info?.home?.id ?? event?.match_info?.team_info?.home?.id
+    : event?.away_team_id ?? event?.awayTeamId ?? event?.teams?.away?.id ?? event?.away?.id ?? event?.players?.away?.id ?? event?.team_info?.away?.id ?? event?.match_info?.team_info?.away?.id;
   return String(teamId ?? '').trim();
 }
 
 function extractTeamLogo(event: any, side: 'home' | 'away'): string {
   const logo = side === 'home'
-    ? event?.home_team_logo ?? event?.teams?.home?.logo ?? event?.home?.logo
-    : event?.away_team_logo ?? event?.teams?.away?.logo ?? event?.away?.logo;
+    ? event?.home_team_logo ?? event?.teams?.home?.logo ?? event?.home?.logo ?? event?.team_info?.home?.logo ?? event?.match_info?.team_info?.home?.logo
+    : event?.away_team_logo ?? event?.teams?.away?.logo ?? event?.away?.logo ?? event?.team_info?.away?.logo ?? event?.match_info?.team_info?.away?.logo;
   return String(logo ?? '').trim();
+}
+
+function parseScoreText(raw: any): { home: number | null; away: number | null } {
+  const value = String(raw ?? '').trim();
+  if (!value) return { home: null, away: null };
+  const match = value.match(/(\d+)\s*[:\-]\s*(\d+)/);
+  if (!match) return { home: null, away: null };
+  return { home: Number(match[1]), away: Number(match[2]) };
 }
 
 function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
   const id = extractEventId(event);
   if (!id) return null;
-  const statusShort = normalizeStatusShort(event?.status_short ?? event?.status?.short ?? event?.status ?? event?.state ?? event?.status_code);
-  const statusLong = normalizeStatusLong(event?.status_long ?? event?.status?.long ?? event?.status_description ?? event?.statusText);
+  const statusShort = normalizeStatusShort(
+    event?.status_short ??
+    event?.status?.short ??
+    event?.status ??
+    event?.state ??
+    event?.status_code ??
+    event?.match_info?.status_short ??
+    event?.match_info?.status ??
+    event?.match_info?.state ??
+    event?.match_info?.period ??
+    event?.match_info?.match_status
+  );
+  const statusLong = normalizeStatusLong(
+    event?.status_long ??
+    event?.status?.long ??
+    event?.status_description ??
+    event?.statusText ??
+    event?.match_info?.status_long ??
+    event?.match_info?.status_description ??
+    event?.match_info?.status_text ??
+    event?.match_info?.period ??
+    event?.match_info?.state
+  );
   const home = extractTeamName(event, 'home');
   const away = extractTeamName(event, 'away');
   const homeTeamId = extractTeamId(event, 'home');
   const awayTeamId = extractTeamId(event, 'away');
+  const parsedMatchInfoScore = parseScoreText(event?.match_info?.score);
   const homeGoals = readScoreNumber(
     event?.home?.goals ??
     event?.home_score ??
     event?.score?.home ??
     event?.scores?.home ??
     event?.goals?.home ??
-    event?.result?.home,
+    event?.result?.home ??
+    parsedMatchInfoScore.home,
   );
   const awayGoals = readScoreNumber(
     event?.away?.goals ??
@@ -321,15 +382,16 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     event?.score?.away ??
     event?.scores?.away ??
     event?.goals?.away ??
-    event?.result?.away,
+    event?.result?.away ??
+    parsedMatchInfoScore.away,
   );
-  const elapsedRaw = event?.elapsed ?? event?.timer?.elapsed ?? event?.clock?.elapsed ?? event?.minute ?? event?.inj_minute;
+  const elapsedRaw = event?.elapsed ?? event?.timer?.elapsed ?? event?.clock?.elapsed ?? event?.minute ?? event?.inj_minute ?? event?.match_info?.minute;
   const elapsed = Number.isFinite(Number(elapsedRaw)) ? Number(elapsedRaw) : 0;
-  const timer = String(event?.timer?.display ?? event?.clock?.display ?? event?.inj_time ?? event?.time ?? '').trim();
+  const timer = String(event?.timer?.display ?? event?.clock?.display ?? event?.inj_time ?? event?.time ?? event?.match_info?.minute ?? '').trim();
   const score = JSON.stringify({
     home: homeGoals,
     away: awayGoals,
-    raw: event?.score ?? event?.scores ?? event?.result ?? null,
+    raw: event?.score ?? event?.scores ?? event?.result ?? event?.match_info?.score ?? null,
   });
   const league = String(
     event?.__league?.name ??
@@ -339,6 +401,9 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     event?.competition?.name ??
     event?.tournament_name ??
     event?.tournament?.name ??
+    event?.match_info?.league_name ??
+    event?.match_info?.competition_name ??
+    event?.match_info?.tournament_name ??
     '',
   ).trim();
   const country = String(
@@ -347,6 +412,7 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     event?.league?.country ??
     event?.competition?.country ??
     event?.tournament?.country ??
+    event?.match_info?.country ??
     '',
   ).trim();
   const eventDateDate = String(
@@ -356,9 +422,11 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     event?.match_time ??
     event?.date ??
     event?.scheduled_at ??
+    event?.match_info?.date ??
+    event?.match_info?.match_date ??
     '',
   ).trim();
-  const eventDateTime = String(event?.time ?? '').trim();
+  const eventDateTime = String(event?.time ?? event?.match_info?.time ?? event?.match_info?.kickoff_time ?? '').trim();
   const eventDate = parseStatPalDateTime(eventDateDate, eventDateTime);
   const fromLiveEndpoint = Boolean(event?.__from_live_endpoint);
   const inplayOddsRunning = String(event?.inplay_odds_running ?? '').trim().toLowerCase() === 'true';
@@ -677,13 +745,16 @@ export async function fetchStatPalV1AllScoresDelta(apiKey: string, sport: string
 export async function fetchStatPalLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const s = statPalSportPath(sport);
   const paths = s === 'soccer'
-    ? ['/matches/live']
+    ? ['/odds/live', '/matches/live', '/livescores', '/matches?status=live']
     : ['/livescores', '/matches/live', '/matches?status=live'];
-  const json = await fetchFirstJson(buildCandidateUrls(apiKey, sport, paths), PROVIDER_LIVE_TIMEOUT_MS);
-  const events = extractEvents(json)
-    .map((row) => normalizeEvent({ ...row, __from_live_endpoint: true }, sport))
-    .filter(Boolean) as NormalizedEvent[];
-  return events;
+  for (const url of buildCandidateUrls(apiKey, sport, paths)) {
+    const json = await fetchJson(url, PROVIDER_LIVE_TIMEOUT_MS);
+    const events = extractEvents(json)
+      .map((row) => normalizeEvent({ ...row, __from_live_endpoint: true }, sport))
+      .filter(Boolean) as NormalizedEvent[];
+    if (events.length > 0) return events;
+  }
+  return [];
 }
 
 export async function fetchStatPalSchedule(apiKey: string, sport: string, date: string): Promise<NormalizedEvent[]> {
@@ -710,6 +781,19 @@ export async function fetchStatPalSchedule(apiKey: string, sport: string, date: 
         if (sameDay.length > 0) return sameDay;
         if (dailyOffset === offset) return dailyEvents;
       }
+    }
+    const dateVariants = Array.from(new Set(formatDateVariants(date)));
+    const fallbackPaths = dateVariants.flatMap((d) => [
+      `/schedule?date=${encodeURIComponent(d)}`,
+      `/matches?date=${encodeURIComponent(d)}`,
+      `/fixtures?date=${encodeURIComponent(d)}`,
+      `/upcoming?date=${encodeURIComponent(d)}`,
+      `/matches/upcoming?date=${encodeURIComponent(d)}`,
+    ]);
+    for (const url of buildCandidateUrls(apiKey, sport, fallbackPaths)) {
+      const json = await fetchJson(url, PROVIDER_TIMEOUT_MS);
+      const events = extractEvents(json).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
+      if (events.length > 0) return events;
     }
     return [];
   }
