@@ -931,6 +931,26 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     return normalizeMatchId(sport, idRaw);
   };
 
+  const matchIdsOf = (e: AnyEvent): string[] => {
+    const sport = String((e as any)?.sport || '').trim();
+    const ids = [
+      (e as any)?.id,
+      (e as any)?.external_event_id,
+      (e as any)?.fixture?.id,
+      (e as any)?.fixture?.main_id,
+      (e as any)?.fixture?.fallback_id_1,
+      (e as any)?.fixture?.fallback_id_2,
+      (e as any)?.fixture?.fallback_id_3,
+      (e as any)?.fixture?.match_info?.main_id,
+      (e as any)?.fixture?.match_info?.fallback_id_1,
+      (e as any)?.fixture?.match_info?.fallback_id_2,
+      (e as any)?.fixture?.match_info?.fallback_id_3,
+    ]
+      .map((value) => normalizeMatchId(sport, String(value || '').trim()))
+      .filter(Boolean);
+    return Array.from(new Set(ids));
+  };
+
   const getSports = (sportsParam: string | null, mode: 'default' | 'live' = 'default'): string[] => {
     const raw = String(sportsParam || '').trim();
     if (!raw || raw === 'all') return (mode === 'live' ? LIVE_SPORTS_DEFAULT : SPORTS_DEFAULT).slice();
@@ -1284,14 +1304,19 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   const fetchOddsStrict = async (
     sport: string,
     matchId: string,
-    ctx: { isLive?: boolean; homeTeam?: string; awayTeam?: string; leagueId?: string; forceAll?: boolean } = {},
+    ctx: { isLive?: boolean; homeTeam?: string; awayTeam?: string; leagueId?: string; matchIds?: string[]; forceAll?: boolean } = {},
   ): Promise<any | null> => {
     const normalizedId = normalizeMatchId(sport, matchId);
     const key = `${sport}:${normalizedId}`;
     const inflight = oddsInflight.get(key);
     if (inflight) return inflight;
     const p = (async () => {
-      const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam, leagueId: ctx.leagueId };
+      const opts = {
+        homeTeam: ctx.homeTeam,
+        awayTeam: ctx.awayTeam,
+        leagueId: ctx.leagueId,
+        matchIds: Array.from(new Set([normalizedId, ...((ctx.matchIds || []).map((id) => normalizeMatchId(sport, id)).filter(Boolean))])),
+      };
       const [allResult, liveResult, preResult] = await Promise.all([
         callProvider('odds', () => fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts)).catch(() => null),
         callProvider('odds', () => fetchSportsApiProMatchOddsLive(apiKey, sport, normalizedId, opts)).catch(() => null),
@@ -1421,6 +1446,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         homeTeam: String(e?.home_team || ''),
         awayTeam: String(e?.away_team || ''),
         leagueId: String(e?.fixture?.__league?.id ?? e?.fixture?.league_id ?? ''),
+        matchIds: matchIdsOf(e),
       },
       refreshBudget,
     ).catch(() => null);

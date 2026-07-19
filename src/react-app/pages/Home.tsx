@@ -530,10 +530,14 @@ function Home({ mode = 'home' }: HomeProps) {
 
   const buildSportOptions = (events: Event[]) => {
     const counts = new Map<string, number>();
+    const preferredSports = ['soccer', 'tennis', 'basketball', 'baseball', 'volleyball', 'ice-hockey'];
     for (const ev of events as any[]) {
       const s = normalizeSportKey((ev as any)?.sport || '');
       if (!s) continue;
       counts.set(s, (counts.get(s) || 0) + 1);
+    }
+    for (const sport of preferredSports) {
+      if (!counts.has(sport)) counts.set(sport, 0);
     }
     return Array.from(counts.entries())
       .sort((a, b) => {

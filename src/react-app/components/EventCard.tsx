@@ -1100,24 +1100,6 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
           const isTwoWaySport = ['basketball', 'tennis', 'american-football', 'baseball', 'mma', 'volleyball', 'handball', 'ice-hockey', 'hockey', 'cricket'].includes(sport);
           const showDraw = !isTwoWaySport && dd > 0;
           const gridCols = showDraw ? 'grid-cols-3' : 'grid-cols-2';
-          
-          if (!hasPrimary) {
-              return (
-                  <div className={`grid ${gridCols} gap-2 w-full sm:w-[320px] lg:w-[400px] opacity-50 cursor-not-allowed`}>
-                      <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-700 rounded p-2 h-[50px]">
-                           <span className="text-xs text-gray-500 font-bold">-</span>
-                      </div>
-                      {showDraw && (
-                         <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-700 rounded p-2 h-[50px]">
-                             <span className="text-xs text-gray-500 font-bold">-</span>
-                        </div>
-                      )}
-                       <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-700 rounded p-2 h-[50px]">
-                           <span className="text-xs text-gray-500 font-bold">-</span>
-                      </div>
-                  </div>
-              );
-          }
             
             if (isFinishedEvent) {
               return (
@@ -1208,12 +1190,30 @@ export function EventCard({ event, onOpenEvent, suspension, signals }: EventCard
             }
 
             // Globally suspended live event — show prominent lock banner
-            if (isSuspended && isLiveEvent && effectiveCrit === 'idle') {
+            if ((isSuspended || isH2hSuspended) && effectiveCrit === 'idle') {
               return (
                 <div className="w-full sm:w-[320px] lg:w-[400px]">
                   <div className="w-full h-12 rounded-lg font-black text-sm uppercase tracking-wider text-slate-200/90 bg-gradient-to-r from-slate-600 to-slate-700 ring-1 ring-slate-400/40 flex items-center justify-center gap-2 select-none cursor-default">
                     <span>🔒</span>
                     <span>Odds Suspensas</span>
+                  </div>
+                </div>
+              );
+            }
+
+            if (!hasPrimary) {
+              return (
+                <div className={`grid ${gridCols} gap-2 w-full sm:w-[320px] lg:w-[400px] opacity-50 cursor-not-allowed`}>
+                  <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-700 rounded p-2 h-[50px]">
+                    <span className="text-xs text-gray-500 font-bold">-</span>
+                  </div>
+                  {showDraw && (
+                    <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-700 rounded p-2 h-[50px]">
+                      <span className="text-xs text-gray-500 font-bold">-</span>
+                    </div>
+                  )}
+                  <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-700 rounded p-2 h-[50px]">
+                    <span className="text-xs text-gray-500 font-bold">-</span>
                   </div>
                 </div>
               );

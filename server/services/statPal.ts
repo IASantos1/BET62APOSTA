@@ -245,12 +245,12 @@ function readScoreNumber(v: any): number | null {
 }
 
 function normalizeStatusShort(v: any): string {
-  const raw = String(v ?? '').trim();
+  const raw = readStatusValue(v, ['short', 'short_name', 'status_short', 'code', 'type', 'display', 'name']);
   return raw || 'NS';
 }
 
 function normalizeStatusLong(v: any): string {
-  const raw = String(v ?? '').trim();
+  const raw = readStatusValue(v, ['long', 'long_name', 'status_long', 'description', 'display', 'name', 'short']);
   return raw || 'Not Started';
 }
 
@@ -444,7 +444,7 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
   const liveFlag =
     isLiveStatus(statusShort, statusLong) ||
     inplayOddsRunning ||
-    (fromLiveEndpoint && !isFinishedStatus(statusShort, statusLong));
+    (fromLiveEndpoint && !isFinishedStatus(statusShort, statusLong) && (elapsed > 0 || hasActiveClockLike(timer)));
   return {
     external_event_id: id,
     sport: normalizeSportKey(sport),
@@ -485,7 +485,12 @@ function sportBaseUrls(sport: string): string[] {
       'https://statpal.io/api/v1/soccer',
     ];
   }
-  return [`https://statpal.io/api/${version}/${mapped}`];
+  const aliases =
+    mapped === 'nba' ? ['basketball', 'nba'] :
+    mapped === 'mlb' ? ['baseball', 'mlb'] :
+    mapped === 'nhl' ? ['ice-hockey', 'hockey', 'nhl'] :
+    [mapped];
+  return Array.from(new Set(aliases.map((name) => `https://statpal.io/api/${version}/${name}`)));
 }
 
 function buildCandidateUrls(apiKey: string, sport: string, paths: string[]): string[] {
@@ -572,7 +577,7 @@ function extractOddsRows(payload: any): any[] {
   return [];
 }
 
-type StatPalOddsOpts = { homeTeam?: string; awayTeam?: string; matchId?: string; leagueId?: string };
+type StatPalOddsOpts = { homeTeam?: string; awayTeam?: string; matchId?: string; matchIds?: string[]; leagueId?: string };
 
 function extractStatPalMatchIds(match: any): string[] {
   const ids = [
@@ -613,7 +618,10 @@ function flattenStatPalLeagueMatches(blocks: any[]): any[] {
 
 function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
   if (!payload || !opts) return payload;
-  const matchId = String(opts.matchId || '').trim();
+  const matchIds = Array.from(new Set([
+    String(opts.matchId || '').trim(),
+    ...((Array.isArray(opts.matchIds) ? opts.matchIds : []).map((id) => String(id || '').trim())),
+  ].filter(Boolean)));
   const homeKey = normalizeLabel(opts.homeTeam || '');
   const awayKey = normalizeLabel(opts.awayTeam || '');
   const matchByTeams = (match: any): boolean => {
@@ -628,7 +636,7 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
   const findMatch = (rows: any[]): any | null => {
     const found = rows.find((match: any) => {
       const ids = extractStatPalMatchIds(match);
-      return (matchId && ids.includes(matchId)) || matchByTeams(match);
+      return (matchIds.length > 0 && matchIds.some((id) => ids.includes(id))) || matchByTeams(match);
     });
     return found || null;
   };
@@ -678,6 +686,24 @@ function normalizeLabel(raw: any): string {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
+}
+
+function readStatusValue(raw: any, keys: string[]): string {
+  if (raw == null) return '';
+  if (typeof raw === 'string' || typeof raw === 'number') return String(raw).trim();
+  if (typeof raw === 'object') {
+    for (const key of keys) {
+      const value = (raw as any)?.[key];
+      if (value != null && String(value).trim()) return String(value).trim();
+    }
+  }
+  return '';
+}
+
+function hasActiveClockLike(raw: any): boolean {
+  const value = String(raw ?? '').trim();
+  if (!value) return false;
+  return /^\d{1,3}(?:[:']\d{1,2})?$/.test(value);
 }
 
 function isHomeLikeLabel(labelKey: string): boolean {
@@ -792,13 +818,13 @@ export async function fetchStatPalV1AllScoresDelta(apiKey: string, sport: string
 export async function fetchStatPalLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const s = statPalSportPath(sport);
   const paths = s === 'soccer'
-    ? ['/odds/live', '/matches/live', '/livescores', '/matches?status=live']
+    ? ['/matches/live', '/livescores', '/matches?status=live', '/odds/live']
     : ['/livescores', '/matches/live', '/matches?status=live'];
   for (const url of buildCandidateUrls(apiKey, sport, paths)) {
     const json = await fetchJson(url, PROVIDER_LIVE_TIMEOUT_MS);
     const events = extractEvents(json)
       .map((row) => normalizeEvent({ ...row, __from_live_endpoint: true }, sport))
-      .filter(Boolean) as NormalizedEvent[];
+      .filter((row) => !!row && Number((row as any)?.is_live || 0) === 1) as NormalizedEvent[];
     if (events.length > 0) return events;
   }
   return [];
@@ -863,24 +889,27 @@ export async function fetchStatPalMatchOddsAll(
   matchId: string,
   opts?: StatPalOddsOpts
 ): Promise<OddsResult | null> {
+  const matchIds = Array.from(new Set([matchId, ...((opts?.matchIds || []).map((id) => String(id || '').trim()))].filter(Boolean)));
   const json = await fetchFirstJson(
     buildCandidateUrls(apiKey, sport, [
-      `/matches/${encodeURIComponent(matchId)}/odds`,
-      `/match/${encodeURIComponent(matchId)}/odds`,
-      `/matches/${encodeURIComponent(matchId)}/liveodds`,
-      `/odds?match_id=${encodeURIComponent(matchId)}`,
-      `/odds?event_id=${encodeURIComponent(matchId)}`,
+      ...matchIds.flatMap((id) => [
+        `/matches/${encodeURIComponent(id)}/odds`,
+        `/match/${encodeURIComponent(id)}/odds`,
+        `/matches/${encodeURIComponent(id)}/liveodds`,
+        `/odds?match_id=${encodeURIComponent(id)}`,
+        `/odds?event_id=${encodeURIComponent(id)}`,
+      ]),
       '/odds',
     ]),
     PROVIDER_TIMEOUT_MS,
   );
-  let parsed = parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId });
+  let parsed = parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId, matchIds });
   if (!parsed) {
     const genericJson = await fetchFirstJson(
       buildCandidateUrls(apiKey, sport, ['/odds']),
       PROVIDER_TIMEOUT_MS,
     );
-    parsed = parseStatPalMatchOddsPayload(sport, genericJson, { ...opts, matchId });
+    parsed = parseStatPalMatchOddsPayload(sport, genericJson, { ...opts, matchId, matchIds });
   }
   return parsed;
 }
@@ -891,17 +920,20 @@ export async function fetchStatPalMatchOddsLive(
   matchId: string,
   opts?: StatPalOddsOpts
 ): Promise<OddsResult | null> {
+  const matchIds = Array.from(new Set([matchId, ...((opts?.matchIds || []).map((id) => String(id || '').trim()))].filter(Boolean)));
   const json = await fetchFirstJson(
     buildCandidateUrls(apiKey, sport, [
-      `/matches/${encodeURIComponent(matchId)}/liveodds`,
-      `/match/${encodeURIComponent(matchId)}/liveodds`,
-      `/matches/${encodeURIComponent(matchId)}/odds/live`,
-      `/odds/live?match_id=${encodeURIComponent(matchId)}`,
-      `/odds/live?event_id=${encodeURIComponent(matchId)}`,
+      ...matchIds.flatMap((id) => [
+        `/matches/${encodeURIComponent(id)}/liveodds`,
+        `/match/${encodeURIComponent(id)}/liveodds`,
+        `/matches/${encodeURIComponent(id)}/odds/live`,
+        `/odds/live?match_id=${encodeURIComponent(id)}`,
+        `/odds/live?event_id=${encodeURIComponent(id)}`,
+      ]),
     ]),
     PROVIDER_TIMEOUT_MS,
   );
-  let parsed = parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId });
+  let parsed = parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId, matchIds });
   if (!parsed) {
     const liveJson = await fetchFirstJson(
       buildCandidateUrls(apiKey, sport, [
@@ -910,7 +942,7 @@ export async function fetchStatPalMatchOddsLive(
       ]),
       PROVIDER_TIMEOUT_MS,
     );
-    parsed = parseStatPalMatchOddsPayload(sport, liveJson, { ...opts, matchId });
+    parsed = parseStatPalMatchOddsPayload(sport, liveJson, { ...opts, matchId, matchIds });
   }
   return parsed;
 }
@@ -921,19 +953,22 @@ export async function fetchStatPalMatchOddsPreMatch(
   matchId: string,
   opts?: StatPalOddsOpts
 ): Promise<OddsResult | null> {
+  const matchIds = Array.from(new Set([matchId, ...((opts?.matchIds || []).map((id) => String(id || '').trim()))].filter(Boolean)));
   const json = await fetchFirstJson(
     buildCandidateUrls(apiKey, sport, [
-      `/matches/${encodeURIComponent(matchId)}/odds/pre-match`,
-      `/match/${encodeURIComponent(matchId)}/odds/pre-match`,
-      `/matches/${encodeURIComponent(matchId)}/prematch-odds`,
-      `/matches/${encodeURIComponent(matchId)}/odds`,
-      `/odds/prematch?match_id=${encodeURIComponent(matchId)}`,
-      `/odds/prematch?event_id=${encodeURIComponent(matchId)}`,
-      `/prematch-odds?match_id=${encodeURIComponent(matchId)}`,
+      ...matchIds.flatMap((id) => [
+        `/matches/${encodeURIComponent(id)}/odds/pre-match`,
+        `/match/${encodeURIComponent(id)}/odds/pre-match`,
+        `/matches/${encodeURIComponent(id)}/prematch-odds`,
+        `/matches/${encodeURIComponent(id)}/odds`,
+        `/odds/prematch?match_id=${encodeURIComponent(id)}`,
+        `/odds/prematch?event_id=${encodeURIComponent(id)}`,
+        `/prematch-odds?match_id=${encodeURIComponent(id)}`,
+      ]),
     ]),
     PROVIDER_TIMEOUT_MS,
   );
-  let parsed = parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId });
+  let parsed = parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId, matchIds });
   if (!parsed && statPalSportPath(sport) === 'soccer' && opts?.leagueId) {
     const prematchJson = await fetchFirstJson(
       buildCandidateUrls(apiKey, sport, [
@@ -941,7 +976,7 @@ export async function fetchStatPalMatchOddsPreMatch(
       ]),
       PROVIDER_TIMEOUT_MS,
     );
-    parsed = parseStatPalMatchOddsPayload(sport, prematchJson, { ...opts, matchId });
+    parsed = parseStatPalMatchOddsPayload(sport, prematchJson, { ...opts, matchId, matchIds });
   }
   if (!parsed) {
     const genericJson = await fetchFirstJson(
@@ -952,7 +987,7 @@ export async function fetchStatPalMatchOddsPreMatch(
       ]),
       PROVIDER_TIMEOUT_MS,
     );
-    parsed = parseStatPalMatchOddsPayload(sport, genericJson, { ...opts, matchId });
+    parsed = parseStatPalMatchOddsPayload(sport, genericJson, { ...opts, matchId, matchIds });
   }
   return parsed;
 }
