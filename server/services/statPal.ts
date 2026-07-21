@@ -133,13 +133,15 @@ function extractEvents(payload: any): any[] {
   const flattenLeagueBlocks = (blocks: any[]): any[] => {
     const out: any[] = [];
     for (const block of blocks) {
+      // Support both English and Portuguese (StatPal /matches/daily) keys
       const leagueMeta = {
         id: block?.id ?? '',
-        name: block?.name ?? '',
-        country: block?.country ?? '',
-        cup: block?.cup ?? '',
+        name: block?.name ?? block?.nome ?? '',
+        country: block?.country ?? block?.país ?? block?.pais ?? '',
+        cup: block?.cup ?? block?.xícara ?? block?.xicara ?? '',
       };
-      const rows = block?.match ?? block?.matches ?? block?.events ?? block?.games ?? block?.fixtures ?? [];
+      // "corresponder" = Portuguese for "match" (used in /matches/daily response)
+      const rows = block?.match ?? block?.corresponder ?? block?.matches ?? block?.events ?? block?.games ?? block?.fixtures ?? [];
       if (Array.isArray(rows)) {
         for (const row of rows) out.push({ ...row, __league: leagueMeta });
         continue;
@@ -199,6 +201,8 @@ function extractEvents(payload: any): any[] {
   if (Array.isArray(payload?.prematch_odds?.league)) return flattenPrematchLeagueBlocks(payload.prematch_odds.league);
   if (Array.isArray(payload?.data?.prematch_odds?.league)) return flattenPrematchLeagueBlocks(payload.data.prematch_odds.league);
   if (Array.isArray(payload?.league)) return flattenLeagueBlocks(payload.league);
+  // Portuguese top-level key: "liga" = "league" (e.g. StatPal /leagues endpoint)
+  if (Array.isArray(payload?.liga)) return flattenLeagueBlocks(payload.liga);
   if (Array.isArray(payload?.matches?.tournament?.week)) {
     return flattenTournamentWeeks(payload.matches.tournament.week, payload.matches.tournament);
   }
@@ -208,6 +212,8 @@ function extractEvents(payload: any): any[] {
   for (const [key, value] of Object.entries(payload)) {
     if (!/^matches_\d{2}_\d{2}_\d{4}$/i.test(String(key))) continue;
     if (Array.isArray((value as any)?.league)) return flattenLeagueBlocks((value as any).league);
+    // Portuguese: "liga" = "league" (StatPal /matches/daily returns Portuguese keys)
+    if (Array.isArray((value as any)?.liga)) return flattenLeagueBlocks((value as any).liga);
   }
   if (Array.isArray(payload.data)) return payload.data;
   if (Array.isArray(payload.matches)) return payload.matches;
@@ -334,15 +340,27 @@ function extractTournamentId(event: any): string {
 
 function extractTeamName(event: any, side: 'home' | 'away'): string {
   const team = side === 'home'
-    ? event?.home_team ?? event?.homeTeam ?? event?.player_1 ?? event?.teams?.home?.name ?? event?.home?.name ?? event?.players?.home?.name ?? event?.team_info?.home?.name ?? event?.match_info?.team_info?.home?.name
-    : event?.away_team ?? event?.visitor_team ?? event?.guest_team ?? event?.awayTeam ?? event?.player_2 ?? event?.teams?.away?.name ?? event?.away?.name ?? event?.players?.away?.name ?? event?.team_info?.away?.name ?? event?.match_info?.team_info?.away?.name;
+    // English keys, then Portuguese: "lar" = home, "nome" = name (StatPal /matches/daily)
+    ? event?.home_team ?? event?.homeTeam ?? event?.player_1 ??
+      event?.teams?.home?.name ?? event?.home?.name ?? event?.home?.nome ??
+      event?.lar?.name ?? event?.lar?.nome ??
+      event?.players?.home?.name ?? event?.team_info?.home?.name ?? event?.match_info?.team_info?.home?.name
+    // English keys, then Portuguese: "ausente" = away (StatPal /matches/daily)
+    : event?.away_team ?? event?.visitor_team ?? event?.guest_team ?? event?.awayTeam ?? event?.player_2 ??
+      event?.teams?.away?.name ?? event?.away?.name ?? event?.away?.nome ??
+      event?.ausente?.name ?? event?.ausente?.nome ??
+      event?.players?.away?.name ?? event?.team_info?.away?.name ?? event?.match_info?.team_info?.away?.name;
   return String(team ?? '').trim();
 }
 
 function extractTeamId(event: any, side: 'home' | 'away'): string {
   const teamId = side === 'home'
-    ? event?.home_team_id ?? event?.homeTeamId ?? event?.teams?.home?.id ?? event?.home?.id ?? event?.players?.home?.id ?? event?.team_info?.home?.id ?? event?.match_info?.team_info?.home?.id
-    : event?.away_team_id ?? event?.awayTeamId ?? event?.teams?.away?.id ?? event?.away?.id ?? event?.players?.away?.id ?? event?.team_info?.away?.id ?? event?.match_info?.team_info?.away?.id;
+    ? event?.home_team_id ?? event?.homeTeamId ??
+      event?.teams?.home?.id ?? event?.home?.id ?? event?.lar?.id ??
+      event?.players?.home?.id ?? event?.team_info?.home?.id ?? event?.match_info?.team_info?.home?.id
+    : event?.away_team_id ?? event?.awayTeamId ??
+      event?.teams?.away?.id ?? event?.away?.id ?? event?.ausente?.id ??
+      event?.players?.away?.id ?? event?.team_info?.away?.id ?? event?.match_info?.team_info?.away?.id;
   return String(teamId ?? '').trim();
 }
 
@@ -394,6 +412,9 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
   const parsedMatchInfoScore = parseScoreText(event?.match_info?.score);
   const homeGoals = readScoreNumber(
     event?.home?.goals ??
+    event?.home?.score ??     // /leagues/{id}/matches uses "score" not "goals"
+    event?.lar?.metas ??      // Portuguese /matches/daily: home goals ("metas" or "gols")
+    event?.lar?.gols ??
     event?.home_score ??
     event?.score?.home ??
     event?.scores?.home ??
@@ -403,6 +424,9 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
   );
   const awayGoals = readScoreNumber(
     event?.away?.goals ??
+    event?.away?.score ??     // /leagues/{id}/matches uses "score" not "goals"
+    event?.ausente?.gols ??   // Portuguese /matches/daily: away goals ("gols" or "metas")
+    event?.ausente?.metas ??
     event?.away_score ??
     event?.score?.away ??
     event?.scores?.away ??
@@ -446,12 +470,19 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     event?.startTime ??
     event?.match_time ??
     event?.date ??
+    event?.data ??            // Portuguese /matches/daily: "data" = date
     event?.scheduled_at ??
     event?.match_info?.date ??
     event?.match_info?.match_date ??
     '',
   ).trim();
-  const eventDateTime = String(event?.time ?? event?.match_info?.time ?? event?.match_info?.kickoff_time ?? '').trim();
+  const eventDateTime = String(
+    event?.time ??
+    event?.hora ??            // Portuguese /matches/daily: "hora" = time
+    event?.match_info?.time ??
+    event?.match_info?.kickoff_time ??
+    ''
+  ).trim();
   const eventDate = parseStatPalDateTime(eventDateDate, eventDateTime);
   const fromLiveEndpoint = Boolean(event?.__from_live_endpoint);
   const inplayOddsRunning = String(event?.inplay_odds_running ?? '').trim().toLowerCase() === 'true';
