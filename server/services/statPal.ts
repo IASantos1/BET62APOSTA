@@ -220,6 +220,21 @@ function extractEvents(payload: any): any[] {
   if (Array.isArray(payload.data?.response)) return payload.data.response;
   if (Array.isArray(payload.livescores)) return payload.livescores;
   if (Array.isArray(payload.data?.livescores)) return payload.data.livescores;
+  // StatPal v1: livescores is an object with nested game/match array (e.g. NBA, MLB, NHL, Tennis)
+  if (payload?.livescores && typeof payload.livescores === 'object' && !Array.isArray(payload.livescores)) {
+    for (const key of ['game', 'match', 'games', 'matches', 'events', 'fixture', 'fixtures', 'records']) {
+      if (Array.isArray((payload.livescores as any)[key]) && (payload.livescores as any)[key].length > 0) {
+        return (payload.livescores as any)[key];
+      }
+    }
+  }
+  if (payload?.data?.livescores && typeof payload.data.livescores === 'object' && !Array.isArray(payload.data.livescores)) {
+    for (const key of ['game', 'match', 'games', 'matches', 'events', 'fixture', 'fixtures', 'records']) {
+      if (Array.isArray((payload.data.livescores as any)[key]) && (payload.data.livescores as any)[key].length > 0) {
+        return (payload.data.livescores as any)[key];
+      }
+    }
+  }
   if (Array.isArray(payload?.live_matches?.matches)) return payload.live_matches.matches;
   if (Array.isArray(payload?.data?.live_matches?.matches)) return payload.data.live_matches.matches;
   if (Array.isArray(payload?.upcoming_matches?.matches)) return payload.upcoming_matches.matches;
@@ -261,7 +276,7 @@ function isLiveStatus(shortStatus: string, longStatus: string): boolean {
   if (/^(ft|postp|postponed|ns|not started|canc|cancelled|ended|final)$/i.test(short)) return false;
   if (/^(ft|postp|postponed|not started|cancelled|ended|final)$/i.test(long)) return false;
   if (/^\d{1,3}(\+\d{1,2})?$/.test(short)) return true;
-  if (/live|in play|1h|2h|ht|q1|q2|q3|q4|set|period|inning|half|playing/.test(`${short} ${long}`)) return true;
+  if (/live|in play|1h|2h|ht|q1|q2|q3|q4|1q|2q|3q|4q|set|period|inning|half|playing|overtime|ot\b|p1\b|p2\b|p3\b|in_progress|ongoing|active/.test(`${short} ${long}`)) return true;
   return false;
 }
 
@@ -319,8 +334,8 @@ function extractTournamentId(event: any): string {
 
 function extractTeamName(event: any, side: 'home' | 'away'): string {
   const team = side === 'home'
-    ? event?.home_team ?? event?.homeTeam ?? event?.teams?.home?.name ?? event?.home?.name ?? event?.players?.home?.name ?? event?.team_info?.home?.name ?? event?.match_info?.team_info?.home?.name
-    : event?.away_team ?? event?.awayTeam ?? event?.teams?.away?.name ?? event?.away?.name ?? event?.players?.away?.name ?? event?.team_info?.away?.name ?? event?.match_info?.team_info?.away?.name;
+    ? event?.home_team ?? event?.homeTeam ?? event?.player_1 ?? event?.teams?.home?.name ?? event?.home?.name ?? event?.players?.home?.name ?? event?.team_info?.home?.name ?? event?.match_info?.team_info?.home?.name
+    : event?.away_team ?? event?.visitor_team ?? event?.guest_team ?? event?.awayTeam ?? event?.player_2 ?? event?.teams?.away?.name ?? event?.away?.name ?? event?.players?.away?.name ?? event?.team_info?.away?.name ?? event?.match_info?.team_info?.away?.name;
   return String(team ?? '').trim();
 }
 
@@ -815,11 +830,66 @@ export async function fetchStatPalV1AllScoresDelta(apiKey: string, sport: string
   return { events, lastUpdateId: null };
 }
 
+function attachOddsToEvents(events: NormalizedEvent[], oddsJson: any, sport: string): NormalizedEvent[] {
+  if (!oddsJson) return events;
+  return events.map((event) => {
+    if ((event.home_odd > 1 || event.away_odd > 1) && event.markets && event.markets !== '{}') return event;
+    const matched = parseStatPalMatchOddsPayload(sport, oddsJson, {
+      matchId: event.external_event_id,
+      homeTeam: event.home_team,
+      awayTeam: event.away_team,
+    });
+    if (!matched) return event;
+    return {
+      ...event,
+      home_odd: matched.home > 1 ? matched.home : event.home_odd,
+      draw_odd: matched.draw > 1 ? matched.draw : event.draw_odd,
+      away_odd: matched.away > 1 ? matched.away : event.away_odd,
+      markets: matched.markets && Object.keys(matched.markets).length > 0
+        ? JSON.stringify(matched.markets)
+        : event.markets,
+    };
+  });
+}
+
 export async function fetchStatPalLive(apiKey: string, sport: string): Promise<NormalizedEvent[]> {
   const s = statPalSportPath(sport);
-  const paths = s === 'soccer'
-    ? ['/matches/live', '/livescores', '/matches?status=live', '/odds/live']
-    : ['/livescores', '/matches/live', '/matches?status=live'];
+
+  if (s === 'soccer') {
+    // Try /odds/live first — it embeds match data + odds together in one response.
+    // If that fails or yields no events, fall back to /matches/live then livescores.
+    const primaryPaths = ['/odds/live', '/matches/live', '/livescores', '/matches?status=live'];
+    let liveEvents: NormalizedEvent[] = [];
+    let usedOddsLive = false;
+
+    for (const url of buildCandidateUrls(apiKey, sport, primaryPaths)) {
+      const json = await fetchJson(url, PROVIDER_LIVE_TIMEOUT_MS);
+      const events = extractEvents(json)
+        .map((row) => normalizeEvent({ ...row, __from_live_endpoint: true }, sport))
+        .filter((row) => !!row && Number((row as any)?.is_live || 0) === 1) as NormalizedEvent[];
+      if (events.length > 0) {
+        liveEvents = events;
+        usedOddsLive = url.includes('/odds/live');
+        break;
+      }
+    }
+
+    if (liveEvents.length === 0) return [];
+
+    // If we didn't get events from /odds/live (i.e. events came without embedded odds),
+    // fetch /odds/live separately and merge odds into the events.
+    const hasEmbeddedOdds = liveEvents.some((e) => e.home_odd > 1 || e.away_odd > 1);
+    if (!usedOddsLive && !hasEmbeddedOdds) {
+      const oddsUrl = buildCandidateUrls(apiKey, sport, ['/odds/live'])[0];
+      const oddsJson = await fetchJson(oddsUrl, PROVIDER_TIMEOUT_MS).catch(() => null);
+      if (oddsJson) liveEvents = attachOddsToEvents(liveEvents, oddsJson, sport);
+    }
+
+    return liveEvents;
+  }
+
+  // Non-soccer sports (NBA, MLB, NHL, Tennis, Volleyball, MMA)
+  const paths = ['/livescores', '/matches/live', '/matches?status=live'];
   for (const url of buildCandidateUrls(apiKey, sport, paths)) {
     const json = await fetchJson(url, PROVIDER_LIVE_TIMEOUT_MS);
     const events = extractEvents(json)
@@ -828,6 +898,14 @@ export async function fetchStatPalLive(apiKey: string, sport: string): Promise<N
     if (events.length > 0) return events;
   }
   return [];
+}
+
+async function fetchSoccerPreMatchOdds(apiKey: string, sport: string): Promise<any | null> {
+  const oddsJson = await fetchFirstJson(
+    buildCandidateUrls(apiKey, sport, ['/odds/prematch', '/prematch-odds', '/odds']),
+    PROVIDER_TIMEOUT_MS,
+  ).catch(() => null);
+  return oddsJson;
 }
 
 export async function fetchStatPalSchedule(apiKey: string, sport: string, date: string): Promise<NormalizedEvent[]> {
@@ -844,15 +922,21 @@ export async function fetchStatPalSchedule(apiKey: string, sport: string, date: 
         const dailyUrl = buildCandidateUrls(apiKey, sport, [
           `/matches/daily?offset=${encodeURIComponent(String(dailyOffset))}`,
         ]);
-        const dailyJson = await fetchFirstJson(dailyUrl, PROVIDER_TIMEOUT_MS);
+        // Fetch daily matches and pre-match odds in parallel
+        const [dailyJson, oddsJson] = await Promise.all([
+          fetchFirstJson(dailyUrl, PROVIDER_TIMEOUT_MS),
+          fetchSoccerPreMatchOdds(apiKey, sport),
+        ]);
         const dailyEvents = extractEvents(dailyJson)
           .map((row) => normalizeEvent(row, sport))
           .filter(Boolean) as NormalizedEvent[];
         if (dailyEvents.length === 0) continue;
-        if (!targetDate) return dailyEvents;
-        const sameDay = dailyEvents.filter((event) => dateOnlyIso(String(event?.event_date || '')) === targetDate);
+        // Attach pre-match odds to events that don't have embedded odds
+        const enriched = attachOddsToEvents(dailyEvents, oddsJson, sport);
+        if (!targetDate) return enriched;
+        const sameDay = enriched.filter((event) => dateOnlyIso(String(event?.event_date || '')) === targetDate);
         if (sameDay.length > 0) return sameDay;
-        if (dailyOffset === offset) return dailyEvents;
+        if (dailyOffset === offset) return enriched;
       }
     }
     const dateVariants = Array.from(new Set(formatDateVariants(date)));
