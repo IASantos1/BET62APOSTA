@@ -456,10 +456,14 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
   const fromLiveEndpoint = Boolean(event?.__from_live_endpoint);
   const inplayOddsRunning = String(event?.inplay_odds_running ?? '').trim().toLowerCase() === 'true';
   const embeddedOdds = parseStatPalMatchOddsPayload(sport, event, { matchId: id, homeTeam: home, awayTeam: away });
+  const notFinished = !isFinishedStatus(statusShort, statusLong);
   const liveFlag =
     isLiveStatus(statusShort, statusLong) ||
-    inplayOddsRunning ||
-    (fromLiveEndpoint && !isFinishedStatus(statusShort, statusLong) && (elapsed > 0 || hasActiveClockLike(timer)));
+    // Guard inplay_odds_running with "not finished" — StatPal keeps this flag "True" during
+    // the cool-down period after a match ends (status="FT"), which would wrongly mark the
+    // match as live. Only trust it when status is not a finished/terminal state.
+    (inplayOddsRunning && notFinished) ||
+    (fromLiveEndpoint && notFinished && (elapsed > 0 || hasActiveClockLike(timer)));
   return {
     external_event_id: id,
     sport: normalizeSportKey(sport),
