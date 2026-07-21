@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web"]
+modules = ["nodejs-20", "web", "postgresql-16"]
 [agent]
 expertMode = true
 stack = "BEST_EFFORT_FALLBACK"
@@ -39,8 +39,10 @@ publicDir = "dist"
 [userenv]
 
 [userenv.shared]
-STATPAL_KEY = "72bac50d-fc07-4f0e-ae06-6a34a737604b"
-SPORTS_API_KEY = "72bac50d-fc07-4f0e-ae06-6a34a737604b"
+NODE_ENV = "development"
+PGSSLMODE = "disable"
+PORT = "3000"
+SPORTS_PROVIDER = "sportsapipro"
 
 [[ports]]
 localPort = 3000
