@@ -2334,26 +2334,23 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       if (mode !== 'all' && mode !== 'live' && mode !== 'pre-match') return sendJson(res, 400, { error: 'Invalid mode' }), true;
       const id = normalizeMatchId(sport, idRaw) || normalizeIdLoose(idRaw);
 
-      const normalizeSportKey = (s: string): string =>
-        String(s || '')
-          .toLowerCase()
-          .trim()
-          .replace(/[_\s]+/g, '-')
-          .replace(/[^a-z0-9-]/g, '')
-          .replace(/-+/g, '-')
-          .replace(/^-+/, '')
-          .replace(/-+$/, '');
-      const toSubdomain = (s: string): string => {
-        const k = normalizeSportKey(s);
-        if (k === 'football' || k === 'futebol' || k === 'soccer') return 'football';
-        if (k === 'hockey' || k === 'icehockey' || k === 'ice-hockey') return 'hockey';
-        return k || 'football';
+      const toStatPalSport = (s: string): string => {
+        const k = String(s || '').toLowerCase().trim().replace(/[_\s]+/g, '-').replace(/[^a-z0-9-]/g, '');
+        if (k === 'football' || k === 'futebol' || k === 'soccer') return 'soccer';
+        if (k === 'basketball') return 'nba';
+        if (k === 'baseball') return 'mlb';
+        if (k === 'ice-hockey' || k === 'icehockey' || k === 'hockey') return 'nhl';
+        if (k === 'tennis') return 'tennis';
+        return k || 'soccer';
       };
 
-      const sub = toSubdomain(sport);
-      const targetUrl = `https://v2.${sub}.sportsapipro.com/api/match/${encodeURIComponent(id)}/odds/${mode}`;
+      const statpalSport = toStatPalSport(sport);
+      const isV2 = statpalSport === 'soccer';
+      const version = isV2 ? 'v2' : 'v1';
+      const oddsMode = mode === 'live' ? 'liveodds' : mode === 'pre-match' ? 'odds/pre-match' : 'odds';
+      const targetUrl = `https://statpal.io/api/${version}/${statpalSport}/matches/${encodeURIComponent(id)}/${oddsMode}?access_key=${encodeURIComponent(apiKey)}`;
       try {
-        const r = await fetch(targetUrl, { headers: { 'x-api-key': apiKey, accept: 'application/json' } });
+        const r = await fetch(targetUrl, { headers: { accept: 'application/json' } });
         const text = await r.text().catch(() => '');
         let json: any = null;
         try {
@@ -2415,25 +2412,22 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
 
       const sport = String(url.searchParams.get('sport') || '').trim() || 'soccer';
       const date = String(url.searchParams.get('date') || '').trim() || ymd(new Date());
-      const normalizeSportKey = (s: string): string =>
-        String(s || '')
-          .toLowerCase()
-          .trim()
-          .replace(/[_\s]+/g, '-')
-          .replace(/[^a-z0-9-]/g, '')
-          .replace(/-+/g, '-')
-          .replace(/^-+/, '')
-          .replace(/-+$/, '');
-      const toSubdomain = (s: string): string => {
-        const k = normalizeSportKey(s);
-        if (k === 'football' || k === 'futebol' || k === 'soccer') return 'football';
-        if (k === 'hockey' || k === 'icehockey' || k === 'ice-hockey') return 'hockey';
-        return k || 'football';
+      const toStatPalSport2 = (s: string): string => {
+        const k = String(s || '').toLowerCase().trim().replace(/[_\s]+/g, '-').replace(/[^a-z0-9-]/g, '');
+        if (k === 'football' || k === 'futebol' || k === 'soccer') return 'soccer';
+        if (k === 'basketball') return 'nba';
+        if (k === 'baseball') return 'mlb';
+        if (k === 'ice-hockey' || k === 'icehockey' || k === 'hockey') return 'nhl';
+        return k || 'soccer';
       };
-      const sub = toSubdomain(sport);
-      const targetUrl = `https://v2.${sub}.sportsapipro.com/api/schedule/${encodeURIComponent(date)}?timezoneName=UTC`;
+      const statpalSport2 = toStatPalSport2(sport);
+      const isV2b = statpalSport2 === 'soccer';
+      const version2 = isV2b ? 'v2' : 'v1';
+      const targetUrl = isV2b
+        ? `https://statpal.io/api/v2/soccer/matches/daily?offset=0&access_key=${encodeURIComponent(apiKey)}`
+        : `https://statpal.io/api/v1/${statpalSport2}/schedule?date=${encodeURIComponent(date)}&access_key=${encodeURIComponent(apiKey)}`;
       try {
-        const r = await fetch(targetUrl, { headers: { 'x-api-key': apiKey, accept: 'application/json' } });
+        const r = await fetch(targetUrl, { headers: { accept: 'application/json' } });
         const text = await r.text().catch(() => '');
         let json: any = null;
         try {

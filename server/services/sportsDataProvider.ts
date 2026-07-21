@@ -1,20 +1,9 @@
-import {
-  fetchSportsApiProH2H as sportsApiProFetchH2H,
-  fetchSportsApiProLive as sportsApiProFetchLive,
-  fetchSportsApiProMatchIncidents as sportsApiProFetchMatchIncidents,
-  fetchSportsApiProMatchOddsAll as sportsApiProFetchMatchOddsAll,
-  fetchSportsApiProMatchOddsLive as sportsApiProFetchMatchOddsLive,
-  fetchSportsApiProMatchOddsPreMatch as sportsApiProFetchMatchOddsPreMatch,
-  fetchSportsApiProMatchStatistics as sportsApiProFetchMatchStatistics,
-  fetchSportsApiProSchedule as sportsApiProFetchSchedule,
-  fetchSportsApiProStandings as sportsApiProFetchStandings,
-  fetchSportsApiProV1AllScoresDelta as sportsApiProFetchV1AllScoresDelta,
-  fetchSportsApiProWorldCup2026 as sportsApiProFetchWorldCup2026,
-  fetchSportsApiProWorldCup2026Groups as sportsApiProFetchWorldCup2026Groups,
-  fetchSportsApiProWorldCup2026Info as sportsApiProFetchWorldCup2026Info,
-  fetchSportsApiProWorldCup2026Matches as sportsApiProFetchWorldCup2026Matches,
-  parseSportsApiProMatchOddsPayload as parseSportsApiProOddsPayload,
-} from './sportsApiPro.js';
+/**
+ * Sports data provider — StatPal only.
+ * All SportsApiPro references have been removed; every function delegates
+ * directly to the StatPal implementation.
+ */
+
 import {
   fetchStatPalH2H,
   fetchStatPalSoccerH2HByTeams,
@@ -44,26 +33,20 @@ import {
   parseStatPalMatchOddsPayload,
 } from './statPal.js';
 
-// Provider is always Statpal — SportsApiPro is no longer used.
-export type SportsDataProviderName = 'sportsapipro' | 'statpal';
+export type SportsDataProviderName = 'statpal';
 
-// Statpal default access key (can be overridden via STATPAL_ACCESS_KEY env var)
+// StatPal default access key (can be overridden via STATPAL_ACCESS_KEY env var)
 const STATPAL_DEFAULT_KEY = 'b5b07a3f-b019-4a18-8969-6045169feda9';
 
-function resolveProviderName(): SportsDataProviderName {
-  return 'statpal';
-}
-
-function resolveProviderApiKey(_provider: SportsDataProviderName): { apiKey: string; envSource: string } {
+function resolveProviderApiKey(): { apiKey: string; envSource: string } {
   if (process.env.STATPAL_ACCESS_KEY) return { apiKey: String(process.env.STATPAL_ACCESS_KEY).trim(), envSource: 'STATPAL_ACCESS_KEY' };
   if (process.env.STATPAL_KEY) return { apiKey: String(process.env.STATPAL_KEY).trim(), envSource: 'STATPAL_KEY' };
-  // Fallback to hardcoded default key
   return { apiKey: STATPAL_DEFAULT_KEY, envSource: 'default' };
 }
 
 export function getSportsDataProviderConfig() {
   const provider: SportsDataProviderName = 'statpal';
-  const { apiKey, envSource } = resolveProviderApiKey(provider);
+  const { apiKey, envSource } = resolveProviderApiKey();
   return {
     provider,
     apiKey,
@@ -72,156 +55,128 @@ export function getSportsDataProviderConfig() {
   };
 }
 
-export async function fetchSportsApiProV1AllScoresDelta(
-  apiKey: string,
-  sport: string,
-  lastUpdateId?: string | null,
-  date?: Date,
-) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalV1AllScoresDelta(apiKey, sport);
-  return sportsApiProFetchV1AllScoresDelta(apiKey, sport, lastUpdateId, date);
+// ── Re-exported under the legacy "SportsApiPro" names so call-sites in
+//    events.ts and settlement.ts don't need renaming. ──────────────────────────
+
+export async function fetchSportsApiProV1AllScoresDelta(apiKey: string, sport: string) {
+  return fetchStatPalV1AllScoresDelta(apiKey, sport);
 }
 
 export async function fetchSportsApiProLive(apiKey: string, sport: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalLive(apiKey, sport);
-  return sportsApiProFetchLive(apiKey, sport);
+  return fetchStatPalLive(apiKey, sport);
 }
 
 export async function fetchSportsApiProSchedule(apiKey: string, sport: string, date: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSchedule(apiKey, sport, date);
-  return sportsApiProFetchSchedule(apiKey, sport, date);
+  return fetchStatPalSchedule(apiKey, sport, date);
 }
 
 export async function fetchSportsApiProWorldCup2026(apiKey: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalWorldCup2026(apiKey);
-  return sportsApiProFetchWorldCup2026(apiKey);
+  return fetchStatPalWorldCup2026(apiKey);
 }
 
 export async function fetchSportsApiProWorldCup2026Info(apiKey: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalWorldCup2026Info(apiKey);
-  return sportsApiProFetchWorldCup2026Info(apiKey);
+  return fetchStatPalWorldCup2026Info(apiKey);
 }
 
 export async function fetchSportsApiProWorldCup2026Groups(apiKey: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalWorldCup2026Groups(apiKey);
-  return sportsApiProFetchWorldCup2026Groups(apiKey);
+  return fetchStatPalWorldCup2026Groups(apiKey);
 }
 
 export async function fetchSportsApiProWorldCup2026Matches(apiKey: string, page: number) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalWorldCup2026Matches(apiKey, page);
-  return sportsApiProFetchWorldCup2026Matches(apiKey, page);
+  return fetchStatPalWorldCup2026Matches(apiKey, page);
 }
 
 export async function fetchSportsApiProMatchOddsAll(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string; matchIds?: string[] },
 ) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalMatchOddsAll(apiKey, sport, matchId, opts);
-  return sportsApiProFetchMatchOddsAll(apiKey, sport, matchId, opts);
+  return fetchStatPalMatchOddsAll(apiKey, sport, matchId, opts);
 }
 
 export async function fetchSportsApiProMatchOddsLive(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string; matchIds?: string[] },
 ) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalMatchOddsLive(apiKey, sport, matchId, opts);
-  return sportsApiProFetchMatchOddsLive(apiKey, sport, matchId, opts);
+  return fetchStatPalMatchOddsLive(apiKey, sport, matchId, opts);
 }
 
 export async function fetchSportsApiProMatchOddsPreMatch(
   apiKey: string,
   sport: string,
   matchId: string,
-  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string; matchIds?: string[] },
 ) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalMatchOddsPreMatch(apiKey, sport, matchId, opts);
-  return sportsApiProFetchMatchOddsPreMatch(apiKey, sport, matchId, opts);
+  return fetchStatPalMatchOddsPreMatch(apiKey, sport, matchId, opts);
 }
 
 export function parseSportsApiProMatchOddsPayload(
   sport: string,
   payload: any,
-  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string }
+  opts?: { homeTeam?: string; awayTeam?: string; leagueId?: string },
 ) {
-  if (resolveProviderName() === 'statpal') return parseStatPalMatchOddsPayload(sport, payload, opts);
-  return parseSportsApiProOddsPayload(sport, payload, opts);
+  return parseStatPalMatchOddsPayload(sport, payload, opts);
 }
 
 export async function fetchSportsApiProMatchStatistics(apiKey: string, sport: string, matchId: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalMatchStatistics(apiKey, sport, matchId);
-  return sportsApiProFetchMatchStatistics(apiKey, sport, matchId);
+  return fetchStatPalMatchStatistics(apiKey, sport, matchId);
 }
 
 export async function fetchSportsApiProMatchIncidents(apiKey: string, sport: string, matchId: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalMatchIncidents(apiKey, sport, matchId);
-  return sportsApiProFetchMatchIncidents(apiKey, sport, matchId);
+  return fetchStatPalMatchIncidents(apiKey, sport, matchId);
 }
 
 export async function fetchSportsApiProH2H(apiKey: string, sport: string, matchId: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalH2H(apiKey, sport, matchId);
-  return sportsApiProFetchH2H(apiKey, sport, matchId);
+  return fetchStatPalH2H(apiKey, sport, matchId);
 }
 
 export async function fetchSportsSoccerH2HByTeams(apiKey: string, team1Id: string, team2Id: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerH2HByTeams(apiKey, team1Id, team2Id);
-  return null;
+  return fetchStatPalSoccerH2HByTeams(apiKey, team1Id, team2Id);
 }
 
 export async function fetchSportsApiProStandings(apiKey: string, sport: string, tournamentId: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalStandings(apiKey, sport, tournamentId);
-  return sportsApiProFetchStandings(apiKey, sport, tournamentId);
+  return fetchStatPalStandings(apiKey, sport, tournamentId);
 }
 
 export async function fetchSportsSoccerInjuriesSuspensions(apiKey: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerInjuriesSuspensions(apiKey);
-  return null;
+  return fetchStatPalSoccerInjuriesSuspensions(apiKey);
 }
 
 export async function fetchSportsSoccerTeam(apiKey: string, teamId: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerTeam(apiKey, teamId);
-  return null;
+  return fetchStatPalSoccerTeam(apiKey, teamId);
 }
 
 export async function fetchSportsSoccerPlayer(apiKey: string, playerId: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerPlayer(apiKey, playerId);
-  return null;
+  return fetchStatPalSoccerPlayer(apiKey, playerId);
 }
 
 export async function fetchSportsSoccerCoach(apiKey: string, coachId: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerCoach(apiKey, coachId);
-  return null;
+  return fetchStatPalSoccerCoach(apiKey, coachId);
 }
 
 export async function fetchSportsSoccerLiveStorylines(apiKey: string, matchId?: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerLiveStorylines(apiKey, matchId);
-  return null;
+  return fetchStatPalSoccerLiveStorylines(apiKey, matchId);
 }
 
 export async function fetchSportsSoccerTeamLineups(apiKey: string, matchId?: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerTeamLineups(apiKey, matchId);
-  return null;
+  return fetchStatPalSoccerTeamLineups(apiKey, matchId);
 }
 
 export async function fetchSportsSoccerWeatherForecast(apiKey: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerWeatherForecast(apiKey);
-  return null;
+  return fetchStatPalSoccerWeatherForecast(apiKey);
 }
 
 export async function fetchSportsSoccerPredictions(apiKey: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerPredictions(apiKey);
-  return null;
+  return fetchStatPalSoccerPredictions(apiKey);
 }
 
 export async function fetchSportsSoccerLiveOddsMarkets(apiKey: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerLiveOddsMarkets(apiKey);
-  return null;
+  return fetchStatPalSoccerLiveOddsMarkets(apiKey);
 }
 
 export async function fetchSportsSoccerLiveOddsMatchStates(apiKey: string) {
-  if (resolveProviderName() === 'statpal') return fetchStatPalSoccerLiveOddsMatchStates(apiKey);
-  return null;
+  return fetchStatPalSoccerLiveOddsMatchStates(apiKey);
 }

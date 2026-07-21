@@ -1,6 +1,6 @@
 // server/services/settlement.ts
 // Robust bet settlement engine — handles all markets and sports.
-// Uses SportsApiPro V1 (1s latency) for schedule/results + events cache.
+// Uses StatPal for schedule/results + events cache.
 
 import type pg from 'pg';
 import { randomId } from '../lib/crypto.js';
@@ -1668,7 +1668,7 @@ function settleStoredSelection(
   };
 }
 
-// ── Fetch match result from SportsApiPro ─────────────────────────────────────
+// ── Fetch match result from StatPal ──────────────────────────────────────────
 
 async function fetchMatchResult(
   apiKey: string,
@@ -1698,61 +1698,6 @@ async function fetchMatchResult(
     }
     return null;
   }
-  
-  // Map sport to the correct SportsAPI Pro subdomain
-  const sportLower = String(sport || '').toLowerCase().trim();
-  let sub: string;
-  if (sportLower === 'tennis') {
-    sub = 'tennis';
-  } else if (sportLower === 'basketball') {
-    sub = 'basketball';
-  } else if (sportLower === 'ice-hockey' || sportLower === 'hockey') {
-    sub = 'hockey';
-  } else if (sportLower === 'baseball') {
-    sub = 'baseball';
-  } else if (sportLower === 'volleyball' || sportLower === 'voleibol' || sportLower === 'vôlei') {
-    sub = 'volleyball';
-  } else if (sportLower === 'mma') {
-    sub = 'mma';
-  } else {
-    sub = 'football'; // soccer/football default
-  }
-  
-  const base = `https://v2.${sub}.sportsapipro.com`;
-
-  // Try to fetch by event ID directly
-  try {
-    const url = `${base}/api/match/${encodeURIComponent(eventId)}`;
-    const r = await fetch(url, {
-      headers: { 'x-api-key': apiKey, accept: 'application/json' },
-      signal: AbortSignal.timeout(6000),
-    });
-    if (r.ok) {
-      const data: any = await r.json();
-      const ev: any = data?.event ?? data?.match ?? data?.data?.event ?? data?.data?.match ?? data;
-      const result = extractResultFromEvent(ev, eventId, sport);
-      if (result) return result;
-    }
-  } catch { /* will try schedule fallback */ }
-
-  // Fallback: search today's schedule
-  try {
-    const today = new Date().toISOString().slice(0, 10);
-    const url = `${base}/api/events/schedule?date=${today}`;
-    const r = await fetch(url, {
-      headers: { 'x-api-key': apiKey, accept: 'application/json' },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!r.ok) return null;
-    const data = await r.json();
-    const events = extractEventsArray(data);
-    const ev = events.find((e: any) => {
-      const id = String(e?.id ?? e?.fixture?.id ?? e?.match_id ?? '');
-      return id === String(eventId);
-    });
-    if (ev) return extractResultFromEvent(ev, eventId, sport);
-  } catch { /* pass */ }
-
   return null;
 }
 

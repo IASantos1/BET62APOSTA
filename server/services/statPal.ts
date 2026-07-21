@@ -1,5 +1,5 @@
 import process from 'node:process';
-import type { NormalizedEvent, OddsResult, V1AllScoresDelta } from './sportsApiPro.js';
+import type { NormalizedEvent, OddsResult, V1AllScoresDelta } from './types.js';
 
 function envInt(name: string, fallback: number, min: number, max: number): number {
   const raw = Number(process.env[name] || '');
@@ -870,35 +870,33 @@ export async function fetchStatPalSchedule(apiKey: string, sport: string, date: 
     }
     return [];
   }
-  // Non-soccer sports: NBA, MLB, NHL, Tennis use /daily/d{offset} endpoint
-  const offset = utcDayDiffFromToday(date);
-  if (offset != null && offset >= -7 && offset <= 7) {
-    const offsetsToTry = offset === 0 ? [0, -1] : [offset];
-    const targetDate = dateOnlyIso(date);
-    for (const dailyOffset of offsetsToTry) {
-        const dailyPaths = [`/daily/d${dailyOffset}`, `/daily?offset=${dailyOffset}`, `/livescores`];
-      const dailyJson = await fetchFirstJson(buildCandidateUrls(apiKey, sport, dailyPaths), PROVIDER_TIMEOUT_MS);
-      const dailyEvents = extractEvents(dailyJson)
-        .map((row) => normalizeEvent(row, sport))
-        .filter(Boolean) as NormalizedEvent[];
-      if (dailyEvents.length === 0) continue;
-      if (!targetDate) return dailyEvents;
-      const sameDay = dailyEvents.filter((event) => dateOnlyIso(String(event?.event_date || '')) === targetDate);
-      if (sameDay.length > 0) return sameDay;
-      if (dailyOffset === offset) return dailyEvents;
-    }
-  }
+  // Non-soccer sports: NBA, MLB, NHL, Tennis, Volleyball, MMA
+  // StatPal v1 uses /livescores for live and date-based paths for schedule.
+  const targetDate = dateOnlyIso(date);
   const dateVariants = Array.from(new Set(formatDateVariants(date)));
-  const paths = dateVariants.flatMap((d) => [
+  const datePaths = dateVariants.flatMap((d) => [
     `/schedule?date=${encodeURIComponent(d)}`,
+    `/games?date=${encodeURIComponent(d)}`,
     `/matches?date=${encodeURIComponent(d)}`,
     `/fixtures?date=${encodeURIComponent(d)}`,
     `/upcoming?date=${encodeURIComponent(d)}`,
     `/matches/upcoming?date=${encodeURIComponent(d)}`,
   ]);
-  const json = await fetchFirstJson(buildCandidateUrls(apiKey, sport, paths), PROVIDER_TIMEOUT_MS);
-  const events = extractEvents(json).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
-  return events;
+  // Try date-based paths first, then fall back to livescores
+  const allPaths = [...datePaths, '/livescores', '/matches/live', '/matches?status=live'];
+  for (const url of buildCandidateUrls(apiKey, sport, allPaths)) {
+    const json = await fetchJson(url, PROVIDER_TIMEOUT_MS);
+    const events = extractEvents(json)
+      .map((row) => normalizeEvent(row, sport))
+      .filter(Boolean) as NormalizedEvent[];
+    if (events.length === 0) continue;
+    if (!targetDate) return events;
+    const sameDay = events.filter((event) => dateOnlyIso(String(event?.event_date || '')) === targetDate);
+    if (sameDay.length > 0) return sameDay;
+    // Return all if we got data but none matched the exact date (avoids silent empty)
+    return events;
+  }
+  return [];
 }
 
 export async function fetchStatPalMatchOddsAll(
