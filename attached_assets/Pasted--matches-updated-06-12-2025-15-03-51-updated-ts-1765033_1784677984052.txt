@@ -1,0 +1,136 @@
+{
+  "matches": {
+    "updated": "06.12.2025 15:03:51",
+    "updated_ts": 1765033431,
+    "country": "england",
+    "tournament": {
+      "id": "3037",
+      "league": "Premier League",
+      "season": "2025/2026",
+      "stage_id": "14372914",
+      "is_current": "True",
+      "week": [
+        {
+          "number": "1",
+          "match": [
+            {
+              "main_id": "2025081518302",
+              "fallback_id_1": "6024103",
+              "fallback_id_2": "6531486",
+              "date": "15.08.2025",
+              "time": "19:00",
+              "status": "FT",
+              "venue": "Anfield",
+              "venue_id": "",
+              "venue_city": "Liverpool",
+              "attendance": "60 315",
+              "home": {
+                "id": "2341082",
+                "name": "Liverpool",
+                "score": "4"
+              },
+              "away": {
+                "id": "2340886",
+                "name": "Bournemouth",
+                "score": "2"
+              },
+              "coaches": {
+                "home": {
+                  "coach": {
+                    "id": "2334186",
+                    "name": "Arend Martijn Slot"
+                  }
+                },
+                "away": {
+                  "coach": {
+                    "id": "2887252",
+                    "name": "Andoni Iraola Sagarna"
+                  }
+                }
+              },
+              "referee": {
+                "id": "",
+                "name": ""
+              },
+              "lineups": {
+                "home": {
+                  "formation": "4-2-3-1",
+                  "player": [
+                    {
+                      "number": "1",
+                      "id": "2434476",
+                      "name": "Alisson",
+                      "booking": ""
+                    }
+                  ]
+                },
+                "away": {
+                  "formation": "4-2-3-1",
+                  "player": [
+                    {
+                      "number": "1",
+                      "id": "2795235",
+                      "name": "D. Petrovic",
+                      "booking": ""
+                    }
+                  ]
+                }
+              },
+              "substitutions": {
+                "home": {
+                  "substitution": [
+                    {
+                      "player_in_number": "25",
+                      "player_in_name": "G. Mamardashvili",
+                      "player_in_booking": "",
+                      "player_in_id": "2794974",
+                      "player_out_name": "",
+                      "player_out_id": "",
+                      "minute": ""
+                    }
+                  ]
+                },
+                "away": {
+                  "substitution": [
+                    {
+                      "player_in_number": "40",
+                      "player_in_name": "W. Dennis",
+                      "player_in_booking": "",
+                      "player_in_id": "2861662",
+                      "player_out_name": "",
+                      "player_out_id": "",
+                      "minute": ""
+                    }
+                  ]
+                }
+              },
+              "goals": {
+                "goal": [
+                  {
+                    "team": "home",
+                    "minute": "37",
+                    "player": "H. Ekitike",
+                    "score": "[1 - 0]",
+                    "playerid": "2956415",
+                    "assist": "A. Mac Allister",
+                    "assistid": "2799893"
+                  }
+                ]
+              },
+              "ht": {
+                "home_goals": 1,
+                "away_goals": 0
+              },
+              "ft": {
+                "home_goals": 4,
+                "away_goals": 2
+              },
+              "et": null,
+              "penalties": null
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

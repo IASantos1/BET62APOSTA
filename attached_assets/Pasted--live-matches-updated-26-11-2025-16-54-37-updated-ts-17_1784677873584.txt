@@ -1,0 +1,166 @@
+{
+  "live_matches": {
+    "updated": "26.11.2025 16:54:37",
+    "updated_ts": 1764176077,
+    "league": [
+      {
+        "id": "2905",
+        "name": "Andorra: Primera Divisió",
+        "country": "andorra",
+        "cup": "False",
+        "match": [
+          {
+            "main_id": "2025112611667",
+            "fallback_id_1": "6099244",
+            "fallback_id_2": "6606657",
+            "fallback_id_3": "8708898",
+            "status": "FT",
+            "date": "26.11.2025",
+            "time": "13:30",
+            "inj_time": "",
+            "inj_minute": "",
+            "venue": "Centre d'Entrenament de la FAF 1",
+            "home": {
+              "id": "2337666",
+              "name": "FC Santa Coloma",
+              "goals": "1",
+              "win_on_agg": "false"
+            },
+            "away": {
+              "id": "2337667",
+              "name": "Inter Escaldes",
+              "goals": "3",
+              "win_on_agg": "true"
+            },
+            "events": {
+              "event": [
+                {
+                  "id": "66102484",
+                  "type": "goal",
+                  "team": "away",
+                  "minute": "2",
+                  "extra_min": "",
+                  "player": "J. Martinez",
+                  "player_id": "3400123",
+                  "assist_player": "L. Gomez",
+                  "assist_id": "3312345",
+                  "result": "[0 - 1]"
+                },
+                {
+                  "id": "66102485",
+                  "type": "yellowcard",
+                  "team": "away",
+                  "minute": "21",
+                  "extra_min": "",
+                  "player": "C. Lopez",
+                  "player_id": "3398765",
+                  "assist_player": "",
+                  "assist_id": "",
+                  "result": ""
+                },
+                {
+                  "id": "66102486",
+                  "type": "goal",
+                  "team": "home",
+                  "minute": "45",
+                  "extra_min": "2",
+                  "player": "M. Sanchez",
+                  "player_id": "3309987",
+                  "assist_player": "D. Ruiz",
+                  "assist_id": "3322999",
+                  "result": "[1 - 1]"
+                }
+              ]
+            },
+            "ht": {
+              "home_goals": 1,
+              "away_goals": 1
+            },
+            "ft": {
+              "home_goals": 1,
+              "away_goals": 3
+            },
+            "et": null,
+            "penalties": {
+              "home_pen": 3,
+              "away_pen": 4,
+              "penalty_events": [
+                {
+                  "id": "66707336",
+                  "penalty_num": "1",
+                  "team": "away",
+                  "player": "A. Fernandez",
+                  "player_id": "3405001",
+                  "type": "miss",
+                  "result": ""
+                },
+                {
+                  "id": "66707337",
+                  "penalty_num": "2",
+                  "team": "home",
+                  "player": "J. Herrera",
+                  "player_id": "3300123",
+                  "type": "goal",
+                  "result": "[1 - 0]"
+                },
+                {
+                  "id": "66707338",
+                  "penalty_num": "3",
+                  "team": "away",
+                  "player": "L. Rodriguez",
+                  "player_id": "3408754",
+                  "type": "goal",
+                  "result": "[1 - 1]"
+                },
+                {
+                  "id": "66707339",
+                  "penalty_num": "4",
+                  "team": "home",
+                  "player": "S. Mendez",
+                  "player_id": "3305678",
+                  "type": "goal",
+                  "result": "[2 - 1]"
+                },
+                {
+                  "id": "66707340",
+                  "penalty_num": "5",
+                  "team": "away",
+                  "player": "P. Lopez",
+                  "player_id": "3421234",
+                  "type": "goal",
+                  "result": "[2 - 2]"
+                },
+                {
+                  "id": "66707341",
+                  "penalty_num": "6",
+                  "team": "home",
+                  "player": "M. Diaz",
+                  "player_id": "3312345",
+                  "type": "miss",
+                  "result": ""
+                },
+                {
+                  "id": "66707342",
+                  "penalty_num": "7",
+                  "team": "away",
+                  "player": "F. Gomez",
+                  "player_id": "3408765",
+                  "type": "goal",
+                  "result": "[2 - 3]"
+                }
+              ]
+            },
+            "has_live_stats": "False",
+            "inplay_odds_running": "True",
+            "match_context": {
+              "live_storylines": false,
+              "weather_forecast": true,
+              "team_lineups": true,
+              "predictions": false
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

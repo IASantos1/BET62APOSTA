@@ -1,0 +1,169 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v2/soccer/matches/daily?offset=-1&access_key=b5b07a3f-b019-4a18-8969-6045169feda9 ' 
+  --header 'Accept: application/json'
+{
+  "matches_15_12_2025" : { 
+    "atualizado" : "26/11/2025 16:54:37 " 
+    "updated_ts" : 1764176077 , 
+    "liga" : [ 
+      {
+        "id" : "2905" , 
+        "nome" : "Andorra: Primeira Divisão" , 
+        "país" : "andorra " 
+        "xícara" : "Falso" , 
+        "corresponder" : [ 
+          {
+            "main_id" : "2025112611667" , 
+            "fallback_id_1" : "6099244" , 
+            "fallback_id_2" : "6606657" , 
+            "fallback_id_3" : "8708898" , 
+            "status" : "FT" , 
+            "data" : "15.12.2025 " 
+            "hora" : "13:30 " 
+            "inj_time" : "" , 
+            "inj_minute" : "" , 
+            "venue" : "Centro de Entretenimento da FAF 1" , 
+            "lar" : { 
+              "id" : "2337666" , 
+              "nome" : "FC Santa Coloma" , 
+              "metas" : "1" , 
+              "win_on_agg" : "false" 
+            } ,
+            "ausente" : { 
+              "id" : "2337667" , 
+              "nome" : "Inter Escalas" , 
+              "gols" : "3" , 
+              "win_on_agg" : "true" 
+            } ,
+            "eventos" : { 
+              "evento" : [ 
+                {
+                  "id" : "66102484" , 
+                  "tipo" : "objetivo" , 
+                  "equipe" : "fora" , 
+                  "minuto" : "2" , 
+                  "minutos_extras" : "" , 
+                  "jogador" : "J. Martinez " 
+                  "player_id" : "3400123" , 
+                  "assist_player" : "L. Gomez" , 
+                  "assist_id" : "3312345" , 
+                  "resultado" : "[0 - 1]" 
+                } ,
+                {
+                  "id" : "66102485" , 
+                  "tipo" : "cartão amarelo" , 
+                  "equipe" : "fora" , 
+                  "minuto" : "21 " 
+                  "minutos_extras" : "" , 
+                  "jogador" : "C. Lopez" , 
+                  "player_id" : "3398765" , 
+                  "assist_player" : "" , 
+                  "assist_id" : "" , 
+                  "resultado" : "" 
+                } ,
+                {
+                  "id" : "66102486" , 
+                  "tipo" : "objetivo" , 
+                  "equipe" : "casa" , 
+                  "minuto" : "45 " 
+                  "extra_min" : "2" , 
+                  "jogador" : "M. Sanchez" , 
+                  "player_id" : "3309987" , 
+                  "assist_player" : "D. Ruiz" , 
+                  "assist_id" : "3322999" , 
+                  "resultado" : "[1 - 1]" 
+                }
+              ]
+            } ,
+            "ht" : { 
+              "metas_em_casa" : 1 , 
+              "gols_fora" : 1 
+            } ,
+            "ft" : { 
+              "metas_em_casa" : 1 , 
+              "gols fora de casa" : 3 
+            } ,
+            "et" : nulo , 
+            "penalidades" : { 
+              "home_pen" : 3 , 
+              "away_pen" : 4 , 
+              "eventos_de_penalidade" : [ 
+                {
+                  "id" : "66707336" , 
+                  "penalty_num" : "1" , 
+                  "equipe" : "fora" , 
+                  "jogador" : "A. Fernandez" , 
+                  "player_id" : "3405001" , 
+                  "tipo" : "senhorita" , 
+                  "resultado" : "" 
+                } ,
+                {
+                  "id" : "66707337" , 
+                  "penalty_num" : "2" , 
+                  "equipe" : "casa" , 
+                  "jogador" : "J. Herrera " 
+                  "player_id" : "3300123" , 
+                  "tipo" : "objetivo" , 
+                  "resultado" : "[1 - 0]" 
+                } ,
+                {
+                  "id" : "66707338" , 
+                  "penalty_num" : "3" , 
+                  "equipe" : "fora" , 
+                  "jogador" : "L. Rodriguez " 
+                  "player_id" : "3408754" , 
+                  "tipo" : "objetivo" , 
+                  "resultado" : "[1 - 1]" 
+                } ,
+                {
+                  "id" : "66707339" , 
+                  "penalty_num" : "4" , 
+                  "equipe" : "casa" , 
+                  "jogador" : "S. Mendez " 
+                  "player_id" : "3305678" , 
+                  "tipo" : "objetivo" , 
+                  "resultado" : "[2 - 1]" 
+                } ,
+                {
+                  "id" : "66707340" , 
+                  "penalty_num" : "5" , 
+                  "equipe" : "fora" , 
+                  "jogador" : "P. Lopez" , 
+                  "player_id" : "3421234" , 
+                  "tipo" : "objetivo" , 
+                  "resultado" : "[2 - 2]" 
+                } ,
+                {
+                  "id" : "66707341" , 
+                  "penalty_num" : "6" , 
+                  "equipe" : "casa" , 
+                  "jogador" : "M. Diaz " 
+                  "player_id" : "3312345" , 
+                  "tipo" : "senhorita" , 
+                  "resultado" : "" 
+                } ,
+                {
+                  "id" : "66707342" , 
+                  "penalty_num" : "7" , 
+                  "equipe" : "fora" , 
+                  "jogador" : "F. Gomez " 
+                  "player_id" : "3408765" , 
+                  "tipo" : "objetivo" , 
+                  "resultado" : "[2 - 3]" 
+                }
+              ]
+            } ,
+            "has_live_stats" : "False" , 
+            "inplay_odds_running" : "True" , 
+            "match_context" : { 
+              "live_storylines" : falso , 
+              "previsão_do_tempo" : verdadeiro , 
+              "team_lineups" : true , 
+              "previsões" : falso 
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

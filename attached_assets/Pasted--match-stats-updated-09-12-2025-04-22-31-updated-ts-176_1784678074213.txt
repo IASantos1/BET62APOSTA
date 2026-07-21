@@ -1,0 +1,304 @@
+{
+  "match-stats": {
+    "updated": "09.12.2025 04:22:31",
+    "updated_ts": 1765254151,
+    "tournament": {
+      "id": "3037",
+      "name": "England - Premier League",
+      "matches": {
+        "main_id": "2025120818706",
+        "fallback_id_1": "6023967",
+        "fallback_id_2": "6531349",
+        "date": "08.12.2025",
+        "time": "20:00",
+        "status": "Full-time",
+        "match_info": {
+          "stadium": {
+            "name": "Molineux Stadium, Wolverhampton"
+          },
+          "time": {
+            "name": "20:00",
+            "added_time_period_1": "2",
+            "added_time_period_2": "9"
+          },
+          "referee": {
+            "name": "Michael Salisbury, England"
+          }
+        },
+        "home": {
+          "id": "2341279",
+          "name": "Wolverhampton",
+          "goals": "1"
+        },
+        "away": {
+          "id": "2341093",
+          "name": "Manchester United",
+          "goals": "4"
+        },
+        "ht": {
+          "home_goals": "1",
+          "away_goals": "1"
+        },
+        "ft": {
+          "home_goals": "1",
+          "away_goals": "4"
+        },
+        "et": null,
+        "penalties": null,
+        "lineups": {
+          "home": {
+            "player": [
+              {
+                "id": "2528099",
+                "name": "Sam Johnstone",
+                "number": "31",
+                "pos": "G",
+                "formation_pos": "1"
+              }
+            ],
+            "formation": "3-4-2-1"
+          },
+          "away": {
+            "player": [
+              {
+                "id": "2903698",
+                "name": "Senne Lammens",
+                "number": "31",
+                "pos": "G",
+                "formation_pos": "1"
+              }
+            ],
+            "formation": "3-4-2-1"
+          }
+        },
+        "bench": {
+          "home": {
+            "player": [
+              {
+                "id": "3204556",
+                "name": "Fer López",
+                "number": "28",
+                "pos": "F"
+              }
+            ]
+          },
+          "away": {
+            "player": [
+              {
+                "id": "2803504",
+                "name": "Lisandro Martínez",
+                "number": "6",
+                "pos": "D"
+              }
+            ]
+          }
+        },
+        "substitutions": {
+          "home": {
+            "substitution": [
+              {
+                "minute": "86",
+                "player_on": "Jackson Tchatchoua",
+                "player_on_id": "3018150",
+                "player_off": "Ki-Jana Hoever",
+                "player_off_id": "2857755",
+                "injury": "False"
+              }
+            ]
+          },
+          "away": {
+            "substitution": [
+              {
+                "minute": "85",
+                "player_on": "Joshua Zirkzee",
+                "player_on_id": "2848210",
+                "player_off": "Mason Mount",
+                "player_off_id": "2708530",
+                "injury": "False"
+              }
+            ]
+          }
+        },
+        "team_colors": {
+          "home": {
+            "player": {
+              "primary": {
+                "color": "fbbd37"
+              },
+              "number": {
+                "color": "000000"
+              },
+              "border": {
+                "color": "fbbd37"
+              }
+            },
+            "goalkeeper": {
+              "primary": {
+                "color": "01010e"
+              },
+              "number": {
+                "color": "ffffff"
+              },
+              "border": {
+                "color": "01010e"
+              }
+            }
+          },
+          "away": {
+            "player": {
+              "primary": {
+                "color": "1b1b1d"
+              },
+              "number": {
+                "color": "f6d750"
+              },
+              "border": {
+                "color": "1b1b1d"
+              }
+            },
+            "goalkeeper": {
+              "primary": {
+                "color": "1c68a1"
+              },
+              "number": {
+                "color": "ffffff"
+              },
+              "border": {
+                "color": "1c68a1"
+              }
+            }
+          }
+        },
+        "team_stats": {
+          "home": {
+            "corners": {
+              "total": "1",
+              "total_h1": "1",
+              "total_h2": "0"
+            },
+            "expected_goals": {
+              "total": "0.41",
+              "total_h1": "0.29",
+              "total_h2": "0.12"
+            },
+            "fouls": {
+              "total": "17"
+            }
+          },
+          "away": {
+            "corners": {
+              "total": "9",
+              "total_h1": "6",
+              "total_h2": "3"
+            },
+            "expected_goals": {
+              "total": "4.24",
+              "total_h1": "1.01",
+              "total_h2": "3.23"
+            },
+            "fouls": {
+              "total": "12"
+            }
+          }
+        },
+        "player_stats": {
+          "home": {
+            "player": [
+              {
+                "id": "2528099",
+                "name": "Sam Johnstone",
+                "num": "31",
+                "pos": "G",
+                "acc_crosses": "",
+                "aerials_won": "",
+                "assists": "0"
+              }
+            ]
+          },
+          "away": {
+            "player": [
+              {
+                "id": "2903698",
+                "name": "Senne Lammens",
+                "num": "31",
+                "pos": "G"
+              }
+            ]
+          }
+        },
+        "event_summary": {
+          "home": {
+            "goals": {
+              "event": {
+                "minute": "45",
+                "extra_min": "2",
+                "player_id": "2752619",
+                "player_name": "Jean-Ricner Bellegarde",
+                "assist_player_id": "2935127",
+                "assist_player_name": "David Möller Wolfe",
+                "own_goal": "False",
+                "penalty": "False",
+                "penalty_missed": "False",
+                "var_cancelled": "False"
+              }
+            },
+            "yellowcards": {
+              "event": [
+                {
+                  "minute": "81",
+                  "extra_min": "",
+                  "comment": "Handball",
+                  "player_id": "2980333",
+                  "player_name": "Yerson Mosquera"
+                }
+              ]
+            },
+            "redcards": "",
+            "var": ""
+          },
+          "away": {
+            "goals": {
+              "event": [
+                {
+                  "minute": "82",
+                  "extra_min": "",
+                  "player_id": "2608204",
+                  "player_name": "Bruno Fernandes",
+                  "assist_player_id": "",
+                  "assist_player_name": "",
+                  "own_goal": "False",
+                  "penalty": "True",
+                  "penalty_missed": "False",
+                  "var_cancelled": "False"
+                }
+              ]
+            },
+            "yellowcards": {
+              "event": [
+                {
+                  "minute": "90",
+                  "extra_min": "6",
+                  "comment": "Argument",
+                  "player_id": "2848210",
+                  "player_name": "Joshua Zirkzee"
+                }
+              ]
+            },
+            "redcards": "",
+            "var": {
+              "event": {
+                "minute": "80",
+                "extra_min": "",
+                "player_id": "2964802",
+                "player_name": "Amad Diallo",
+                "event_type": "Penalty confirmed",
+                "ref_decision": "Penalty cancelled",
+                "var_decision": "False"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

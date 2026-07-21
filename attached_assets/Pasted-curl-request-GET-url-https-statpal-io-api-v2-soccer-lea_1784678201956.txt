@@ -1,0 +1,80 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v2/soccer/leagues/{league-id}/stats?access_key=b5b07a3f-b019-4a18-8969-6045169feda9 ' 
+  --header 'Accept: application/json'
+{
+  "estatísticas_da_liga" : { 
+    "atualizado" : "09.12.2025 17:40:59 " 
+    "updated_ts" : "1765302059" , 
+    "liga" : { 
+      "id" : "3037" , 
+      "nome" : "Premier League" , 
+      "país" : "Inglaterra " 
+      "equipe" : [ 
+        {
+          "id" : "2340835" , 
+          "nome" : "Arsenal" , 
+          "local" : { 
+            "id" : "2419812" , 
+            "nome" : "Estádio Emirates" 
+          } ,
+          "esquadrão" : { 
+            "jogador" : [ 
+              {
+                "id" : "2662112" , 
+                "nome" : "David Raya " 
+                "número" : "1" , 
+                "idade" : "30 " 
+                "posição" : "G" , 
+                "ferido" : "Falso" , 
+                "aparições" : "15" , 
+                "assistências" : "0 " 
+                "blocos" : "" , 
+                "liberações" : "11" , 
+                "cruzes_precisas" : "" , 
+                "total_de_cruzamentos" : "" , 
+                "despossuídos" : "" , 
+                "tentativas_de_dribble" : "" , 
+                "dribble_success" : "" , 
+                "duelos_total" : "7" , 
+                "duelos_vencidos" : "7" , 
+                "faltas_cometidas" : "" , 
+                "faltas_desenhadas" : "4" , 
+                "metas" : "" , 
+                "gols_concedidos" : "9" , 
+                "inside_box_saves" : "19" , 
+                "interceptações" : "" , 
+                "é_capitão" : "Falso" , 
+                "key_passes" : "1" , 
+                "Escalações" : "15" , 
+                "minutos_jogados" : "1350" , 
+                "tentativas_de_aprovação" : "458" , 
+                "pass_success" : "301" , 
+                "penalidades_cometidas" : "" , 
+                "penalidades_perdidas" : "0" , 
+                "penalidades_salvas" : "0" , 
+                "penalidades_marcadas" : "0" , 
+                "penalidades_ganhas" : "" , 
+                "classificação" : "6,960000 " 
+                "cartões vermelhos" : "0" , 
+                "economiza" : "25" , 
+                "shots_on" : "" , 
+                "shots_total" : "" , 
+                "shots_woodwork" : "" , 
+                "substituto_em" : "0" , 
+                "substituir_para" : "" , 
+                "substitutos_no_banco" : "" , 
+                "ataques" : "" , 
+                "cartões amarelos" : "1" , 
+                "amarelo-vermelho" : "" 
+              }
+            ]
+          } ,
+          "treinador" : { 
+            "id" : "2334709" , 
+            "nome" : "Mikel Arteta" 
+          }
+        }
+      ]
+    }
+  }
+}
