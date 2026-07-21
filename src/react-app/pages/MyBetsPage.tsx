@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useApp } from '@/react-app/contexts/AppContext';
 import { apiFetch } from '@/react-app/utils/api';
 import { getSportFromLeague, getSportIcon, translateSelection } from '@/shared/helpers';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 type LiveData = {
   isLive: boolean;
@@ -51,29 +52,29 @@ type MyBet = {
   live?: LiveData;
 };
 
-type BetsPayload = {
-  bets?: MyBet[];
-};
+type BetsPayload = { bets?: MyBet[] };
 
 const BLOCK_REASONS: Record<string, string> = {
   market_suspended: 'Mercado suspenso',
   odds_frozen: 'Odds congeladas',
-  critical_phase: 'Lance crítico — fim de jogo',
-  incident_cooldown: 'Lance crítico — golo/penálti',
+  critical_phase: 'Lance crítico',
+  incident_cooldown: 'Golo/penálti detectado',
   odds_too_low: 'Aposta quase ganha',
   event_finished: 'Evento terminado',
   no_live_odds: 'Sem odds ao vivo',
 };
 
-function formatMatchDate(iso?: string | null): string {
-  if (!iso) return '';
+function formatTicketDateTime(iso?: string): { date: string; time: string } {
+  if (!iso) return { date: '', time: '' };
   try {
     const d = new Date(iso);
     const day = String(d.getDate()).padStart(2, '0');
     const month = String(d.getMonth() + 1).padStart(2, '0');
-    const dows = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-    return `${dows[d.getDay()]}. ${day}/${month}`;
-  } catch { return ''; }
+    const year = d.getFullYear();
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    return { date: `${day}/${month}/${year}`, time: `${h}:${m}` };
+  } catch { return { date: '', time: '' }; }
 }
 
 function formatMatchTime(iso?: string | null): string {
@@ -84,18 +85,14 @@ function formatMatchTime(iso?: string | null): string {
   } catch { return ''; }
 }
 
-function periodLabel(elapsed: number | null, status: string | null): string {
-  if (status) {
-    const upper = status.toUpperCase();
-    if (upper === 'HT') return 'Intervalo';
-    if (upper === 'ET' || upper === 'AET') return 'Prol.';
-    if (upper === 'PEN') return 'Penáltis';
-    if (upper === 'FT' || upper === 'FINISHED') return 'Final';
-  }
-  if (typeof elapsed === 'number') {
-    return elapsed > 45 ? '2ª parte' : '1ª parte';
-  }
-  return '';
+function formatMatchDate(iso?: string | null): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${day}/${month}`;
+  } catch { return ''; }
 }
 
 function normalizeStatus(status: string): 'pending' | 'won' | 'lost' | 'cashed_out' {
@@ -104,49 +101,6 @@ function normalizeStatus(status: string): 'pending' | 'won' | 'lost' | 'cashed_o
   if (key === 'lost' || key === 'perdida') return 'lost';
   if (key === 'cashed_out') return 'cashed_out';
   return 'pending';
-}
-
-function statusPill(status: string): { label: string; classes: string; accent: string } {
-  switch (normalizeStatus(status)) {
-    case 'won':
-      return {
-        label: 'Ganha',
-        classes: 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30',
-        accent: 'border-emerald-500/35',
-      };
-    case 'lost':
-      return {
-        label: 'Perdida',
-        classes: 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30',
-        accent: 'border-red-500/35',
-      };
-    case 'cashed_out':
-      return {
-        label: 'Cash Out',
-        classes: 'bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/30',
-        accent: 'border-amber-400/35',
-      };
-    case 'pending':
-    default:
-      return {
-        label: 'Ativa',
-        classes: 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-500/30',
-        accent: 'border-blue-500/35',
-      };
-  }
-}
-
-function selectionStatusLabel(status?: string): string {
-  switch (normalizeStatus(String(status || 'pending'))) {
-    case 'won':
-      return 'Ganha';
-    case 'lost':
-      return 'Perdida';
-    case 'cashed_out':
-      return 'Cash Out';
-    default:
-      return 'Em aberto';
-  }
 }
 
 function normalizeBetsPayload(data: MyBet[] | BetsPayload | null | undefined): MyBet[] {
@@ -169,163 +123,140 @@ function buildSingleSelection(bet: MyBet): Selection {
   };
 }
 
-function formatTicketDate(iso?: string): string {
-  if (!iso) return '';
-  try {
-    return new Date(iso).toLocaleString('pt-PT', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return '';
-  }
+// ── Status badge ────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const norm = normalizeStatus(status);
+  if (norm === 'won') return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest text-emerald-400 ring-1 ring-emerald-500/25">
+      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+      Ganha
+    </span>
+  );
+  if (norm === 'lost') return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest text-red-400 ring-1 ring-red-500/25">
+      <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+      Perdida
+    </span>
+  );
+  if (norm === 'cashed_out') return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-amber-400/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest text-amber-300 ring-1 ring-amber-400/25">
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+      Cash Out
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-sky-500/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest text-sky-400 ring-1 ring-sky-500/25">
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
+      Em Aberto
+    </span>
+  );
 }
 
-function MatchBlock({ live, homeTeam, awayTeam, selectionStatus }:
-  { live?: LiveData | null; homeTeam: string; awayTeam: string; selectionStatus?: string }) {
-  const { darkMode } = useApp();
-  const isLive = !!live?.isLive;
-  const isFinished = selectionStatus === 'won' || selectionStatus === 'lost' ||
-    (live?.status && ['FT', 'AET', 'PEN', 'FINISHED', 'ENDED'].includes(String(live.status).toUpperCase()));
-  const showScore = isLive || isFinished || (live && (live.home_score != null || live.away_score != null));
-  const dateLabel = formatMatchDate(live?.event_date);
-  const timeLabel = formatMatchTime(live?.event_date);
-  const statusKey = String(live?.status || '').toUpperCase();
-  const liveLabel = statusKey === 'HT'
-    ? 'Intervalo'
-    : statusKey === 'BT'
-      ? 'Pausa Técnica'
-      : isLive
-        ? 'Ao Vivo'
-        : isFinished
-          ? 'Finalizado'
-          : 'Agendado';
+// ── Selection outcome dot ────────────────────────────────────────────────────
+
+function SelectionDot({ status }: { status: string }) {
+  const norm = normalizeStatus(status);
+  if (norm === 'won') return <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0 mt-1" />;
+  if (norm === 'lost') return <span className="h-2 w-2 rounded-full bg-red-400 shrink-0 mt-1" />;
+  return <span className="h-2 w-2 rounded-full bg-gray-500 shrink-0 mt-1" />;
+}
+
+// ── Live score badge ─────────────────────────────────────────────────────────
+
+function LiveScoreBadge({ live }: { live?: LiveData | null }) {
+  if (!live) return null;
+  const isLive = live.isLive;
+  const statusKey = String(live.status || '').toUpperCase();
+  const isFinished = ['FT', 'AET', 'PEN', 'FINISHED', 'ENDED', 'FINAL'].includes(statusKey);
+  const showScore = isLive || isFinished || (live.home_score != null || live.away_score != null);
+  if (!showScore) return null;
 
   return (
-    <div className={`mt-3 rounded-2xl border px-4 py-4 ${darkMode ? 'border-gray-700 bg-gray-900/70' : 'border-gray-200 bg-gray-50'}`}>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] ${
-          isLive
-            ? 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30'
-            : isFinished
-              ? (darkMode ? 'bg-gray-800 text-gray-300 ring-1 ring-gray-700' : 'bg-gray-200 text-gray-700 ring-1 ring-gray-300')
-              : (darkMode ? 'bg-gray-800 text-gray-300 ring-1 ring-gray-700' : 'bg-white text-gray-600 ring-1 ring-gray-200')
-        }`}>
-          {isLive && <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />}
-          <span>{liveLabel}</span>
-          {isLive && live?.elapsed != null && <span>{live.elapsed}'</span>}
-        </div>
-        <div className={`text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-          {dateLabel}{timeLabel ? ` • ${timeLabel}` : ''}
-        </div>
-      </div>
-
-      {showScore ? (
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-          <span className={`text-right text-sm font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-            {homeTeam}
-          </span>
-          <span className={`rounded-xl px-4 py-2 text-center text-base font-black tabular-nums ${
-            isLive
-              ? 'bg-red-600 text-white shadow-lg shadow-red-950/30'
-              : darkMode
-                ? 'bg-gray-800 text-white'
-                : 'bg-gray-200 text-gray-900'
-          }`}>
-            {live?.home_score ?? 0} - {live?.away_score ?? 0}
-          </span>
-          <span className={`text-left text-sm font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-            {awayTeam}
-          </span>
-        </div>
-      ) : (
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-          <span className={`text-right text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-            {homeTeam}
-          </span>
-          <span className={`rounded-xl px-3 py-2 text-sm font-black tabular-nums ${darkMode ? 'bg-gray-800 text-gray-300' : 'bg-white text-gray-600 ring-1 ring-gray-200'}`}>
-            {timeLabel || 'vs'}
-          </span>
-          <span className={`text-left text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-            {awayTeam}
-          </span>
-        </div>
+    <div className="flex items-center gap-2">
+      {isLive && (
+        <span className="flex items-center gap-1 rounded bg-red-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-red-400 ring-1 ring-red-500/25">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
+          {live.elapsed != null ? `${live.elapsed}'` : 'LIVE'}
+        </span>
       )}
-
-      {(isLive || statusKey) && (
-        <div className={`mt-3 text-center text-[11px] font-semibold uppercase tracking-[0.12em] ${
-          isLive ? 'text-red-400' : darkMode ? 'text-gray-500' : 'text-gray-500'
+      {isFinished && !isLive && (
+        <span className="rounded bg-gray-700/50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+          FT
+        </span>
+      )}
+      {(live.home_score != null || live.away_score != null) && (
+        <span className={`rounded px-2 py-0.5 text-xs font-black tabular-nums ${
+          isLive ? 'bg-red-600/20 text-red-300 ring-1 ring-red-600/20' : 'bg-gray-700/40 text-gray-300'
         }`}>
-          {isLive ? periodLabel(live?.elapsed ?? null, live?.status ?? null) || 'Jogo em curso' : statusKey}
-        </div>
+          {live.home_score ?? 0}–{live.away_score ?? 0}
+        </span>
       )}
     </div>
   );
 }
 
-function BetLeg({ bet, sel, isLast }: { bet: MyBet; sel: Selection; isLast: boolean }) {
-  const { darkMode } = useApp();
+// ── Single selection row ─────────────────────────────────────────────────────
+
+function SelectionRow({ sel, betStatus, isLast }: { sel: Selection; betStatus: string; isLast: boolean }) {
   const sport = getSportFromLeague(sel.league || '');
   const sportIcon = getSportIcon(sport);
-  const homeTeam = sel.home_team || sel.team_match.split(' vs ')[0] || '';
-  const awayTeam = sel.away_team || sel.team_match.split(' vs ')[1] || '';
-  const status = normalizeStatus(sel.status || bet.status);
-  const accentText = status === 'lost'
-    ? 'text-red-400'
-    : status === 'won'
-      ? 'text-emerald-400'
-      : darkMode ? 'text-white' : 'text-gray-900';
+  const homeTeam = sel.home_team || sel.team_match?.split(' vs ')?.[0] || '';
+  const awayTeam = sel.away_team || sel.team_match?.split(' vs ')?.[1] || '';
+  const selStatus = normalizeStatus(sel.status || betStatus);
+  const matchDate = formatMatchDate(sel.live?.event_date);
+  const matchTime = formatMatchTime(sel.live?.event_date);
 
   return (
-    <div className={`px-4 py-4 ${!isLast ? (darkMode ? 'border-b border-gray-700/60' : 'border-b border-gray-200') : ''}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3 flex-1">
-          <img src={sportIcon} alt={sport} className="mt-0.5 h-5 w-5 shrink-0 opacity-80" />
-          <div className="min-w-0">
-            <div className={`text-sm font-black leading-tight ${accentText}`}>
-              {translateSelection(sel.selection)}
-            </div>
-            <div className={`mt-1 text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              {sel.league || 'Mercado'}
-            </div>
-          </div>
+    <div className={`px-4 py-3.5 ${!isLast ? 'border-b border-white/[0.05]' : ''}`}>
+      {/* Match header */}
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <img src={sportIcon} alt={sport} className="h-4 w-4 shrink-0 opacity-75" />
+          <span className="text-[11px] text-gray-500 truncate">{sel.league || sport}</span>
+          {(matchDate || matchTime) && (
+            <span className="text-[11px] text-gray-600 shrink-0">
+              {matchDate}{matchTime ? ` ${matchTime}` : ''}
+            </span>
+          )}
         </div>
-        <div className="shrink-0 text-right">
-          <span className={`block text-base font-black tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-            {Number(sel.odd).toFixed(2)}
-          </span>
-          <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${
-            status === 'won'
-              ? 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30'
-              : status === 'lost'
-                ? 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30'
-                : 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-500/30'
-          }`}>
-            {selectionStatusLabel(sel.status || bet.status)}
-          </span>
-        </div>
+        <LiveScoreBadge live={sel.live} />
       </div>
 
-      <MatchBlock
-        live={sel.live}
-        homeTeam={homeTeam}
-        awayTeam={awayTeam}
-        selectionStatus={sel.status}
-      />
+      {/* Teams */}
+      <div className="flex items-start gap-2 mb-2">
+        <SelectionDot status={sel.status || betStatus} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[13px] font-semibold text-gray-200 leading-snug">
+              {homeTeam && awayTeam ? `${homeTeam} — ${awayTeam}` : sel.team_match}
+            </span>
+            <span className={`shrink-0 text-sm font-black tabular-nums ${
+              selStatus === 'won' ? 'text-emerald-400' :
+              selStatus === 'lost' ? 'text-red-400/70 line-through' :
+              'text-white'
+            }`}>
+              {Number(sel.odd).toFixed(2)}
+            </span>
+          </div>
+          <div className={`mt-0.5 text-xs font-semibold ${
+            selStatus === 'won' ? 'text-emerald-400' :
+            selStatus === 'lost' ? 'text-red-400' :
+            'text-sky-300'
+          }`}>
+            {translateSelection(sel.selection)}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-function SingleBetLeg({ bet }: { bet: MyBet }) {
-  return <BetLeg bet={bet} sel={buildSingleSelection(bet)} isLast />;
-}
+// ── Cash Out panel ───────────────────────────────────────────────────────────
 
-function CashoutPanel({ bet, onCashout, processing }:
-  { bet: MyBet; onCashout: (bet: MyBet) => void; processing: boolean }) {
-  const { darkMode } = useApp();
+function CashoutPanel({ bet, onCashout, processing }: {
+  bet: MyBet; onCashout: (bet: MyBet) => void; processing: boolean;
+}) {
   if (normalizeStatus(bet.status) !== 'pending' || bet.type === 'multi') return null;
   if (!bet.cashoutAvailable && !bet.cashoutBlocked) return null;
 
@@ -335,53 +266,188 @@ function CashoutPanel({ bet, onCashout, processing }:
 
   if (blocked) {
     return (
-      <div className={`mx-4 mb-4 mt-2 p-3 rounded-lg border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs">⏸</span>
-            <div>
-              <div className={`text-sm font-semibold ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                Cash Out indisponível
-              </div>
-              <div className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                {reason}
-              </div>
-            </div>
-          </div>
-          <div className={`px-3 py-1 rounded text-sm font-mono opacity-50 ${darkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'}`}>
-            €{value.toFixed(2)}
-          </div>
+      <div className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-lg border border-white/[0.07] bg-white/[0.03] px-3.5 py-2.5">
+        <div>
+          <p className="text-xs font-semibold text-gray-400">Cash Out indisponível</p>
+          {reason && <p className="mt-0.5 text-[11px] text-gray-600">{reason}</p>}
         </div>
+        <span className="rounded bg-gray-800 px-2.5 py-1 text-xs font-mono text-gray-500 opacity-50">
+          €{value.toFixed(2)}
+        </span>
       </div>
     );
   }
 
   return (
-    <div className="mx-4 mb-4 mt-2">
+    <div className="mx-4 mb-3">
       <button
         onClick={() => onCashout(bet)}
         disabled={processing}
-        className={`w-full py-2.5 px-4 rounded-lg flex items-center justify-center gap-3 transition-all ${
-          processing
-            ? 'bg-gray-600 cursor-not-allowed opacity-70'
-            : 'bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-white shadow-md hover:shadow-lg'
-        }`}
+        className="w-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 py-2.5 text-sm font-bold text-emerald-400 transition hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {processing ? (
-          <span className="text-sm font-semibold">A processar...</span>
-        ) : (
-          <>
-            <span className="text-sm font-bold">Cash Out</span>
-            <span className="bg-black/25 px-2 py-0.5 rounded text-xs font-mono">€{value.toFixed(2)}</span>
-          </>
-        )}
+        {processing ? 'A processar…' : `Cash Out · €${value.toFixed(2)}`}
       </button>
     </div>
   );
 }
 
+// ── Ticket card ──────────────────────────────────────────────────────────────
+
+function TicketCard({ bet, onCashout, processingId }: {
+  bet: MyBet;
+  onCashout: (bet: MyBet) => void;
+  processingId: string | number | null;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const isMulti = bet.type === 'multi';
+  const settledStatus = normalizeStatus(bet.status);
+  const { date, time } = formatTicketDateTime(bet.created_at);
+
+  const selections = isMulti && Array.isArray(bet.selections) && bet.selections.length > 0
+    ? bet.selections
+    : [buildSingleSelection(bet)];
+
+  const totalOdd = Number(bet.odd || 0);
+  const displayReturn =
+    settledStatus === 'cashed_out' ? Number(bet.cashoutValue || 0) :
+    settledStatus === 'won' ? Number(bet.winnings || bet.potential_win || 0) :
+    settledStatus === 'lost' ? 0 :
+    Number(bet.potential_win || 0);
+
+  const accentBorder =
+    settledStatus === 'won' ? 'border-emerald-500/30' :
+    settledStatus === 'lost' ? 'border-red-500/20' :
+    settledStatus === 'cashed_out' ? 'border-amber-400/25' :
+    'border-sky-500/20';
+
+  return (
+    <div className={`overflow-hidden rounded-2xl border bg-[#111318] ${accentBorder}`}>
+
+      {/* ── Ticket header ── */}
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-black uppercase tracking-widest text-gray-600">
+                #{String(bet.id).padStart(6, '0')}
+              </span>
+              {isMulti && (
+                <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                  Múltipla · {selections.length} seleções
+                </span>
+              )}
+            </div>
+            {(date || time) && (
+              <div className="mt-0.5 text-[11px] text-gray-600">
+                {date}{time ? ` às ${time}` : ''}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <StatusBadge status={bet.status} />
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="text-gray-600 hover:text-gray-400 transition"
+          >
+            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Selections ── */}
+      {expanded && (
+        <div>
+          {selections.map((sel, idx) => (
+            <SelectionRow
+              key={`${bet.id}-${idx}-${sel.event_id}`}
+              sel={sel}
+              betStatus={bet.status}
+              isLast={idx === selections.length - 1}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ── Cash out ── */}
+      {expanded && (
+        <CashoutPanel bet={bet} onCashout={onCashout} processing={processingId === bet.id} />
+      )}
+
+      {/* ── Ticket footer ── */}
+      <div className="grid grid-cols-3 divide-x divide-white/[0.05] border-t border-white/[0.06] bg-white/[0.025]">
+        <div className="px-3 py-3 text-center">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-gray-600">Cota</div>
+          <div className="mt-1 text-sm font-black tabular-nums text-white">{totalOdd.toFixed(2)}</div>
+        </div>
+        <div className="px-3 py-3 text-center">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-gray-600">Apostado</div>
+          <div className="mt-1 text-sm font-black tabular-nums text-white">€{Number(bet.stake || 0).toFixed(2)}</div>
+        </div>
+        <div className="px-3 py-3 text-center">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-gray-600">
+            {settledStatus === 'won' ? 'Ganho' :
+             settledStatus === 'cashed_out' ? 'Cash Out' :
+             settledStatus === 'lost' ? 'Resultado' :
+             'Retorno'}
+          </div>
+          <div className={`mt-1 text-sm font-black tabular-nums ${
+            settledStatus === 'won' ? 'text-emerald-400' :
+            settledStatus === 'lost' ? 'text-red-400' :
+            settledStatus === 'cashed_out' ? 'text-amber-300' :
+            'text-sky-400'
+          }`}>
+            {settledStatus === 'lost' ? '–' : `€${displayReturn.toFixed(2)}`}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Tab bar ──────────────────────────────────────────────────────────────────
+
+function TabBar({ tab, setTab, counts }: {
+  tab: string;
+  setTab: (t: 'ativas' | 'ganhas' | 'perdidas') => void;
+  counts: { ativas: number; ganhas: number; perdidas: number };
+}) {
+  const tabs = [
+    { key: 'ativas' as const, label: 'Em Aberto', count: counts.ativas },
+    { key: 'ganhas' as const, label: 'Ganhas', count: counts.ganhas },
+    { key: 'perdidas' as const, label: 'Perdidas', count: counts.perdidas },
+  ];
+
+  return (
+    <div className="flex rounded-xl bg-white/[0.04] p-1 gap-1 mb-5">
+      {tabs.map(({ key, label, count }) => (
+        <button
+          key={key}
+          onClick={() => setTab(key)}
+          className={`flex-1 rounded-lg py-2 text-xs font-bold tracking-wide transition-all ${
+            tab === key
+              ? 'bg-white/[0.1] text-white shadow'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          {label}
+          {count > 0 && (
+            <span className={`ml-1.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-black ${
+              tab === key ? 'bg-white/10 text-white' : 'bg-white/[0.06] text-gray-500'
+            }`}>
+              {count}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
+
 export default function MyBetsPage() {
-  const { darkMode, user, addNotification, notifications } = useApp();
+  const { user, addNotification, notifications } = useApp();
   const [bets, setBets] = useState<MyBet[]>([]);
   const [processingId, setProcessingId] = useState<string | number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -424,7 +490,7 @@ export default function MyBetsPage() {
     const ac = new AbortController();
     loadBets(ac.signal);
     window.addEventListener('bets:refresh', onRefresh as EventListener);
-    const iv = setInterval(() => loadBets(), 15000); // 15s for live cashout updates
+    const iv = setInterval(() => loadBets(), 15000);
     return () => {
       ac.abort();
       window.removeEventListener('bets:refresh', onRefresh as EventListener);
@@ -445,137 +511,42 @@ export default function MyBetsPage() {
   }), [bets]);
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-gray-100'} pb-20`}>
-      <div className="mx-auto max-w-4xl px-4 py-6">
-        <h1 className={`text-2xl font-bold mb-5 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+    <div className="min-h-screen bg-[#0d0f13] pb-24">
+      <div className="mx-auto max-w-2xl px-4 pt-5">
+        <h1 className="mb-5 text-xl font-black text-white tracking-tight">
           As Minhas Apostas
         </h1>
 
-        <div className={`flex items-center gap-6 mb-5 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-          {([
-            ['ativas', 'Ativas', counts.ativas],
-            ['ganhas', 'Ganhas', counts.ganhas],
-            ['perdidas', 'Perdidas', counts.perdidas],
-          ] as const).map(([key, label, count]) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={`pb-3 text-sm font-semibold transition-colors relative ${
-                tab === key
-                  ? (darkMode ? 'text-white' : 'text-gray-900')
-                  : (darkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-500 hover:text-gray-700')
-              }`}
-            >
-              {label} {count > 0 && <span className="ml-1 opacity-70">({count})</span>}
-              {tab === key && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
-            </button>
-          ))}
-        </div>
+        <TabBar tab={tab} setTab={setTab} counts={counts} />
 
         {!user ? (
-          <div className={`text-center py-10 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-            Faça login para ver as suas apostas
+          <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] py-16 text-center">
+            <p className="text-sm text-gray-500">Faça login para ver as suas apostas</p>
           </div>
         ) : loading && bets.length === 0 ? (
-          <div className={`text-center py-10 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>A carregar…</div>
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-36 rounded-2xl bg-white/[0.03] animate-pulse" />
+            ))}
+          </div>
         ) : filteredBets.length === 0 ? (
-          <div className={`text-center py-10 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-            {tab === 'ativas' ? 'Sem apostas em aberto'
-              : tab === 'ganhas' ? 'Ainda sem apostas ganhas'
-              : 'Sem apostas perdidas'}
+          <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] py-16 text-center">
+            <p className="text-sm text-gray-500">
+              {tab === 'ativas' ? 'Sem apostas em aberto'
+                : tab === 'ganhas' ? 'Ainda sem apostas ganhas'
+                : 'Sem apostas perdidas'}
+            </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {filteredBets.map((bet) => {
-              const pill = statusPill(bet.status);
-              const isMulti = bet.type === 'multi';
-              const totalOdd = Number(bet.odd || 0);
-              const settledStatus = normalizeStatus(bet.status);
-              const selections = isMulti && Array.isArray(bet.selections) && bet.selections.length > 0
-                ? bet.selections
-                : [buildSingleSelection(bet)];
-              const displayReturn =
-                settledStatus === 'cashed_out'
-                  ? Number(bet.cashoutValue || 0)
-                  : settledStatus === 'won'
-                    ? Number(bet.winnings || bet.potential_win || 0)
-                  : settledStatus === 'lost'
-                    ? 0
-                    : Number(bet.potential_win || 0);
-
-              return (
-                <div
-                  key={bet.id}
-                  className={`overflow-hidden rounded-3xl border shadow-sm ${pill.accent} ${darkMode ? 'bg-gray-800/95' : 'bg-white border-gray-200'}`}
-                >
-                  <div className={`px-5 py-4 ${darkMode ? 'border-b border-gray-700' : 'border-b border-gray-200 bg-gray-50/70'}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className={`text-[11px] font-black uppercase tracking-[0.18em] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                          Bilhete #{bet.id}
-                        </div>
-                        <div className={`mt-1 text-lg font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                          {isMulti ? `Múltipla • ${selections.length} seleções` : 'Aposta Simples'}
-                        </div>
-                        <div className={`mt-1 text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                          {formatTicketDate(bet.created_at)}
-                        </div>
-                      </div>
-                      <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-[0.14em] ${pill.classes}`}>
-                        {pill.label}
-                      </span>
-                    </div>
-                  </div>
-
-                  {isMulti
-                    ? selections.map((sel, idx) => (
-                        <BetLeg
-                          key={`${bet.id}-${idx}-${sel.event_id}-${sel.selection}`}
-                          bet={bet}
-                          sel={sel}
-                          isLast={idx === selections.length - 1}
-                        />
-                      ))
-                    : <SingleBetLeg bet={bet} />}
-
-                  <CashoutPanel bet={bet} onCashout={handleCashout} processing={processingId === bet.id} />
-
-                  <div className={`grid grid-cols-1 gap-3 px-5 py-4 sm:grid-cols-3 ${darkMode ? 'border-t border-gray-700 bg-gray-900/50' : 'border-t border-gray-200 bg-gray-50'}`}>
-                    <div className={`rounded-2xl px-3 py-3 ${darkMode ? 'bg-gray-800 text-gray-300' : 'bg-white text-gray-700 ring-1 ring-gray-200'}`}>
-                      <div className="text-[11px] font-black uppercase tracking-[0.14em] opacity-70">Cota Total</div>
-                      <div className={`mt-1 text-lg font-black tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                        {totalOdd.toFixed(2)}
-                      </div>
-                    </div>
-                    <div className={`rounded-2xl px-3 py-3 ${darkMode ? 'bg-gray-800 text-gray-300' : 'bg-white text-gray-700 ring-1 ring-gray-200'}`}>
-                      <div className="text-[11px] font-black uppercase tracking-[0.14em] opacity-70">Apostado</div>
-                      <div className={`mt-1 text-lg font-black tabular-nums ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                        €{Number(bet.stake || 0).toFixed(2)}
-                      </div>
-                    </div>
-                    <div className={`rounded-2xl px-3 py-3 ${
-                      settledStatus === 'lost'
-                        ? 'bg-red-500/10 text-red-400 ring-1 ring-red-500/20'
-                        : settledStatus === 'won'
-                          ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'
-                          : darkMode
-                            ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20'
-                            : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-                    }`}>
-                      <div className="text-[11px] font-black uppercase tracking-[0.14em] opacity-80">
-                        {settledStatus === 'won' ? 'Ganho'
-                          : settledStatus === 'cashed_out' ? 'Cash Out'
-                          : settledStatus === 'lost' ? 'Perda'
-                          : 'Retorno'}
-                      </div>
-                      <div className="mt-1 text-lg font-black tabular-nums">
-                        €{displayReturn.toFixed(2)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="space-y-3">
+            {filteredBets.map((bet) => (
+              <TicketCard
+                key={bet.id}
+                bet={bet}
+                onCashout={handleCashout}
+                processingId={processingId}
+              />
+            ))}
           </div>
         )}
       </div>

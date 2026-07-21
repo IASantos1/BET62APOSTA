@@ -44,37 +44,31 @@ import {
   parseStatPalMatchOddsPayload,
 } from './statPal.js';
 
+// Provider is always Statpal — SportsApiPro is no longer used.
 export type SportsDataProviderName = 'sportsapipro' | 'statpal';
 
+// Statpal default access key (can be overridden via STATPAL_ACCESS_KEY env var)
+const STATPAL_DEFAULT_KEY = 'b5b07a3f-b019-4a18-8969-6045169feda9';
+
 function resolveProviderName(): SportsDataProviderName {
-  const raw = String(process.env.SPORTS_PROVIDER || '').trim().toLowerCase();
-  if (raw === 'statpal') return 'statpal';
-  if (process.env.STATPAL_ACCESS_KEY || process.env.STATPAL_KEY) return 'statpal';
-  return 'sportsapipro';
+  return 'statpal';
 }
 
-function resolveProviderApiKey(provider: SportsDataProviderName): { apiKey: string; envSource: string } {
-  if (provider === 'statpal') {
-    if (process.env.STATPAL_ACCESS_KEY) return { apiKey: String(process.env.STATPAL_ACCESS_KEY || '').trim(), envSource: 'STATPAL_ACCESS_KEY' };
-    if (process.env.STATPAL_KEY) return { apiKey: String(process.env.STATPAL_KEY || '').trim(), envSource: 'STATPAL_KEY' };
-    if (process.env.SPORTS_API_KEY) return { apiKey: String(process.env.SPORTS_API_KEY || '').trim(), envSource: 'SPORTS_API_KEY' };
-    return { apiKey: '', envSource: '' };
-  }
-  if (process.env.SPORTS_API_PRO_KEY) return { apiKey: String(process.env.SPORTS_API_PRO_KEY || '').trim(), envSource: 'SPORTS_API_PRO_KEY' };
-  if (process.env.SPORTSAPIPRO_KEY) return { apiKey: String(process.env.SPORTSAPIPRO_KEY || '').trim(), envSource: 'SPORTSAPIPRO_KEY' };
-  if (process.env.SPORTSAPI_PRO_KEY) return { apiKey: String(process.env.SPORTSAPI_PRO_KEY || '').trim(), envSource: 'SPORTSAPI_PRO_KEY' };
-  if (process.env.SPORTS_API_KEY) return { apiKey: String(process.env.SPORTS_API_KEY || '').trim(), envSource: 'SPORTS_API_KEY' };
-  return { apiKey: '', envSource: '' };
+function resolveProviderApiKey(_provider: SportsDataProviderName): { apiKey: string; envSource: string } {
+  if (process.env.STATPAL_ACCESS_KEY) return { apiKey: String(process.env.STATPAL_ACCESS_KEY).trim(), envSource: 'STATPAL_ACCESS_KEY' };
+  if (process.env.STATPAL_KEY) return { apiKey: String(process.env.STATPAL_KEY).trim(), envSource: 'STATPAL_KEY' };
+  // Fallback to hardcoded default key
+  return { apiKey: STATPAL_DEFAULT_KEY, envSource: 'default' };
 }
 
 export function getSportsDataProviderConfig() {
-  const provider = resolveProviderName();
+  const provider: SportsDataProviderName = 'statpal';
   const { apiKey, envSource } = resolveProviderApiKey(provider);
   return {
     provider,
     apiKey,
     envSource,
-    supportsUpstreamWs: provider === 'sportsapipro',
+    supportsUpstreamWs: false,
   };
 }
 

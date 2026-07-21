@@ -870,14 +870,32 @@ export async function fetchStatPalSchedule(apiKey: string, sport: string, date: 
     }
     return [];
   }
+  // Non-soccer sports: NBA, MLB, NHL, Tennis use /daily/d{offset} endpoint
+  const offset = utcDayDiffFromToday(date);
+  if (offset != null && offset >= -7 && offset <= 7) {
+    const offsetsToTry = offset === 0 ? [0, -1] : [offset];
+    const targetDate = dateOnlyIso(date);
+    for (const dailyOffset of offsetsToTry) {
+        const dailyPaths = [`/daily/d${dailyOffset}`, `/daily?offset=${dailyOffset}`, `/livescores`];
+      const dailyJson = await fetchFirstJson(buildCandidateUrls(apiKey, sport, dailyPaths), PROVIDER_TIMEOUT_MS);
+      const dailyEvents = extractEvents(dailyJson)
+        .map((row) => normalizeEvent(row, sport))
+        .filter(Boolean) as NormalizedEvent[];
+      if (dailyEvents.length === 0) continue;
+      if (!targetDate) return dailyEvents;
+      const sameDay = dailyEvents.filter((event) => dateOnlyIso(String(event?.event_date || '')) === targetDate);
+      if (sameDay.length > 0) return sameDay;
+      if (dailyOffset === offset) return dailyEvents;
+    }
+  }
   const dateVariants = Array.from(new Set(formatDateVariants(date)));
   const paths = dateVariants.flatMap((d) => [
-        `/schedule?date=${encodeURIComponent(d)}`,
-        `/matches?date=${encodeURIComponent(d)}`,
-        `/fixtures?date=${encodeURIComponent(d)}`,
-        `/upcoming?date=${encodeURIComponent(d)}`,
-        `/matches/upcoming?date=${encodeURIComponent(d)}`,
-      ]);
+    `/schedule?date=${encodeURIComponent(d)}`,
+    `/matches?date=${encodeURIComponent(d)}`,
+    `/fixtures?date=${encodeURIComponent(d)}`,
+    `/upcoming?date=${encodeURIComponent(d)}`,
+    `/matches/upcoming?date=${encodeURIComponent(d)}`,
+  ]);
   const json = await fetchFirstJson(buildCandidateUrls(apiKey, sport, paths), PROVIDER_TIMEOUT_MS);
   const events = extractEvents(json).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
   return events;
