@@ -3,3 +3,4 @@
 - [StatPal odds format](statpal-odds-format.md) — Portuguese keys throughout; chances/apostador/chance; comma decimal "1,64"; no global prematch endpoint; per-league /leagues/{id}/odds/prematch required.
 - [StatPal tennis format](statpal-tennis-format.md) — jogador[] not lar/ausente; root keys have spaces; torneio[]≡liga[]; "Concluído"/"Aposentado" = finished; odds at chances.torneio[].partidas.corresponder.
 - [StatPal non-soccer pipeline](statpal-nonsoccer-pipeline.md) — /daily/d-N for schedule; single /odds call covers all matches; extractOddsRows wrapper bug fix; apostador can be object not array.
+- [StatPal event detail odds fallback](statpal-event-detail-odds.md) — fetchOddsStrict is SportsApiPro-only; StatPal odds live on cachedEv; /api/events/:id/odds must fall back to lastEventById.
