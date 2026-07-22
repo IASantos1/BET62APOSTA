@@ -2608,15 +2608,35 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const sport = sportParam || await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
       const odds = await fetchOddsStrict(sport, id, { forceAll: true }).catch(() => null);
-      const markets = odds?.markets || {};
 
+      // fetchOddsStrict only calls SportsApiPro. StatPal (our primary provider) stores
+      // odds directly on the event object via attachOddsToEvents. When SportsApiPro
+      // returns nothing, fall back to the StatPal odds already in the event cache.
       const cachedEv = lastEventById.get(id)?.data;
+      let markets = odds?.markets && Object.keys(odds.markets).length > 0 ? odds.markets : {};
+      let homeOdd = odds?.home || 0;
+      let drawOdd = odds?.draw || 0;
+      let awayOdd = odds?.away || 0;
+
+      if (Object.keys(markets).length === 0 && cachedEv) {
+        const evMk = normalizeMarketsShape((cachedEv as any)?.markets ?? (cachedEv as any)?.odds);
+        if (evMk && Object.keys(evMk).length > 0) {
+          const homeTeam = String((cachedEv as any)?.home_team || '');
+          const awayTeam = String((cachedEv as any)?.away_team || '');
+          const derived = deriveAdditionalMarkets(evMk, sport, homeTeam, awayTeam);
+          markets = dedupeCanonicalMarkets({ ...derived, ...evMk });
+        }
+        if (!homeOdd) homeOdd = Number((cachedEv as any)?.home_odd || 0);
+        if (!drawOdd) drawOdd = Number((cachedEv as any)?.draw_odd || 0);
+        if (!awayOdd) awayOdd = Number((cachedEv as any)?.away_odd || 0);
+      }
+
       const suspension = getSuspensionState(id, sport, cachedEv, odds);
 
       sendJson(res, 200, {
-        home: odds?.home || 0,
-        draw: odds?.draw || 0,
-        away: odds?.away || 0,
+        home: homeOdd,
+        draw: drawOdd,
+        away: awayOdd,
         markets,
         ...buildSuspensionPayload(suspension),
       });
