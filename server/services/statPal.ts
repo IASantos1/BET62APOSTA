@@ -128,6 +128,59 @@ async function fetchFirstJson(urls: string[], timeoutMs: number): Promise<any | 
   return null;
 }
 
+// SportsApiPro-compatible fetch: sends x-api-key HEADER (no query param).
+// StatPal non-soccer subdomain endpoints (v2.basketball.statpal.io etc.) use this auth format.
+async function fetchJsonXApiKey(url: string, apiKey: string, timeoutMs: number = PROVIDER_TIMEOUT_MS): Promise<any | null> {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      headers: { 'x-api-key': apiKey, accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function fetchFirstJsonXApiKey(urls: string[], apiKey: string, timeoutMs: number): Promise<any | null> {
+  for (const url of urls) {
+    const json = await fetchJsonXApiKey(url, apiKey, timeoutMs);
+    if (json) return json;
+  }
+  return null;
+}
+
+// Map sport to the SportsApiPro-compatible subdomain slug.
+// StatPal non-soccer uses: https://v2.{sub}.statpal.io/api/... with x-api-key header.
+function sportsApiProSubdomain(sport: string): string {
+  const s = normalizeSportKey(sport);
+  if (s === 'soccer' || s === 'football' || s === 'futebol') return 'football';
+  if (s === 'ice-hockey' || s === 'icehockey' || s === 'hockey' || s === 'nhl') return 'hockey';
+  if (s === 'basketball' || s === 'nba') return 'basketball';
+  if (s === 'baseball' || s === 'mlb') return 'baseball';
+  if (s === 'tennis') return 'tennis';
+  if (s === 'volleyball' || s === 'volei') return 'volleyball';
+  if (s === 'mma' || s === 'ufc') return 'mma';
+  return s || 'football';
+}
+
+// Build SportsApiPro-compatible subdomain URLs for StatPal (no auth appended — use fetchJsonXApiKey).
+// Produces: https://v2.{sub}.statpal.io{path} and https://v1.{sub}.statpal.io{path}
+function buildSportsApiProStyleUrls(sport: string, paths: string[]): string[] {
+  const sub = sportsApiProSubdomain(sport);
+  const out: string[] = [];
+  for (const path of paths) {
+    out.push(`https://v2.${sub}.statpal.io${path}`);
+    out.push(`https://v1.${sub}.statpal.io${path}`);
+  }
+  return out;
+}
+
 function extractEvents(payload: any): any[] {
   if (!payload) return [];
   const flattenLeagueBlocks = (blocks: any[]): any[] => {
@@ -275,10 +328,12 @@ function extractEvents(payload: any): any[] {
   if (Array.isArray(payload.events)) return payload.events;
   if (Array.isArray(payload.games)) return payload.games;
   if (Array.isArray(payload.response)) return payload.response;
+  if (Array.isArray(payload.schedule)) return payload.schedule;
   if (Array.isArray(payload.data?.matches)) return payload.data.matches;
   if (Array.isArray(payload.data?.events)) return payload.data.events;
   if (Array.isArray(payload.data?.games)) return payload.data.games;
   if (Array.isArray(payload.data?.response)) return payload.data.response;
+  if (Array.isArray(payload.data?.schedule)) return payload.data.schedule;
   if (Array.isArray(payload.livescores)) return payload.livescores;
   if (Array.isArray(payload.data?.livescores)) return payload.data.livescores;
   // StatPal v1: livescores is an object with nested game/match array (e.g. NBA, MLB, NHL, Tennis)
@@ -1201,6 +1256,29 @@ export async function fetchStatPalLive(apiKey: string, sport: string): Promise<N
       return liveEvents;
     }
   }
+
+  // Fallback: SportsApiPro-compatible subdomain format with x-api-key header.
+  // StatPal non-soccer sports are also accessible at https://v2.{sport}.statpal.io/api/...
+  // using the same URL/auth format as SportsApiPro ("ambas apis usam curl iguais").
+  const sapiLivePaths = ['/api/live', '/games/allscores?onlyLiveGames=true'];
+  for (const url of buildSportsApiProStyleUrls(sport, sapiLivePaths)) {
+    const json = await fetchJsonXApiKey(url, apiKey, PROVIDER_LIVE_TIMEOUT_MS);
+    let liveEvents = extractEvents(json)
+      .map((row) => normalizeEvent({ ...row, __from_live_endpoint: true }, sport))
+      .filter((row) => !!row && Number((row as any)?.is_live || 0) === 1) as NormalizedEvent[];
+    if (liveEvents.length > 0) {
+      const hasOdds = liveEvents.some((e) => e.home_odd > 1 || e.away_odd > 1);
+      if (!hasOdds) {
+        const oddsJson = await fetchFirstJsonXApiKey(
+          buildSportsApiProStyleUrls(sport, ['/api/odds', '/odds']),
+          apiKey,
+          PROVIDER_TIMEOUT_MS,
+        ).catch(() => null);
+        if (oddsJson) liveEvents = attachOddsToEvents(liveEvents, oddsJson, sport);
+      }
+      return liveEvents;
+    }
+  }
   return [];
 }
 
@@ -1322,6 +1400,31 @@ export async function fetchStatPalSchedule(apiKey: string, sport: string, date: 
     // Return all if we got data but none matched the exact date (avoids silent empty)
     return events;
   }
+
+  // Fallback: SportsApiPro v2 schedule format with x-api-key header.
+  // StatPal non-soccer: https://v2.{sport}.statpal.io/api/schedule/{date}
+  const sapiSchedulePaths = [
+    `/api/schedule/${encodeURIComponent(date)}?timezoneName=UTC`,
+    `/api/schedule/${encodeURIComponent(date)}`,
+  ];
+  for (const url of buildSportsApiProStyleUrls(sport, sapiSchedulePaths)) {
+    const json = await fetchJsonXApiKey(url, apiKey, PROVIDER_TIMEOUT_MS);
+    let events = extractEvents(json).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
+    if (events.length === 0) continue;
+    const hasOdds = events.some((e) => e.home_odd > 1 || e.away_odd > 1);
+    if (!hasOdds) {
+      const oddsJson = await fetchFirstJsonXApiKey(
+        buildSportsApiProStyleUrls(sport, ['/api/odds', '/odds']),
+        apiKey,
+        PROVIDER_TIMEOUT_MS,
+      ).catch(() => null);
+      if (oddsJson) events = attachOddsToEvents(events, oddsJson, sport);
+    }
+    if (!targetDate) return events;
+    const sameDay = events.filter((ev) => dateOnlyIso(String(ev?.event_date || '')) === targetDate);
+    if (sameDay.length > 0) return sameDay;
+    return events;
+  }
   return [];
 }
 
@@ -1352,6 +1455,22 @@ export async function fetchStatPalMatchOddsAll(
       PROVIDER_TIMEOUT_MS,
     );
     parsed = parseStatPalMatchOddsPayload(sport, genericJson, { ...opts, matchId, matchIds });
+  }
+  // SportsApiPro-compatible format fallback: /api/match/{id}/odds/all with x-api-key header
+  if (!parsed) {
+    for (const id of matchIds) {
+      const sapiJson = await fetchFirstJsonXApiKey(
+        buildSportsApiProStyleUrls(sport, [
+          `/api/match/${encodeURIComponent(id)}/odds/all`,
+          `/api/match/${encodeURIComponent(id)}/odds`,
+          `/api/odds?match_id=${encodeURIComponent(id)}`,
+        ]),
+        apiKey,
+        PROVIDER_TIMEOUT_MS,
+      );
+      parsed = parsed || parseStatPalMatchOddsPayload(sport, sapiJson, { ...opts, matchId, matchIds });
+      if (parsed) break;
+    }
   }
   return parsed;
 }
@@ -1385,6 +1504,22 @@ export async function fetchStatPalMatchOddsLive(
       PROVIDER_TIMEOUT_MS,
     );
     parsed = parseStatPalMatchOddsPayload(sport, liveJson, { ...opts, matchId, matchIds });
+  }
+  // SportsApiPro-compatible format fallback: /api/match/{id}/odds/live with x-api-key header
+  if (!parsed) {
+    for (const id of matchIds) {
+      const sapiJson = await fetchFirstJsonXApiKey(
+        buildSportsApiProStyleUrls(sport, [
+          `/api/match/${encodeURIComponent(id)}/odds/live`,
+          `/api/match/${encodeURIComponent(id)}/liveodds`,
+          `/api/odds/live?match_id=${encodeURIComponent(id)}`,
+        ]),
+        apiKey,
+        PROVIDER_TIMEOUT_MS,
+      );
+      parsed = parsed || parseStatPalMatchOddsPayload(sport, sapiJson, { ...opts, matchId, matchIds });
+      if (parsed) break;
+    }
   }
   return parsed;
 }
@@ -1430,6 +1565,32 @@ export async function fetchStatPalMatchOddsPreMatch(
       PROVIDER_TIMEOUT_MS,
     );
     parsed = parseStatPalMatchOddsPayload(sport, genericJson, { ...opts, matchId, matchIds });
+  }
+  // SportsApiPro-compatible format fallback: /api/match/{id}/odds/pre-match with x-api-key header
+  if (!parsed) {
+    for (const id of matchIds) {
+      const sapiJson = await fetchFirstJsonXApiKey(
+        buildSportsApiProStyleUrls(sport, [
+          `/api/match/${encodeURIComponent(id)}/odds/pre-match`,
+          `/api/match/${encodeURIComponent(id)}/prematch-odds`,
+          `/api/match/${encodeURIComponent(id)}/odds`,
+          `/api/odds/prematch?match_id=${encodeURIComponent(id)}`,
+        ]),
+        apiKey,
+        PROVIDER_TIMEOUT_MS,
+      );
+      parsed = parsed || parseStatPalMatchOddsPayload(sport, sapiJson, { ...opts, matchId, matchIds });
+      if (parsed) break;
+    }
+    // Generic SportsApiPro odds endpoint as last resort
+    if (!parsed) {
+      const sapiGenericJson = await fetchFirstJsonXApiKey(
+        buildSportsApiProStyleUrls(sport, ['/api/odds/prematch', '/api/odds']),
+        apiKey,
+        PROVIDER_TIMEOUT_MS,
+      );
+      parsed = parseStatPalMatchOddsPayload(sport, sapiGenericJson, { ...opts, matchId, matchIds });
+    }
   }
   return parsed;
 }
