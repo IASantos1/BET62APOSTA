@@ -235,6 +235,21 @@ function extractEvents(payload: any): any[] {
   if (payload?.comentarios?.liga && !Array.isArray(payload?.comentarios?.liga)) {
     return flattenLeagueBlocks([payload.comentarios.liga]);
   }
+
+  // StatPal v1 tennis endpoints — use "torneio" (tournament) instead of "liga"
+  // /livescores  → "pontuações ao vivo".torneio[]  (key has spaces!)
+  // /livestats   → "estatísticas ao vivo".torneio[]
+  // /daily/d-N   → "pontuações".torneio[]  (can be array or single object with semana[])
+  // /tournament  → "pontuações".torneio{}  (single object, has semana[].corresponder[])
+  // Tournament blocks have "corresponder" (single obj or array) or "semana[].corresponder[]"
+  // flattenLeagueBlocks already handles both patterns.
+  if (Array.isArray(payload?.['pontuações ao vivo']?.torneio)) return flattenLeagueBlocks(payload['pontuações ao vivo'].torneio);
+  if (Array.isArray(payload?.['estatísticas ao vivo']?.torneio)) return flattenLeagueBlocks(payload['estatísticas ao vivo'].torneio);
+  if (Array.isArray(payload?.['pontuações']?.torneio)) return flattenLeagueBlocks(payload['pontuações'].torneio);
+  if (payload?.['pontuações']?.torneio && !Array.isArray(payload['pontuações'].torneio)) {
+    // Single tournament object (e.g. /tournament/{id}) — wrap for flattenLeagueBlocks
+    return flattenLeagueBlocks([payload['pontuações'].torneio]);
+  }
   if (Array.isArray(payload?.matches?.tournament?.week)) {
     return flattenTournamentWeeks(payload.matches.tournament.week, payload.matches.tournament);
   }
@@ -311,8 +326,9 @@ function isLiveStatus(shortStatus: string, longStatus: string): boolean {
   const short = String(shortStatus || '').trim().toLowerCase();
   const long = String(longStatus || '').trim().toLowerCase();
   if (!short && !long) return false;
-  if (/^(ft|postp|postponed|ns|not started|canc|cancelled|ended|final)$/i.test(short)) return false;
-  if (/^(ft|postp|postponed|not started|cancelled|ended|final)$/i.test(long)) return false;
+  // Portuguese tennis/soccer finished statuses: "Concluído" = completed, "Aposentado" = retired
+  if (/^(ft|postp|postponed|ns|not started|canc|cancelled|ended|final|conclu[íi]do|aposentado|retired|walkover)$/i.test(short)) return false;
+  if (/^(ft|postp|postponed|not started|cancelled|ended|final|conclu[íi]do|aposentado|retired)$/i.test(long)) return false;
   if (/^\d{1,3}(\+\d{1,2})?$/.test(short)) return true;
   if (/live|in play|1h|2h|ht|q1|q2|q3|q4|1q|2q|3q|4q|set|period|inning|half|playing|overtime|ot\b|p1\b|p2\b|p3\b|in_progress|ongoing|active/.test(`${short} ${long}`)) return true;
   return false;
@@ -322,8 +338,9 @@ function isFinishedStatus(shortStatus: string, longStatus: string): boolean {
   const short = String(shortStatus || '').trim().toLowerCase();
   const long = String(longStatus || '').trim().toLowerCase();
   if (!short && !long) return false;
-  if (/^(ft|aet|pen|postp|postponed|canc|cancelled|ended|final|finished)$/i.test(short)) return true;
-  if (/full[\s-]?time|match finished|ended|final|finished|postponed|cancelled|abandoned/.test(`${short} ${long}`)) return true;
+  // Portuguese tennis statuses: "Concluído" = completed, "Aposentado" = retired/walkover
+  if (/^(ft|aet|pen|postp|postponed|canc|cancelled|ended|final|finished|conclu[íi]do|aposentado|retired|walkover|tempo integral)$/i.test(short)) return true;
+  if (/full[\s-]?time|match finished|ended|final|finished|postponed|cancelled|abandoned|conclu[íi]do|aposentado/.test(`${short} ${long}`)) return true;
   return false;
 }
 
@@ -371,28 +388,35 @@ function extractTournamentId(event: any): string {
 }
 
 function extractTeamName(event: any, side: 'home' | 'away'): string {
+  // Tennis: jogador[] = players array (jogador[0] = home/player1, jogador[1] = away/player2)
+  const players = Array.isArray(event?.jogador) ? event.jogador : null;
   const team = side === 'home'
     // English keys, then Portuguese: "lar" = home, "nome" = name (StatPal /matches/daily)
     ? event?.home_team ?? event?.homeTeam ?? event?.player_1 ??
       event?.teams?.home?.name ?? event?.home?.name ?? event?.home?.nome ??
       event?.lar?.name ?? event?.lar?.nome ??
-      event?.players?.home?.name ?? event?.team_info?.home?.name ?? event?.match_info?.team_info?.home?.name
+      event?.players?.home?.name ?? event?.team_info?.home?.name ?? event?.match_info?.team_info?.home?.name ??
+      players?.[0]?.nome  // Tennis player 1
     // English keys, then Portuguese: "ausente" = away (StatPal /matches/daily)
     : event?.away_team ?? event?.visitor_team ?? event?.guest_team ?? event?.awayTeam ?? event?.player_2 ??
       event?.teams?.away?.name ?? event?.away?.name ?? event?.away?.nome ??
       event?.ausente?.name ?? event?.ausente?.nome ??
-      event?.players?.away?.name ?? event?.team_info?.away?.name ?? event?.match_info?.team_info?.away?.name;
+      event?.players?.away?.name ?? event?.team_info?.away?.name ?? event?.match_info?.team_info?.away?.name ??
+      players?.[1]?.nome;  // Tennis player 2
   return String(team ?? '').trim();
 }
 
 function extractTeamId(event: any, side: 'home' | 'away'): string {
+  const players = Array.isArray(event?.jogador) ? event.jogador : null;
   const teamId = side === 'home'
     ? event?.home_team_id ?? event?.homeTeamId ??
       event?.teams?.home?.id ?? event?.home?.id ?? event?.lar?.id ??
-      event?.players?.home?.id ?? event?.team_info?.home?.id ?? event?.match_info?.team_info?.home?.id
+      event?.players?.home?.id ?? event?.team_info?.home?.id ?? event?.match_info?.team_info?.home?.id ??
+      players?.[0]?.id  // Tennis player 1
     : event?.away_team_id ?? event?.awayTeamId ??
       event?.teams?.away?.id ?? event?.away?.id ?? event?.ausente?.id ??
-      event?.players?.away?.id ?? event?.team_info?.away?.id ?? event?.match_info?.team_info?.away?.id;
+      event?.players?.away?.id ?? event?.team_info?.away?.id ?? event?.match_info?.team_info?.away?.id ??
+      players?.[1]?.id;  // Tennis player 2
   return String(teamId ?? '').trim();
 }
 
@@ -442,6 +466,8 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
   const homeTeamId = extractTeamId(event, 'home');
   const awayTeamId = extractTeamId(event, 'away');
   const parsedMatchInfoScore = parseScoreText(event?.match_info?.score);
+  // Tennis: jogador[0]/[1] = players, totalscore = sets won
+  const tennisPlayers = Array.isArray(event?.jogador) ? event.jogador : null;
   const homeGoals = readScoreNumber(
     event?.home?.goals ??
     event?.home?.score ??     // /leagues/{id}/matches uses "score" not "goals"
@@ -452,7 +478,8 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     event?.scores?.home ??
     event?.goals?.home ??
     event?.result?.home ??
-    parsedMatchInfoScore.home,
+    parsedMatchInfoScore.home ??
+    tennisPlayers?.[0]?.totalscore,  // Tennis: sets won by player 1
   );
   const awayGoals = readScoreNumber(
     event?.away?.goals ??
@@ -464,7 +491,8 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     event?.scores?.away ??
     event?.goals?.away ??
     event?.result?.away ??
-    parsedMatchInfoScore.away,
+    parsedMatchInfoScore.away ??
+    tennisPlayers?.[1]?.totalscore,  // Tennis: sets won by player 2
   );
   const elapsedRaw = event?.elapsed ?? event?.timer?.elapsed ?? event?.clock?.elapsed ?? event?.minute ?? event?.inj_minute ?? event?.match_info?.minute;
   const elapsed = Number.isFinite(Number(elapsedRaw)) ? Number(elapsedRaw) : 0;
@@ -817,15 +845,20 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
   const homeKey = normalizeLabel(opts.homeTeam || '');
   const awayKey = normalizeLabel(opts.awayTeam || '');
   const matchByTeams = (match: any): boolean => {
+    const players = Array.isArray(match?.jogador) ? match.jogador : null;
     const home = normalizeLabel(
       match?.home?.name ?? match?.team_info?.home?.name ??
       // Portuguese keys (prematch odds: lar, live odds: informações_da_equipe.lar)
-      match?.lar?.nome ?? match?.['informações_da_equipe']?.lar?.nome ?? '',
+      match?.lar?.nome ?? match?.['informações_da_equipe']?.lar?.nome ??
+      // Tennis: jogador[0] = player 1 (home)
+      players?.[0]?.nome ?? '',
     );
     const away = normalizeLabel(
       match?.away?.name ?? match?.team_info?.away?.name ??
       // Portuguese keys
-      match?.ausente?.nome ?? match?.['informações_da_equipe']?.ausente?.nome ?? '',
+      match?.ausente?.nome ?? match?.['informações_da_equipe']?.ausente?.nome ??
+      // Tennis: jogador[1] = player 2 (away)
+      players?.[1]?.nome ?? '',
     );
     if (homeKey && awayKey) {
       return home === homeKey && away === awayKey;
@@ -875,6 +908,14 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
     // V1 soccer odds: exemplo.odds_feed.liga[] or odds_feed.liga[]
     ...(Array.isArray(payload?.exemplo?.odds_feed?.liga) ? [payload.exemplo.odds_feed.liga] : []),
     ...(Array.isArray(payload?.odds_feed?.liga) ? [payload.odds_feed.liga] : []),
+    // V1 tennis odds: chances.torneio[].partidas.corresponder (may be single obj or array)
+    // Each tournament's "partidas" has one or more "corresponder" match objects
+    ...(Array.isArray(payload?.chances?.torneio)
+      ? [payload.chances.torneio.flatMap((t: any) => {
+          const corr = t?.partidas?.corresponder;
+          return !corr ? [] : Array.isArray(corr) ? corr : [corr];
+        })]
+      : []),
   ];
   for (const leagues of leagueCollections) {
     const found = findMatch(flattenStatPalLeagueMatches(leagues));
@@ -955,7 +996,8 @@ function inferMarketKey(title: string): string {
   if (/(ambas as equipes marcam|ambas equipes marcam)/.test(t)) return 'btts';
   if (/(acima abaixo|acima sob)/.test(t)) return 'totals';
   // "resultado em tempo integral" = Portuguese for "full time result"
-  if (/^(match winner|1x2|full time result|resultado final|resultado em tempo integral|winner)$/.test(t)) return 'h2h';
+  // "casa fora" = Portuguese for "home away" — tennis win market (no draw)
+  if (/^(match winner|1x2|full time result|resultado final|resultado em tempo integral|winner|casa fora|casa ausente)$/.test(t)) return 'h2h';
   if (/^home away$/.test(t)) return 'home_away';
   if (/(correct score|placar exato)/.test(t)) return 'correct_score';
   if (/(asian handicap).*(first half|1st half)|(^first half|^1st half).*(asian handicap)/.test(t)) return '1st_half_spreads';
@@ -1023,7 +1065,7 @@ export function parseStatPalMatchOddsPayload(
       if (suspended) item.suspended = true;
       out.push(item);
 
-      if (key === 'h2h') {
+      if (key === 'h2h' || key === 'home_away') {
         const labelKey = normalizeLabel(label);
         // "desenho" = Portuguese StatPal translation for "draw"
         if (labelKey === 'draw' || labelKey === 'empate' || labelKey === 'x' || labelKey === 'desenho') draw = odd;
