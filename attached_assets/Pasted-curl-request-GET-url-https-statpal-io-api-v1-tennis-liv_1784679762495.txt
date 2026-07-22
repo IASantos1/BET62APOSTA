@@ -1,0 +1,133 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/tennis/livescores?access_key=b5b07a3f-b019-4a18-8969-6045169feda9 ' 
+  --header 'Accept: application/json'
+{
+  "pontuações ao vivo" : { 
+    "esporte" : "tênis " 
+    "torneio" : [ 
+      {
+        "id" : "17741" , 
+        "nome" : "Wta - Simples: Aberto da Austrália (Austrália), Quadra dura" , 
+        "corresponder" : { 
+          "data" : "25.01.2025 " 
+          "id" : "2476379" , 
+          "status" : "Concluído" , 
+          "tb" : "Falso" , 
+          "hora" : "08:45 " 
+          "jogador" : [ 
+            {
+              "game_score" : "" , 
+              "id" : "35576" , 
+              "nome" : "A. Sabalenka" , 
+              "s1" : "3" , 
+              "s2" : "6" , 
+              "s3" : "5" , 
+              "s4" : "" , 
+              "s5" : "" , 
+              "servir" : "Falso" , 
+              "totalscore" : "1" , 
+              "vencedor" : "Falso" 
+            } ,
+            {
+              "game_score" : "" , 
+              "id" : "6377" , 
+              "nome" : "M. Keys " 
+              "s1" : "6" , 
+              "s2" : "2" , 
+              "s3" : "7" , 
+              "s4" : "" , 
+              "s5" : "" , 
+              "servir" : "Falso" , 
+              "totalscore" : "2" , 
+              "vencedor" : "Verdadeiro" 
+            }
+          ]
+        }
+      } ,
+      {
+        "id" : "17531" , 
+        "nome" : "Wta - Simples: Singapura (Singapura) - Qualificação, Difícil (Indoor)" , 
+        "corresponder" : [ 
+          {
+            "data" : "25.01.2025 " 
+            "id" : "2476509" , 
+            "status" : "Concluído" , 
+            "tb" : "Falso" , 
+            "hora" : "02:10 " 
+            "jogador" : [ 
+              {
+                "game_score" : "" , 
+                "id" : "171497" , 
+                "nome" : "M. Joint" , 
+                "s1" : "7" , 
+                "s2" : "6" , 
+                "s3" : "" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "servir" : "Falso" , 
+                "totalscore" : "2" , 
+                "vencedor" : "Verdadeiro" 
+              } ,
+              {
+                "game_score" : "" , 
+                "id" : "35954" , 
+                "nome" : "M. Hontama" , 
+                "s1" : "5" , 
+                "s2" : "2" , 
+                "s3" : "" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "servir" : "Falso" , 
+                "totalscore" : "0" , 
+                "vencedor" : "Falso" 
+              }
+            ]
+          }
+        ]
+      } ,
+      {
+        "id" : "17742" , 
+        "nome" : "Atp - Duplas: Aberto da Austrália (Austrália), Quadra dura" , 
+        "corresponder" : { 
+          "data" : "25.01.2025 " 
+          "id" : "2476337" , 
+          "status" : "Concluído" , 
+          "tb" : "Falso" , 
+          "hora" : "11:40 " 
+          "jogador" : [ 
+            {
+              "dp1" : "1744" , 
+              "dp2" : "26279" , 
+              "game_score" : "" , 
+              "id" : "117869" , 
+              "nome" : "Bolelli/ Vavassori" , 
+              "s1" : "7.18" , 
+              "s2" : "6,5" , 
+              "s3" : "3" , 
+              "s4" : "" , 
+              "s5" : "" , 
+              "servir" : "Falso" , 
+              "totalscore" : "1" , 
+              "vencedor" : "Falso" 
+            } ,
+            {
+              "dp1" : "3182" , 
+              "dp2" : "85385" , 
+              "game_score" : "" , 
+              "id" : "254558" , 
+              "nome" : "Heliovaara/ Patten" , 
+              "s1" : "6.16" , 
+              "s2" : "7,7" , 
+              "s3" : "6" , 
+              "s4" : "" , 
+              "s5" : "" , 
+              "servir" : "Falso" , 
+              "totalscore" : "2" , 
+              "vencedor" : "Verdadeiro" 
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

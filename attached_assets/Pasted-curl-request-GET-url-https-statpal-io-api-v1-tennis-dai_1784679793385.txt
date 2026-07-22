@@ -1,0 +1,166 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/tennis/daily/d-1?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "pontuações" : { 
+    "esporte" : "tênis " 
+    "torneio" : [ 
+      {
+        "id" : "17740" , 
+        "nome" : "Atp - Simples: Aberto da Austrália (Austrália), Quadra dura" , 
+        "corresponder" : [ 
+          {
+            "data" : "24.01.2025 " 
+            "id" : "2476014" , 
+            "status" : "Aposentado " 
+            "hora" : "03:45 " 
+            "jogador" : [ 
+              {
+                "game_score" : "0" , 
+                "id" : "3444" , 
+                "nome" : "N. Djokovic" , 
+                "s1" : "6" , 
+                "s2" : "" , 
+                "s3" : "" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "servir" : "Falso" , 
+                "totalscore" : "0" , 
+                "vencedor" : "Falso" 
+              } ,
+              {
+                "game_score" : "0" , 
+                "id" : "9495" , 
+                "nome" : "A. Zverev " 
+                "s1" : "7" , 
+                "s2" : "" , 
+                "s3" : "" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "servir" : "Falso" , 
+                "totalscore" : "1" , 
+                "vencedor" : "Verdadeiro" 
+              }
+            ]
+          } ,
+          {
+            "data" : "24.01.2025 " 
+            "id" : "2476182" , 
+            "status" : "Concluído" , 
+            "hora" : "08:45 " 
+            "jogador" : [ 
+              {
+                "game_score" : "" , 
+                "id" : "58323" , 
+                "nome" : "J. Sinner" , 
+                "s1" : "7" , 
+                "s2" : "6" , 
+                "s3" : "6" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "servir" : "Falso" , 
+                "totalscore" : "3" , 
+                "vencedor" : "Verdadeiro" 
+              } ,
+              {
+                "game_score" : "" , 
+                "id" : "97382" , 
+                "nome" : "B. Shelton " 
+                "s1" : "6" , 
+                "s2" : "2" , 
+                "s3" : "2" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "servir" : "Falso" , 
+                "totalscore" : "0" , 
+                "vencedor" : "Falso" 
+              }
+            ]
+          }
+        ]
+      } ,
+      {
+        "id" : "17705" , 
+        "nome" : "Wta - Duplas: Aberto da Austrália (Austrália), Quadra dura" , 
+        "corresponder" : [ 
+          {
+            "data" : "24.01.2025 " 
+            "id" : "2476155" , 
+            "status" : "Concluído" , 
+            "hora" : "01:10 " 
+            "jogador" : [ 
+              {
+                "dp1" : "4806" , 
+                "dp2" : "11261" , 
+                "game_score" : "" , 
+                "id" : "260923" , 
+                "nome" : "Siniakova/ Townsend" , 
+                "s1" : "6" , 
+                "s2" : "6" , 
+                "s3" : "6" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "servir" : "Falso" , 
+                "totalscore" : "2" , 
+                "vencedor" : "Verdadeiro" 
+              } ,
+              {
+                "dp1" : "127589" , 
+                "dp2" : "68056" , 
+                "game_score" : "" , 
+                "id" : "276043" , 
+                "nome" : "Andreeva/ Shnaider" , 
+                "s1" : "7" , 
+                "s2" : "4" , 
+                "s3" : "3" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "servir" : "Falso" , 
+                "totalscore" : "1" , 
+                "vencedor" : "Falso" 
+              }
+            ]
+          } ,
+          {
+            "data" : "24.01.2025 " 
+            "id" : "2475959" , 
+            "status" : "Concluído" , 
+            "hora" : "03:50 " 
+            "jogador" : [ 
+              {
+                "dp1" : "1058" , 
+                "dp2" : "10577" , 
+                "game_score" : "" , 
+                "id" : "296722" , 
+                "nome" : "Hsieh S-/Ostapenko" , 
+                "s1" : "7" , 
+                "s2" : "3" , 
+                "s3" : "6" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "servir" : "Falso" , 
+                "totalscore" : "2" , 
+                "vencedor" : "Verdadeiro" 
+              } ,
+              {
+                "dp1" : "6453" , 
+                "dp2" : "6460" , 
+                "game_score" : "" , 
+                "id" : "216943" , 
+                "nome" : "Dabrowski/ Routliffe" , 
+                "s1" : "6" , 
+                "s2" : "6" , 
+                "s3" : "3" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "servir" : "Falso" , 
+                "totalscore" : "1" , 
+                "vencedor" : "Falso" 
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

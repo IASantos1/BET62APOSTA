@@ -1,0 +1,77 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/tennis/odds?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "chances" : { 
+    "esporte" : "tênis " 
+    "torneio" : [ 
+      {
+        "gid" : "17740" , 
+        "id" : "17740" , 
+        "nome" : "Atp - Simples: Aberto da Austrália (Austrália), Quadra dura" , 
+        "partidas" : { 
+          "corresponder" : { 
+            "data" : "26.01.2025 " 
+            "id" : "2476527" , 
+            "status" : "1" , 
+            "hora" : "08:30 " 
+            "jogador" : [ 
+              {
+                "id" : "58323" , 
+                "nome" : "J. Sinner" , 
+                "s1" : "" , 
+                "s2" : "" , 
+                "s3" : "" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "totalscore" : "" , 
+                "ganhador" : "" 
+              } ,
+              {
+                "id" : "9495" , 
+                "nome" : "A. Zverev " 
+                "s1" : "" , 
+                "s2" : "" , 
+                "s3" : "" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "totalscore" : "" , 
+                "ganhador" : "" 
+              }
+            ] ,
+            "chances" : { 
+              "ts" : "1737809514" , 
+              "tipo" : [ 
+                {
+                  "id" : "1501" , 
+                  "parar" : "Falso" , 
+                  "valor" : "Casa/Fora" , 
+                  "apostador" : [ 
+                    {
+                      "id" : "1501" , 
+                      "nome" : "bwin" , 
+                      "parar" : "Falso" , 
+                      "ts" : "1737792305" , 
+                      "chance" : [ 
+                        {
+                          "id" : "82305122215671567" , 
+                          "nome" : "Casa" , 
+                          "valor" : "1,36" 
+                        } ,
+                        {
+                          "id" : "82305122215701570" , 
+                          "nome" : "Ausente" , 
+                          "valor" : "3,25" 
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

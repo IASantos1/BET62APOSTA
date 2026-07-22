@@ -1,0 +1,88 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/tennis/livestats?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "estatísticas ao vivo" : { 
+    "esporte" : "tênis " 
+    "torneio" : [ 
+      {
+        "id" : "17741" , 
+        "nome" : "Wta - Simples: Aberto da Austrália (Austrália), Quadra dura" , 
+        "corresponder" : { 
+          "data" : "25.01.2025 " 
+          "id" : "2476379" , 
+          "hora" : "08:45 " 
+          "jogador" : [ 
+            {
+              "id" : "35576" , 
+              "nome" : "A. Sabalenka" , 
+              "estatísticas" : { 
+                "período" : [ 
+                  {
+                    "nome" : "combinar" , 
+                    "tipo" : [ 
+                      {
+                        "nome" : "Serviço" , 
+                        "stat" : [ 
+                          {
+                            "nome" : "Ás" , 
+                            "total" : "" , 
+                            "valor" : "3" , 
+                            "ganho" : "" 
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            } ,
+            {
+              "id" : "6377" , 
+              "nome" : "M. Keys " 
+              "estatísticas" : { 
+                "período" : [ 
+                  {
+                    "nome" : "combinar" , 
+                    "tipo" : [ 
+                      {
+                        "nome" : "Serviço" , 
+                        "stat" : [ 
+                          {
+                            "nome" : "Ás" , 
+                            "total" : "" , 
+                            "valor" : "6" , 
+                            "ganho" : "" 
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ] ,
+          "duração_da_partida" : { 
+            "definir" : [ 
+              {
+                "duração" : "0:36 " 
+                "valor" : "1" 
+              } ,
+              {
+                "duração" : "0:45 " 
+                "valor" : "2" 
+              } ,
+              {
+                "duração" : "0:43 " 
+                "valor" : "3" 
+              }
+            ] ,
+            "corresponder" : { 
+              "duração" : "2:04" 
+            }
+          }
+        }
+      }
+    ]
+  }
+}
