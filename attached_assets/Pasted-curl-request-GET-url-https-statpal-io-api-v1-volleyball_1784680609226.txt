@@ -1,0 +1,78 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/volleyball/season-schedule/{league_id}?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "pontuações" : { 
+    "país" : "França" , 
+    "esporte" : "voleio " 
+    "torneio" : { 
+      "id" : "4390" , 
+      "liga" : "Ligue A" , 
+      "temporada" : "2025/2026 " 
+      "semana" : [ 
+        {
+          "número" : "1" , 
+          "corresponder" : [ 
+            {
+              "data" : "21.10.2025 " 
+              "id" : "460077" , 
+              "status" : "Concluído" , 
+              "hora" : "18:00 " 
+              "lar" : { 
+                "id" : "2622" , 
+                "nome" : "Passeios" , 
+                "s1" : "25" , 
+                "s2" : "25" , 
+                "s3" : "25" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "totalscore" : "3" 
+              } ,
+              "ausente" : { 
+                "id" : "2626" , 
+                "nome" : "Ajaccio" , 
+                "s1" : "22" , 
+                "s2" : "23" , 
+                "s3" : "20" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "totalscore" : "0" 
+              }
+            }
+          ]
+        } ,
+        {
+          "número" : "2" , 
+          "corresponder" : [ 
+            {
+              "data" : "23.10.2025 " 
+              "id" : "460082" , 
+              "status" : "Concluído" , 
+              "hora" : "18:00 " 
+              "lar" : { 
+                "id" : "2625" , 
+                "nome" : "Poitiers" , 
+                "s1" : "23" , 
+                "s2" : "22" , 
+                "s3" : "24" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "totalscore" : "0" 
+              } ,
+              "ausente" : { 
+                "id" : "2630" , 
+                "nome" : "Montpellier" , 
+                "s1" : "25" , 
+                "s2" : "25" , 
+                "s3" : "26" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "totalscore" : "3" 
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,137 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/volleyball/odds?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "chances" : { 
+    "esporte" : "voleio " 
+    "torneio" : [ 
+      {
+        "gid" : "2516" , 
+        "id" : "2516" , 
+        "liga" : "Alemanha: 1. Bundesliga" , 
+        "partidas" : { 
+          "corresponder" : [ 
+            {
+              "data" : "12.12.2025 " 
+              "id" : "455405" , 
+              "status" : "Não iniciado" , 
+              "hora" : "18:00 " 
+              "lar" : { 
+                "id" : "6186" , 
+                "nome" : "Giesen" , 
+                "s1" : "" , 
+                "s2" : "" , 
+                "s3" : "" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "totalscore" : "" 
+              } ,
+              "ausente" : { 
+                "id" : "3269" , 
+                "nome" : "Dachau" , 
+                "s1" : "" , 
+                "s2" : "" , 
+                "s3" : "" , 
+                "s4" : "" , 
+                "s5" : "" , 
+                "totalscore" : "" 
+              } ,
+              "chances" : { 
+                "ts" : "1765495376" , 
+                "tipo" : [ 
+                  {
+                    "id" : "1501" , 
+                    "parar" : "Falso" , 
+                    "valor" : "Casa/Fora" , 
+                    "apostador" : [ 
+                      {
+                        "id" : "1514" , 
+                        "nome" : "WilliamHill" , 
+                        "parar" : "Falso" , 
+                        "ts" : "1765492439" , 
+                        "chance" : [ 
+                          {
+                            "id" : "910764915215671567" , 
+                            "nome" : "Casa" , 
+                            "valor" : "1,10" 
+                          } ,
+                          {
+                            "id" : "910764915215701570" , 
+                            "nome" : "Ausente" , 
+                            "valor" : "6,50" 
+                          }
+                        ]
+                      } ,
+                      {
+                        "id" : "1515" , 
+                        "nome" : "bet365" , 
+                        "parar" : "Falso" , 
+                        "ts" : "1765492440" , 
+                        "chance" : [ 
+                          {
+                            "id" : "910764943215671567" , 
+                            "nome" : "Casa" , 
+                            "valor" : "1,08" 
+                          } ,
+                          {
+                            "id" : "910764943215701570" , 
+                            "nome" : "Ausente" , 
+                            "valor" : "7,00" 
+                          }
+                        ]
+                      }
+                    ]
+                  } ,
+                  {
+                    "id" : "1504" , 
+                    "parar" : "Falso" , 
+                    "valor" : "Acima/Abaixo" , 
+                    "apostador" : { 
+                      "id" : "1581" , 
+                      "nome" : "Pncl" , 
+                      "ts" : "1765492440" , 
+                      "total" : [ 
+                        {
+                          "nome" : "3.5" , 
+                          "parar" : "Falso" , 
+                          "chance" : [ 
+                            {
+                              "id" : "910764982515881588" , 
+                              "nome" : "Acima" , 
+                              "valor" : "2,13" 
+                            } ,
+                            {
+                              "id" : "910764982515901590" , 
+                              "nome" : "Sob" , 
+                              "valor" : "1,67" 
+                            }
+                          ]
+                        } ,
+                        {
+                          "nome" : "4" , 
+                          "parar" : "Falso" , 
+                          "chance" : [ 
+                            {
+                              "id" : "910764982533933393" , 
+                              "nome" : "Acima" , 
+                              "valor" : "3,85" 
+                            } ,
+                            {
+                              "id" : "910764982533953395" , 
+                              "nome" : "Sob" , 
+                              "valor" : "1,23" 
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
