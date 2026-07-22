@@ -1180,13 +1180,26 @@ export async function fetchStatPalLive(apiKey: string, sport: string): Promise<N
   }
 
   // Non-soccer sports (NBA, MLB, NHL, Tennis, Volleyball, MMA)
-  const paths = ['/livescores', '/matches/live', '/matches?status=live'];
+  // StatPal livescores/daily is the primary source; /odds carries current odds for all matches.
+  const paths = ['/livescores', '/daily/d-0', '/matches/live', '/matches?status=live'];
   for (const url of buildCandidateUrls(apiKey, sport, paths)) {
     const json = await fetchJson(url, PROVIDER_LIVE_TIMEOUT_MS);
-    const events = extractEvents(json)
+    let liveEvents = extractEvents(json)
       .map((row) => normalizeEvent({ ...row, __from_live_endpoint: true }, sport))
       .filter((row) => !!row && Number((row as any)?.is_live || 0) === 1) as NormalizedEvent[];
-    if (events.length > 0) return events;
+    if (liveEvents.length > 0) {
+      // Fetch the sport-level odds endpoint and attach to live events (same endpoint
+      // covers all live + upcoming matches for NBA/MLB/volleyball etc.)
+      const hasOdds = liveEvents.some((e) => e.home_odd > 1 || e.away_odd > 1);
+      if (!hasOdds) {
+        const oddsJson = await fetchFirstJson(
+          buildCandidateUrls(apiKey, sport, ['/odds']),
+          PROVIDER_TIMEOUT_MS,
+        ).catch(() => null);
+        if (oddsJson) liveEvents = attachOddsToEvents(liveEvents, oddsJson, sport);
+      }
+      return liveEvents;
+    }
   }
   return [];
 }
@@ -1260,8 +1273,21 @@ export async function fetchStatPalSchedule(apiKey: string, sport: string, date: 
     return [];
   }
   // Non-soccer sports: NBA, MLB, NHL, Tennis, Volleyball, MMA
-  // StatPal v1 uses /livescores for live and date-based paths for schedule.
+  // StatPal v1 uses /daily/d-N as the primary schedule endpoint (not date-param URLs).
   const targetDate = dateOnlyIso(date);
+  const dayOffset = utcDayDiffFromToday(date);
+  // Build /daily/d-N paths: d-0=today, d-1=yesterday, d+1=tomorrow etc.
+  const dailyPaths: string[] = [];
+  if (dayOffset != null && Math.abs(dayOffset) <= 7) {
+    // Most reliable: exact offset first, then adjacent days as fallback
+    const abs = Math.abs(dayOffset);
+    const sign = dayOffset <= 0 ? '-' : '+';
+    dailyPaths.push(`/daily/d${sign}${abs}`);
+    if (abs !== 0) dailyPaths.push('/daily/d-0');   // today as secondary
+    if (abs !== 1) dailyPaths.push('/daily/d-1');   // yesterday as tertiary
+  } else {
+    dailyPaths.push('/daily/d-0', '/daily/d-1');
+  }
   const dateVariants = Array.from(new Set(formatDateVariants(date)));
   const datePaths = dateVariants.flatMap((d) => [
     `/schedule?date=${encodeURIComponent(d)}`,
@@ -1271,14 +1297,25 @@ export async function fetchStatPalSchedule(apiKey: string, sport: string, date: 
     `/upcoming?date=${encodeURIComponent(d)}`,
     `/matches/upcoming?date=${encodeURIComponent(d)}`,
   ]);
-  // Try date-based paths first, then fall back to livescores
-  const allPaths = [...datePaths, '/livescores', '/matches/live', '/matches?status=live'];
+  // Daily paths first (known to work for NBA/MLB/volleyball), then generic date params, then livescores
+  const allPaths = [...new Set([...dailyPaths, ...datePaths, '/livescores', '/matches/live', '/matches?status=live'])];
   for (const url of buildCandidateUrls(apiKey, sport, allPaths)) {
     const json = await fetchJson(url, PROVIDER_TIMEOUT_MS);
-    const events = extractEvents(json)
+    let events = extractEvents(json)
       .map((row) => normalizeEvent(row, sport))
       .filter(Boolean) as NormalizedEvent[];
     if (events.length === 0) continue;
+    // StatPal non-soccer: fetch the sport-level /odds endpoint and attach prematch odds.
+    // Unlike soccer (which uses /leagues/{id}/odds/prematch per-league), non-soccer sports
+    // expose a single /odds endpoint that covers all upcoming + live matches.
+    const hasOdds = events.some((e) => e.home_odd > 1 || e.away_odd > 1);
+    if (!hasOdds) {
+      const oddsJson = await fetchFirstJson(
+        buildCandidateUrls(apiKey, sport, ['/odds']),
+        PROVIDER_TIMEOUT_MS,
+      ).catch(() => null);
+      if (oddsJson) events = attachOddsToEvents(events, oddsJson, sport);
+    }
     if (!targetDate) return events;
     const sameDay = events.filter((event) => dateOnlyIso(String(event?.event_date || '')) === targetDate);
     if (sameDay.length > 0) return sameDay;
