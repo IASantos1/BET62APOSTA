@@ -1017,6 +1017,10 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       s === 'WO'
     ) return true;
     if (/FINISH|ENDED|FINAL|FULLTIME|GAMEOVER|CANCEL|POSTPON|ABANDON|WALKOVER/.test(s)) return true;
+    // StatPal Portuguese statuses: "Concluído"→"CONCLU_DO", "Aposentado"→"APOSENTADO",
+    // "Tempo integral"→"TEMPO_INTEGRAL", "Encerrado"→"ENCERRADO"
+    if (s === 'CONCLU_DO' || s === 'APOSENTADO' || s === 'TEMPO_INTEGRAL') return true;
+    if (/CONCLU|APOSENTAD|TEMPO_INTEGR|ENCERRADO/.test(s)) return true;
     return false;
   };
 
@@ -1071,6 +1075,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       /^IN\d+$/.test(s)
     ) return true;
     if (/(LIVE|INPLAY|IN_PLAY|1H|2H|HT|PEN|SHOOTOUT|Q[1-4]|OVERTIME|EXTRA_TIME)/.test(s)) return true;
+    // StatPal Portuguese live statuses: "Em jogo"→"EM_JOGO", "Em andamento"→"EM_ANDAMENTO",
+    // volleyball set notation e.g. "1ª parcial"→"1_PARCIAL"
+    if (s === 'EM_JOGO' || /EM_JOGO|EM_ANDAMENTO|ANDAMENTO|_PARCIAL/.test(s)) return true;
     return false;
   };
 
@@ -1546,6 +1553,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         const s = su.replace(/[^A-Z0-9_]+/g, '_').replace(/^_+/, '').replace(/_+$/, '');
         if (s === 'NS' || s === 'SCHEDULED' || s === 'UPCOMING' || s === 'NOT_STARTED' || s === 'PRE_MATCH' || s === 'TIMED') return true;
         if (/NOT_STARTED|SCHEDUL|UPCOMING|TIMED|PRE_MATCH/.test(s)) return true;
+        // StatPal Portuguese statuses: "Não iniciado"→"N_O_INICIADO", "Agendado"→"AGENDADO"
+        if (s === 'N_O_INICIADO' || s === 'AGENDADO' || s.startsWith('AGEND')) return true;
         return false;
       };
       const isPregameCandidate = (e: any) => {
