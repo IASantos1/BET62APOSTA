@@ -140,14 +140,27 @@ function extractEvents(payload: any): any[] {
         country: block?.country ?? block?.país ?? block?.pais ?? '',
         cup: block?.cup ?? block?.xícara ?? block?.xicara ?? '',
       };
-      // "corresponder" = Portuguese for "match" (used in /matches/daily response)
-      const rows = block?.match ?? block?.corresponder ?? block?.matches ?? block?.events ?? block?.games ?? block?.fixtures ?? [];
-      if (Array.isArray(rows)) {
-        for (const row of rows) out.push({ ...row, __league: leagueMeta });
+      // "corresponder" = Portuguese for "match" (used in /matches/daily, livescores, upcoming-schedule)
+      const directRows = block?.match ?? block?.corresponder ?? block?.matches ?? block?.events ?? block?.games ?? block?.fixtures;
+      if (Array.isArray(directRows)) {
+        for (const row of directRows) out.push({ ...row, __league: leagueMeta });
         continue;
       }
-      if (rows && typeof rows === 'object') {
-        out.push({ ...rows, __league: leagueMeta });
+      // V1 extended_fixtures / results: weeks array ("semana" = Portuguese for "week")
+      // Structure: liga[].semana[].corresponder[]
+      const weeks = block?.semana ?? block?.week;
+      if (Array.isArray(weeks)) {
+        for (const week of weeks) {
+          const weekRows = week?.match ?? week?.corresponder ?? week?.matches ?? week?.events ?? [];
+          if (Array.isArray(weekRows)) {
+            for (const row of weekRows) out.push({ ...row, __league: leagueMeta });
+          }
+        }
+        continue;
+      }
+      // Single match object (not array) — e.g. comentários.liga.corresponder
+      if (directRows && typeof directRows === 'object') {
+        out.push({ ...directRows, __league: leagueMeta });
       }
     }
     return out;
@@ -203,6 +216,25 @@ function extractEvents(payload: any): any[] {
   if (Array.isArray(payload?.league)) return flattenLeagueBlocks(payload.league);
   // Portuguese top-level key: "liga" = "league" (e.g. StatPal /leagues endpoint)
   if (Array.isArray(payload?.liga)) return flattenLeagueBlocks(payload.liga);
+
+  // StatPal v1 soccer endpoints — all use Portuguese root keys wrapping a "liga" array:
+  // /livescores, /daily/d-N      → "livescore"        (placar ao vivo)
+  // /upcoming-schedule/region   → "acessórios"        (acessorios = fixtures)
+  // /extended-schedule/region   → "extended_fixtures" (semana[].corresponder[])
+  // /results/region             → "resultados"        (semana[].corresponder[])
+  // /live-match-stats/region    → "comentários"       (liga is single object)
+  if (Array.isArray(payload?.livescore?.liga)) return flattenLeagueBlocks(payload.livescore.liga);
+  if (Array.isArray(payload?.['acessórios']?.liga)) return flattenLeagueBlocks(payload['acessórios'].liga);
+  if (Array.isArray(payload?.acessorios?.liga)) return flattenLeagueBlocks(payload.acessorios.liga);
+  if (Array.isArray(payload?.extended_fixtures?.liga)) return flattenLeagueBlocks(payload.extended_fixtures.liga);
+  if (Array.isArray(payload?.resultados?.liga)) return flattenLeagueBlocks(payload.resultados.liga);
+  // comentários.liga may be a single object (not array) — wrap it
+  if (payload?.['comentários']?.liga && !Array.isArray(payload?.['comentários']?.liga)) {
+    return flattenLeagueBlocks([payload['comentários'].liga]);
+  }
+  if (payload?.comentarios?.liga && !Array.isArray(payload?.comentarios?.liga)) {
+    return flattenLeagueBlocks([payload.comentarios.liga]);
+  }
   if (Array.isArray(payload?.matches?.tournament?.week)) {
     return flattenTournamentWeeks(payload.matches.tournament.week, payload.matches.tournament);
   }
@@ -624,7 +656,79 @@ function extractOddsRows(payload: any): any[] {
       if (Array.isArray(provider?.markets) && provider.markets.length > 0) return provider.markets;
     }
   }
-  // StatPal Portuguese odds format:
+  // StatPal v1 soccer odds format:
+  //   chances.tipo[] = markets  ("tipo" = "type")
+  //   tipo[].apostador[].chance[]           = selections (for 1x2, correct_score, btts)
+  //   tipo[].apostador[].desvantagem[].chance[] = handicap lines  ("desvantagem" = "handicap")
+  //   tipo[].apostador[].total[].chance[]   = totals lines
+  //   Line value in desvantagem/total[].nome (e.g. "-0,75", "2,5"), comma decimal
+  if (Array.isArray(payload?.chances?.tipo)) {
+    const rows: any[] = [];
+    for (const market of payload.chances.tipo) {
+      const marketName = String(market?.nome ?? market?.name ?? '').trim();
+      const books = Array.isArray(market?.apostador) ? market.apostador : [];
+      for (const book of books) {
+        // Direct selections (1x2, btts, correct_score, etc.)
+        if (Array.isArray(book?.chance) && book.chance.length > 0) {
+          rows.push({
+            title: marketName,
+            suspended: false,
+            selections: book.chance.map((odd: any) => ({
+              nome: String(odd?.nome ?? odd?.name ?? '').trim(),
+              name: String(odd?.nome ?? odd?.name ?? '').trim(),
+              valor: String(odd?.valor ?? odd?.value ?? '').replace(',', '.'),
+              value: String(odd?.valor ?? odd?.value ?? '').replace(',', '.'),
+            })),
+          });
+          break;
+        }
+        // Asian Handicap: desvantagem[].chance[] ("desvantagem" = handicap)
+        if (Array.isArray(book?.desvantagem)) {
+          const mainLine = book.desvantagem.find(
+            (d: any) => /^(verdadeiro|true)$/i.test(String(d?.ismain ?? '')),
+          ) ?? book.desvantagem[0];
+          if (mainLine && Array.isArray(mainLine?.chance)) {
+            const point = String(mainLine?.nome ?? '').replace(',', '.');
+            rows.push({
+              title: marketName,
+              suspended: /^(verdadeiro|true)$/i.test(String(mainLine?.parar ?? '')),
+              selections: mainLine.chance.map((odd: any) => ({
+                nome: String(odd?.nome ?? odd?.name ?? '').trim(),
+                name: String(odd?.nome ?? odd?.name ?? '').trim(),
+                valor: String(odd?.valor ?? odd?.value ?? '').replace(',', '.'),
+                value: String(odd?.valor ?? odd?.value ?? '').replace(',', '.'),
+                point,
+              })),
+            });
+          }
+          break;
+        }
+        // Over/Under: total[].chance[]
+        if (Array.isArray(book?.total)) {
+          const mainLine = book.total.find(
+            (t: any) => /^(verdadeiro|true)$/i.test(String(t?.ismain ?? '')),
+          ) ?? book.total[0];
+          if (mainLine && Array.isArray(mainLine?.chance)) {
+            const point = String(mainLine?.nome ?? '').replace(',', '.');
+            rows.push({
+              title: marketName,
+              suspended: /^(verdadeiro|true)$/i.test(String(mainLine?.parar ?? '')),
+              selections: mainLine.chance.map((odd: any) => ({
+                nome: String(odd?.nome ?? odd?.name ?? '').trim(),
+                name: String(odd?.nome ?? odd?.name ?? '').trim(),
+                valor: String(odd?.valor ?? odd?.value ?? '').replace(',', '.'),
+                value: String(odd?.valor ?? odd?.value ?? '').replace(',', '.'),
+                point,
+              })),
+            });
+          }
+          break;
+        }
+      }
+    }
+    if (rows.length > 0) return rows;
+  }
+  // StatPal Portuguese odds format (v2 prematch):
   //   chances[] = markets array  ("chances" = Portuguese for "odds/chances")
   //   chances[].apostador[] = bookmakers  ("apostador" = "bookmaker")
   //   chances[].apostador[].chance[] = selections  ("chance" = "odd/selection")
@@ -768,6 +872,9 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
     ...(payload?.['probabilidades_pré-jogo']?.liga != null
       ? [[payload['probabilidades_pré-jogo'].liga]]
       : []),
+    // V1 soccer odds: exemplo.odds_feed.liga[] or odds_feed.liga[]
+    ...(Array.isArray(payload?.exemplo?.odds_feed?.liga) ? [payload.exemplo.odds_feed.liga] : []),
+    ...(Array.isArray(payload?.odds_feed?.liga) ? [payload.odds_feed.liga] : []),
   ];
   for (const leagues of leagueCollections) {
     const found = findMatch(flattenStatPalLeagueMatches(leagues));
@@ -843,6 +950,10 @@ function inferMarketKey(title: string): string {
   if (/(over under|goal line|total goals|totals|total games|games total|total rounds)/.test(t)) return 'totals';
   if (/(first half winner|1st half winner|half time result|first half result)/.test(t)) return 'first_half_h2h';
   if (/(second half winner|2nd half winner|second half result)/.test(t)) return 'second_half_h2h';
+  // Portuguese market names from StatPal v1 odds endpoint
+  if (/(pontuacao correta|placar correto)/.test(t)) return 'correct_score';
+  if (/(ambas as equipes marcam|ambas equipes marcam)/.test(t)) return 'btts';
+  if (/(acima abaixo|acima sob)/.test(t)) return 'totals';
   // "resultado em tempo integral" = Portuguese for "full time result"
   if (/^(match winner|1x2|full time result|resultado final|resultado em tempo integral|winner)$/.test(t)) return 'h2h';
   if (/^home away$/.test(t)) return 'home_away';
