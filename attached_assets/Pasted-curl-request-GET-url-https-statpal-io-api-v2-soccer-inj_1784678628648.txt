@@ -1,0 +1,129 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v2/soccer/injuries-suspensions?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "suspensões_por_lesão" : { 
+    "atualizado" : "26/11/2025 17:01:06 " 
+    "updated_ts" : 1764176466 , 
+    "liga" : [ 
+      {
+        "id" : "2974" , 
+        "name" : "Brasil: Série A Betano" , 
+        "sub_id" : "" , 
+        "corresponder" : [ 
+          {
+            "main_id" : "2025112614481" , 
+            "fallback_id_1" : "6111795" , 
+            "fallback_id_2" : "6619208" , 
+            "fallback_id_3" : "8769818" , 
+            "data" : "26.11.2025 " 
+            "hora" : "22:00 " 
+            "lar" : { 
+              "id" : "2339006" , 
+              "nome" : "Bragantino" , 
+              "marginalizado" : { 
+                "to_miss" : { 
+                  "jogador" : [ 
+                    {
+                      "id" : "2983041" , 
+                      "nome" : "Bruninho" , 
+                      "status" : "Lesão no calcanhar" 
+                    } ,
+                    {
+                      "id" : "2901492" , 
+                      "nome" : "Eric Ramires " 
+                      "status" : "Lesão no tendão da coxa" 
+                    } ,
+                    {
+                      "id" : "3002782" , 
+                      "nome" : "Fabinho" , 
+                      "status" : "Inativo" 
+                    } ,
+                    {
+                      "id" : "2857795" , 
+                      "nome" : "Praxedes" , 
+                      "status" : "Cartões Amarelos" 
+                    } ,
+                    {
+                      "id" : "2965276" , 
+                      "nome" : "G. Rodriguez" , 
+                      "status" : "Lesão no joelho" 
+                    } ,
+                    {
+                      "id" : "2746355" , 
+                      "nome" : "A. Sant'Anna" , 
+                      "status" : "Lesão no tendão da coxa" 
+                    }
+                  ]
+                } ,
+                "questionável" : { 
+                  "jogador" : [ 
+                    {
+                      "id" : "3143001" , 
+                      "nome" : "H. Mosquera" , 
+                      "status" : "Lesão no tendão da coxa" 
+                    } ,
+                    {
+                      "id" : "3252293" , 
+                      "nome" : "Vinicinho" , 
+                      "status" : "Lesão no tornozelo" 
+                    }
+                  ]
+                }
+              }
+            } ,
+            "ausente" : { 
+              "id" : "2339141" , 
+              "nome" : "Fortaleza" , 
+              "marginalizado" : { 
+                "to_miss" : { 
+                  "jogador" : [ 
+                    {
+                      "id" : "2559503" , 
+                      "nome" : "Bruno Pacheco" , 
+                      "status" : "Inativo" 
+                    } ,
+                    {
+                      "id" : "2503339" , 
+                      "nome" : "João Ricardo" , 
+                      "status" : "Lesão no ombro" 
+                    } ,
+                    {
+                      "id" : "3160257" , 
+                      "nome" : "Lucca Prior" , 
+                      "status" : "Inativo" 
+                    } ,
+                    {
+                      "id" : "2365059" , 
+                      "nome" : "Marinho" , 
+                      "status" : "Lesão no tornozelo" 
+                    } ,
+                    {
+                      "id" : "3436265" , 
+                      "nome" : "Rodrigo" , 
+                      "status" : "Lesão no joelho" 
+                    }
+                  ]
+                } ,
+                "questionável" : { 
+                  "jogador" : [ 
+                    {
+                      "id" : "2765467" , 
+                      "nome" : "Breno Lopes" , 
+                      "status" : "Lesão" 
+                    } ,
+                    {
+                      "id" : "2807098" , 
+                      "nome" : "Weverson" , 
+                      "status" : "Lesão no tendão da coxa" 
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

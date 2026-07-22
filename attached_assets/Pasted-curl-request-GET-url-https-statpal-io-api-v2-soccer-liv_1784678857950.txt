@@ -1,0 +1,85 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v2/soccer/live-storylines?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "meta" : { 
+    "atualizado" : "17/06/2026 23:21:58 " 
+    "updated_ts" : 1781738518401 , 
+    "main_id" : "2026061914762" , 
+    "fallback_ids" : { 
+      "fallback_id_1" : "6163430" , 
+      "fallback_id_2" : "6670855" , 
+      "fallback_id_3" : "9323529" 
+    } ,
+    "data" : "19-06-2026 " 
+    "hora" : "00:00 " 
+    "time da casa" : { 
+      "id" : "2339454" , 
+      "nome" : "Esporte Recife" 
+    } ,
+    "equipe_fora" : { 
+      "id" : "2338974" , 
+      "nome" : "Atlético GO" 
+    } ,
+    "liga" : { 
+      "id" : "2950" , 
+      "nome" : "Brasil: Série B" , 
+      "é_copo" : falso 
+    } ,
+    "país" : { 
+      "nome" : "brasil" 
+    } ,
+    "local" : { 
+      "nome" : "Estádio Adelmar da Costa Carvalho" , 
+      "cidade" : "Recife" , 
+      "é_terreno_neutro" : falso 
+    }
+  } ,
+  "live_storylines" : { 
+    "match_context" : [ 
+      {
+        "tipo" : "insight" , 
+        Resumo : O Sport Recife está focado na luta pelo acesso à Série A, sendo o próximo jogo contra o São Bernardo decisivo na classificação do campeonato. 
+      } ,
+      {
+        "tipo" : "citação" , 
+        " Este é o tipo de jogo que pode definir a corrida pela promoção, e ambas as equipes sabem exatamente o que está em jogo. " 
+        "palestrante" : "Analista de partidas" , 
+        "contexto" : "prévia da corrida de promoção para a Série B" , 
+        "traduzido_de" : "português" 
+      }
+    ] ,
+    "lar" : [ 
+      {
+        "tipo" : "insight" , 
+        Resumo : O Sport Recife não poderá contar com o lateral-direito Madson para a partida contra o Atlético GO, devido à suspensão após receber o terceiro cartão amarelo. Augusto Pucci deverá substituí-lo no time titular. Essa suspensão afeta as opções defensivas da equipe para o jogo em casa, na Ilha do Retiro. 
+      } ,
+      {
+        "tipo" : "citação" , 
+        " Uma alegria estar de volta para casa. Pude rever pessoas que fizeram parte da minha trajetória e que ainda estão aqui no clube. Sempre que estou no Brasil, vir aqui faz parte das minhas férias . " 
+        "falante" : "Joelinton, meio-campista " 
+        "contexto" : "Declaração durante visita e treinamento no centro de treinamento do Sport Recife durante as férias " 
+        "traduzido_de" : "português" 
+      }
+    ] ,
+    "ausente" : [ 
+      {
+        "tipo" : "insight" , 
+        Resumo : O Atlético GO buscou o empate em 3 a 3 com o CRB em seu estádio, o Estádio Antônio Accioly, pela 13ª rodada da Série B. O time estava perdendo por 3 a 0 no intervalo, mas marcou três gols no segundo tempo para empatar. Seu próximo jogo será contra o Sport Recife, na Ilha do Retiro, em Recife. 
+      } ,
+      {
+        "tipo" : "citação" , 
+        "citação" : "O Atlético-GO não está em má fase. A equipe perdeu apenas uma das últimas sete partidas na Série B. " 
+        "Orador" : "Souza Eduardo, gerente do Atlético GO " 
+        "contexto" : "Forma e confiança da equipe — coletiva de imprensa " 
+        "traduzido_de" : "português" 
+      }
+    ] ,
+    "rivalidade" : { 
+      "mesma_cidade" : falso , 
+      "is_named_derby" : falso , 
+      "derby_name" : nulo , 
+      "derby_name_localized" : null 
+    }
+  }
+}

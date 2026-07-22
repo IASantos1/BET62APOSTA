@@ -1,0 +1,227 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v2/soccer/teams/{team_id}?access_key=b5b07a3f-b019-4a18-8969-6045169feda9 ' 
+  --header 'Accept: application/json'
+{
+  "atualizado" : "09.12.2025 19:11:41 " 
+  "updated_ts" : 1765307501 , 
+  "equipe" : { 
+    "id" : "2340899" , 
+    "nome" : "Cidade de Bristol" , 
+    "país" : "Inglaterra " 
+    "fundada" : "1894 " 
+    "é_seleção_nacional" : "Falso" , 
+    "é_mulher" : "Falso" , 
+    "ligas" : { 
+      "league_id" : [ 
+        "3038" ,
+        "3367"
+      ]
+    } ,
+    "nome_do_local" : "Estádio Ashton Gate" , 
+    "venue_id" : "2419838" , 
+    "superfície_do_local" : "Grama" , 
+    "capacidade_do_local" : "27000" , 
+    "Endereço do local" : "Ashton Road" , 
+    "cidade_do_local" : "Bristol" , 
+    "treinador" : { 
+      "nome" : "Gerhard Struber " 
+      "id" : "2820329" 
+    } ,
+    "esquadrão" : { 
+      "jogador" : [ 
+        {
+          "id" : "3446137" , 
+          "nome" : "Josey Casa-Grande" , 
+          "número" : "" , 
+          "idade" : "20 " 
+          "posição" : "G" , 
+          "é_capitão" : "" , 
+          "ferido" : "Falso" , 
+          "minutos_jogados" : "" , 
+          "escalações_iniciais" : "" , 
+          "substituir" : "" , 
+          "substituir_para" : "" , 
+          "na bancada" : "" , 
+          "aparências" : "" , 
+          "assistências" : "" , 
+          "blocos" : "" , 
+          "autorizações" : "" , 
+          "cruzes_precisas" : "" , 
+          "total_de_cruzamentos" : "" , 
+          "despossuídos" : "" , 
+          "tentativas_de_dribble" : "" , 
+          "dribble_success" : "" , 
+          "duelos_total" : "" , 
+          "duelos_vencidos" : "" , 
+          "faltas_cometidas" : "" , 
+          "faltas_desenhadas" : "" , 
+          "metas" : "" , 
+          "gols_concedidos" : "" , 
+          "inside_box_saves" : "" , 
+          "interceptações" : "" , 
+          "key_passes" : "" , 
+          "tentativas_de_aprovação" : "" , 
+          "pass_success" : "" , 
+          "pen_committed" : "" , 
+          "pen_missed" : "" , 
+          "caneta_salva" : "" , 
+          "pen_scored" : "" , 
+          "pen_won" : "" , 
+          "cartões vermelhos" : "" , 
+          "salva" : "" , 
+          "shots_on_target" : "" , 
+          "shots_total" : "" , 
+          "shots_woodwork" : "" , 
+          "ataques" : "" , 
+          "cartões amarelos" : "" , 
+          "amarelo-vermelho" : "" , 
+          "avaliação" : "" 
+        }
+      ]
+    } ,
+    "transferências" : { 
+      "em" : { 
+        "jogador" : [ 
+          {
+            "id" : "2664686" , 
+            "nome" : "Joe Lumley " 
+            "data" : "27.10.2025 " 
+            "idade" : "" , 
+            "posição" : "" , 
+            "de" : "Sheffield Qua" , 
+            "team_id" : "2341182" , 
+            "tipo" : "Devolução de empréstimo" , 
+            "preço" : "" 
+          }
+        ]
+      } ,
+      "fora" : { 
+        "jogador" : [ 
+          {
+            "id" : "2664686" , 
+            "nome" : "Joe Lumley " 
+            "data" : "20.10.2025 " 
+            "idade" : "" , 
+            "posição" : "" , 
+            "para" : "Sheffield Qua" , 
+            "team_id" : "2341182" , 
+            "tipo" : "Empréstimo" , 
+            "preço" : "" 
+          }
+        ]
+      }
+    } ,
+    "troféus" : { 
+      "troféu" : [ 
+        {
+          "país" : "Inglaterra " 
+          "liga" : "Campeonato" , 
+          "status" : "Vencedor" , 
+          "contagem" : "1" , 
+          "temporadas" : "1905/1906," 
+        }
+      ]
+    } ,
+    "estatísticas_da_liga" : { 
+      "liga" : [ 
+        {
+          "nome" : "Campeonato" , 
+          "id" : "3038" , 
+          "temporada" : "2025/2026 " 
+          "tempo total" : { 
+            "ganhar" : { 
+              "total" : "8" , 
+              "casa" : "4" , 
+              "fora" : "4" 
+            } ,
+            "perdido" : { 
+              "total" : "6" , 
+              "casa" : "4" , 
+              "fora" : "2" 
+            } ,
+            "empate" : { 
+              "total" : "5" , 
+              "casa" : "2" , 
+              "fora" : "3" 
+            }
+          } ,
+          "primeira metade" : { 
+            "ganhar" : { 
+              "total" : "9" , 
+              "casa" : "5" , 
+              "fora" : "4" 
+            } ,
+            "perdido" : { 
+              "total" : "4" , 
+              "casa" : "2" , 
+              "fora" : "2" 
+            } ,
+            "empate" : { 
+              "total" : "6" , 
+              "casa" : "3" , 
+              "fora" : "3" 
+            }
+          } ,
+          "segunda metade" : { 
+            "ganhar" : { 
+              "total" : "4" , 
+              "casa" : "2" , 
+              "fora" : "2" 
+            } ,
+            "perdido" : { 
+              "total" : "6" , 
+              "casa" : "3" , 
+              "fora" : "2" 
+            } ,
+            "empate" : { 
+              "total" : "9" , 
+              "casa" : "5" , 
+              "fora" : "4" 
+            }
+          } ,
+          "minutos_de_pontuação" : { 
+            "período" : [ 
+              {
+                "min" : "0-15" , 
+                "pct" : "11%" , 
+                "contagem" : "3" 
+              } ,
+              {
+                "min" : "15-30" , 
+                "pct" : "23%" , 
+                "contagem" : "6" 
+              }
+            ]
+          } ,
+          "gols_concedidos_minutos" : { 
+            "período" : [ 
+              {
+                "min" : "0-15" , 
+                "pct" : "19%" , 
+                "contagem" : "4" 
+              }
+            ]
+          } ,
+          "minutos_cartão_amarelo" : { 
+            "período" : [ 
+              {
+                "min" : "15-30" , 
+                "pct" : "7%" , 
+                "contagem" : "2" 
+              }
+            ]
+          } ,
+          "redcard_minutes" : { 
+            "período" : [ 
+              {
+                "min" : "0-15" , 
+                "pct" : "%" , 
+                "contagem" : "0" 
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

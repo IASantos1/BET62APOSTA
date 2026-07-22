@@ -1,0 +1,124 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v2/soccer/players/{player_id}?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "atualizado" : "09.12.2025 21:45:23 " 
+  "updated_ts" : 1765316723 , 
+  "jogador" : { 
+    "id" : "2773317" , 
+    "nome" : "Erling Haaland" , 
+    "primeiro nome" : "Erling " 
+    "sobrenome" : "Haaland " 
+    "idade" : "25 " 
+    "Data de nascimento" : "21.07.2000 " 
+    "nacionalidade" : "Noruega " 
+    "Local de nascimento" : "Leeds " 
+    "País de nascimento" : "Noruega " 
+    "posição" : "Para frente" , 
+    "altura" : "195 " 
+    "peso" : "88 " 
+    "pé_preferido" : "Esquerdo" , 
+    "time" : "Manchester City" , 
+    "team_id" : "2341092" , 
+    "id_da_equipe_nacional" : "2345515" , 
+    "market_value_eur" : "196000000" , 
+    "estatísticas_da_liga_clube" : { 
+      "clube" : [ 
+        {
+          "team_id" : "2341092" , 
+          "nome_do_time" : "Manchester City" , 
+          "league_id" : "3037" , 
+          "liga" : "Premier League" , 
+          "temporada" : "2025/2026 " 
+          "é_capitão" : "0" , 
+          "minutos_jogados" : "1287" , 
+          "aparições" : "15" , 
+          "starting_lineups" : "15" , 
+          "substituto_em" : "0" , 
+          "substituir_para" : "" , 
+          "na bancada" : "" , 
+          "assistências" : "3 " 
+          "blocos" : "1" , 
+          "liberações" : "25" , 
+          "cruzes_precisas" : "" , 
+          "total_de_cruzamentos" : "" , 
+          "despossuídos" : "7" , 
+          "tentativas_de_dribble" : "15" , 
+          "dribble_success" : "6" , 
+          "duelos_total" : "109" , 
+          "duelos_vencidos" : "58" , 
+          "faltas_cometidas" : "12" , 
+          "faltas_desenhadas" : "10" , 
+          "gols" : "15" , 
+          "gols_concedidos" : "0" , 
+          "inside_box_saves" : "" , 
+          "interceptações" : "2" , 
+          "key_passes" : "8" , 
+          "tentativas_de_aprovação" : "172" , 
+          "pass_success" : "7" , 
+          "pen_committed" : "" , 
+          "pen_missed" : "1" , 
+          "caneta_salva" : "" , 
+          "pen_scored" : "0" , 
+          "pen_won" : "" , 
+          "classificação" : "7,640000 " 
+          "cartões vermelhos" : "0" , 
+          "salva" : "" , 
+          "shots_on_target" : "32" , 
+          "shots_total" : "52" , 
+          "shots_woodwork" : "" , 
+          "desarmes" : "4" , 
+          "cartões amarelos" : "0" , 
+          "amarelo-vermelho" : "" 
+        }
+      ]
+    } ,
+    "estatísticas_da_copa_do_clube" : { 
+      "clube" : [ ] 
+    } ,
+    "club_intl_cup_statistics" : { 
+      "clube" : [ ] 
+    } ,
+    "estatísticas_gerais_do_clube" : { 
+      "minutos_jogados" : "24910" , 
+      "aparições" : "336" , 
+      "starting_lineups" : "294" , 
+      "substituir" : "42" , 
+      "assistências" : "51 " 
+      "blocos" : "22" , 
+      "liberações" : "183" , 
+      "cruzes_precisas" : "15" , 
+      "total_de_cruzes" : "92" , 
+      "despossuídos" : "173" , 
+      "tentativas_de_dribble" : "421" , 
+      "dribble_success" : "205" , 
+      "duelos_total" : "1898" , 
+      "duelos_vencidos" : "836" , 
+      "faltas_cometidas" : "286" , 
+      "faltas_desenhadas" : "205" , 
+      "gols_concedidos" : "0" , 
+      "inside_box_saves" : "" , 
+      "interceptações" : "39" , 
+      "key_passes" : "264" , 
+      "tentativas_de_aprovação" : "4122" , 
+      "pass_success" : "21" , 
+      "pen_committed" : "" , 
+      "pen_missed" : "7" , 
+      "caneta_salva" : "" , 
+      "pen_scored" : "44" , 
+      "pen_won" : "4" , 
+      "classificação" : "7,345846 " 
+      "salva" : "" , 
+      "shots_on_target" : "565" , 
+      "shots_total" : "938" , 
+      "shots_woodwork" : "5" , 
+      "desarmes" : "61" 
+    } ,
+    "estatísticas_da_seleção_nacional" : { 
+      "ligas" : [ ] 
+    } ,
+    "transferências" : [ ] , 
+    "troféus" : { } , 
+    "história_marginalizada" : [ ] 
+  }
+}
