@@ -13,7 +13,7 @@ import { handleAdminRoutes } from './routes/admin';
 import { handleStripeRoutes } from './routes/stripe';
 import { createLiveWs } from './ws/liveWs';
 import { autoSettleFromCache } from './services/settlement';
-import { getSportsDataProviderConfig } from './services/sportsDataProvider';
+import { getStatPalConfig } from './services/statPal';
 
 const loadEnvFile = (filePath: string) => {
   try {
@@ -91,7 +91,7 @@ const safePool: any =
     }),
   } as any);
 
-const providerConfig = getSportsDataProviderConfig();
+const providerConfig = getStatPalConfig();
 const sportsProvider = providerConfig.provider;
 const sportsApiKeyEnv = providerConfig.envSource || '';
 const sportsApiKey = providerConfig.apiKey;

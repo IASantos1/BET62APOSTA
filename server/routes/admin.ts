@@ -16,7 +16,7 @@ import {
 import { APP_BETS_TABLE, APP_TRANSACTIONS_TABLE, ensureAppBetsTable, ensureAppTransactionsTable } from '../lib/appTables';
 import { buildSportsDataPipelineStatus } from '../services/dataPipeline';
 import { getKycStorageRoot } from '../lib/kycStorage';
-import { getSportsDataProviderConfig } from '../services/sportsDataProvider';
+import { getStatPalConfig } from '../services/statPal';
 
 interface TestKeyBody { key: string; sport?: string; matchId?: string; leagueId?: string; teamId?: string; playerId?: string; coachId?: string }
 type WalletAdjustBody = { amount?: number | string; note?: string; mode?: 'credit' | 'debit' };
@@ -52,7 +52,7 @@ function detectSportsApiEnvSource(): string {
 async function probeUrl(url: string, key: string): Promise<{ url: string; status: number; ok: boolean; ms: number; keys: string[]; sample: string; error?: string }> {
   const t0 = Date.now();
   try {
-    const provider = getSportsDataProviderConfig().provider;
+    const provider = getStatPalConfig().provider;
     const target = new URL(url);
     if (provider === 'statpal') {
       target.searchParams.set('access_key', key);
@@ -770,7 +770,7 @@ export async function handleAdminRoutes(
         apiKey,
         adminOddsEvents,
         eventsCache,
-        provider: getSportsDataProviderConfig().provider,
+        provider: getStatPalConfig().provider,
       }),
     );
     return true;
@@ -783,7 +783,7 @@ export async function handleAdminRoutes(
     ]);
     const providerMetrics = events.getProviderMetrics?.() ?? { operations: [] };
     const providerConfig = events.getProviderConfig?.() ?? {};
-    const activeProvider = String((providerConfig as any)?.provider || getSportsDataProviderConfig().provider || 'sportsapipro');
+    const activeProvider = String((providerConfig as any)?.provider || getStatPalConfig().provider || 'statpal');
     sendJson(res, 200, {
       provider: activeProvider,
       configured: Boolean(apiKey),
@@ -842,7 +842,7 @@ export async function handleAdminRoutes(
   if (req.method === 'GET' && path === '/api/metrics/sports') {
     const metrics = events.getProviderMetrics?.() ?? { operations: [] };
     const config = events.getProviderConfig?.() ?? {};
-    const activeProvider = String((config as any)?.provider || getSportsDataProviderConfig().provider || 'sportsapipro');
+    const activeProvider = String((config as any)?.provider || getStatPalConfig().provider || 'statpal');
     sendJson(res, 200, {
       provider: activeProvider,
       configured: Boolean(apiKey),

@@ -1635,3 +1635,21 @@ export async function fetchStatPalWorldCup2026Matches(_apiKey: string, _page: nu
 export function getStatPalTournamentId(event: any): string {
   return extractTournamentId(event);
 }
+
+// ── Provider config (single source of truth) ─────────────────────────────────
+
+const STATPAL_DEFAULT_KEY = 'b5b07a3f-b019-4a18-8969-6045169feda9';
+
+function resolveStatPalApiKey(): string {
+  if (process.env.STATPAL_ACCESS_KEY) return String(process.env.STATPAL_ACCESS_KEY).trim();
+  if (process.env.STATPAL_KEY) return String(process.env.STATPAL_KEY).trim();
+  return STATPAL_DEFAULT_KEY;
+}
+
+export function getStatPalConfig(): { provider: 'statpal'; apiKey: string; supportsUpstreamWs: false } {
+  return {
+    provider: 'statpal',
+    apiKey: resolveStatPalApiKey(),
+    supportsUpstreamWs: false,
+  };
+}

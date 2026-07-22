@@ -3,14 +3,14 @@ import process from 'node:process';
 import type { Duplex } from 'stream';
 import WebSocket, { WebSocketServer } from 'ws';
 import {
-  fetchSportsApiProLive,
-  fetchSportsApiProMatchIncidents,
-  fetchSportsApiProMatchOddsAll,
-  fetchSportsApiProMatchOddsLive,
-  fetchSportsApiProMatchOddsPreMatch,
-  getSportsDataProviderConfig,
-  parseSportsApiProMatchOddsPayload,
-} from '../services/sportsDataProvider.js';
+  fetchStatPalLive,
+  fetchStatPalMatchIncidents,
+  fetchStatPalMatchOddsAll,
+  fetchStatPalMatchOddsLive,
+  fetchStatPalMatchOddsPreMatch,
+  getStatPalConfig,
+  parseStatPalMatchOddsPayload,
+} from '../services/statPal.js';
 
 type ClientInfo = { ws: WebSocket; sport: string };
 type UpstreamInfo = {
@@ -46,7 +46,7 @@ function envInt(name: string, fallback: number, min: number, max: number): numbe
 }
 
 export function createLiveWs(apiKey: string) {
-  const provider = getSportsDataProviderConfig();
+  const provider = getStatPalConfig();
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<ClientInfo>();
   const timers = new Map<string, NodeJS.Timeout>();
@@ -1182,9 +1182,9 @@ export function createLiveWs(apiKey: string) {
     const p = (async () => {
       const opts = { homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam, leagueId: ctx.leagueId };
       const [allResult, liveResult, preResult] = await Promise.all([
-        fetchSportsApiProMatchOddsAll(apiKey, sport, id, opts).catch(() => null),
-        fetchSportsApiProMatchOddsLive(apiKey, sport, id, opts).catch(() => null),
-        fetchSportsApiProMatchOddsPreMatch(apiKey, sport, id, opts).catch(() => null),
+        fetchStatPalMatchOddsAll(apiKey, sport, id, opts).catch(() => null),
+        fetchStatPalMatchOddsLive(apiKey, sport, id, opts).catch(() => null),
+        fetchStatPalMatchOddsPreMatch(apiKey, sport, id, opts).catch(() => null),
       ]);
       return mergeOddsResults([allResult, liveResult, preResult].filter(Boolean));
     })()
@@ -1323,7 +1323,7 @@ export function createLiveWs(apiKey: string) {
       if (criticalIncidentInflight.has(cacheKey)) continue;
 
       const task = (async () => {
-        const raw = await fetchSportsApiProMatchIncidents(apiKey, target.sport, target.id).catch(() => null);
+        const raw = await fetchStatPalMatchIncidents(apiKey, target.sport, target.id).catch(() => null);
         const normalized = normalizeCriticalIncidents(target.id, target.sport, raw, {
           homeTeam: target.homeTeam,
           awayTeam: target.awayTeam,
@@ -1424,7 +1424,7 @@ export function createLiveWs(apiKey: string) {
             allBootstrapAt = now;
             allBootstrapInflight = (async () => {
               const entries = await Promise.all(
-                SPORTS_DEFAULT.map(async (sp) => ({ sp, list: await fetchSportsApiProLive(apiKey, sp).catch(() => []) })),
+                SPORTS_DEFAULT.map(async (sp) => ({ sp, list: await fetchStatPalLive(apiKey, sp).catch(() => []) })),
               );
               const ts = Date.now();
               for (const { sp, list } of entries) {
@@ -1477,7 +1477,7 @@ export function createLiveWs(apiKey: string) {
       const liveAll: any[] = [];
       try {
         const entries = await Promise.all(
-          sports.map(async (sp) => ({ sp, list: await fetchSportsApiProLive(apiKey, sp).catch(() => []) })),
+          sports.map(async (sp) => ({ sp, list: await fetchStatPalLive(apiKey, sp).catch(() => []) })),
         );
         for (const { sp, list } of entries) {
           liveAll.push(...normalizeAndFilterLive(sp, list));
@@ -1656,7 +1656,9 @@ export function createLiveWs(apiKey: string) {
     u.stopped = false;
     upstreams.set(localSport, u);
 
-    const url = `wss://v2.${wsSport}.sportsapipro.com/ws?x-api-key=${encodeURIComponent(apiKey)}`;
+    // StatPal does not provide a WebSocket upstream (supportsUpstreamWs: false).
+    // This branch is never reached; kept as a placeholder for future providers.
+    const url = `wss://statpal.io/ws/${encodeURIComponent(wsSport)}?access_key=${encodeURIComponent(apiKey)}`;
     const ws = new WebSocket(url, { headers: { 'x-sport': wsSport } as any });
     u.ws = ws;
 
@@ -1798,7 +1800,7 @@ export function createLiveWs(apiKey: string) {
             const normalizedId = normalizeMatchId(localSport, matchId);
             const key = `${localSport}:${normalizedId}`;
             const meta = matchMeta.get(key);
-            const parsed = parseSportsApiProMatchOddsPayload(localSport, msg.data, meta ? { homeTeam: meta.homeTeam, awayTeam: meta.awayTeam } : undefined);
+            const parsed = parseStatPalMatchOddsPayload(localSport, msg.data, meta ? { homeTeam: meta.homeTeam, awayTeam: meta.awayTeam } : undefined);
             if (parsed) {
               oddsCache.set(key, { ts: Date.now(), data: parsed });
               const realtimeSuspension = getRealtimeSuspensionPayload(localSport, normalizedId);

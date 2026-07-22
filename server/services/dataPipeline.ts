@@ -155,14 +155,13 @@ export function buildSportsDataPipelineStatus(input: {
   const adminOddsEvents = collectEvents(input.adminOddsEvents);
   const allEvents = [...cacheEvents, ...adminOddsEvents];
   const validation = buildFeedValidationReport(allEvents);
-  const provider = String(input.provider || 'sportsapipro').trim().toLowerCase() || 'sportsapipro';
-  const providerLabel = provider === 'statpal' ? 'StatPal' : 'SportsAPIPro';
+  const provider = String(input.provider || 'statpal').trim().toLowerCase() || 'statpal';
+  const providerLabel = 'StatPal';
 
   const feeds: FeedSourceStatus[] = [
     { key: 'sportradar', label: 'Sportradar', enabled: false, role: 'secondary' },
     { key: 'stats-perform', label: 'Stats Perform', enabled: false, role: 'secondary' },
-    { key: 'sportsapipro', label: 'SportsAPIPro', enabled: provider === 'sportsapipro' && Boolean(String(input.apiKey || '').trim()), role: provider === 'sportsapipro' ? 'primary' : 'secondary' },
-    { key: 'statpal', label: 'StatPal', enabled: provider === 'statpal' && Boolean(String(input.apiKey || '').trim()), role: provider === 'statpal' ? 'primary' : 'secondary' },
+    { key: 'statpal', label: 'StatPal', enabled: Boolean(String(input.apiKey || '').trim()), role: 'primary' },
     { key: 'internal-scout', label: 'Feed proprio / Scout', enabled: false, role: 'manual' },
   ];
 

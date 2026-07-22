@@ -5,7 +5,7 @@
 import type pg from 'pg';
 import { randomId } from '../lib/crypto.js';
 import { APP_BETS_TABLE, APP_TRANSACTIONS_TABLE, ensureAppBetsTable, ensureAppTransactionsTable } from '../lib/appTables';
-import { fetchSportsApiProSchedule, getSportsDataProviderConfig } from './sportsDataProvider.js';
+import { fetchStatPalSchedule, getStatPalConfig } from './statPal.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1676,7 +1676,7 @@ async function fetchMatchResult(
   sport: string,
 ): Promise<MatchResult | null> {
   if (!apiKey) return null;
-  const provider = getSportsDataProviderConfig().provider;
+  const provider = getStatPalConfig().provider;
   if (provider === 'statpal') {
     const today = new Date();
     const days = [
@@ -1686,7 +1686,7 @@ async function fetchMatchResult(
     ].map((d) => d.toISOString().slice(0, 10));
     for (const day of days) {
       try {
-        const events = await fetchSportsApiProSchedule(apiKey, sport, day);
+        const events = await fetchStatPalSchedule(apiKey, sport, day);
         const ev = (events || []).find((item: any) => {
           const id = String(item?.external_event_id ?? item?.id ?? item?.fixture?.id ?? item?.match_id ?? '');
           return id === String(eventId);

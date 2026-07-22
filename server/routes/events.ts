@@ -1,33 +1,33 @@
 import type http from 'http';
 import type pg from 'pg';
 import {
-  fetchSportsApiProLive,
-  fetchSportsApiProV1AllScoresDelta,
-  fetchSportsApiProMatchOddsAll,
-  fetchSportsApiProMatchOddsLive,
-  fetchSportsApiProMatchOddsPreMatch,
-  fetchSportsApiProMatchStatistics,
-  fetchSportsApiProMatchIncidents,
-  fetchSportsApiProSchedule,
-  fetchSportsApiProWorldCup2026,
-  fetchSportsApiProWorldCup2026Groups,
-  fetchSportsApiProWorldCup2026Info,
-  fetchSportsApiProWorldCup2026Matches,
-  fetchSportsApiProH2H,
-  fetchSportsSoccerH2HByTeams,
-  fetchSportsApiProStandings,
-  fetchSportsSoccerInjuriesSuspensions,
-  fetchSportsSoccerTeam,
-  fetchSportsSoccerPlayer,
-  fetchSportsSoccerCoach,
-  fetchSportsSoccerLiveStorylines,
-  fetchSportsSoccerTeamLineups,
-  fetchSportsSoccerWeatherForecast,
-  fetchSportsSoccerPredictions,
-  fetchSportsSoccerLiveOddsMarkets,
-  fetchSportsSoccerLiveOddsMatchStates,
-  getSportsDataProviderConfig,
-} from '../services/sportsDataProvider';
+  fetchStatPalLive,
+  fetchStatPalV1AllScoresDelta,
+  fetchStatPalMatchOddsAll,
+  fetchStatPalMatchOddsLive,
+  fetchStatPalMatchOddsPreMatch,
+  fetchStatPalMatchStatistics,
+  fetchStatPalMatchIncidents,
+  fetchStatPalSchedule,
+  fetchStatPalWorldCup2026,
+  fetchStatPalWorldCup2026Groups,
+  fetchStatPalWorldCup2026Info,
+  fetchStatPalWorldCup2026Matches,
+  fetchStatPalH2H,
+  fetchStatPalSoccerH2HByTeams,
+  fetchStatPalStandings,
+  fetchStatPalSoccerInjuriesSuspensions,
+  fetchStatPalSoccerTeam,
+  fetchStatPalSoccerPlayer,
+  fetchStatPalSoccerCoach,
+  fetchStatPalSoccerLiveStorylines,
+  fetchStatPalSoccerTeamLineups,
+  fetchStatPalSoccerWeatherForecast,
+  fetchStatPalSoccerPredictions,
+  fetchStatPalSoccerLiveOddsMarkets,
+  fetchStatPalSoccerLiveOddsMatchStates,
+  getStatPalConfig,
+} from '../services/statPal';
 import { deriveAdditionalMarkets } from '../services/marketDerivation';
 import { sendJson, badRequest } from '../lib/http';
 
@@ -45,7 +45,7 @@ function envInt(name: string, fallback: number, min: number, max: number): numbe
 const SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'baseball', 'ice-hockey', 'volleyball', 'mma'];
 const LIVE_SPORTS_DEFAULT = ['soccer', 'tennis', 'basketball', 'baseball', 'ice-hockey', 'volleyball', 'mma'];
 const RESOLVABLE_SPORTS = Array.from(new Set([...SPORTS_DEFAULT, ...LIVE_SPORTS_DEFAULT]));
-// Sports with a working /api/live endpoint on SportsApiPro / WS bootstrap
+// Sports with a working /api/live endpoint on StatPal / WS bootstrap
 const LIVE_CAPABLE = new Set([
   'soccer',
   'football',
@@ -1123,7 +1123,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     }
     if (cached && ttlOk(cached.ts, 2 * 60_000)) {
       recordProviderCache('live', 'stale');
-      callProvider('live', () => fetchSportsApiProLive(apiKey, sport))
+      callProvider('live', () => fetchStatPalLive(apiKey, sport))
         .then((list) => {
           const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
             const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
@@ -1149,7 +1149,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       return cached.data;
     }
     recordProviderCache('live', 'miss');
-    const list = await callProvider('live', () => fetchSportsApiProLive(apiKey, sport)).catch(() => []);
+    const list = await callProvider('live', () => fetchStatPalLive(apiKey, sport)).catch(() => []);
     const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
       const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
       const prev = lastEventById.get(id)?.data;
@@ -1192,7 +1192,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     // Stale-while-revalidate (up to 3h): serve stale, refresh in background
     if (cached && ttlOk(cached.ts, 3 * 60 * 60 * 1000)) {
       recordProviderCache('schedule', 'stale');
-      callProvider('schedule', () => fetchSportsApiProSchedule(apiKey, sport, date))
+      callProvider('schedule', () => fetchStatPalSchedule(apiKey, sport, date))
         .then((list) => {
           if (list && list.length > 0) {
             scheduleCache.set(key, { ts: nowMs(), data: normalizeScheduleList(list, sport) });
@@ -1203,7 +1203,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     }
     // Very stale (>3h) or cold: try fresh fetch; on failure keep/return any stale data
     recordProviderCache('schedule', 'miss');
-    const list = await callProvider('schedule', () => fetchSportsApiProSchedule(apiKey, sport, date)).catch(() => null);
+    const list = await callProvider('schedule', () => fetchStatPalSchedule(apiKey, sport, date)).catch(() => null);
     if (list === null) {
       // API failed (timeout/rate-limit): return stale data if available, otherwise empty
       if (cached) return cached.data;
@@ -1222,9 +1222,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const cached = worldCupCache.get(key);
     if (cached && ttlOk(cached.ts, 60 * 60_000)) return cached.data;
     let data: any | null = null;
-    if (kind === 'tournament') data = await fetchSportsApiProWorldCup2026(apiKey).catch(() => null);
-    if (kind === 'info') data = await fetchSportsApiProWorldCup2026Info(apiKey).catch(() => null);
-    if (kind === 'groups') data = await fetchSportsApiProWorldCup2026Groups(apiKey).catch(() => null);
+    if (kind === 'tournament') data = await fetchStatPalWorldCup2026(apiKey).catch(() => null);
+    if (kind === 'info') data = await fetchStatPalWorldCup2026Info(apiKey).catch(() => null);
+    if (kind === 'groups') data = await fetchStatPalWorldCup2026Groups(apiKey).catch(() => null);
     worldCupCache.set(key, { ts: nowMs(), data });
     return data;
   };
@@ -1234,7 +1234,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     const key = `matches:${p}`;
     const cached = worldCupMatchesCache.get(key);
     if (cached && ttlOk(cached.ts, 20 * 60_000)) return cached.data;
-    const list = await fetchSportsApiProWorldCup2026Matches(apiKey, p).catch(() => []);
+    const list = await fetchStatPalWorldCup2026Matches(apiKey, p).catch(() => []);
     const normalized = (Array.isArray(list) ? list : []).map((e: any) => {
       const id = String((e as any).id || '').trim() || String((e as any).external_event_id || '').split('_').pop() || '';
       const out = { ...e, id, sport: 'soccer' };
@@ -1325,9 +1325,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         matchIds: Array.from(new Set([normalizedId, ...((ctx.matchIds || []).map((id) => normalizeMatchId(sport, id)).filter(Boolean))])),
       };
       const [allResult, liveResult, preResult] = await Promise.all([
-        callProvider('odds', () => fetchSportsApiProMatchOddsAll(apiKey, sport, normalizedId, opts)).catch(() => null),
-        callProvider('odds', () => fetchSportsApiProMatchOddsLive(apiKey, sport, normalizedId, opts)).catch(() => null),
-        callProvider('odds', () => fetchSportsApiProMatchOddsPreMatch(apiKey, sport, normalizedId, opts)).catch(() => null),
+        callProvider('odds', () => fetchStatPalMatchOddsAll(apiKey, sport, normalizedId, opts)).catch(() => null),
+        callProvider('odds', () => fetchStatPalMatchOddsLive(apiKey, sport, normalizedId, opts)).catch(() => null),
+        callProvider('odds', () => fetchStatPalMatchOddsPreMatch(apiKey, sport, normalizedId, opts)).catch(() => null),
       ]);
       const merged = mergeOddsResults([allResult, liveResult, preResult].filter(Boolean));
       if (ctx.isLive) {
@@ -2536,7 +2536,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const cachedCursor = v1AllScoresCursorBySport.get(sKey);
       const cursor = existingCursor || (cachedCursor && ttlOk(cachedCursor.ts, 20 * 60_000) ? cachedCursor.data : '');
 
-      const delta = await fetchSportsApiProV1AllScoresDelta(apiKey, sport, cursor || null).catch(() => null);
+      const delta = await fetchStatPalV1AllScoresDelta(apiKey, sport, cursor || null).catch(() => null);
       const nextCursor = delta?.lastUpdateId ? String(delta.lastUpdateId) : '';
       if (nextCursor) v1AllScoresCursorBySport.set(sKey, { ts: nowMs(), data: nextCursor });
 
@@ -2651,7 +2651,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const sport = sportParam || await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
       recordProviderCache('statistics', 'miss');
-      const statsRaw = await callProvider('statistics', () => fetchSportsApiProMatchStatistics(apiKey, sport, id)).catch(() => null);
+      const statsRaw = await callProvider('statistics', () => fetchStatPalMatchStatistics(apiKey, sport, id)).catch(() => null);
 
       // Normalise a SportsApiPro v2 home/away object into API-Football statistics array
       const normalizeStatsObject = (obj: any, teamLabel: string): any[] => {
@@ -2758,7 +2758,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const id = normalizeIdLoose(idRaw);
       const sportParam = String(url.searchParams.get('sport') || '').trim();
       const sport = sportParam || await resolveSport(id) || 'soccer';
-      const provider = getSportsDataProviderConfig().provider;
+      const provider = getStatPalConfig().provider;
       const cachedEvent = lastEventById.get(id)?.data;
       const statPalTeam1Id = String(
         cachedEvent?.home_team_id ??
@@ -2773,8 +2773,8 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         '',
       ).trim();
       const raw = provider === 'statpal' && sport === 'soccer' && statPalTeam1Id && statPalTeam2Id
-        ? await fetchSportsSoccerH2HByTeams(apiKey, statPalTeam1Id, statPalTeam2Id).catch(() => null)
-        : await fetchSportsApiProH2H(apiKey, sport, id).catch(() => null);
+        ? await fetchStatPalSoccerH2HByTeams(apiKey, statPalTeam1Id, statPalTeam2Id).catch(() => null)
+        : await fetchStatPalH2H(apiKey, sport, id).catch(() => null);
       if (!raw) return sendJson(res, 200, { matches: [] }), true;
 
       const extractH2H = (r: any): any[] => {
@@ -2812,7 +2812,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const leagueIdRaw = decodeURIComponent(standingsMatch[1] || '');
       const sportParam = String(url.searchParams.get('sport') || 'soccer').trim();
       const sport = sportParam || 'soccer';
-      const raw = await fetchSportsApiProStandings(apiKey, sport, leagueIdRaw).catch(() => null);
+      const raw = await fetchStatPalStandings(apiKey, sport, leagueIdRaw).catch(() => null);
       if (!raw) return sendJson(res, 200, { standings: [] }), true;
 
       const extractRows = (r: any): any[] => {
@@ -2957,9 +2957,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         if (existing) return existing;
         const needStats = sportKey === 'soccer' || sportKey === 'football';
         const p = Promise.all([
-          callProvider('incidents', () => fetchSportsApiProMatchIncidents(apiKey, sport, id)).catch(() => null),
+          callProvider('incidents', () => fetchStatPalMatchIncidents(apiKey, sport, id)).catch(() => null),
           needStats
-            ? callProvider('statistics', () => fetchSportsApiProMatchStatistics(apiKey, sport, id)).catch(() => null)
+            ? callProvider('statistics', () => fetchStatPalMatchStatistics(apiKey, sport, id)).catch(() => null)
             : Promise.resolve(null),
         ])
           .then(([incidentsRaw, statsRaw]) => buildPayloadFromRaw(incidentsRaw, statsRaw))
@@ -2994,7 +2994,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     }
 
     if (req.method === 'GET' && path === '/api/soccer/injuries-suspensions') {
-      const raw = await callProvider('soccer_injuries', () => fetchSportsSoccerInjuriesSuspensions(apiKey)).catch(() => null);
+      const raw = await callProvider('soccer_injuries', () => fetchStatPalSoccerInjuriesSuspensions(apiKey)).catch(() => null);
       // StatPal returns the Portuguese key "suspensões_por_lesão" instead of "injuries_suspensions"
       const injData = raw?.injuries_suspensions
         ?? raw?.['suspensões_por_lesão']
@@ -3011,7 +3011,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     if (req.method === 'GET' && path === '/api/soccer/live-storylines') {
       const matchId = String(url.searchParams.get('matchId') || url.searchParams.get('match_id') || '').trim();
       if (!matchId) return sendJson(res, 400, { error: 'Missing matchId parameter' }), true;
-      const raw = await callProvider('soccer_storylines', () => fetchSportsSoccerLiveStorylines(apiKey, matchId)).catch(() => null);
+      const raw = await callProvider('soccer_storylines', () => fetchStatPalSoccerLiveStorylines(apiKey, matchId)).catch(() => null);
       sendJson(res, 200, { storylines: raw?.live_storylines ?? null, meta: raw?.meta ?? null, raw });
       return true;
     }
@@ -3019,7 +3019,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     if (req.method === 'GET' && path === '/api/soccer/team-lineups') {
       const matchId = String(url.searchParams.get('matchId') || url.searchParams.get('match_id') || '').trim();
       if (!matchId) return sendJson(res, 400, { error: 'Missing matchId parameter' }), true;
-      const raw = await callProvider('soccer_team_lineups', () => fetchSportsSoccerTeamLineups(apiKey, matchId)).catch(() => null);
+      const raw = await callProvider('soccer_team_lineups', () => fetchStatPalSoccerTeamLineups(apiKey, matchId)).catch(() => null);
       // StatPal returns Portuguese keys: "lar" = home, "ausente" = away.
       // Normalize to English for consistent frontend consumption.
       const normalizeLineupSide = (side: any) => {
@@ -3063,25 +3063,25 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     }
 
     if (req.method === 'GET' && path === '/api/soccer/weather-forecast') {
-      const raw = await callProvider('soccer_weather_forecast', () => fetchSportsSoccerWeatherForecast(apiKey)).catch(() => null);
+      const raw = await callProvider('soccer_weather_forecast', () => fetchStatPalSoccerWeatherForecast(apiKey)).catch(() => null);
       sendJson(res, 200, { weather: raw ?? null });
       return true;
     }
 
     if (req.method === 'GET' && path === '/api/soccer/predictions') {
-      const raw = await callProvider('soccer_predictions', () => fetchSportsSoccerPredictions(apiKey)).catch(() => null);
+      const raw = await callProvider('soccer_predictions', () => fetchStatPalSoccerPredictions(apiKey)).catch(() => null);
       sendJson(res, 200, { prediction: raw?.prediction ?? null, meta: raw?.meta ?? null, raw });
       return true;
     }
 
     if (req.method === 'GET' && path === '/api/soccer/odds/live/markets') {
-      const raw = await callProvider('soccer_live_odds_markets', () => fetchSportsSoccerLiveOddsMarkets(apiKey)).catch(() => null);
+      const raw = await callProvider('soccer_live_odds_markets', () => fetchStatPalSoccerLiveOddsMarkets(apiKey)).catch(() => null);
       sendJson(res, 200, { markets: Array.isArray(raw) ? raw : [] });
       return true;
     }
 
     if (req.method === 'GET' && path === '/api/soccer/odds/live/match-states') {
-      const raw = await callProvider('soccer_live_match_states', () => fetchSportsSoccerLiveOddsMatchStates(apiKey)).catch(() => null);
+      const raw = await callProvider('soccer_live_match_states', () => fetchStatPalSoccerLiveOddsMatchStates(apiKey)).catch(() => null);
       sendJson(res, 200, { states: Array.isArray(raw) ? raw : [] });
       return true;
     }
@@ -3090,7 +3090,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     if (teamMatch && req.method === 'GET') {
       const teamId = decodeURIComponent(teamMatch[1] || '').trim();
       if (!teamId) return sendJson(res, 400, { error: 'Missing team id' }), true;
-      const raw = await callProvider('soccer_team', () => fetchSportsSoccerTeam(apiKey, teamId)).catch(() => null);
+      const raw = await callProvider('soccer_team', () => fetchStatPalSoccerTeam(apiKey, teamId)).catch(() => null);
       // StatPal returns "equipe" (Portuguese) instead of "team"
       const teamData = raw?.team ?? raw?.equipe ?? null;
       sendJson(res, 200, { team: teamData, raw });
@@ -3101,7 +3101,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     if (playerMatch && req.method === 'GET') {
       const playerId = decodeURIComponent(playerMatch[1] || '').trim();
       if (!playerId) return sendJson(res, 400, { error: 'Missing player id' }), true;
-      const raw = await callProvider('soccer_player', () => fetchSportsSoccerPlayer(apiKey, playerId)).catch(() => null);
+      const raw = await callProvider('soccer_player', () => fetchStatPalSoccerPlayer(apiKey, playerId)).catch(() => null);
       // StatPal returns "jogador" (Portuguese) instead of "player"
       const playerData = raw?.player ?? raw?.jogador ?? null;
       sendJson(res, 200, { player: playerData, raw });
@@ -3112,7 +3112,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
     if (coachMatch && req.method === 'GET') {
       const coachId = decodeURIComponent(coachMatch[1] || '').trim();
       if (!coachId) return sendJson(res, 400, { error: 'Missing coach id' }), true;
-      const raw = await callProvider('soccer_coach', () => fetchSportsSoccerCoach(apiKey, coachId)).catch(() => null);
+      const raw = await callProvider('soccer_coach', () => fetchStatPalSoccerCoach(apiKey, coachId)).catch(() => null);
       // StatPal returns "treinador" (Portuguese) instead of "coach"
       const coachData = raw?.coach ?? raw?.treinador ?? null;
       sendJson(res, 200, { coach: coachData, raw });
@@ -3207,7 +3207,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
   };
 
   const getProviderConfig = () => {
-    const provider = getSportsDataProviderConfig();
+    const provider = getStatPalConfig();
     return {
       provider: provider.provider,
       supportsUpstreamWs: provider.supportsUpstreamWs,
