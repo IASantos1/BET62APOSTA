@@ -2991,7 +2991,45 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const matchId = String(url.searchParams.get('matchId') || url.searchParams.get('match_id') || '').trim();
       if (!matchId) return sendJson(res, 400, { error: 'Missing matchId parameter' }), true;
       const raw = await callProvider('soccer_team_lineups', () => fetchSportsSoccerTeamLineups(apiKey, matchId)).catch(() => null);
-      sendJson(res, 200, { lineups: raw ?? null });
+      // StatPal returns Portuguese keys: "lar" = home, "ausente" = away.
+      // Normalize to English for consistent frontend consumption.
+      const normalizeLineupSide = (side: any) => {
+        if (!side || typeof side !== 'object') return side;
+        return {
+          team_id: side.team_id ?? side.id ?? '',
+          team_name: side.team_name ?? side.nome_da_equipe ?? side.nome ?? '',
+          coach: side.coach ?? side.treinador ?? null,
+          formation: side.formation ?? side.formação_de_equipe ?? side.formacao_de_equipe ?? '',
+          starting_xi: Array.isArray(side.starting_xi) ? side.starting_xi.map((p: any) => ({
+            id: p.id ?? '',
+            name: p.name ?? p.nome ?? '',
+            number: p.number ?? p.número ?? p.numero ?? '',
+            position: p.position ?? p.posição ?? p.posicao ?? '',
+          })) : [],
+          bench: Array.isArray(side.bench ?? side.banco) ? (side.bench ?? side.banco).map((p: any) => ({
+            id: p.id ?? '',
+            name: p.name ?? p.nome ?? '',
+            number: p.number ?? p.número ?? p.numero ?? '',
+            position: p.position ?? p.posição ?? p.posicao ?? '',
+          })) : [],
+          sidelined: Array.isArray(side.sidelined ?? side.marginalizado) ? (side.sidelined ?? side.marginalizado).map((p: any) => ({
+            id: p.id ?? '',
+            name: p.name ?? p.nome ?? '',
+            number: p.number ?? p.número ?? p.numero ?? '',
+            position: p.position ?? p.posição ?? p.posicao ?? '',
+            status: p.status ?? '',
+            reason: p.reason ?? p.motivo ?? '',
+          })) : [],
+          confidence: side.confidence ?? side.confiança ?? side.confianca ?? null,
+        };
+      };
+      const lineups = raw ? {
+        main_id: raw.main_id ?? '',
+        status: raw.status ?? '',
+        home: normalizeLineupSide(raw.home ?? raw.lar ?? null),
+        away: normalizeLineupSide(raw.away ?? raw.ausente ?? null),
+      } : null;
+      sendJson(res, 200, { lineups, raw });
       return true;
     }
 
@@ -3024,7 +3062,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const teamId = decodeURIComponent(teamMatch[1] || '').trim();
       if (!teamId) return sendJson(res, 400, { error: 'Missing team id' }), true;
       const raw = await callProvider('soccer_team', () => fetchSportsSoccerTeam(apiKey, teamId)).catch(() => null);
-      sendJson(res, 200, { team: raw?.team ?? null, raw });
+      // StatPal returns "equipe" (Portuguese) instead of "team"
+      const teamData = raw?.team ?? raw?.equipe ?? null;
+      sendJson(res, 200, { team: teamData, raw });
       return true;
     }
 
@@ -3033,7 +3073,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const playerId = decodeURIComponent(playerMatch[1] || '').trim();
       if (!playerId) return sendJson(res, 400, { error: 'Missing player id' }), true;
       const raw = await callProvider('soccer_player', () => fetchSportsSoccerPlayer(apiKey, playerId)).catch(() => null);
-      sendJson(res, 200, { player: raw?.player ?? null, raw });
+      // StatPal returns "jogador" (Portuguese) instead of "player"
+      const playerData = raw?.player ?? raw?.jogador ?? null;
+      sendJson(res, 200, { player: playerData, raw });
       return true;
     }
 
@@ -3042,7 +3084,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const coachId = decodeURIComponent(coachMatch[1] || '').trim();
       if (!coachId) return sendJson(res, 400, { error: 'Missing coach id' }), true;
       const raw = await callProvider('soccer_coach', () => fetchSportsSoccerCoach(apiKey, coachId)).catch(() => null);
-      sendJson(res, 200, { coach: raw?.coach ?? null, raw });
+      // StatPal returns "treinador" (Portuguese) instead of "coach"
+      const coachData = raw?.coach ?? raw?.treinador ?? null;
+      sendJson(res, 200, { coach: coachData, raw });
       return true;
     }
 
