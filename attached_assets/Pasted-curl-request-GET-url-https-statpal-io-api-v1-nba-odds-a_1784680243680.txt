@@ -1,0 +1,78 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/nba/odds?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "chances" : { 
+    "esporte" : "basquete " 
+    "categoria" : { 
+      "gid" : "2545" , 
+      "id" : "2545" , 
+      "nome" : "EUA: NBA" , 
+      "partidas" : { 
+        "corresponder" : [ 
+          {
+            "data" : "12.12.2025 " 
+            "hora" : "01:00 " 
+            "status" : "Não iniciado" , 
+            "id" : "1012269" , 
+            "lar" : { 
+              "id" : "2692" , 
+              "nome" : "Houston Rockets" , 
+              "q1" : "" , 
+              "q2" : "" , 
+              "q3" : "" , 
+              "q4" : "" , 
+              "ot" : "" , 
+              "totalscore" : "" 
+            } ,
+            "ausente" : { 
+              "id" : "2670" , 
+              "nome" : "Los Angeles Clippers" , 
+              "q1" : "" , 
+              "q2" : "" , 
+              "q3" : "" , 
+              "q4" : "" , 
+              "ot" : "" , 
+              "totalscore" : "" 
+            } ,
+            "chances" : { 
+              "ts" : "1765446769" , 
+              "tipo" : [ 
+                {
+                  "id" : "1500" , 
+                  "valor" : "Resultado de 3 vias" , 
+                  "parar" : "Falso" , 
+                  "apostador" : [ 
+                    {
+                      "id" : "1516" , 
+                      "nome" : "Maratona" , 
+                      "ts" : "1765441940" , 
+                      "parar" : "Falso" , 
+                      "chance" : [ 
+                        {
+                          "id" : "910283517115671567" , 
+                          "nome" : "Casa" , 
+                          "valor" : "1,25" 
+                        } ,
+                        {
+                          "id" : "910283517115691569" , 
+                          "nome" : "Desenho" , 
+                          "valor" : "15,25" 
+                        } ,
+                        {
+                          "id" : "910283517115701570" , 
+                          "nome" : "Ausente" , 
+                          "valor" : "4,40" 
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,67 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/nba/injuries/mem?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "equipe" : { 
+    "id" : "2685" , 
+    "nome" : "Chicago Bulls" , 
+    "relatório" : [ 
+      {
+        "data" : "11.12.2025 " 
+        "descrição" : "Polegar - Previsão de lançamento até pelo menos 14 de dezembro" , 
+        "player_id" : "4397002" , 
+        "player_name" : "Ayo Dosunmu" , 
+        "status" : "Marcado" 
+      } ,
+      {
+        "data" : "11.12.2025 " 
+        "descrição" : "Decisão na hora do jogo" , 
+        "player_id" : "4395651" , 
+        "nome_do_jogador" : "Coby White" , 
+        "status" : "Bezerro" 
+      } ,
+      {
+        "data" : "11.12.2025 " 
+        "descrição" : "Coxa - Previsão de chegada pelo menos até 14 de dezembro" , 
+        "player_id" : "4066372" , 
+        "player_name" : "Kevin Huerter" , 
+        "status" : "Marcado" 
+      } ,
+      {
+        "data" : "11.12.2025 " 
+        "descrição" : "Decisão na hora do jogo" , 
+        "player_id" : "4066650" , 
+        "nome_do_jogador" : "Zach Collins" , 
+        "status" : "Pulso" 
+      } ,
+      {
+        "data" : "08.12.2025 " 
+        "descrição" : "Decisão na hora do jogo" , 
+        "player_id" : "4432822" , 
+        "nome_do_jogador" : "Isaac Okoro" , 
+        "status" : "Voltar" 
+      } ,
+      {
+        "data" : "08.12.2025 " 
+        "descrição" : "Decisão na hora do jogo" , 
+        "player_id" : "4395626" , 
+        "nome_do_jogador" : "Tre Jones" , 
+        "status" : "Tornozelo" 
+      } ,
+      {
+        "data" : "08.12.2025 " 
+        "descrição" : "Decisão na hora do jogo" , 
+        "player_id" : "4397189" , 
+        "nome_do_jogador" : "Jalen Smith" , 
+        "status" : "Isquiotibiais" 
+      } ,
+      {
+        "data" : "03.12.2025 " 
+        "descrição" : "Ombro - Fora de temporada" , 
+        "player_id" : "5242496" , 
+        "player_name" : "Noa Essengue" , 
+        "status" : "Marcado" 
+      }
+    ]
+  }
+}

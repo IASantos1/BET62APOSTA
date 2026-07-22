@@ -1,0 +1,81 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/mlb/livescores?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "pontuações ao vivo" : { 
+    "esporte" : "beisebol " 
+    "torneio" : { 
+      "país" : "eua" , 
+      "id" : "2499" , 
+      "liga" : "EUA: MLB" , 
+      "corresponder" : [ 
+        {
+          "presença" : "" , 
+          "data" : "21.04.2025 " 
+          "datetime_utc" : "21.04.2025 15:10" , 
+          "formatted_date" : "21.04.2025" , 
+          "id" : "1329182974" , 
+          "oddsid" : "337953" , 
+          "saídas" : "" , 
+          "status" : "Não iniciado" , 
+          "hora" : "11:10 " 
+          "fuso horário" : "ET " 
+          "venue_id" : "1294" , 
+          "nome_do_local" : "Fenway Park, Boston, Massachusetts" , 
+          "lar" : { 
+            "erros" : "-" , 
+            "hits" : "-" , 
+            "id" : "2501" , 
+            "em1" : "-" , 
+            "em2" : "-" , 
+            "in3" : "-" , 
+            "em4" : "-" , 
+            "in5" : "-" , 
+            "in6" : "-" , 
+            "em7" : "-" , 
+            "em8" : "-" , 
+            "em9" : "-" , 
+            "nome" : "Boston Red Sox" , 
+            "r" : "-" , 
+            "totalscore" : "0" 
+          } ,
+          "ausente" : { 
+            "erros" : "-" , 
+            "hits" : "-" , 
+            "id" : "2510" , 
+            "em1" : "-" , 
+            "em2" : "-" , 
+            "in3" : "-" , 
+            "em4" : "-" , 
+            "in5" : "-" , 
+            "in6" : "-" , 
+            "em7" : "-" , 
+            "em8" : "-" , 
+            "em9" : "-" , 
+            "nome" : "Chicago White Sox" , 
+            "r" : "-" , 
+            "totalscore" : "0" 
+          } ,
+          "título" : nulo , 
+          "eventos" : nulo , 
+          "estatísticas" : nulo , 
+          "arremessadores_iniciais" : { 
+            "lar" : { 
+              "jogador" : { 
+                "id" : "40750" , 
+                "nome" : "Walker Buehler" 
+              }
+            } ,
+            "ausente" : { 
+              "jogador" : { 
+                "id" : "4621897" , 
+                "nome" : "Jonathan Cannon" 
+              }
+            }
+          } ,
+          "árbitros" : nulo 
+        }
+      ]
+    }
+  }
+}

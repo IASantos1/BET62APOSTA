@@ -1,0 +1,93 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/nba/daily/d-1?access_key=b5b07a3f-b019-4a18-8969-6045169feda9 ' 
+  --header 'Accept: application/json'
+{
+  "pontuações" : { 
+    "esporte" : "basquete " 
+    "torneio" : { 
+      "país" : "eua" , 
+      "id" : "2545" , 
+      "liga" : "EUA: NBA" , 
+      "corresponder" : [ 
+        {
+          "data" : "09.12.2025 " 
+          "id" : "987036" , 
+          "status" : "Concluído" , 
+          "hora" : "00:00 " 
+          "lar" : { 
+            "id" : "2718" , 
+            "nome" : "Indiana Pacers" , 
+            "ot" : "" , 
+            "q1" : "35" , 
+            "q2" : "31" , 
+            "q3" : "26" , 
+            "q4" : "24" , 
+            "totalscore" : "116" 
+          } ,
+          "ausente" : { 
+            "id" : "2724" , 
+            "nome" : "Sacramento Kings" , 
+            "ot" : "" , 
+            "q1" : "23" , 
+            "q2" : "28" , 
+            "q3" : "37" , 
+            "q4" : "17" , 
+            "totalscore" : "105" 
+          }
+        } ,
+        {
+          "data" : "09.12.2025 " 
+          "id" : "987037" , 
+          "status" : "Concluído" , 
+          "hora" : "00:30 " 
+          "lar" : { 
+            "id" : "2701" , 
+            "nome" : "Minnesota Timberwolves" , 
+            "ot" : "" , 
+            "q1" : "23" , 
+            "q2" : "34" , 
+            "q3" : "27" , 
+            "q4" : "21" , 
+            "totalscore" : "105" 
+          } ,
+          "ausente" : { 
+            "id" : "2620" , 
+            "nome" : "Phoenix Suns" , 
+            "ot" : "" , 
+            "q1" : "29" , 
+            "q2" : "32" , 
+            "q3" : "23" , 
+            "q4" : "24" , 
+            "totalscore" : "108" 
+          }
+        } ,
+        {
+          "data" : "09.12.2025 " 
+          "id" : "987038" , 
+          "status" : "Concluído" , 
+          "hora" : "01:00 " 
+          "lar" : { 
+            "id" : "2693" , 
+            "nome" : "New Orleans Pelicans" , 
+            "ot" : "" , 
+            "q1" : "25" , 
+            "q2" : "32" , 
+            "q3" : "45" , 
+            "q4" : "30" , 
+            "totalscore" : "132" 
+          } ,
+          "ausente" : { 
+            "id" : "2689" , 
+            "nome" : "San Antonio Spurs" , 
+            "ot" : "" , 
+            "q1" : "35" , 
+            "q2" : "42" , 
+            "q3" : "23" , 
+            "q4" : "35" , 
+            "totalscore" : "135" 
+          }
+        }
+      ]
+    }
+  }
+}
