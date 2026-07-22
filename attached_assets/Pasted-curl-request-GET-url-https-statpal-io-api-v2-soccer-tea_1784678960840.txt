@@ -1,0 +1,280 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v2/soccer/team-lineups?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "main_id" : "2026061822389" , 
+  "status" : "projetado " 
+  "atualizado" : "17/06/2026 12:31:15 " 
+  "updated_ts" : 1781699475314 , 
+  "lar" : { 
+    "team_id" : "2339730" , 
+    "nome_da_equipe" : "Canadá" , 
+    "treinador" : { 
+      "nome" : "Jesse Marsch " 
+      "id" : "3381958" 
+    } ,
+    "formação_de_equipe" : "4-4-2" , 
+    "starting_xi" : [ 
+      {
+        "id" : "2504652" , 
+        "nome" : "Maxime Crepeau" , 
+        "número" : "16" , 
+        "posição" : "goleiro" 
+      } ,
+      {
+        "id" : "2620857" , 
+        "nome" : "Derek Cornelius " 
+        "número" : "13" , 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "3093632" , 
+        "nome" : "Luc De Fougerolles" , 
+        "número" : "4" , 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "2942515" , 
+        "nome" : "Alistair Johnston" , 
+        "número" : "2" , 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "2769389" , 
+        "nome" : "Richie Laryea" , 
+        "número" : "22 " 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "2848086" , 
+        "nome" : "Tajon Buchanan" , 
+        "número" : "17 " 
+        "Posição" : "meio-campista" 
+      } ,
+      {
+        "id" : "2737304" , 
+        "nome" : "Estevão Eustáquio" , 
+        "número" : "7" , 
+        "Posição" : "meio-campista" 
+      } ,
+      {
+        "id" : "3093520" , 
+        "nome" : "Ismael Kone" , 
+        "número" : "8" , 
+        "Posição" : "meio-campista" 
+      } ,
+      {
+        "id" : "2813361" , 
+        "nome" : "Jonathan David " 
+        "número" : "10" , 
+        "posição" : "atacante" 
+      } ,
+      {
+        "id" : "2786251" , 
+        "nome" : "Liam Millar " 
+        "número" : "11" , 
+        "posição" : "atacante" 
+      } ,
+      {
+        "id" : "3143877" , 
+        "nome" : "Tanitoluwa Oluwaseyi" , 
+        "número" : "12" , 
+        "posição" : "atacante" 
+      }
+    ] ,
+    "banco" : [ 
+      {
+        "id" : "3002838" , 
+        "nome" : "Owen Goodman " 
+        "número" : "18" , 
+        "posição" : "goleiro" 
+      } ,
+      {
+        "id" : "2786071" , 
+        "nome" : "Alfie Jones" , 
+        "número" : "3" , 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "2778577" , 
+        "nome" : "Joel Waterman " 
+        "número" : "5" , 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "3157051" , 
+        "nome" : "Ali Ahmed" , 
+        "número" : "20 " 
+        "Posição" : "meio-campista" 
+      } ,
+      {
+        "id" : "2830832" , 
+        "nome" : "Mathieu Choiniere" , 
+        "número" : "6" , 
+        "Posição" : "meio-campista" 
+      } ,
+      {
+        "id" : "3032309" , 
+        "nome" : "Promessa David" , 
+        "número" : "24" , 
+        "posição" : "atacante" 
+      } ,
+      {
+        "id" : "2674550" , 
+        "nome" : "Cyle Larin" , 
+        "número" : "9" , 
+        "posição" : "atacante" 
+      }
+    ] ,
+    "marginalizado" : [ 
+      {
+        "id" : "3224437" , 
+        "nome" : "Moise Bombito" , 
+        "número" : "15" , 
+        "posição" : "defensor" , 
+        "status" : "duvidoso " 
+        "motivo" : "lesão" 
+      } ,
+      {
+        "id" : "2773229" , 
+        "nome" : "Alphonso Davies " 
+        "número" : "19 " 
+        "posição" : "defensor" , 
+        "status" : "fora" , 
+        "motivo" : "lesão" 
+      } ,
+      {
+        "id" : "2929138" , 
+        "nome" : "Jacob Shaffelburg" , 
+        "número" : "14" , 
+        "posição" : "atacante" , 
+        "status" : "fora" , 
+        "motivo" : nulo 
+      }
+    ] ,
+    "confiança" : 45 
+  } ,
+  "ausente" : { 
+    "team_id" : "2346325" , 
+    "nome_da_equipe" : "Catar" , 
+    "treinador" : { 
+      "nome" : "Julen Lopetegui" , 
+      "id" : "2529722" 
+    } ,
+    "formação_de_equipe" : "4-3-3" , 
+    "starting_xi" : [ 
+      {
+        "id" : "2923575" , 
+        "nome" : "Mahmoud Abunada" , 
+        "número" : "1" , 
+        "posição" : "goleiro" 
+      } ,
+      {
+        "id" : "2797538" , 
+        "nome" : "Homam Al Amin" , 
+        "número" : "14" , 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "2541016" , 
+        "nome" : "Miguel Pedro" , 
+        "número" : "2" , 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "2488517" , 
+        "nome" : "Boualem Khoukhi" , 
+        "número" : "16" , 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "2979490" , 
+        "nome" : "Jassem Gaber" , 
+        "número" : "5" , 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "3459575" , 
+        "nome" : "Issa Laye" , 
+        "número" : "4" , 
+        "Posição" : "meio-campista" 
+      } ,
+      {
+        "id" : "2599375" , 
+        "nome" : "Ahmed Fathi" , 
+        "número" : "20 " 
+        "Posição" : "meio-campista" 
+      } ,
+      {
+        "id" : "2443346" , 
+        "nome" : "Abdulaziz Hatem" , 
+        "número" : "6" , 
+        "Posição" : "meio-campista" 
+      } ,
+      {
+        "id" : "2675572" , 
+        "nome" : "Akram Afif" , 
+        "número" : "11" , 
+        "posição" : "atacante" 
+      } ,
+      {
+        "id" : "2589428" , 
+        "nome" : "Junior Edmilson" , 
+        "número" : "8" , 
+        "posição" : "atacante" 
+      } ,
+      {
+        "id" : "3432836" , 
+        "nome" : "Yusuf Abdurisag" , 
+        "número" : "15" , 
+        "posição" : "atacante" 
+      }
+    ] ,
+    "banco" : [ 
+      {
+        "id" : "2838938" , 
+        "nome" : "Meshaal Barsham" , 
+        "número" : "22 " 
+        "posição" : "goleiro" 
+      } ,
+      {
+        "id" : "2675582" , 
+        "nome" : "Omer Madibo Assim" , 
+        "número" : "23 " 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "3459578" , 
+        "nome" : "Ayoub Al Oui" , 
+        "número" : "13" , 
+        "posição" : "defensor" 
+      } ,
+      {
+        "id" : "2908020" , 
+        "nome" : "Ahmed Al Ganehi" , 
+        "número" : "17 " 
+        "Posição" : "meio-campista" 
+      } ,
+      {
+        "id" : "2485356" , 
+        "nome" : "Karim Boudiaf" , 
+        "número" : "12" , 
+        "Posição" : "meio-campista" 
+      } ,
+      {
+        "id" : "2657765" , 
+        "nome" : "Almoez Ali" , 
+        "número" : "19 " 
+        "posição" : "atacante" 
+      } ,
+      {
+        "id" : "2617852" , 
+        "nome" : "Mohammed Muntari" , 
+        "número" : "9" , 
+        "posição" : "atacante" 
+      }
+    ] ,
+    "marginalizado" : [ ] , 
+    "confiança" : 45 
+  }
+}
