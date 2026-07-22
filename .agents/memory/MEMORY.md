@@ -2,3 +2,4 @@
 - [Settlement system architecture](settlement-architecture.md) — full settlement engine in server/services/settlement.ts; auto-runs every 90s; admin routes at /api/admin/settlement/*; market key stored in selections JSONB.
 - [StatPal odds format](statpal-odds-format.md) — Portuguese keys throughout; chances/apostador/chance; comma decimal "1,64"; no global prematch endpoint; per-league /leagues/{id}/odds/prematch required.
 - [StatPal tennis format](statpal-tennis-format.md) — jogador[] not lar/ausente; root keys have spaces; torneio[]≡liga[]; "Concluído"/"Aposentado" = finished; odds at chances.torneio[].partidas.corresponder.
+- [StatPal non-soccer pipeline](statpal-nonsoccer-pipeline.md) — /daily/d-N for schedule; single /odds call covers all matches; extractOddsRows wrapper bug fix; apostador can be object not array.
