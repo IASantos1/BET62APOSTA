@@ -713,7 +713,9 @@ function extractOddsRows(payload: any): any[] {
     for (const market of payload.chances.tipo) {
       // NBA uses "valor" for market name; soccer/tennis use "nome"
       const marketName = String(market?.nome ?? market?.valor ?? market?.name ?? '').trim();
-      const books = Array.isArray(market?.apostador) ? market.apostador : [];
+      // "apostador" can be a single object (not always array) — e.g. volleyball Acima/Abaixo
+      const books = Array.isArray(market?.apostador) ? market.apostador
+        : (market?.apostador ? [market.apostador] : []);
       for (const book of books) {
         // Direct selections (1x2, btts, correct_score, etc.)
         if (Array.isArray(book?.chance) && book.chance.length > 0) {
@@ -783,7 +785,9 @@ function extractOddsRows(payload: any): any[] {
   if (Array.isArray(payload?.chances)) {
     const rows: any[] = [];
     for (const market of payload.chances) {
-      const books = Array.isArray(market?.apostador) ? market.apostador : [];
+      // "apostador" can be a single object (not always array) — normalize defensively
+      const books = Array.isArray(market?.apostador) ? market.apostador
+        : (market?.apostador ? [market.apostador] : []);
       const suspended = String(market?.parar ?? market?.stop ?? '').toLowerCase() === 'true';
       for (const book of books) {
         const selections = Array.isArray(book?.chance)
