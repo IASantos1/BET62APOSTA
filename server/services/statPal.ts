@@ -829,6 +829,10 @@ function extractStatPalMatchIds(match: any): string[] {
     match?.match_info?.fallback_id_3,
     match?.match_info?.match_id,
     match?.match_info?.id,
+    // MLB: livescores have "oddsid" linking to odds endpoint's "id"
+    match?.oddsid,
+    // MLB: odds have "mlbid" linking to livescores "id"
+    match?.mlbid,
     // Portuguese /odds/live: IDs nested under "informação_da_partida"
     match?.['informação_da_partida']?.main_id,
     match?.['informação_da_partida']?.fallback_id_1,
