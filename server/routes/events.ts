@@ -2763,12 +2763,14 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
 
       const rawMatches = extractH2H(raw);
       const matches = rawMatches.slice(0, 15).map((m: any) => {
-        const homeScore = Number(m.homeScore ?? m.score?.home ?? m.goals?.home ?? 0);
-        const awayScore = Number(m.awayScore ?? m.score?.away ?? m.goals?.away ?? 0);
-        const homeTeam = String(m.homeTeam?.name ?? m.home_team ?? m.home?.name ?? '');
-        const awayTeam = String(m.awayTeam?.name ?? m.away_team ?? m.away?.name ?? '');
+        // StatPal /head-to-head returns team1_name/team2_name/team1_score/team2_score
+        const homeScore = Number(m.team1_score ?? m.homeScore ?? m.score?.home ?? m.goals?.home ?? 0);
+        const awayScore = Number(m.team2_score ?? m.awayScore ?? m.score?.away ?? m.goals?.away ?? 0);
+        const homeTeam = String(m.team1_name ?? m.homeTeam?.name ?? m.home_team ?? m.home?.name ?? '');
+        const awayTeam = String(m.team2_name ?? m.awayTeam?.name ?? m.away_team ?? m.away?.name ?? '');
         const date = String(m.startTimestamp ? new Date(m.startTimestamp * 1000).toISOString() : m.date ?? m.event_date ?? '');
-        return { homeTeam, awayTeam, homeScore, awayScore, date, status: String(m.status?.type ?? m.status ?? 'FT') };
+        const league = String(m.league ?? m.tournament ?? m.competition ?? '');
+        return { homeTeam, awayTeam, homeScore, awayScore, date, league, status: String(m.status?.type ?? m.status ?? 'FT') };
       }).filter((m: any) => m.homeTeam && m.awayTeam);
 
       sendJson(res, 200, { matches });
@@ -2964,8 +2966,16 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
 
     if (req.method === 'GET' && path === '/api/soccer/injuries-suspensions') {
       const raw = await callProvider('soccer_injuries', () => fetchSportsSoccerInjuriesSuspensions(apiKey)).catch(() => null);
-      const leagues = Array.isArray(raw?.injuries_suspensions?.league) ? raw.injuries_suspensions.league : [];
-      sendJson(res, 200, { injuries_suspensions: raw?.injuries_suspensions ?? null, leagues });
+      // StatPal returns the Portuguese key "suspensões_por_lesão" instead of "injuries_suspensions"
+      const injData = raw?.injuries_suspensions
+        ?? raw?.['suspensões_por_lesão']
+        ?? raw?.suspensoes_por_lesao
+        ?? null;
+      // Inner key is "liga" (Portuguese) or "league" (English)
+      const leagues = Array.isArray(injData?.league) ? injData.league
+        : Array.isArray(injData?.liga) ? injData.liga
+        : [];
+      sendJson(res, 200, { injuries_suspensions: injData, leagues });
       return true;
     }
 
