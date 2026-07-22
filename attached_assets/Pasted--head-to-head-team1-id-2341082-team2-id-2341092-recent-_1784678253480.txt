@@ -1,0 +1,308 @@
+{
+  "head-to-head": {
+    "team1_id": "2341082",
+    "team2_id": "2341092",
+    "recent_meetings": {
+      "match": [
+        {
+          "main_id": "2025110918508",
+          "fallback_id_1": "6014271",
+          "country": "england",
+          "league": "Premier League",
+          "league_id": "3037",
+          "date": "09.11.2025",
+          "team1_name": "Manchester City",
+          "team2_name": "Liverpool",
+          "team1_id": "2341092",
+          "team2_id": "2341082",
+          "team1_score": "3",
+          "team2_score": "0"
+        }
+      ]
+    },
+    "overall_record": {
+      "total": {
+        "total": [
+          {
+            "games": "180"
+          },
+          {
+            "team1_won": "83"
+          },
+          {
+            "team2_won": "48"
+          },
+          {
+            "draws": "48"
+          }
+        ]
+      },
+      "home": {
+        "team1": [
+          {
+            "games": "90"
+          },
+          {
+            "won": "52"
+          },
+          {
+            "lost": "14"
+          },
+          {
+            "draws": "23"
+          }
+        ],
+        "team2": [
+          {
+            "games": "90"
+          },
+          {
+            "won": "34"
+          },
+          {
+            "lost": "31"
+          },
+          {
+            "draws": "25"
+          }
+        ]
+      },
+      "away": {
+        "team1": [
+          {
+            "games": "90"
+          },
+          {
+            "won": "31"
+          },
+          {
+            "lost": "34"
+          },
+          {
+            "draws": "25"
+          }
+        ],
+        "team2": [
+          {
+            "games": "90"
+          },
+          {
+            "won": "14"
+          },
+          {
+            "lost": "52"
+          },
+          {
+            "draws": "23"
+          }
+        ]
+      }
+    },
+    "leagues": {
+      "league": [
+        {
+          "name": "UEFA Champions League",
+          "id": "2838",
+          "games": "2",
+          "team1_won": "2",
+          "team2_won": "0",
+          "draw": "0"
+        }
+      ]
+    },
+    "goals": {
+      "total": {
+        "total": [
+          {
+            "team1_scored": "306"
+          },
+          {
+            "team1_conceded": "248"
+          },
+          {
+            "team2_scored": "248"
+          },
+          {
+            "team2_conceded": "306"
+          }
+        ]
+      },
+      "home": {
+        "home": [
+          {
+            "team1_scored": "176"
+          },
+          {
+            "team1_conceded": "108"
+          },
+          {
+            "team2_scored": "140"
+          },
+          {
+            "team2_conceded": "130"
+          }
+        ]
+      },
+      "away": {
+        "away": [
+          {
+            "team1_scored": "130"
+          },
+          {
+            "team1_conceded": "140"
+          },
+          {
+            "team2_scored": "108"
+          },
+          {
+            "team2_conceded": "176"
+          }
+        ]
+      }
+    },
+    "biggest_victory": {
+      "team1": {
+        "match": {
+          "main_id": "1995102718508",
+          "fallback_id_1": "2350096",
+          "country": "england",
+          "league": "Premier League",
+          "league_id": "3037",
+          "date": "27.10.1995",
+          "team1_name": "Liverpool",
+          "team2_name": "Manchester City",
+          "team1_id": "2341082",
+          "team2_id": "2341092",
+          "team1_score": "6",
+          "team2_score": "0"
+        }
+      },
+      "team2": {
+        "match": {
+          "main_id": "1935091018508",
+          "fallback_id_1": "2933802",
+          "country": "england",
+          "league": "Premier League",
+          "league_id": "3037",
+          "date": "10.09.1935",
+          "team1_name": "Manchester City",
+          "team2_name": "Liverpool",
+          "team1_id": "2341092",
+          "team2_id": "2341082",
+          "team1_score": "6",
+          "team2_score": "0"
+        }
+      }
+    },
+    "biggest_defeat": {
+      "team1": {
+        "match": {
+          "main_id": "1935091018508",
+          "fallback_id_1": "2933802",
+          "country": "england",
+          "league": "Premier League",
+          "league_id": "3037",
+          "date": "10.09.1935",
+          "team1_name": "Manchester City",
+          "team2_name": "Liverpool",
+          "team1_id": "2341092",
+          "team2_id": "2341082",
+          "team1_score": "6",
+          "team2_score": "0"
+        }
+      },
+      "team2": {
+        "match": {
+          "main_id": "1995102718508",
+          "fallback_id_1": "2350096",
+          "country": "england",
+          "league": "Premier League",
+          "league_id": "3037",
+          "date": "27.10.1995",
+          "team1_name": "Liverpool",
+          "team2_name": "Manchester City",
+          "team1_id": "2341082",
+          "team2_id": "2341092",
+          "team1_score": "6",
+          "team2_score": "0"
+        }
+      }
+    },
+    "last5_home": {
+      "team1": {
+        "match": [
+          {
+            "main_id": "2025120318633",
+            "fallback_id_1": "6014305",
+            "country": "england",
+            "league": "Premier League",
+            "league_id": "3037",
+            "date": "03.12.2025",
+            "team1_name": "Liverpool",
+            "team2_name": "Sunderland",
+            "team1_id": "2341082",
+            "team2_id": "2341217",
+            "team1_score": "1",
+            "team2_score": "1"
+          }
+        ]
+      },
+      "team2": {
+        "match": [
+          {
+            "main_id": "2025120618643",
+            "fallback_id_1": "6024479",
+            "country": "england",
+            "league": "Premier League",
+            "league_id": "3037",
+            "date": "06.12.2025",
+            "team1_name": "Manchester City",
+            "team2_name": "Sunderland",
+            "team1_id": "2341092",
+            "team2_id": "2341217",
+            "team1_score": "3",
+            "team2_score": "0"
+          }
+        ]
+      }
+    },
+    "last5_away": {
+      "team1": {
+        "match": [
+          {
+            "main_id": "2025120618487",
+            "fallback_id_1": "6014311",
+            "country": "england",
+            "league": "Premier League",
+            "league_id": "3037",
+            "date": "06.12.2025",
+            "team1_name": "Leeds United",
+            "team2_name": "Liverpool",
+            "team1_id": "2341071",
+            "team2_id": "2341082",
+            "team1_score": "3",
+            "team2_score": "3"
+          }
+        ]
+      },
+      "team2": {
+        "match": [
+          {
+            "main_id": "2025120218434",
+            "fallback_id_1": "6014306",
+            "country": "england",
+            "league": "Premier League",
+            "league_id": "3037",
+            "date": "02.12.2025",
+            "team1_name": "Fulham",
+            "team2_name": "Manchester City",
+            "team1_id": "2341008",
+            "team2_id": "2341092",
+            "team1_score": "4",
+            "team2_score": "5"
+          }
+        ]
+      }
+    }
+  }
+}
