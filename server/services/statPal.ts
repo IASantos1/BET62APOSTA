@@ -624,6 +624,38 @@ function extractOddsRows(payload: any): any[] {
       if (Array.isArray(provider?.markets) && provider.markets.length > 0) return provider.markets;
     }
   }
+  // StatPal Portuguese odds format:
+  //   chances[] = markets array  ("chances" = Portuguese for "odds/chances")
+  //   chances[].apostador[] = bookmakers  ("apostador" = "bookmaker")
+  //   chances[].apostador[].chance[] = selections  ("chance" = "odd/selection")
+  //   selection: { nome: "Casa", valor: "1,64" }  (Portuguese labels, comma decimal)
+  if (Array.isArray(payload?.chances)) {
+    const rows: any[] = [];
+    for (const market of payload.chances) {
+      const books = Array.isArray(market?.apostador) ? market.apostador : [];
+      const suspended = String(market?.parar ?? market?.stop ?? '').toLowerCase() === 'true';
+      for (const book of books) {
+        const selections = Array.isArray(book?.chance)
+          ? book.chance.map((odd: any) => ({
+              nome: String(odd?.nome ?? odd?.name ?? '').trim(),  // Portuguese label
+              name: String(odd?.nome ?? odd?.name ?? '').trim(),
+              valor: String(odd?.valor ?? odd?.value ?? '').replace(',', '.'),  // comma→dot
+              value: String(odd?.valor ?? odd?.value ?? '').replace(',', '.'),
+              suspended,
+            }))
+          : [];
+        if (selections.length > 0) {
+          rows.push({
+            title: String(market?.nome ?? market?.name ?? '').trim(),
+            suspended,
+            selections,
+          });
+          break; // Take only the first bookmaker's odds to avoid duplicates
+        }
+      }
+    }
+    if (rows.length > 0) return rows;
+  }
   return [];
 }
 
@@ -646,6 +678,11 @@ function extractStatPalMatchIds(match: any): string[] {
     match?.match_info?.fallback_id_3,
     match?.match_info?.match_id,
     match?.match_info?.id,
+    // Portuguese /odds/live: IDs nested under "informação_da_partida"
+    match?.['informação_da_partida']?.main_id,
+    match?.['informação_da_partida']?.fallback_id_1,
+    match?.['informação_da_partida']?.fallback_id_2,
+    match?.['informação_da_partida']?.fallback_id_3,
   ]
     .map((v) => String(v ?? '').trim())
     .filter(Boolean);
@@ -659,7 +696,8 @@ function normalizeVsName(value: any): string {
 function flattenStatPalLeagueMatches(blocks: any[]): any[] {
   const out: any[] = [];
   for (const block of blocks) {
-    const rows = block?.match ?? block?.matches ?? block?.events ?? block?.games ?? [];
+    // "corresponder" = Portuguese for "match" (StatPal prematch odds: probabilidades_pré-jogo.liga.corresponder)
+    const rows = block?.match ?? block?.corresponder ?? block?.matches ?? block?.events ?? block?.games ?? [];
     if (!Array.isArray(rows)) continue;
     for (const row of rows) out.push(row);
   }
@@ -675,8 +713,16 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
   const homeKey = normalizeLabel(opts.homeTeam || '');
   const awayKey = normalizeLabel(opts.awayTeam || '');
   const matchByTeams = (match: any): boolean => {
-    const home = normalizeLabel(match?.home?.name ?? match?.team_info?.home?.name ?? '');
-    const away = normalizeLabel(match?.away?.name ?? match?.team_info?.away?.name ?? '');
+    const home = normalizeLabel(
+      match?.home?.name ?? match?.team_info?.home?.name ??
+      // Portuguese keys (prematch odds: lar, live odds: informações_da_equipe.lar)
+      match?.lar?.nome ?? match?.['informações_da_equipe']?.lar?.nome ?? '',
+    );
+    const away = normalizeLabel(
+      match?.away?.name ?? match?.team_info?.away?.name ??
+      // Portuguese keys
+      match?.ausente?.nome ?? match?.['informações_da_equipe']?.ausente?.nome ?? '',
+    );
     if (homeKey && awayKey) {
       return home === homeKey && away === awayKey;
     }
@@ -696,6 +742,16 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
     ...(Array.isArray(payload?.data?.live_matches) ? payload.data.live_matches : []),
     ...(Array.isArray(payload?.upcoming_matches) ? payload.upcoming_matches : []),
     ...(Array.isArray(payload?.data?.upcoming_matches) ? payload.data.upcoming_matches : []),
+    // Portuguese /odds/live: "partidas_ao_vivo" — flatten "informação_da_partida" to root for ID lookup
+    ...(Array.isArray(payload?.partidas_ao_vivo)
+      ? payload.partidas_ao_vivo.map((item: any) => ({
+          ...(item?.['informação_da_partida'] ?? {}),
+          ...item,
+          // Normalize team info to flat keys for matchByTeams
+          lar: item?.['informações_da_equipe']?.lar ?? item?.lar,
+          ausente: item?.['informações_da_equipe']?.ausente ?? item?.ausente,
+        }))
+      : []),
   ];
   const directFound = findMatch(directLiveMatches);
   if (directFound) return { odds: directFound?.odds ?? [], match_info: directFound?.match_info ?? null, match: directFound };
@@ -707,6 +763,11 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
     ...(Array.isArray(payload?.data?.upcoming_matches?.league) ? [payload.data.upcoming_matches.league] : []),
     ...(Array.isArray(payload?.prematch_odds?.league) ? [payload.prematch_odds.league] : []),
     ...(Array.isArray(payload?.data?.prematch_odds?.league) ? [payload.data.prematch_odds.league] : []),
+    // Portuguese /odds/prematch: "probabilidades_pré-jogo.liga" is a single object (not array)
+    // that contains a "corresponder" array of matches — wrap as a one-element league array
+    ...(payload?.['probabilidades_pré-jogo']?.liga != null
+      ? [[payload['probabilidades_pré-jogo'].liga]]
+      : []),
   ];
   for (const leagues of leagueCollections) {
     const found = findMatch(flattenStatPalLeagueMatches(leagues));
@@ -761,7 +822,8 @@ function isHomeLikeLabel(labelKey: string): boolean {
 }
 
 function isAwayLikeLabel(labelKey: string): boolean {
-  return /^(away|2|away team|team 2|player 2|participant 2|visitor|visitante|fora)$/.test(labelKey);
+  // "ausente" = Portuguese StatPal selection label for away team in 1x2 markets
+  return /^(away|2|away team|team 2|player 2|participant 2|visitor|visitante|fora|ausente)$/.test(labelKey);
 }
 
 function inferMarketKey(title: string): string {
@@ -781,7 +843,8 @@ function inferMarketKey(title: string): string {
   if (/(over under|goal line|total goals|totals|total games|games total|total rounds)/.test(t)) return 'totals';
   if (/(first half winner|1st half winner|half time result|first half result)/.test(t)) return 'first_half_h2h';
   if (/(second half winner|2nd half winner|second half result)/.test(t)) return 'second_half_h2h';
-  if (/^(match winner|1x2|full time result|resultado final|winner)$/.test(t)) return 'h2h';
+  // "resultado em tempo integral" = Portuguese for "full time result"
+  if (/^(match winner|1x2|full time result|resultado final|resultado em tempo integral|winner)$/.test(t)) return 'h2h';
   if (/^home away$/.test(t)) return 'home_away';
   if (/(correct score|placar exato)/.test(t)) return 'correct_score';
   if (/(asian handicap).*(first half|1st half)|(^first half|^1st half).*(asian handicap)/.test(t)) return '1st_half_spreads';
@@ -795,6 +858,7 @@ function inferMarketKey(title: string): string {
 function readSelectionLabel(selection: any): string {
   return String(
     selection?.label ??
+    selection?.nome ??  // Portuguese StatPal key
     selection?.name ??
     selection?.value ??
     selection?.outcome ??
@@ -807,8 +871,12 @@ function readSelectionLabel(selection: any): string {
 }
 
 function readSelectionOdd(selection: any): number {
-  const raw = selection?.odd ?? selection?.price ?? selection?.value ?? selection?.decimal ?? selection?.decimal_odds ?? selection?.odds;
-  const n = Number(raw);
+  const raw = selection?.odd ?? selection?.price
+    ?? selection?.valor  // Portuguese StatPal key ("valor" = value/price)
+    ?? selection?.value ?? selection?.decimal ?? selection?.decimal_odds ?? selection?.odds;
+  // StatPal (Portuguese locale) uses comma as decimal separator: "1,64" — convert to dot
+  const normalized = typeof raw === 'string' ? raw.replace(',', '.') : raw;
+  const n = Number(normalized);
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -846,7 +914,8 @@ export function parseStatPalMatchOddsPayload(
 
       if (key === 'h2h') {
         const labelKey = normalizeLabel(label);
-        if (labelKey === 'draw' || labelKey === 'empate' || labelKey === 'x') draw = odd;
+        // "desenho" = Portuguese StatPal translation for "draw"
+        if (labelKey === 'draw' || labelKey === 'empate' || labelKey === 'x' || labelKey === 'desenho') draw = odd;
         else if (isHomeLikeLabel(labelKey)) home = odd;
         else if (isAwayLikeLabel(labelKey)) away = odd;
         else if (homeKey && (labelKey === homeKey || labelKey.includes(homeKey) || homeKey.includes(labelKey))) home = odd;
@@ -957,17 +1026,31 @@ export async function fetchStatPalSchedule(apiKey: string, sport: string, date: 
         const dailyUrl = buildCandidateUrls(apiKey, sport, [
           `/matches/daily?offset=${encodeURIComponent(String(dailyOffset))}`,
         ]);
-        // Fetch daily matches and pre-match odds in parallel
-        const [dailyJson, oddsJson] = await Promise.all([
-          fetchFirstJson(dailyUrl, PROVIDER_TIMEOUT_MS),
-          fetchSoccerPreMatchOdds(apiKey, sport),
-        ]);
-        const dailyEvents = extractEvents(dailyJson)
-          .map((row) => normalizeEvent(row, sport))
-          .filter(Boolean) as NormalizedEvent[];
+        // Fetch daily schedule (StatPal has no global /odds/prematch — must use per-league endpoint)
+        const dailyJson = await fetchFirstJson(dailyUrl, PROVIDER_TIMEOUT_MS);
+        const rawRows = extractEvents(dailyJson);
+        const dailyEvents = rawRows.map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
         if (dailyEvents.length === 0) continue;
-        // Attach pre-match odds to events that don't have embedded odds
-        const enriched = attachOddsToEvents(dailyEvents, oddsJson, sport);
+        // Extract unique league IDs from raw rows so we can fetch prematch odds per league
+        const leagueIds = Array.from(new Set(
+          rawRows.map((row: any) => String(row?.__league?.id ?? row?.league_id ?? '')).filter(Boolean),
+        ));
+        // Fetch /leagues/{id}/odds/prematch for each league in parallel (cap at 8 to limit API calls)
+        const leagueOddsJsons = leagueIds.length > 0
+          ? await Promise.all(
+              leagueIds.slice(0, 8).map((leagueId) =>
+                fetchFirstJson(
+                  buildCandidateUrls(apiKey, sport, [`/leagues/${encodeURIComponent(leagueId)}/odds/prematch`]),
+                  PROVIDER_TIMEOUT_MS,
+                ).catch(() => null),
+              ),
+            )
+          : [];
+        // Attach prematch odds from each league — events with no odds yet are enriched iteratively
+        let enriched = dailyEvents;
+        for (const leagueOddsJson of leagueOddsJsons) {
+          if (leagueOddsJson) enriched = attachOddsToEvents(enriched, leagueOddsJson, sport);
+        }
         if (!targetDate) return enriched;
         const sameDay = enriched.filter((event) => dateOnlyIso(String(event?.event_date || '')) === targetDate);
         if (sameDay.length > 0) return sameDay;
