@@ -1,0 +1,78 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/soccer/extended-schedule/africa?access_key=b5b07a3f-b019-4a18-8969-6045169feda9 ' 
+  --header 'Accept: application/json'
+{
+  "extended_fixtures" : { 
+    "atualizado" : "12.12.2025 18:46:54 " 
+    "esporte" : "futebol " 
+    "país" : "Bélgica " 
+    "liga" : [ 
+      {
+        "nome" : "Primeira Divisão A" , 
+        "temporada" : "2025/2026 " 
+        "id" : "2935" , 
+        "sub_id" : "29350" , 
+        "semana" : [ 
+          {
+            "número" : "18" , 
+            "corresponder" : [ 
+              {
+                "alternate_id" : "" , 
+                "alternate_id_2" : "6524112" , 
+                "presença" : "" , 
+                "data" : "12.12.2025 " 
+                "id" : "6016730" , 
+                "static_id" : "12122523387272338672" , 
+                "status" : "19:45" , 
+                "hora" : "19:45 " 
+                "local" : "Stade Maurice Dufrasne (Liège (Luik))" , 
+                "venue_city" : "Liège (Luik)" , 
+                "venue_id" : "2420878" , 
+                "lar" : { 
+                  "et_score" : "" , 
+                  "ft_score" : "" , 
+                  "id" : "2338727" , 
+                  "nome" : "Padrão" , 
+                  "pen_score" : "" , 
+                  "pontuação" : "" 
+                } ,
+                "ausente" : { 
+                  "et_score" : "" , 
+                  "ft_score" : "" , 
+                  "id" : "2338672" , 
+                  "nome" : "OHL" , 
+                  "pen_score" : "" , 
+                  "pontuação" : "" 
+                } ,
+                "intervalo" : { 
+                  "pontuação" : "" 
+                } ,
+                "escalações" : nulo , 
+                "substituições" : nulo , 
+                "metas" : nulo , 
+                "treinadores" : { 
+                  "lar" : { 
+                    "treinador" : { 
+                      "id" : "61036" , 
+                      "nome" : "Vincent Euvrard" 
+                    }
+                  } ,
+                  "ausente" : { 
+                    "treinador" : { 
+                      "id" : "13735" , 
+                      "nome" : "David Hubert" 
+                    }
+                  }
+                } ,
+                "árbitro" : { 
+                  "eu ia" : "" , 
+                  "nome" : "" 
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

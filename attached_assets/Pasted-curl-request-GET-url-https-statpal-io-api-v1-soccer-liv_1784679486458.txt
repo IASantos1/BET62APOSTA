@@ -1,0 +1,79 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/soccer/livescores?access_key=b5b07a3f-b019-4a18-8969-6045169feda9 ' 
+  --header 'Accept: application/json'
+{
+  "livescore" : { 
+    "atualizado" : "12.12.2025 19:06:49 " 
+    "esporte" : "futebol " 
+    "liga" : [ 
+      {
+        "país" : "Argélia " 
+        "nome" : "Argélia: Taça da Argélia" , 
+        "xícara" : "Verdadeiro" , 
+        "id" : "4166" , 
+        "sub_id" : "" , 
+        "corresponder" : [ 
+          {
+            "alternate_id" : "6640082" , 
+            "alternate_id_2" : "8826610" , 
+            "comentário" : "Falso " 
+            "data" : "12.12.2025 " 
+            "id" : "6132668" , 
+            "inj_minute" : "" , 
+            "inj_time" : "" , 
+            "static_id" : "12122523590052337596" , 
+            "status" : "FT" , 
+            "hora" : "13:30 " 
+            "local" : "" , 
+            "lar" : { 
+              "agg" : "falso" , 
+              "gols" : "0" , 
+              "id" : "2359005" , 
+              "nome" : "Bechar Djedid" 
+            } ,
+            "ausente" : { 
+              "agg" : "verdadeiro" , 
+              "gols" : "4" , 
+              "id" : "2337596" , 
+              "nome" : "ES Setif" 
+            } ,
+            "eventos" : { 
+              "evento" : [ 
+                {
+                  "assistência" : "" , 
+                  "assistid" : "" , 
+                  "minutos_extras" : "" , 
+                  "id" : "67279604" , 
+                  "minuto" : "6 " 
+                  "jogador" : "A. Biramahire " 
+                  "playerid" : "2863849" , 
+                  "resultado" : "[0 - 1]" , 
+                  "equipe" : "fora" , 
+                  "tipo" : "objetivo" 
+                } ,
+                {
+                  "assistência" : "" , 
+                  "assistid" : "" , 
+                  "minutos_extras" : "" , 
+                  "id" : "67279605" , 
+                  "minuto" : "30" , 
+                  "jogador" : "A. Djahnit" , 
+                  "playerid" : "2525658" , 
+                  "resultado" : "[0 - 2]" , 
+                  "equipe" : "fora" , 
+                  "tipo" : "objetivo" 
+                }
+              ]
+            } ,
+            "ht" : { 
+              "Pontuação" : "[0-2]" 
+            } ,
+            "ft" : { 
+              "pontuação" : "[0-4]" 
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

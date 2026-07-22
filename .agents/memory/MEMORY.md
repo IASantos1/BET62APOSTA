@@ -1,2 +1,3 @@
 - [Events cold-start empty list bug](events-cold-start-bug.md) — realtime+requireOdds path drops all events on cold cache; never apply requireOdds in the realtime branch.
 - [Settlement system architecture](settlement-architecture.md) — full settlement engine in server/services/settlement.ts; auto-runs every 90s; admin routes at /api/admin/settlement/*; market key stored in selections JSONB.
+- [StatPal odds format](statpal-odds-format.md) — Portuguese keys throughout; chances/apostador/chance; comma decimal "1,64"; no global prematch endpoint; per-league /leagues/{id}/odds/prematch required.

@@ -1,0 +1,189 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/soccer/live-match-stats/afc_champleague?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "comentários" : { 
+    "atualizado" : "12.12.2025 19:26:09 " 
+    "esporte" : "futebol " 
+    "país" : "epl" , 
+    "liga" : { 
+      "país" : "epl" , 
+      "nome" : "Inglaterra - Premier League" , 
+      "id" : "3037" , 
+      "sub_id" : "" , 
+      "corresponder" : { 
+        "alternate_id" : "" , 
+        "alternate_id_2" : "6531349" , 
+        "data" : "08.12.2025 " 
+        "id" : "6023967" , 
+        "static_id" : "08122523412792341093" , 
+        "status" : "Tempo integral" , 
+        "hora" : "20:00 " 
+        "temporizador" : "" , 
+        "lar" : { 
+          "et_score" : "" , 
+          "ft_score" : "1" , 
+          "metas" : "1" , 
+          "ht_score" : "1" , 
+          "id" : "2341279" , 
+          "nome" : "Wolverhampton" , 
+          "pen_score" : "" 
+        } ,
+        "ausente" : { 
+          "et_score" : "" , 
+          "ft_score" : "4" , 
+          "gols" : "4" , 
+          "ht_score" : "1" , 
+          "id" : "2341093" , 
+          "nome" : "Manchester United" , 
+          "pen_score" : "" 
+        } ,
+        "informação da partida" : { 
+          "estádio" : { 
+            "nome" : "Estádio Molineux, Wolverhampton" 
+          } ,
+          "presença" : { 
+            "nome" : "" 
+          } ,
+          "tempo" : { 
+            "addedtime_period1" : "2" , 
+            "addedtime_period2" : "9" , 
+            "nome" : "20:00" 
+          } ,
+          "árbitro" : { 
+            "nome" : "Michael Salisbury, Inglaterra" 
+          }
+        } ,
+        "resumo" : { 
+          "lar" : { 
+            "metas" : { 
+              "jogador" : { 
+                "assist_id" : "603294" , 
+                "assist_name" : "David Möller Wolfe" , 
+                "extra_min" : "2" , 
+                "id" : "2752619" , 
+                "minuto" : "45 " 
+                "nome" : "Jean-Ricner Bellegarde" , 
+                "owngoal" : "Falso" , 
+                "penalidade" : "Falso " 
+                "penalidade_perdida" : "Falso" , 
+                "var_cancelled" : "False" 
+              }
+            } ,
+            "cartões amarelos" : { 
+              "jogador" : [ 
+                {
+                  "comentário" : "Handebol " 
+                  "minutos_extras" : "" , 
+                  "id" : "2980333" , 
+                  "minuto" : "81 " 
+                  "nome" : "Yerson Mosquera" 
+                } ,
+                {
+                  "comentário" : "Falta" , 
+                  "minutos_extras" : "" , 
+                  "id" : "2796250" , 
+                  "minuto" : "46 " 
+                  "nome" : "Ladislav Krejčí" 
+                } ,
+                {
+                  "comentário" : "Falta" , 
+                  "minutos_extras" : "" , 
+                  "id" : "2793640" , 
+                  "minuto" : "44 " 
+                  "nome" : "Jørgen Strand Larsen" 
+                }
+              ]
+            } ,
+            "cartões vermelhos" : nulo , 
+            "var" : nulo 
+          } ,
+          "ausente" : { 
+            "metas" : { 
+              "jogador" : [ 
+                {
+                  "assist_id" : "" , 
+                  "nome_da_assistência" : "" , 
+                  "minutos_extras" : "" , 
+                  "id" : "2608204" , 
+                  "minuto" : "82 " 
+                  "nome" : "Bruno Fernandes" , 
+                  "owngoal" : "Falso" , 
+                  "penalidade" : "Verdadeiro" , 
+                  "penalidade_perdida" : "Falso" , 
+                  "var_cancelled" : "False" 
+                } ,
+                {
+                  "assist_id" : "276371" , 
+                  "assist_name" : "Bruno Fernandes" , 
+                  "minutos_extras" : "" , 
+                  "id" : "2708530" , 
+                  "minuto" : "62 " 
+                  "nome" : "Mason Mount" , 
+                  "owngoal" : "Falso" , 
+                  "penalidade" : "Falso " 
+                  "penalidade_perdida" : "Falso" , 
+                  "var_cancelled" : "False" 
+                } ,
+                {
+                  "assist_id" : "400243" , 
+                  "assist_name" : "Diogo Dalot" , 
+                  "minutos_extras" : "" , 
+                  "id" : "2789299" , 
+                  "minuto" : "51 " 
+                  "nome" : "Bryan Mbeumo" , 
+                  "owngoal" : "Falso" , 
+                  "penalidade" : "Falso " 
+                  "penalidade_perdida" : "Falso" , 
+                  "var_cancelled" : "False" 
+                } ,
+                {
+                  "assist_id" : "491026" , 
+                  "assist_name" : "Matheus Cunha" , 
+                  "minutos_extras" : "" , 
+                  "id" : "2608204" , 
+                  "minuto" : "25" , 
+                  "nome" : "Bruno Fernandes" , 
+                  "owngoal" : "Falso" , 
+                  "penalidade" : "Falso " 
+                  "penalidade_perdida" : "Falso" , 
+                  "var_cancelled" : "False" 
+                }
+              ]
+            } ,
+            "cartões amarelos" : { 
+              "jogador" : [ 
+                {
+                  "comentário" : "Argumento" , 
+                  "extra_min" : "6" , 
+                  "id" : "2848210" , 
+                  "minuto" : "90 " 
+                  "nome" : "Joshua Zirkzee" 
+                } ,
+                {
+                  "comentário" : "Falta" , 
+                  "minutos_extras" : "" , 
+                  "id" : "2789299" , 
+                  "minuto" : "38 " 
+                  "Nome" : "Bryan Mbeumo" 
+                }
+              ]
+            } ,
+            "cartões vermelhos" : nulo , 
+            "var" : { 
+              "jogador" : { 
+                "tipo_de_evento" : "Pênalti confirmado" , 
+                "minutos_extras" : "" , 
+                "id" : "2964802" , 
+                "minuto" : "80 " 
+                "nome" : "Amad Diallo" , 
+                "ref_decision" : "Pênalti cancelado" , 
+                "var_decision" : "Falso" 
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

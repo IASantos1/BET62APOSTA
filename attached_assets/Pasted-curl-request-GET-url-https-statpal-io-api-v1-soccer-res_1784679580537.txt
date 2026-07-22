@@ -1,0 +1,149 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/soccer/results/africa?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "resultados" : { 
+    "atualizado" : "22/01/2025 13:28:30 " 
+    "esporte" : "futebol " 
+    "país" : "Inglaterra " 
+    "liga" : [ 
+      {
+        "nome" : "Premier League" , 
+        "temporada" : "2024/2025 " 
+        "id" : "3037" , 
+        "sub_id" : "30370" , 
+        "semana" : [ 
+          {
+            "número" : "1" , 
+            "corresponder" : [ 
+              {
+                "alternate_id" : "" , 
+                "alternate_id_2" : "6346169" , 
+                "presença" : "73297 " 
+                "data" : "16.08.2024 " 
+                "id" : "5838861" , 
+                "static_id" : "16082423410932341008" , 
+                "status" : "FT" , 
+                "hora" : "19:00 " 
+                "local" : "Old Trafford (Manchester)" , 
+                "cidade_do_local" : "Manchester" , 
+                "venue_id" : "2419813" , 
+                "lar" : { 
+                  "et_score" : "" , 
+                  "ft_score" : "1" , 
+                  "id" : "2341093" , 
+                  "nome" : "Manchester United" , 
+                  "pen_score" : "" , 
+                  "pontuação" : "1" 
+                } ,
+                "ausente" : { 
+                  "et_score" : "" , 
+                  "ft_score" : "0" , 
+                  "id" : "2341008" , 
+                  "nome" : "Fulham" , 
+                  "pen_score" : "" , 
+                  "pontuação" : "0" 
+                } ,
+                "intervalo" : { 
+                  "Placar" : "0 - 0" 
+                } ,
+                "metas" : { 
+                  "meta" : [ 
+                    {
+                      "assistência" : "A. Garnacho" , 
+                      "minuto" : "87 " 
+                      "jogador" : "J. Zirkzee " 
+                      "playerid" : "2848210" , 
+                      "placar" : "1 - 0" , 
+                      "equipe" : "casa" 
+                    }
+                  ]
+                } ,
+                "escalações" : { 
+                  "lar" : { 
+                    "jogador" : [ 
+                      {
+                        "reserva" : "" , 
+                        "id" : "2704298" , 
+                        "nome" : "A. Onana" , 
+                        "número" : "24" 
+                      } ,
+                      {
+                        "reserva" : "YC 40" , 
+                        "id" : "2513880" , 
+                        "nome" : "H. Maguire" , 
+                        "número" : "5" 
+                      }
+                    ]
+                  } ,
+                  "ausente" : { 
+                    "jogador" : [ 
+                      {
+                        "reserva" : "" , 
+                        "id" : "2434366" , 
+                        "nome" : "B. Leno" , 
+                        "número" : "1" 
+                      } ,
+                      {
+                        "reserva" : "" , 
+                        "id" : "2547379" , 
+                        "nome" : "K. Tete" , 
+                        "número" : "2" 
+                      }
+                    ]
+                  }
+                } ,
+                "substituições" : { 
+                  "lar" : { 
+                    "substituição" : [ 
+                      {
+                        "minuto" : "61 " 
+                        "player_in_booking" : "" , 
+                        "player_in_id" : "2964519" , 
+                        "player_in_name" : "A. Garnacho" , 
+                        "player_in_number" : "17" , 
+                        "player_out_id" : "2964802" , 
+                        "player_out_name" : "A. Diallo" 
+                      }
+                    ]
+                  } ,
+                  "ausente" : { 
+                    "substituição" : [ 
+                      {
+                        "minuto" : "64 " 
+                        "player_in_booking" : "YC 73" , 
+                        "player_in_id" : "2423333" , 
+                        "player_in_name" : "T. Cairney" , 
+                        "jogador_em_número" : "10" , 
+                        "player_out_id" : "2784958" , 
+                        "player_out_name" : "E. Smith Rowe" 
+                      }
+                    ]
+                  }
+                } ,
+                "treinadores" : { 
+                  "lar" : { 
+                    "treinador" : { 
+                      "id" : "255436" , 
+                      "nome" : "E. ten Hag" 
+                    }
+                  } ,
+                  "ausente" : { 
+                    "treinador" : { 
+                      "id" : "210906" , 
+                      "nome" : "Marco Silva" 
+                    }
+                  }
+                } ,
+                "árbitro" : { 
+                  "id" : "143554" , 
+                  "nome" : "R. Jones" 
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

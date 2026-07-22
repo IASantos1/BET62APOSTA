@@ -1,0 +1,159 @@
+curl --request GET \
+  --url 'https://statpal.io/api/v1/soccer/odds/africa?access_key=b5b07a3f-b019-4a18-8969-6045169feda9' \ 
+  --header 'Accept: application/json'
+{
+  "exemplo" : { 
+    "odds_feed" : { 
+      "atualizado" : "22/01/2025 13:47:47 " 
+      "esporte" : "futebol " 
+      "liga" : [ 
+        {
+          "país" : "Inglaterra " 
+          "gid" : "1204" , 
+          "id" : "3037" , 
+          "nome" : "Inglaterra: Premier League" , 
+          "sub_id" : "30370" , 
+          "corresponder" : [ 
+            {
+              "alternate_id" : "6346836" , 
+              "alternate_id_2" : "8210697" , 
+              "data" : "25.01.2025 " 
+              "id" : "5839528" , 
+              "static_id" : "25012523408862341130" , 
+              "status" : "15:00" , 
+              "hora" : "15:00 " 
+              "local" : "" , 
+              "lar" : { 
+                "alternate_id" : "5363803836" , 
+                "id" : "2340886" , 
+                "nome" : "Bournemouth" 
+              } ,
+              "ausente" : { 
+                "alternate_id" : "5363803837" , 
+                "id" : "2341130" , 
+                "nome" : "Nottingham" 
+              } ,
+              "chances" : { 
+                "tipo" : [ 
+                  {
+                    "nome" : "1x2" , 
+                    "apostador" : [ 
+                      {
+                        "id" : "767" , 
+                        "nome" : "bwin" , 
+                        "chance" : [ 
+                          {
+                            "nome" : "Casa" , 
+                            "valor" : "2,05" 
+                          } ,
+                          {
+                            "nome" : "Desenho" , 
+                            "valor" : "3,60" 
+                          } ,
+                          {
+                            "nome" : "Ausente" , 
+                            "valor" : "3,40" 
+                          }
+                        ]
+                      }
+                    ]
+                  } ,
+                  {
+                    "nome" : "Asian Handicap" , 
+                    "apostador" : [ 
+                      {
+                        "id" : "777" , 
+                        "nome" : "NordicBet" , 
+                        "desvantagem" : [ 
+                          {
+                            "ismain" : "Verdadeiro" , 
+                            "nome" : "-0,75" , 
+                            "parar" : "Falso" , 
+                            "chance" : [ 
+                              {
+                                "nome" : "Casa" , 
+                                "valor" : "2,43" 
+                              } ,
+                              {
+                                "nome" : "Ausente" , 
+                                "valor" : "1,59" 
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  } ,
+                  {
+                    "nome" : "Acima/Abaixo" , 
+                    "apostador" : [ 
+                      {
+                        "id" : "781" , 
+                        "nome" : "bet365" , 
+                        "total" : [ 
+                          {
+                            "ismain" : "Verdadeiro" , 
+                            "nome" : "2,5" , 
+                            "parar" : "Falso" , 
+                            "chance" : [ 
+                              {
+                                "nome" : "Acima" , 
+                                "valor" : "1,77" 
+                              } ,
+                              {
+                                "nome" : "Sob" , 
+                                "valor" : "1,93" 
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  } ,
+                  {
+                    "nome" : "Pontuação Correta" , 
+                    "apostador" : [ 
+                      {
+                        "id" : "780" , 
+                        "nome" : "WilliamHill" , 
+                        "chance" : [ 
+                          {
+                            "nome" : "1:0" , 
+                            "valor" : "8,00" 
+                          } ,
+                          {
+                            "nome" : "2:1" , 
+                            "Valor" : "8,50" 
+                          }
+                        ]
+                      }
+                    ]
+                  } ,
+                  {
+                    "nome" : "Ambas as equipes marcam" , 
+                    "apostador" : [ 
+                      {
+                        "id" : "836" , 
+                        "nome" : "Fonbet" , 
+                        "chance" : [ 
+                          {
+                            "nome" : "Sim" , 
+                            "valor" : "1,68" 
+                          } ,
+                          {
+                            "nome" : "Não" , 
+                            "valor" : "2,12" 
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
