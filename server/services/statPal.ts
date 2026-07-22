@@ -244,10 +244,18 @@ function extractEvents(payload: any): any[] {
   // Tournament blocks have "corresponder" (single obj or array) or "semana[].corresponder[]"
   // flattenLeagueBlocks already handles both patterns.
   if (Array.isArray(payload?.['pontuações ao vivo']?.torneio)) return flattenLeagueBlocks(payload['pontuações ao vivo'].torneio);
+  // NBA livescores: "pontuações ao vivo".torneio is a single object (not array) with corresponder[]
+  if (payload?.['pontuações ao vivo']?.torneio && !Array.isArray(payload['pontuações ao vivo'].torneio)) {
+    return flattenLeagueBlocks([payload['pontuações ao vivo'].torneio]);
+  }
   if (Array.isArray(payload?.['estatísticas ao vivo']?.torneio)) return flattenLeagueBlocks(payload['estatísticas ao vivo'].torneio);
+  // NBA/basketball livestats: "estatísticas ao vivo".torneio may also be a single object
+  if (payload?.['estatísticas ao vivo']?.torneio && !Array.isArray(payload['estatísticas ao vivo'].torneio)) {
+    return flattenLeagueBlocks([payload['estatísticas ao vivo'].torneio]);
+  }
   if (Array.isArray(payload?.['pontuações']?.torneio)) return flattenLeagueBlocks(payload['pontuações'].torneio);
   if (payload?.['pontuações']?.torneio && !Array.isArray(payload['pontuações'].torneio)) {
-    // Single tournament object (e.g. /tournament/{id}) — wrap for flattenLeagueBlocks
+    // Single tournament object (e.g. NBA /daily, /season-schedule, tennis /tournament/{id})
     return flattenLeagueBlocks([payload['pontuações'].torneio]);
   }
   if (Array.isArray(payload?.matches?.tournament?.week)) {
@@ -473,6 +481,7 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     event?.home?.score ??     // /leagues/{id}/matches uses "score" not "goals"
     event?.lar?.metas ??      // Portuguese /matches/daily: home goals ("metas" or "gols")
     event?.lar?.gols ??
+    event?.lar?.totalscore ?? // NBA/basketball: total points scored by home team
     event?.home_score ??
     event?.score?.home ??
     event?.scores?.home ??
@@ -486,6 +495,7 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
     event?.away?.score ??     // /leagues/{id}/matches uses "score" not "goals"
     event?.ausente?.gols ??   // Portuguese /matches/daily: away goals ("gols" or "metas")
     event?.ausente?.metas ??
+    event?.ausente?.totalscore ?? // NBA/basketball: total points scored by away team
     event?.away_score ??
     event?.score?.away ??
     event?.scores?.away ??
@@ -684,16 +694,25 @@ function extractOddsRows(payload: any): any[] {
       if (Array.isArray(provider?.markets) && provider.markets.length > 0) return provider.markets;
     }
   }
-  // StatPal v1 soccer odds format:
+  // When selectStatPalOddsPayload returns a { match, odds, match_info } wrapper (because it
+  // found a specific match within a larger odds payload), recurse into the match object so
+  // extractOddsRows can still reach the embedded chances/tipo structure.
+  if (payload?.match && typeof payload.match === 'object' && !Array.isArray(payload.match)) {
+    const fromMatch = extractOddsRows(payload.match);
+    if (fromMatch.length > 0) return fromMatch;
+  }
+  // StatPal v1 soccer/tennis/NBA odds format:
   //   chances.tipo[] = markets  ("tipo" = "type")
   //   tipo[].apostador[].chance[]           = selections (for 1x2, correct_score, btts)
   //   tipo[].apostador[].desvantagem[].chance[] = handicap lines  ("desvantagem" = "handicap")
   //   tipo[].apostador[].total[].chance[]   = totals lines
   //   Line value in desvantagem/total[].nome (e.g. "-0,75", "2,5"), comma decimal
+  //   NBA: market name is in tipo[].valor (not .nome!)
   if (Array.isArray(payload?.chances?.tipo)) {
     const rows: any[] = [];
     for (const market of payload.chances.tipo) {
-      const marketName = String(market?.nome ?? market?.name ?? '').trim();
+      // NBA uses "valor" for market name; soccer/tennis use "nome"
+      const marketName = String(market?.nome ?? market?.valor ?? market?.name ?? '').trim();
       const books = Array.isArray(market?.apostador) ? market.apostador : [];
       for (const book of books) {
         // Direct selections (1x2, btts, correct_score, etc.)
@@ -879,6 +898,19 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
     ...(Array.isArray(payload?.data?.live_matches) ? payload.data.live_matches : []),
     ...(Array.isArray(payload?.upcoming_matches) ? payload.upcoming_matches : []),
     ...(Array.isArray(payload?.data?.upcoming_matches) ? payload.data.upcoming_matches : []),
+    // V1 tennis odds: chances.torneio[].partidas.corresponder
+    // Each tournament block has "partidas.corresponder" — may be single object or array
+    // Matches have embedded chances.tipo[] handled by extractOddsRows.
+    ...(Array.isArray(payload?.chances?.torneio)
+      ? payload.chances.torneio.flatMap((t: any) => {
+          const corr = t?.partidas?.corresponder;
+          return !corr ? [] : Array.isArray(corr) ? corr : [corr];
+        })
+      : []),
+    // V1 NBA odds: chances.categoria.partidas.corresponder[] — flat array of matches
+    ...(Array.isArray(payload?.chances?.categoria?.partidas?.corresponder)
+      ? payload.chances.categoria.partidas.corresponder
+      : []),
     // Portuguese /odds/live: "partidas_ao_vivo" — flatten "informação_da_partida" to root for ID lookup
     ...(Array.isArray(payload?.partidas_ao_vivo)
       ? payload.partidas_ao_vivo.map((item: any) => ({
@@ -908,14 +940,6 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
     // V1 soccer odds: exemplo.odds_feed.liga[] or odds_feed.liga[]
     ...(Array.isArray(payload?.exemplo?.odds_feed?.liga) ? [payload.exemplo.odds_feed.liga] : []),
     ...(Array.isArray(payload?.odds_feed?.liga) ? [payload.odds_feed.liga] : []),
-    // V1 tennis odds: chances.torneio[].partidas.corresponder (may be single obj or array)
-    // Each tournament's "partidas" has one or more "corresponder" match objects
-    ...(Array.isArray(payload?.chances?.torneio)
-      ? [payload.chances.torneio.flatMap((t: any) => {
-          const corr = t?.partidas?.corresponder;
-          return !corr ? [] : Array.isArray(corr) ? corr : [corr];
-        })]
-      : []),
   ];
   for (const leagues of leagueCollections) {
     const found = findMatch(flattenStatPalLeagueMatches(leagues));
@@ -997,7 +1021,9 @@ function inferMarketKey(title: string): string {
   if (/(acima abaixo|acima sob)/.test(t)) return 'totals';
   // "resultado em tempo integral" = Portuguese for "full time result"
   // "casa fora" = Portuguese for "home away" — tennis win market (no draw)
+  // "resultado de 3 vias" = NBA 3-way result (Portuguese for "3-way result")
   if (/^(match winner|1x2|full time result|resultado final|resultado em tempo integral|winner|casa fora|casa ausente)$/.test(t)) return 'h2h';
+  if (/resultado de (3|tr[eê]s) vias/.test(t)) return 'h2h';
   if (/^home away$/.test(t)) return 'home_away';
   if (/(correct score|placar exato)/.test(t)) return 'correct_score';
   if (/(asian handicap).*(first half|1st half)|(^first half|^1st half).*(asian handicap)/.test(t)) return '1st_half_spreads';
