@@ -927,20 +927,22 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
   const homeKey = normalizeLabel(opts.homeTeam || '');
   const awayKey = normalizeLabel(opts.awayTeam || '');
   const matchByTeams = (match: any): boolean => {
-    const players = Array.isArray(match?.jogador) ? match.jogador : null;
+    // Support both Portuguese key (jogador) and English key (player) for tennis
+    const players = Array.isArray(match?.jogador) ? match.jogador
+      : Array.isArray(match?.player) ? match.player : null;
     const home = normalizeLabel(
       match?.home?.name ?? match?.team_info?.home?.name ??
       // Portuguese keys (prematch odds: lar, live odds: informações_da_equipe.lar)
       match?.lar?.nome ?? match?.['informações_da_equipe']?.lar?.nome ??
-      // Tennis: jogador[0] = player 1 (home)
-      players?.[0]?.nome ?? '',
+      // Tennis: player 1 — Portuguese (nome) or English (name)
+      players?.[0]?.nome ?? players?.[0]?.name ?? '',
     );
     const away = normalizeLabel(
       match?.away?.name ?? match?.team_info?.away?.name ??
       // Portuguese keys
       match?.ausente?.nome ?? match?.['informações_da_equipe']?.ausente?.nome ??
-      // Tennis: jogador[1] = player 2 (away)
-      players?.[1]?.nome ?? '',
+      // Tennis: player 2 — Portuguese (nome) or English (name)
+      players?.[1]?.nome ?? players?.[1]?.name ?? '',
     );
     if (homeKey && awayKey) {
       return home === homeKey && away === awayKey;
@@ -983,6 +985,30 @@ function selectStatPalOddsPayload(payload: any, opts?: StatPalOddsOpts): any {
           lar: item?.['informações_da_equipe']?.lar ?? item?.lar,
           ausente: item?.['informações_da_equipe']?.ausente ?? item?.ausente,
         }))
+      : []),
+    // ── v1 NBA / NHL / MLB odds: odds.category.matches.match[] ───────────
+    ...(payload?.odds?.category
+      ? (() => {
+          const cats = Array.isArray(payload.odds.category)
+            ? payload.odds.category
+            : [payload.odds.category];
+          return cats.flatMap((c: any) => {
+            const matchArr = c?.matches?.match;
+            return Array.isArray(matchArr) ? matchArr : (matchArr ? [matchArr] : []);
+          });
+        })()
+      : []),
+    // ── v1 Tennis odds: odds.tournament[].matches.match ──────────────────
+    ...(payload?.odds?.tournament
+      ? (() => {
+          const tourns = Array.isArray(payload.odds.tournament)
+            ? payload.odds.tournament
+            : [payload.odds.tournament];
+          return tourns.flatMap((t: any) => {
+            const matchArr = t?.matches?.match;
+            return Array.isArray(matchArr) ? matchArr : (matchArr ? [matchArr] : []);
+          });
+        })()
       : []),
   ];
   const directFound = findMatch(directLiveMatches);
@@ -1350,82 +1376,36 @@ export async function fetchStatPalSchedule(apiKey: string, sport: string, date: 
     }
     return [];
   }
-  // Non-soccer sports: NBA, MLB, NHL, Tennis, Volleyball, MMA
-  // StatPal v1 uses /daily/d-N as the primary schedule endpoint (not date-param URLs).
+  // Non-soccer sports: NBA, MLB, NHL, Tennis
+  // StatPal v1 exposes only two relevant endpoints:
+  //   /odds        → upcoming matches (with embedded odds)
+  //   /livescores  → currently live matches
+  // There is no /daily, /schedule, or /fixtures endpoint for these sports.
   const targetDate = dateOnlyIso(date);
-  const dayOffset = utcDayDiffFromToday(date);
-  // Build /daily/d-N paths: d-0=today, d-1=yesterday, d+1=tomorrow etc.
-  const dailyPaths: string[] = [];
-  if (dayOffset != null && Math.abs(dayOffset) <= 7) {
-    // Most reliable: exact offset first, then adjacent days as fallback
-    const abs = Math.abs(dayOffset);
-    const sign = dayOffset <= 0 ? '-' : '+';
-    dailyPaths.push(`/daily/d${sign}${abs}`);
-    if (abs !== 0) dailyPaths.push('/daily/d-0');   // today as secondary
-    if (abs !== 1) dailyPaths.push('/daily/d-1');   // yesterday as tertiary
-  } else {
-    dailyPaths.push('/daily/d-0', '/daily/d-1');
-  }
-  const dateVariants = Array.from(new Set(formatDateVariants(date)));
-  const datePaths = dateVariants.flatMap((d) => [
-    `/schedule?date=${encodeURIComponent(d)}`,
-    `/games?date=${encodeURIComponent(d)}`,
-    `/matches?date=${encodeURIComponent(d)}`,
-    `/fixtures?date=${encodeURIComponent(d)}`,
-    `/upcoming?date=${encodeURIComponent(d)}`,
-    `/matches/upcoming?date=${encodeURIComponent(d)}`,
+  const [oddsJson, liveJson] = await Promise.all([
+    fetchFirstJson(buildCandidateUrls(apiKey, sport, ['/odds']), PROVIDER_TIMEOUT_MS).catch(() => null),
+    fetchFirstJson(buildCandidateUrls(apiKey, sport, ['/livescores']), PROVIDER_TIMEOUT_MS).catch(() => null),
   ]);
-  // Daily paths first (known to work for NBA/MLB/volleyball), then generic date params, then livescores
-  const allPaths = [...new Set([...dailyPaths, ...datePaths, '/livescores', '/matches/live', '/matches?status=live'])];
-  for (const url of buildCandidateUrls(apiKey, sport, allPaths)) {
-    const json = await fetchJson(url, PROVIDER_TIMEOUT_MS);
-    let events = extractEvents(json)
-      .map((row) => normalizeEvent(row, sport))
-      .filter(Boolean) as NormalizedEvent[];
-    if (events.length === 0) continue;
-    // StatPal non-soccer: fetch the sport-level /odds endpoint and attach prematch odds.
-    // Unlike soccer (which uses /leagues/{id}/odds/prematch per-league), non-soccer sports
-    // expose a single /odds endpoint that covers all upcoming + live matches.
-    const hasOdds = events.some((e) => e.home_odd > 1 || e.away_odd > 1);
-    if (!hasOdds) {
-      const oddsJson = await fetchFirstJson(
-        buildCandidateUrls(apiKey, sport, ['/odds']),
-        PROVIDER_TIMEOUT_MS,
-      ).catch(() => null);
-      if (oddsJson) events = attachOddsToEvents(events, oddsJson, sport);
-    }
-    if (!targetDate) return events;
-    const sameDay = events.filter((event) => dateOnlyIso(String(event?.event_date || '')) === targetDate);
-    if (sameDay.length > 0) return sameDay;
-    // Return all if we got data but none matched the exact date (avoids silent empty)
-    return events;
+  const oddsEvents = oddsJson
+    ? (extractEvents(oddsJson).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[])
+    : [];
+  const liveEvents = liveJson
+    ? (extractEvents(liveJson).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[])
+    : [];
+  // Merge — live events take precedence; deduplicate by match_id
+  const seenIds = new Set<string>();
+  const merged: NormalizedEvent[] = [];
+  for (const ev of [...liveEvents, ...oddsEvents]) {
+    const id = String((ev as any).match_id || (ev as any).id || '');
+    if (id && seenIds.has(id)) continue;
+    if (id) seenIds.add(id);
+    merged.push(ev);
   }
-
-  // Fallback: SportsApiPro v2 schedule format with x-api-key header.
-  // StatPal non-soccer: https://v2.{sport}.statpal.io/api/schedule/{date}
-  const sapiSchedulePaths = [
-    `/api/schedule/${encodeURIComponent(date)}?timezoneName=UTC`,
-    `/api/schedule/${encodeURIComponent(date)}`,
-  ];
-  for (const url of buildSportsApiProStyleUrls(sport, sapiSchedulePaths)) {
-    const json = await fetchJsonXApiKey(url, apiKey, PROVIDER_TIMEOUT_MS);
-    let events = extractEvents(json).map((row) => normalizeEvent(row, sport)).filter(Boolean) as NormalizedEvent[];
-    if (events.length === 0) continue;
-    const hasOdds = events.some((e) => e.home_odd > 1 || e.away_odd > 1);
-    if (!hasOdds) {
-      const oddsJson = await fetchFirstJsonXApiKey(
-        buildSportsApiProStyleUrls(sport, ['/api/odds', '/odds']),
-        apiKey,
-        PROVIDER_TIMEOUT_MS,
-      ).catch(() => null);
-      if (oddsJson) events = attachOddsToEvents(events, oddsJson, sport);
-    }
-    if (!targetDate) return events;
-    const sameDay = events.filter((ev) => dateOnlyIso(String(ev?.event_date || '')) === targetDate);
-    if (sameDay.length > 0) return sameDay;
-    return events;
-  }
-  return [];
+  if (merged.length === 0) return [];
+  if (!targetDate) return merged;
+  const sameDay = merged.filter((ev) => dateOnlyIso(String(ev?.event_date || '')) === targetDate);
+  // Return same-day subset if available; otherwise return all (avoids silent empty when dates don't align)
+  return sameDay.length > 0 ? sameDay : merged;
 }
 
 export async function fetchStatPalMatchOddsAll(
@@ -1435,6 +1415,19 @@ export async function fetchStatPalMatchOddsAll(
   opts?: StatPalOddsOpts
 ): Promise<OddsResult | null> {
   const matchIds = Array.from(new Set([matchId, ...((opts?.matchIds || []).map((id) => String(id || '').trim()))].filter(Boolean)));
+  const s = statPalSportPath(sport);
+
+  if (s !== 'soccer') {
+    // Non-soccer v1 (NBA/MLB/NHL/Tennis): no per-match odds endpoint exists.
+    // The global /odds feed contains all upcoming matches with embedded bets[].
+    const json = await fetchFirstJson(
+      buildCandidateUrls(apiKey, sport, ['/odds']),
+      PROVIDER_TIMEOUT_MS,
+    );
+    return parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId, matchIds });
+  }
+
+  // Soccer: try per-match paths first, then fall back to the global /odds feed
   const json = await fetchFirstJson(
     buildCandidateUrls(apiKey, sport, [
       ...matchIds.flatMap((id) => [
@@ -1455,22 +1448,6 @@ export async function fetchStatPalMatchOddsAll(
       PROVIDER_TIMEOUT_MS,
     );
     parsed = parseStatPalMatchOddsPayload(sport, genericJson, { ...opts, matchId, matchIds });
-  }
-  // SportsApiPro-compatible format fallback: /api/match/{id}/odds/all with x-api-key header
-  if (!parsed) {
-    for (const id of matchIds) {
-      const sapiJson = await fetchFirstJsonXApiKey(
-        buildSportsApiProStyleUrls(sport, [
-          `/api/match/${encodeURIComponent(id)}/odds/all`,
-          `/api/match/${encodeURIComponent(id)}/odds`,
-          `/api/odds?match_id=${encodeURIComponent(id)}`,
-        ]),
-        apiKey,
-        PROVIDER_TIMEOUT_MS,
-      );
-      parsed = parsed || parseStatPalMatchOddsPayload(sport, sapiJson, { ...opts, matchId, matchIds });
-      if (parsed) break;
-    }
   }
   return parsed;
 }
@@ -1531,6 +1508,19 @@ export async function fetchStatPalMatchOddsPreMatch(
   opts?: StatPalOddsOpts
 ): Promise<OddsResult | null> {
   const matchIds = Array.from(new Set([matchId, ...((opts?.matchIds || []).map((id) => String(id || '').trim()))].filter(Boolean)));
+  const s = statPalSportPath(sport);
+
+  if (s !== 'soccer') {
+    // Non-soccer v1 (NBA/MLB/NHL/Tennis): no per-match pre-match odds endpoint exists.
+    // The global /odds feed serves all upcoming matches with embedded bets[].
+    const json = await fetchFirstJson(
+      buildCandidateUrls(apiKey, sport, ['/odds']),
+      PROVIDER_TIMEOUT_MS,
+    );
+    return parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId, matchIds });
+  }
+
+  // Soccer: per-match paths first, then league prematch, then global /odds
   const json = await fetchFirstJson(
     buildCandidateUrls(apiKey, sport, [
       ...matchIds.flatMap((id) => [
@@ -1546,7 +1536,7 @@ export async function fetchStatPalMatchOddsPreMatch(
     PROVIDER_TIMEOUT_MS,
   );
   let parsed = parseStatPalMatchOddsPayload(sport, json, { ...opts, matchId, matchIds });
-  if (!parsed && statPalSportPath(sport) === 'soccer' && opts?.leagueId) {
+  if (!parsed && opts?.leagueId) {
     const prematchJson = await fetchFirstJson(
       buildCandidateUrls(apiKey, sport, [
         `/leagues/${encodeURIComponent(opts.leagueId)}/odds/prematch`,
@@ -1565,32 +1555,6 @@ export async function fetchStatPalMatchOddsPreMatch(
       PROVIDER_TIMEOUT_MS,
     );
     parsed = parseStatPalMatchOddsPayload(sport, genericJson, { ...opts, matchId, matchIds });
-  }
-  // SportsApiPro-compatible format fallback: /api/match/{id}/odds/pre-match with x-api-key header
-  if (!parsed) {
-    for (const id of matchIds) {
-      const sapiJson = await fetchFirstJsonXApiKey(
-        buildSportsApiProStyleUrls(sport, [
-          `/api/match/${encodeURIComponent(id)}/odds/pre-match`,
-          `/api/match/${encodeURIComponent(id)}/prematch-odds`,
-          `/api/match/${encodeURIComponent(id)}/odds`,
-          `/api/odds/prematch?match_id=${encodeURIComponent(id)}`,
-        ]),
-        apiKey,
-        PROVIDER_TIMEOUT_MS,
-      );
-      parsed = parsed || parseStatPalMatchOddsPayload(sport, sapiJson, { ...opts, matchId, matchIds });
-      if (parsed) break;
-    }
-    // Generic SportsApiPro odds endpoint as last resort
-    if (!parsed) {
-      const sapiGenericJson = await fetchFirstJsonXApiKey(
-        buildSportsApiProStyleUrls(sport, ['/api/odds/prematch', '/api/odds']),
-        apiKey,
-        PROVIDER_TIMEOUT_MS,
-      );
-      parsed = parseStatPalMatchOddsPayload(sport, sapiGenericJson, { ...opts, matchId, matchIds });
-    }
   }
   return parsed;
 }
