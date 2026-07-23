@@ -16,7 +16,7 @@ import {
 import { APP_BETS_TABLE, APP_TRANSACTIONS_TABLE, ensureAppBetsTable, ensureAppTransactionsTable } from '../lib/appTables';
 import { buildSportsDataPipelineStatus } from '../services/dataPipeline';
 import { getKycStorageRoot } from '../lib/kycStorage';
-import { getStatPalConfig } from '../services/statPal';
+import { detectStatPalEnvSource, getStatPalConfig } from '../services/statPal';
 
 interface TestKeyBody { key: string; sport?: string; matchId?: string; leagueId?: string; teamId?: string; playerId?: string; coachId?: string }
 type WalletAdjustBody = { amount?: number | string; note?: string; mode?: 'credit' | 'debit' };
@@ -39,28 +39,13 @@ function toSub(sport: string): string {
   return s || 'football';
 }
 
-function detectSportsApiEnvSource(): string {
-  if (process.env.STATPAL_ACCESS_KEY) return 'STATPAL_ACCESS_KEY';
-  if (process.env.SPORTS_API_PRO_KEY) return 'SPORTS_API_PRO_KEY';
-  if (process.env.SPORTSAPIPRO_KEY) return 'SPORTSAPIPRO_KEY';
-  if (process.env.SPORTSAPI_PRO_KEY) return 'SPORTSAPI_PRO_KEY';
-  if (process.env.SPORTS_API_KEY) return 'SPORTS_API_KEY';
-  if (process.env.STATPAL_KEY) return 'STATPAL_KEY';
-  return '';
-}
-
 async function probeUrl(url: string, key: string): Promise<{ url: string; status: number; ok: boolean; ms: number; keys: string[]; sample: string; error?: string }> {
   const t0 = Date.now();
   try {
-    const provider = getStatPalConfig().provider;
     const target = new URL(url);
-    if (provider === 'statpal') {
-      target.searchParams.set('access_key', key);
-    }
+    target.searchParams.set('access_key', key);
     const r = await fetch(target.toString(), {
-      headers: provider === 'statpal'
-        ? { accept: 'application/json' }
-        : { 'x-api-key': key, accept: 'application/json' },
+      headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(10000),
     });
     const text = await r.text().catch(() => '');
@@ -787,16 +772,16 @@ export async function handleAdminRoutes(
     sendJson(res, 200, {
       provider: activeProvider,
       configured: Boolean(apiKey),
-      envSource: detectSportsApiEnvSource(),
+      envSource: detectStatPalEnvSource(),
       debugTokenConfigured: Boolean(String(process.env.ODDS_DEBUG_TOKEN || '').trim()),
       oddsEvents: Array.isArray(adminOddsEvents) ? adminOddsEvents.length : 0,
       eventsCacheEntries: typeof (eventsCache as any)?.size === 'number' ? (eventsCache as any).size : 0,
       config: providerConfig,
       metrics: providerMetrics,
       warnings: [
-        !apiKey ? `${activeProvider === 'statpal' ? 'STATPAL_ACCESS_KEY' : 'SPORTS_API_PRO_KEY'} ausente` : '',
-        activeProvider !== 'statpal' && detectSportsApiEnvSource() && detectSportsApiEnvSource() !== 'SPORTS_API_PRO_KEY'
-          ? `alias legado em uso: ${detectSportsApiEnvSource()}`
+        !apiKey ? 'STATPAL_API_KEY ausente' : '',
+        detectStatPalEnvSource() && detectStatPalEnvSource() !== 'STATPAL_API_KEY'
+          ? `alias legado em uso: ${detectStatPalEnvSource()}`
           : '',
       ].filter(Boolean),
     });
@@ -846,7 +831,7 @@ export async function handleAdminRoutes(
     sendJson(res, 200, {
       provider: activeProvider,
       configured: Boolean(apiKey),
-      envSource: detectSportsApiEnvSource(),
+      envSource: detectStatPalEnvSource(),
       config,
       ...(metrics || {}),
     });

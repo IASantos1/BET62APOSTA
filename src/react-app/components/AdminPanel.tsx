@@ -144,19 +144,19 @@ function ApiDiagTab({ darkMode }: { darkMode: boolean }) {
   return (
     <div className="space-y-5 max-w-3xl">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">🔑 API Diagnóstico — SportsApiPro</h1>
+        <h1 className="text-2xl font-bold">🔑 API Diagnóstico — Statpal</h1>
       </div>
 
       {/* Key input */}
       <div className={card}>
-        <h2 className="font-semibold mb-3 text-sm uppercase tracking-wide text-gray-400">Chave API (x-api-key)</h2>
+        <h2 className="font-semibold mb-3 text-sm uppercase tracking-wide text-gray-400">Chave API (access_key)</h2>
         <div className="flex gap-2 items-center">
           <div className="relative flex-1">
             <input
               type={showKey ? 'text' : 'password'}
               value={apiKey}
               onChange={e => setApiKey(e.target.value)}
-              placeholder="Cole a tua chave SportsApiPro aqui…"
+              placeholder="Cole a tua chave Statpal aqui…"
               className={`w-full px-3 py-2.5 rounded-lg border text-sm font-mono pr-10 ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-red-500`}
             />
             <button

@@ -2609,9 +2609,9 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
       const odds = await fetchOddsStrict(sport, id, { forceAll: true }).catch(() => null);
 
-      // fetchOddsStrict only calls SportsApiPro. StatPal (our primary provider) stores
-      // odds directly on the event object via attachOddsToEvents. When SportsApiPro
-      // returns nothing, fall back to the StatPal odds already in the event cache.
+      // `fetchOddsStrict` may return no result for some matches. Statpal also stores
+      // odds directly on the event object via `attachOddsToEvents`, so fall back to
+      // the cached event payload when no dedicated odds response is available.
       const cachedEv = lastEventById.get(id)?.data;
       let markets = odds?.markets && Object.keys(odds.markets).length > 0 ? odds.markets : {};
       let homeOdd = odds?.home || 0;
@@ -2653,7 +2653,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       recordProviderCache('statistics', 'miss');
       const statsRaw = await callProvider('statistics', () => fetchStatPalMatchStatistics(apiKey, sport, id)).catch(() => null);
 
-      // Normalise a SportsApiPro v2 home/away object into API-Football statistics array
+      // Normalize home/away statistics objects into the legacy API-Football array shape.
       const normalizeStatsObject = (obj: any, teamLabel: string): any[] => {
         if (!obj || typeof obj !== 'object') return [];
         const map: Record<string, string> = {
@@ -2684,7 +2684,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
           .map(([k, v]) => ({ type: map[k.toLowerCase()], value: v, team: { name: teamLabel } }));
       };
 
-      // Extract stats from various SportsApiPro response formats
+      // Extract stats from the provider response formats we already support.
       const extractStats = (raw: any): any[] => {
         if (!raw) return [];
         // Direct array
@@ -2696,7 +2696,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         if (Array.isArray(raw.statistics)) return raw.statistics;
         if (Array.isArray(raw.data?.stats)) return raw.data.stats;
         if (Array.isArray(raw.stats)) return raw.stats;
-        // SportsApiPro v2: { data: { home: {...}, away: {...} } }
+        // Home/away object shape: { data: { home: {...}, away: {...} } }
         const d = raw.data ?? raw;
         if (d && typeof d === 'object' && !Array.isArray(d)) {
           const homeStats = d.home ?? d.home_team ?? d.homeTeam;
@@ -2729,7 +2729,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const rawStats = extractStats(statsRaw);
       const events = extractMatchEvents(statsRaw);
 
-      // Detect SportsApiPro grouped format: [{ period:"ALL", groups:[...] }]
+      // Detect grouped statistics format: [{ period:"ALL", groups:[...] }]
       // Convert to flat API-Football format for legacy components; keep grouped for rich display.
       let stats: any[] = rawStats;
       let groupedStats: any[] | null = null;
@@ -2821,7 +2821,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
         if (Array.isArray(r?.standings)) return r.standings;
         if (Array.isArray(r?.data?.rows)) return r.data.rows;
         if (Array.isArray(r?.rows)) return r.rows;
-        // SportsApiPro nested: { data: { groups: [{ rows: [...] }] } }
+        // Nested grouped standings: { data: { groups: [{ rows: [...] }] } }
         const groups = r?.data?.groups ?? r?.groups ?? r?.data?.standings?.[0]?.rows;
         if (Array.isArray(groups)) {
           const out: any[] = [];
@@ -2861,7 +2861,7 @@ export function createEventsService(pool: pg.Pool | null, apiKey: string): Event
       const sport = sportParam || await resolveSport(id);
       if (!sport) return sendJson(res, 404, { error: 'Evento não encontrado' }), true;
 
-      // Map SportsApiPro typeId → canonical incident type
+      // Map provider-specific `typeId` values to canonical incident types.
       const TYPE_MAP: Record<number, string> = {
         1:  'goal',
         2:  'yellow_card',

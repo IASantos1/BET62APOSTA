@@ -15,7 +15,7 @@ Plataforma completa de apostas esportivas.
 - `DATABASE_URL`
 - `LUCIA_SECRET_KEY`
 - `TOTP_ENCRYPTION_KEY`
-- `STATPAL_ACCESS_KEY`
+- `STATPAL_API_KEY`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_PUBLISHABLE_KEY`
 - `STRIPE_WEBHOOK_SECRET`
@@ -27,7 +27,7 @@ Plataforma completa de apostas esportivas.
 - `ODDS_DEBUG_TOKEN`
 - `PAYPAL_CLIENT_ID`
 
-### Latência e delay da Sports API
+### Latência e delay da Statpal
 
 O backend agora aceita tuning fino por ambiente para `timeout`, `cache realtime`, `odds live`, `hold` visual de eventos e reconnect do WebSocket.
 
@@ -107,10 +107,10 @@ Eventos mínimos:
 
 1. Provisionar o PostgreSQL no Railway e preencher `DATABASE_URL`.
 2. Criar um volume persistente e definir `KYC_STORAGE_DIR=/data/kyc`.
-3. Configurar as variáveis de auth, Stripe e Sports API.
+3. Configurar as variáveis de auth, Stripe e Statpal.
 4. Fazer deploy do backend.
 5. Confirmar que `/health` responde `200`.
-6. Confirmar que `/api/admin/sports-provider-status` mostra `configured: true` para a Sports API.
+6. Confirmar que `/api/admin/sports-provider-status` mostra `configured: true` para a Statpal.
 7. Confirmar que `/api/metrics/sports` começa a expor métricas de provider.
 8. Confirmar que o webhook Stripe chega com assinatura válida.
 9. Testar login, refresh por cookie, upload KYC e um depósito real/de teste controlado.
