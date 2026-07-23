@@ -6,7 +6,8 @@ export interface Env {
   ADMIN_USER?: string;
   ADMIN_PASS?: string;
   API_SPORTS_KEY?: string;
-  SPORTSAPI_PRO_KEY?: string;
+  STATPAL_API_KEY?: string;
+  STATPAL_BASE_URL?: string;
   ODDS_API_KEY?: string;
   ODDS_API_BOOKMAKERS?: string;
   ENVIRONMENT?: string;

@@ -42,7 +42,8 @@ publicDir = "dist"
 NODE_ENV = "development"
 PGSSLMODE = "disable"
 PORT = "3000"
-SPORTS_PROVIDER = "sportsapipro"
+FOOTBALL_LIVE_PROVIDER = "statpal"
+STATPAL_ONLY = "true"
 
 [[ports]]
 localPort = 3000

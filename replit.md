@@ -8,7 +8,7 @@ A Portuguese-language sports betting platform with live odds, pre-match events, 
 - **Backend**: Node.js HTTP server with TypeScript/tsx (port 3000)
 - **Database**: PostgreSQL (Replit built-in, schema auto-applied on startup via `ensureSchema`)
 - **Payments**: Stripe + PayPal (keys required for payment flows)
-- **Sports data**: SportsApiPro + StatPal (API keys configured)
+- **Sports data**: Statpal only
 - **Auth**: Lucia v2 session-based auth with cookie sessions
 - **Real-time**: WebSocket live feed at `/api/live/ws`
 
@@ -26,8 +26,8 @@ This starts both Vite (port 5000) and the backend server (port 3000) concurrentl
 |---|---|---|
 | `DATABASE_URL` / `PG*` | Yes | Managed by Replit automatically |
 | `SESSION_SECRET` | Yes | Set as Replit Secret |
-| `SPORTS_API_PRO_KEY` | Yes | Sports data provider key |
-| `SPORTS_PROVIDER` | Yes | Set to `sportsapipro` |
+| `STATPAL_API_KEY` | Yes | Statpal provider key |
+| `STATPAL_BASE_URL` | No | Defaults to `https://statpal.io/api` |
 | `STRIPE_SECRET_KEY` | No* | Required for payment flows |
 | `STRIPE_PUBLISHABLE_KEY` | No* | Required for payment flows |
 | `STRIPE_WEBHOOK_SECRET` | No* | Required for Stripe webhooks |

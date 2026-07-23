@@ -128,59 +128,6 @@ async function fetchFirstJson(urls: string[], timeoutMs: number): Promise<any | 
   return null;
 }
 
-// SportsApiPro-compatible fetch: sends x-api-key HEADER (no query param).
-// StatPal non-soccer subdomain endpoints (v2.basketball.statpal.io etc.) use this auth format.
-async function fetchJsonXApiKey(url: string, apiKey: string, timeoutMs: number = PROVIDER_TIMEOUT_MS): Promise<any | null> {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      headers: { 'x-api-key': apiKey, accept: 'application/json' },
-      signal: controller.signal,
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-async function fetchFirstJsonXApiKey(urls: string[], apiKey: string, timeoutMs: number): Promise<any | null> {
-  for (const url of urls) {
-    const json = await fetchJsonXApiKey(url, apiKey, timeoutMs);
-    if (json) return json;
-  }
-  return null;
-}
-
-// Map sport to the SportsApiPro-compatible subdomain slug.
-// StatPal non-soccer uses: https://v2.{sub}.statpal.io/api/... with x-api-key header.
-function sportsApiProSubdomain(sport: string): string {
-  const s = normalizeSportKey(sport);
-  if (s === 'soccer' || s === 'football' || s === 'futebol') return 'football';
-  if (s === 'ice-hockey' || s === 'icehockey' || s === 'hockey' || s === 'nhl') return 'hockey';
-  if (s === 'basketball' || s === 'nba') return 'basketball';
-  if (s === 'baseball' || s === 'mlb') return 'baseball';
-  if (s === 'tennis') return 'tennis';
-  if (s === 'volleyball' || s === 'volei') return 'volleyball';
-  if (s === 'mma' || s === 'ufc') return 'mma';
-  return s || 'football';
-}
-
-// Build SportsApiPro-compatible subdomain URLs for StatPal (no auth appended — use fetchJsonXApiKey).
-// Produces: https://v2.{sub}.statpal.io{path} and https://v1.{sub}.statpal.io{path}
-function buildSportsApiProStyleUrls(sport: string, paths: string[]): string[] {
-  const sub = sportsApiProSubdomain(sport);
-  const out: string[] = [];
-  for (const path of paths) {
-    out.push(`https://v2.${sub}.statpal.io${path}`);
-    out.push(`https://v1.${sub}.statpal.io${path}`);
-  }
-  return out;
-}
-
 function extractEvents(payload: any): any[] {
   if (!payload) return [];
   const flattenLeagueBlocks = (blocks: any[]): any[] => {
@@ -651,13 +598,20 @@ function normalizeEvent(event: any, sport: string): NormalizedEvent | null {
   };
 }
 
+function getStatPalBaseUrl(): string {
+  return String(process.env.STATPAL_BASE_URL || 'https://statpal.io/api')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
 function sportBaseUrls(sport: string): string[] {
   const mapped = statPalSportPath(sport);
   const version = statPalVersion(sport);
+  const baseUrl = getStatPalBaseUrl();
   if (mapped === 'soccer') {
     return [
-      'https://statpal.io/api/v2/soccer',
-      'https://statpal.io/api/v1/soccer',
+      `${baseUrl}/v2/soccer`,
+      `${baseUrl}/v1/soccer`,
     ];
   }
   const aliases =
@@ -665,7 +619,7 @@ function sportBaseUrls(sport: string): string[] {
     mapped === 'mlb' ? ['baseball', 'mlb'] :
     mapped === 'nhl' ? ['ice-hockey', 'hockey', 'nhl'] :
     [mapped];
-  return Array.from(new Set(aliases.map((name) => `https://statpal.io/api/${version}/${name}`)));
+  return Array.from(new Set(aliases.map((name) => `${baseUrl}/${version}/${name}`)));
 }
 
 function buildCandidateUrls(apiKey: string, sport: string, paths: string[]): string[] {
@@ -1283,28 +1237,6 @@ export async function fetchStatPalLive(apiKey: string, sport: string): Promise<N
     }
   }
 
-  // Fallback: SportsApiPro-compatible subdomain format with x-api-key header.
-  // StatPal non-soccer sports are also accessible at https://v2.{sport}.statpal.io/api/...
-  // using the same URL/auth format as SportsApiPro ("ambas apis usam curl iguais").
-  const sapiLivePaths = ['/api/live', '/games/allscores?onlyLiveGames=true'];
-  for (const url of buildSportsApiProStyleUrls(sport, sapiLivePaths)) {
-    const json = await fetchJsonXApiKey(url, apiKey, PROVIDER_LIVE_TIMEOUT_MS);
-    let liveEvents = extractEvents(json)
-      .map((row) => normalizeEvent({ ...row, __from_live_endpoint: true }, sport))
-      .filter((row) => !!row && Number((row as any)?.is_live || 0) === 1) as NormalizedEvent[];
-    if (liveEvents.length > 0) {
-      const hasOdds = liveEvents.some((e) => e.home_odd > 1 || e.away_odd > 1);
-      if (!hasOdds) {
-        const oddsJson = await fetchFirstJsonXApiKey(
-          buildSportsApiProStyleUrls(sport, ['/api/odds', '/odds']),
-          apiKey,
-          PROVIDER_TIMEOUT_MS,
-        ).catch(() => null);
-        if (oddsJson) liveEvents = attachOddsToEvents(liveEvents, oddsJson, sport);
-      }
-      return liveEvents;
-    }
-  }
   return [];
 }
 
@@ -1481,22 +1413,6 @@ export async function fetchStatPalMatchOddsLive(
       PROVIDER_TIMEOUT_MS,
     );
     parsed = parseStatPalMatchOddsPayload(sport, liveJson, { ...opts, matchId, matchIds });
-  }
-  // SportsApiPro-compatible format fallback: /api/match/{id}/odds/live with x-api-key header
-  if (!parsed) {
-    for (const id of matchIds) {
-      const sapiJson = await fetchFirstJsonXApiKey(
-        buildSportsApiProStyleUrls(sport, [
-          `/api/match/${encodeURIComponent(id)}/odds/live`,
-          `/api/match/${encodeURIComponent(id)}/liveodds`,
-          `/api/odds/live?match_id=${encodeURIComponent(id)}`,
-        ]),
-        apiKey,
-        PROVIDER_TIMEOUT_MS,
-      );
-      parsed = parsed || parseStatPalMatchOddsPayload(sport, sapiJson, { ...opts, matchId, matchIds });
-      if (parsed) break;
-    }
   }
   return parsed;
 }
@@ -1763,18 +1679,34 @@ export function getStatPalTournamentId(event: any): string {
 
 // ── Provider config (single source of truth) ─────────────────────────────────
 
-const STATPAL_DEFAULT_KEY = 'b5b07a3f-b019-4a18-8969-6045169feda9';
-
-function resolveStatPalApiKey(): string {
-  if (process.env.STATPAL_ACCESS_KEY) return String(process.env.STATPAL_ACCESS_KEY).trim();
-  if (process.env.STATPAL_KEY) return String(process.env.STATPAL_KEY).trim();
-  return STATPAL_DEFAULT_KEY;
+export function detectStatPalEnvSource(): string {
+  if (String(process.env.STATPAL_API_KEY || '').trim()) return 'STATPAL_API_KEY';
+  if (String(process.env.STATPAL_ACCESS_KEY || '').trim()) return 'STATPAL_ACCESS_KEY';
+  if (String(process.env.STATPAL_KEY || '').trim()) return 'STATPAL_KEY';
+  return '';
 }
 
-export function getStatPalConfig(): { provider: 'statpal'; apiKey: string; supportsUpstreamWs: false } {
+function resolveStatPalApiKey(): string {
+  if (process.env.STATPAL_API_KEY) return String(process.env.STATPAL_API_KEY).trim();
+  if (process.env.STATPAL_ACCESS_KEY) return String(process.env.STATPAL_ACCESS_KEY).trim();
+  if (process.env.STATPAL_KEY) return String(process.env.STATPAL_KEY).trim();
+  return '';
+}
+
+export function getStatPalConfig(): {
+  provider: 'statpal';
+  apiKey: string;
+  baseUrl: string;
+  envSource: string;
+  statpalOnly: true;
+  supportsUpstreamWs: false;
+} {
   return {
     provider: 'statpal',
     apiKey: resolveStatPalApiKey(),
+    baseUrl: getStatPalBaseUrl(),
+    envSource: detectStatPalEnvSource(),
+    statpalOnly: true,
     supportsUpstreamWs: false,
   };
 }

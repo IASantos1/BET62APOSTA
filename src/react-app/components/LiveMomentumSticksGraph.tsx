@@ -73,7 +73,7 @@ function deriveRatios(stats: any): { homeRatio: number; awayRatio: number } {
   if (arr) {
     const teamStats = (side: 'home' | 'away', regex: RegExp) => {
       const teamId = (s: any) => String(s?.team?.id ?? s?.team?.name ?? '').toLowerCase();
-      // SportsApiPro flat format: [{type, value, team:{id,name}}]
+      // Flat provider format: [{type, value, team:{id,name}}]
       const flatItems = arr.filter((s: any) =>
         regex.test(String(s?.type ?? s?.name ?? '')) && teamId(s).includes(side)
       );
