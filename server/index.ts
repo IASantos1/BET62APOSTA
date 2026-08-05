@@ -11,6 +11,7 @@ import { createEventsService } from './routes/events';
 import { handleUsersRoutes } from './routes/users';
 import { handleAdminRoutes } from './routes/admin';
 import { handleStripeRoutes } from './routes/stripe';
+import { handleCasinoRoutes } from './routes/casino';
 import { createLiveWs } from './ws/liveWs';
 import { autoSettleFromCache } from './services/settlement';
 import { getStatPalConfig } from './services/statPal';
@@ -283,6 +284,7 @@ const server = http.createServer(async (req, res) => {
           url.pathname.startsWith('/api/users') ||
           url.pathname.startsWith('/api/metrics') ||
           url.pathname.startsWith('/api/wallet') ||
+          url.pathname.startsWith('/api/casino') ||
           url.pathname.startsWith('/api/bets') ||
           url.pathname.startsWith('/api/favorites') ||
           url.pathname.startsWith('/api/admin')
@@ -296,6 +298,7 @@ const server = http.createServer(async (req, res) => {
       if (pool && (await handleUsersRoutes(pool, req, res, url))) return;
       if (pool && (await handleWalletRoutes(pool, req, res, url))) return;
       if (pool && (await handleStripeRoutes(pool, req, res, url))) return;
+      if (pool && (await handleCasinoRoutes(pool, req, res, url))) return;
       if (pool && (await handleBetRoutes(pool, events, req, res, url))) return;
       if (pool && (await handleFavoriteRoutes(pool, req, res, url))) return;
       if (pool && (await handleAdminRoutes(pool, events, req, res, url, sportsApiKey))) return;

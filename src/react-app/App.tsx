@@ -30,6 +30,7 @@ import KycPage from "./pages/KycPage";
 import TermsPage from "./pages/TermsPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import WalletPage from "./pages/WalletPage";
+import CasinoPage from "./pages/CasinoPage";
 import EventDetails from "./pages/EventDetails";
 import EventStatsPage from "./pages/EventStatsPage";
 import Promotions from "./pages/Promotions";
@@ -187,6 +188,7 @@ function AppContent() {
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/wallet" element={<WalletPage />} />
+            <Route path="/casino" element={<CasinoPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/my-bets" element={<MyBetsPage />} />
             <Route path="/register" element={<RegisterPage />} />

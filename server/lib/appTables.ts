@@ -2,11 +2,15 @@ import type pg from 'pg';
 
 export const APP_BETS_TABLE = 'bet62_bets';
 export const APP_TRANSACTIONS_TABLE = 'bet62_transactions';
+export const APP_CASINO_LAUNCHES_TABLE = 'bet62_casino_launches';
+export const APP_CASINO_CALLBACKS_TABLE = 'bet62_casino_callbacks';
 
 let __app_bets_ready = false;
 let __app_transactions_ready = false;
+let __app_casino_tables_ready = false;
 let __app_bets_ready_promise: Promise<void> | null = null;
 let __app_transactions_ready_promise: Promise<void> | null = null;
+let __app_casino_tables_ready_promise: Promise<void> | null = null;
 
 export async function ensureAppBetsTable(pool: pg.Pool): Promise<void> {
   if (__app_bets_ready) return;
@@ -75,7 +79,55 @@ export async function ensureAppTransactionsTable(pool: pg.Pool): Promise<void> {
   }
 }
 
+export async function ensureAppCasinoTables(pool: pg.Pool): Promise<void> {
+  if (__app_casino_tables_ready) return;
+  if (__app_casino_tables_ready_promise) return __app_casino_tables_ready_promise;
+  __app_casino_tables_ready_promise = (async () => {
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS ${APP_CASINO_LAUNCHES_TABLE} (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        member_account TEXT NOT NULL,
+        game_uid TEXT NOT NULL,
+        requested_balance NUMERIC(18,2) NOT NULL DEFAULT 0,
+        home_url TEXT,
+        game_launch_url TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`,
+    );
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS ${APP_CASINO_CALLBACKS_TABLE} (
+        serial_number TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        member_account TEXT NOT NULL,
+        game_uid TEXT,
+        game_round TEXT,
+        currency TEXT,
+        bet_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+        win_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+        net_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+        payload JSONB,
+        processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_${APP_CASINO_LAUNCHES_TABLE}_user_id ON ${APP_CASINO_LAUNCHES_TABLE}(user_id, created_at DESC)`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_${APP_CASINO_CALLBACKS_TABLE}_user_id ON ${APP_CASINO_CALLBACKS_TABLE}(user_id, processed_at DESC)`,
+    );
+    __app_casino_tables_ready = true;
+  })();
+  try {
+    await __app_casino_tables_ready_promise;
+  } finally {
+    __app_casino_tables_ready_promise = null;
+  }
+}
+
 export async function ensureAppFinancialTables(pool: pg.Pool): Promise<void> {
   await ensureAppBetsTable(pool);
   await ensureAppTransactionsTable(pool);
+  await ensureAppCasinoTables(pool);
 }

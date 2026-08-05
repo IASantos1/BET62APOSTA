@@ -185,6 +185,9 @@ export function Header() {
               <NavBtn to="/live" active={isActive('/live')}>
                 Ao Vivo
               </NavBtn>
+              <NavBtn to="/casino" active={isActive('/casino')}>
+                Casino
+              </NavBtn>
               <NavBtn to="/promotions" active={isActive('/promotions')}>
                 Promoções
               </NavBtn>
