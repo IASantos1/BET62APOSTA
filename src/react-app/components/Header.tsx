@@ -25,7 +25,7 @@ function NavBtn({
 }) {
   const navigate = useNavigate();
   const base = mobile
-    ? 'flex-1 text-center py-1.5 px-2 rounded font-bold text-[10px] uppercase tracking-wide whitespace-nowrap transition-colors'
+    ? 'w-full min-w-0 flex-1 text-center py-1.5 px-1 rounded font-bold text-[9px] uppercase tracking-wide leading-tight transition-colors'
     : 'px-4 py-2 rounded-lg font-bold uppercase text-sm transition-colors';
   const activeClass = mobile
     ? 'bg-red-600 text-white shadow-sm'
@@ -267,7 +267,7 @@ export function Header() {
 
         {/* Mobile nav */}
         <div className="px-4 pb-2 lg:hidden">
-          <nav className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+          <nav className={isOperator ? 'flex items-center gap-1 overflow-x-auto no-scrollbar' : 'grid grid-cols-4 gap-1'}>
             <NavBtn to="/" active={isActive('/')} onClick={() => setSelectedCategory(null)} mobile>
               Desporto
             </NavBtn>
