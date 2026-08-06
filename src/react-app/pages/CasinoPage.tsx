@@ -201,7 +201,7 @@ export default function CasinoPage() {
                     setCustomGameUid(event.target.value);
                     setSelectedGameUid(event.target.value);
                   }}
-                  placeholder={config.defaultGameUid || 'JILI_SLOT_001'}
+                  placeholder={config?.defaultGameUid || 'JILI_SLOT_001'}
                   className={`w-full rounded-lg border px-3 py-2 ${
                     darkMode ? 'border-gray-600 bg-gray-900 text-white' : 'border-gray-300 bg-white text-gray-900'
                   }`}
@@ -209,8 +209,8 @@ export default function CasinoPage() {
               </div>
 
               <div className={`rounded-xl border p-4 text-sm ${darkMode ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-700'}`}>
-                <div>Callback para configurar no painel: <span className="font-mono">{config.callbackUrl || '/api/casino/webhook'}</span></div>
-                <div className="mt-1">URL de saída do jogo: <span className="font-mono">{config.homeUrl || '/casino'}</span></div>
+                <div>Callback para configurar no painel: <span className="font-mono">{config?.callbackUrl || '/api/casino/webhook'}</span></div>
+                <div className="mt-1">URL de saída do jogo: <span className="font-mono">{config?.homeUrl || '/casino'}</span></div>
               </div>
 
               <div className="flex flex-col gap-3 md:flex-row">
