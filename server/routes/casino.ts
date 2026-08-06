@@ -12,6 +12,7 @@ type CasinoGame = {
   uid: string;
   name: string;
   provider?: string;
+  image?: string;
 };
 
 type SilentApiConfig = {
@@ -23,6 +24,16 @@ type SilentApiConfig = {
   defaultHomeUrl: string;
   games: CasinoGame[];
 };
+
+const BETBY_GAME_UID = '8a704858d5deb4af1ddc722092ac7614';
+const DEFAULT_CASINO_GAMES: CasinoGame[] = [
+  {
+    uid: BETBY_GAME_UID,
+    name: 'Betby',
+    provider: 'Betby',
+    image: 'https://providers.gambllyapi.com/assets/providers/BETBY/betby-c93a9061.png',
+  },
+];
 
 function toNumber(v: unknown): number {
   const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v);
@@ -47,9 +58,10 @@ function parseCasinoGames(): CasinoGame[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .map((item) => ({
-        uid: String((item as any)?.uid || (item as any)?.game_uid || '').trim(),
-        name: String((item as any)?.name || (item as any)?.title || '').trim(),
-        provider: String((item as any)?.provider || 'SilentAPI').trim() || 'SilentAPI',
+        uid: String((item as any)?.uid || (item as any)?.game_uid || (item as any)?.gameid || '').trim(),
+        name: String((item as any)?.name || (item as any)?.title || (item as any)?.gamename || '').trim(),
+        provider: String((item as any)?.provider || (item as any)?.providerName || 'SilentAPI').trim() || 'SilentAPI',
+        image: normalizeAbsoluteUrl(String((item as any)?.image || '').trim()) || undefined,
       }))
       .filter((item) => item.uid && item.name);
   } catch {
@@ -61,9 +73,11 @@ function getSilentApiConfig(): SilentApiConfig {
   const token = String(process.env.SILENTAPI_TOKEN || process.env.SILENTAPI_BEARER_TOKEN || '').trim();
   const secret = String(process.env.SILENTAPI_SECRET || '').trim();
   const endpoint = String(process.env.SILENTAPI_ENDPOINT || 'https://silentapi.org/api').trim().replace(/\/+$/, '');
-  const defaultGameUid = String(process.env.SILENTAPI_DEFAULT_GAME_UID || '').trim();
+  const envDefaultGameUid = String(process.env.SILENTAPI_DEFAULT_GAME_UID || '').trim();
   const defaultHomeUrl = normalizeAbsoluteUrl(String(process.env.SILENTAPI_HOME_URL || process.env.APP_PUBLIC_URL || '').trim());
-  const games = parseCasinoGames();
+  const parsedGames = parseCasinoGames();
+  const games = parsedGames.length > 0 ? parsedGames : DEFAULT_CASINO_GAMES;
+  const defaultGameUid = envDefaultGameUid || games[0]?.uid || BETBY_GAME_UID;
 
   if (games.length === 0 && defaultGameUid) {
     games.push({

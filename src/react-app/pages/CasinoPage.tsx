@@ -7,6 +7,7 @@ type CasinoGame = {
   uid: string;
   name: string;
   provider?: string;
+  image?: string;
 };
 
 type CasinoConfig = {
@@ -133,17 +134,15 @@ export default function CasinoPage() {
         <div className={`mt-6 rounded-2xl border p-6 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
           {loading ? (
             <p className={darkMode ? 'text-gray-300' : 'text-gray-600'}>A carregar configuração do casino...</p>
-          ) : !config?.enabled ? (
-            <div className="space-y-3">
-              <p className={darkMode ? 'text-gray-300' : 'text-gray-600'}>
-                A integração ainda não está ativa. Falta configurar as variáveis `SILENTAPI_TOKEN` e `SILENTAPI_SECRET`.
-              </p>
-              <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                Callback esperado: <span className="font-mono">{config?.callbackUrl || '/api/casino/webhook'}</span>
-              </p>
-            </div>
           ) : (
             <div className="space-y-6">
+              {!config?.enabled && (
+                <div className={`rounded-xl border p-4 text-sm ${darkMode ? 'border-yellow-700 bg-yellow-900/20 text-yellow-100' : 'border-yellow-300 bg-yellow-50 text-yellow-800'}`}>
+                  <div>A integração ainda não está ativa. Falta configurar `SILENTAPI_TOKEN` e `SILENTAPI_SECRET`.</div>
+                  <div className="mt-1">Callback esperado: <span className="font-mono">{config?.callbackUrl || '/api/casino/webhook'}</span></div>
+                </div>
+              )}
+
               <div>
                 <h2 className={`text-xl font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>Escolher jogo</h2>
                 <p className={`mt-1 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -171,8 +170,20 @@ export default function CasinoPage() {
                               : 'border-gray-200 bg-gray-50 hover:border-gray-300'
                         }`}
                       >
-                        <div className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{game.name}</div>
-                        <div className={`mt-1 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{game.provider || 'SilentAPI'}</div>
+                        <div className="flex items-center gap-3">
+                          {game.image ? (
+                            <img
+                              src={game.image}
+                              alt={game.name}
+                              className="h-12 w-12 rounded-lg object-contain bg-white p-1"
+                              loading="lazy"
+                            />
+                          ) : null}
+                          <div>
+                            <div className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{game.name}</div>
+                            <div className={`mt-1 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{game.provider || 'SilentAPI'}</div>
+                          </div>
+                        </div>
                         <div className={`mt-3 font-mono text-xs ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{game.uid}</div>
                       </button>
                     );
@@ -206,10 +217,10 @@ export default function CasinoPage() {
                 <button
                   type="button"
                   onClick={handleLaunch}
-                  disabled={launching}
+                  disabled={launching || !config?.enabled}
                   className="rounded-lg bg-red-600 px-5 py-3 font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {launching ? 'A abrir jogo...' : 'Entrar no Casino'}
+                  {launching ? 'A abrir jogo...' : config?.enabled ? 'Entrar no Casino' : 'Configuração pendente'}
                 </button>
                 <button
                   type="button"

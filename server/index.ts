@@ -267,6 +267,9 @@ const server = http.createServer(async (req, res) => {
 
       if (await events.handleEventsRoutes(req, res, url)) return;
       if (!dbReady) {
+        if (url.pathname === '/api/casino/config' && req.method === 'GET') {
+          if (await handleCasinoRoutes(safePool, req, res, url)) return;
+        }
         if (url.pathname === '/api/auth/me' && req.method === 'GET') {
           sendJson(res, 200, { user: null });
           return;
