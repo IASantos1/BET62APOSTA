@@ -15,6 +15,7 @@ const DEFAULT_RENEW_BEFORE_SEC = 300;
 
 const BETBY_UPSTREAM = "https://demo.betby.com";
 const BETBY_API_UPSTREAM = DEFAULT_API_BASE;
+const BETBY_DEMOAPI_UPSTREAM = "https://demoapi.betby.com";
 const STATIC_ROOT = __dirname;
 const SPORTSBOOK_DEFAULT =
   "/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
@@ -248,7 +249,7 @@ export async function startJwtService(options = {}) {
           brandId: getBrandId(),
           routes: [
             "/health", "/jwt", "/proxy/*", "/iframe.html", "/",
-            "/betby/*", "/betby-api/*",
+            "/betby/*", "/betby-api/*", "/betby-api-v4/*",
           ],
         }));
       }
@@ -294,6 +295,16 @@ export async function startJwtService(options = {}) {
         });
       }
 
+      // ===== Proxy BetBY API v4 demoapi.betby.com =====
+      if (p.startsWith("/betby-api-v4/")) {
+        const targetPath = p.replace(/^\/betby-api-v4/, "");
+        return proxyPass(req, res, BETBY_DEMOAPI_UPSTREAM, targetPath + url.search, {
+          host: "demoapi.betby.com",
+          authHeader: `Bearer ${getJwt()}`,
+          rewriteHtml: false,
+        });
+      }
+
       // ===== Proxy BetBY API sptpub =====
       if (p.startsWith("/betby-api/")) {
         const targetPath = p.replace(/^\/betby-api/, "");
@@ -319,7 +330,8 @@ export async function startJwtService(options = {}) {
           controle: ["/health", "/jwt?force=1", "/proxy/<path-sptpub>"],
           locais:  ["/", "/iframe.html"],
           "proxy-betby-ui":   "/betby/sportsbook/tile?… (CSP/X-Frame removidos, URLs reescritas)",
-          "proxy-betby-api":  "/betby-api/<path> (Authorization: Bearer injetado)",
+          "proxy-betby-api":  "/betby-api/<path> (sptpub, Authorization: Bearer injetado)",
+          "proxy-betby-demoapi-v4": "/betby-api-v4/api/v4/<path> (demoapi.betby.com, v4 live/prematch, Bearer injetado)",
         },
       }));
     });
@@ -335,6 +347,7 @@ export async function startJwtService(options = {}) {
         console.log(`[jwt-service]   ${base}/betby${SPORTSBOOK_DEFAULT}`);
         console.log(`[jwt-service]                     ^^^ Sportsbook PROXYADO (sem CSP / X-Frame!)`);
         console.log(`[jwt-service]   ${base}/betby-api/<p>  -> sptpub (Auth Bearer injetado)`);
+        console.log(`[jwt-service]   ${base}/betby-api-v4/<p> -> demoapi.betby.com (v4 live/prematch, Auth Bearer injetado)`);
       },
     });
   }
