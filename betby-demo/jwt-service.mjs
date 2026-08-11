@@ -3,6 +3,7 @@ import { readFileSync, existsSync, writeFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import http from "http";
+import { listenWithFallback } from "./scripts/port-utils.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -176,11 +177,13 @@ export async function startJwtService(options = {}) {
       res.end(JSON.stringify({ error: "not_found", routes: ["/health", "/jwt", "/proxy/*"] }));
     });
 
-    server.listen(port, () => {
-      console.log(`[jwt-service] HTTP rodando em http://localhost:${port}`);
-      console.log(`[jwt-service]   GET /health     -> status do JWT`);
-      console.log(`[jwt-service]   GET /jwt?force=1 -> retorna/renova JWT`);
-      console.log(`[jwt-service]   GET /proxy/<path> -> proxy para BetBY API`);
+    await listenWithFallback(server, port, {
+      label: "jwt-service",
+      onListen: (p) => {
+        console.log(`[jwt-service]   GET /health     -> status do JWT`);
+        console.log(`[jwt-service]   GET /jwt?force=1 -> retorna/renova JWT`);
+        console.log(`[jwt-service]   GET /proxy/<path> -> proxy para BetBY API`);
+      },
     });
   }
 

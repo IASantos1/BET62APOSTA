@@ -2,6 +2,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import http from "http";
+import { listenWithFallback } from "../scripts/port-utils.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -236,11 +237,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         res.end(JSON.stringify({ error: e.message }));
       }
     });
-    server.listen(port, () => {
-      console.log(`[watchers] HTTP em http://localhost:${port}`);
-      console.log(`[watchers]   GET /health, /embed-url?eventId=X`);
-      console.log(`[watchers]   GET /secrets, /global, /settings, /themes, /theme/2`);
-      console.log(`[watchers]   POST /auth/register {nickname, project, …}`);
+    await listenWithFallback(server, port, {
+      label: "watchers",
+      onListen: () => {
+        console.log(`[watchers]   GET /health, /embed-url?eventId=X`);
+        console.log(`[watchers]   GET /secrets, /global, /settings, /themes, /theme/2`);
+        console.log(`[watchers]   POST /auth/register {nickname, project, …}`);
+      },
     });
   } else {
     ensureSecretsFile()

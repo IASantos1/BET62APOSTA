@@ -3,6 +3,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { writeFileSync, existsSync, mkdirSync } from "fs";
 import http from "http";
+import { listenWithFallback } from "../scripts/port-utils.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -130,8 +131,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       res.writeHead(404);
       res.end(JSON.stringify({ error: "not_found" }));
     });
-    server.listen(port, () => {
-      console.log(`[live] HTTP server em http://localhost:${port}/live`);
+    await listenWithFallback(server, port, {
+      label: "live-api",
+      onListen: (p) => {
+        console.log(`[live] HTTP server em http://localhost:${p}/live`);
+      },
     });
   } else {
     fetchLiveEvents({ dump: true })
