@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>BET62 · Sportsbook BetBY</title>
+<style>
+  :root {
+    --bg-0:#05070c;
+    --bg-1:#0b1220;
+    --bg-2:#111a2e;
+    --accent:#e8b105;
+    --accent-2:#f5c722;
+    --text:#f6f7fb;
+    --muted:#94a3b8;
+    --good:#22c55e;
+    --bad:#ef4444;
+    --border:rgba(255,255,255,.08);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg-0);color:var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;}
+  .app{display:flex;flex-direction:column;height:100%;min-height:100vh}
+  header.top{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:10px 14px;border-bottom:1px solid var(--border);
+    background:linear-gradient(180deg, rgba(17,26,46,.85), rgba(11,18,32,.55));
+    backdrop-filter: blur(6px);
+    position:sticky;top:0;z-index:20;
+  }
+  .brand{display:flex;align-items:center;gap:10px}
+  .logo{
+    width:32px;height:32px;border-radius:8px;
+    background:radial-gradient(circle at 30% 20%, var(--accent-2), var(--accent) 60%, #a07b00);
+    display:grid;place-items:center;font-weight:900;color:#111827;box-shadow:0 6px 16px rgba(232,177,5,.25)
+  }
+  .t1{font-weight:800;letter-spacing:.3px}
+  .t1 b{color:var(--accent)}
+  .t2{font-size:12px;color:var(--muted)}
+  .status{
+    display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);
+    padding:6px 10px;border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.02)
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 3px rgba(148,163,184,.15)}
+  .dot.ok{background:var(--good);box-shadow:0 0 0 3px rgba(34,197,94,.18)}
+  .dot.err{background:var(--bad);box-shadow:0 0 0 3px rgba(239,68,68,.18)}
+  .actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  button{
+    appearance:none;border:1px solid var(--border);background:var(--bg-2);color:var(--text);
+    padding:8px 12px;border-radius:10px;font-size:13px;cursor:pointer;transition:.15s
+  }
+  button:hover{border-color:rgba(232,177,5,.35);color:var(--accent)}
+  button.primary{
+    border-color:transparent;background:linear-gradient(180deg, var(--accent-2), var(--accent));
+    color:#111827;font-weight:700
+  }
+  select{
+    background:var(--bg-2);color:var(--text);border:1px solid var(--border);
+    padding:8px 10px;border-radius:10px;font-size:13px;
+  }
+  main{flex:1;position:relative;display:flex}
+  .frame-wrap{flex:1;position:relative;background:var(--bg-0)}
+  iframe{
+    width:100%;height:100%;border:0;display:block;min-height:calc(100vh - 96px);
+    background:#0a0f1a;
+  }
+  .fallback{
+    position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;padding:24px;text-align:center;color:var(--muted);
+  }
+  .fallback.show{display:flex}
+  .fallback h3{margin:0;color:var(--text)}
+  .kpi{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;
+    padding:10px 14px;border-top:1px solid var(--border);background:var(--bg-1);position:sticky;bottom:0
+  }
+  .card{
+    background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));
+    border:1px solid var(--border);border-radius:12px;padding:10px 12px;
+  }
+  .card .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .card .v{font-size:14px;font-weight:700;margin-top:4px;color:var(--text);word-break:break-all}
+  .okc{color:var(--good)} .errc{color:var(--bad)} .warnc{color:var(--accent)}
+  @media (max-width:720px){
+    header.top{flex-wrap:wrap}
+    .hide-sm{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">B</div>
+      <div>
+        <div class="t1">BET<b>62</b> · Sportsbook BetBY</div>
+        <div class="t2">Widget incorporável · brand_id 1653815133341880320</div>
+      </div>
+    </div>
+    <div class="actions">
+      <div id="status" class="status" title="Status do JWT">
+        <span id="dot" class="dot"></span>
+        <span id="statusText">Iniciando...</span>
+      </div>
+      <select id="srcSelect" title="Origem do widget">
+        <option value="proxy">/sportsbook (proxy Nginx)</option>
+        <option value="direct" selected>demo.betby.com (direto)</option>
+        <option value="custom">URL customizada</option>
+      </select>
+      <input id="customUrl" type="text" placeholder="URL custom" value="" style="display:none;
+        width:260px;background:#0b1220;color:#f6f7fb;border:1px solid rgba(255,255,255,.08);
+        border-radius:10px;padding:8px 10px;font-size:13px" />
+      <button id="reload" title="Recarregar iframe">🔄 Recarregar</button>
+      <button id="refresh" class="primary" title="Solicitar novo JWT ao serviço">♻️ Atualizar JWT</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="frame-wrap">
+      <iframe
+        id="sb"
+        title="Sportsbook BetBY"
+        allow="fullscreen; clipboard-write; clipboard-read; autoplay; picture-in-picture"
+        loading="lazy"
+        referrerpolicy="no-referrer-when-downgrade"
+        src="about:blank">
+      </iframe>
+      <div id="fallback" class="fallback">
+        <h3>Widget bloqueado?</h3>
+        <p>Se o sportsbook não carregar diretamente, use a opção <b>/sportsbook (proxy Nginx)</b>
+          ou rode <code>node jwt-service.mjs</code> como proxy HTTP local.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+          <button onclick="toggleFallback(false)">Fechar aviso</button>
+          <button class="primary" onclick="useProxy()">Usar /sportsbook</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="kpi">
+    <div class="card"><div class="k">Origem</div><div class="v" id="kpiSrc">—</div></div>
+    <div class="card"><div class="k">JWT (cached)</div><div class="v" id="kpiJwt">—</div></div>
+    <div class="card"><div class="k">Expira em</div><div class="v" id="kpiExp">—</div></div>
+    <div class="card"><div class="k">Brand ID</div><div class="v">1653815133341880320</div></div>
+  </div>
+</div>
+
+<script>
+  const BETBY_DIRECT =
+    "https://demo.betby.com/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
+  const BETBY_PROXY = "/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
+  const JWT_SERVICE =
+    (location.protocol + "//" + location.hostname + ":8787");
+
+  const $ = (id) => document.getElementById(id);
+  const srcSel = $("srcSelect");
+  const customUrl = $("customUrl");
+  const iframe = $("sb");
+  const fallback = $("fallback");
+  const dot = $("dot");
+  const statusText = $("statusText");
+  const kpiJwt = $("kpiJwt");
+  const kpiExp = $("kpiExp");
+  const kpiSrc = $("kpiSrc");
+
+  function setStatus(kind, text) {
+    dot.className = "dot " + (kind || "");
+    statusText.textContent = text;
+  }
+
+  function setJwtKpi(data) {
+    const t = data?.jwt || null;
+    kpiJwt.textContent = t ? t.slice(0, 24) + "..." : "não disponível";
+    kpiJwt.style.color = t ? "var(--text)" : "var(--bad)";
+    if (typeof data?.expiresInSec === "number") {
+      const m = Math.floor(data.expiresInSec / 60);
+      const s = data.expiresInSec % 60;
+      const cls = data.expiresInSec < 120 ? "errc" : data.expiresInSec < 600 ? "warnc" : "okc";
+      kpiExp.innerHTML = `<span class="${cls}">${m}m ${s}s</span>`;
+      setStatus(data.expiresInSec < 120 ? "err" : "ok", data.authenticated ? "Autenticado" : "Sem sessão");
+    } else {
+      kpiExp.textContent = "—";
+    }
+  }
+
+  function currentUrl() {
+    const v = srcSel.value;
+    if (v === "direct") return BETBY_DIRECT;
+    if (v === "proxy") return BETBY_PROXY;
+    return customUrl.value || BETBY_DIRECT;
+  }
+
+  function loadIframe() {
+    const u = currentUrl();
+    kpiSrc.textContent = srcSel.options[srcSel.selectedIndex].text;
+    iframe.src = u;
+    toggleFallback(false);
+    setTimeout(() => {
+      try {
+        if (iframe.contentWindow.location.href === "about:blank") toggleFallback(true);
+      } catch {}
+    }, 6000);
+  }
+
+  function toggleFallback(show) {
+    fallback.classList.toggle("show", !!show);
+  }
+  function useProxy() { srcSel.value = "proxy"; customUrl.style.display = "none"; loadIframe(); }
+
+  srcSel.addEventListener("change", () => {
+    customUrl.style.display = srcSel.value === "custom" ? "" : "none";
+    loadIframe();
+  });
+  customUrl.addEventListener("change", loadIframe);
+  $("reload").addEventListener("click", loadIframe);
+  $("refresh").addEventListener("click", () => loadJwt(true));
+  iframe.addEventListener("load", () => setStatus("ok", "Iframe carregado"));
+  iframe.addEventListener("error", () => { setStatus("err", "Erro no iframe"); toggleFallback(true); });
+
+  async function loadJwt(force = false) {
+    try {
+      setStatus("", "Verificando sessão...");
+      const res = await fetch(`${JWT_SERVICE}/jwt?force=${force ? 1 : 0}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      setJwtKpi(data);
+      if (data.brandId) document.querySelector(".kpi .card:nth-child(4) .v").textContent = data.brandId;
+    } catch (e) {
+      setStatus("err", "Serviço JWT offline: " + e.message);
+      kpiJwt.textContent = "serviço offline";
+      kpiJwt.style.color = "var(--warnc)";
+    }
+  }
+
+  loadJwt(false);
+  setInterval(() => loadJwt(false), 2 * 60 * 1000);
+  loadIframe();
+</script>
+</body>
+</html>
