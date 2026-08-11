@@ -29,3 +29,30 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# BET62: segredos / credenciais capturadas (JWT, sessão CF, Watchers)
+.betby-jwt.json
+.betby-session.json
+.betby-secrets.json
+.betby-watchers.json
+
+# BET62: dumps e dados temporários de smoke-tests
+.playwright-browsers/
+.dumps/
+.dumps_*.json
+dumps/
+betby-demo/dumps/
+betby-demo/jwt-service.*.log
+betby-demo/.betby-jwt.json
+betby-demo/.betby-session.json
+betby-demo/.betby-watchers.json
+betby-demo/.playwright-browsers/
+
+# BET62: JSONs de dump do _smoke (mas manter os .mjs utilitários)
+smoke_*.json
+_smoke/*.json
+_smoke_*.json
+betby-demo/_smoke/smoke_*.json
+betby-demo/_smoke/smoke_live.json
+betby-demo/_smoke/smoke_prematch.json
+betby-demo/_smoke/smoke_sptpub.json

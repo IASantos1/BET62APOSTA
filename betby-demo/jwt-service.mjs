@@ -23,6 +23,7 @@ const SPORTSBOOK_DEFAULT =
   "/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
 const BETBY_TRACKER_DEFAULT_BUILD = "05d0f564";
 const BETBY_TRACKER_PROVIDER_ID = "statscore";
+const BETBY_V4_DEFAULT_TREE_ID = "3572980260248";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -47,6 +48,70 @@ const MIME = {
 let currentCreds = loadCache();
 let renewTimer = null;
 let isRenewing = false;
+
+const SESSION_FILE = join(__dirname, ".betby-session.json");
+let cachedSession = null;
+let cachedSessionMtime = 0;
+
+function loadSession(force = false) {
+  try {
+    if (!existsSync(SESSION_FILE)) { cachedSession = null; cachedSessionMtime = 0; return null; }
+    const st = statSync(SESSION_FILE);
+    const mt = st.mtimeMs;
+    if (!force && cachedSession && cachedSessionMtime === mt) return cachedSession;
+    const raw = readFileSync(SESSION_FILE, "utf-8");
+    cachedSession = JSON.parse(raw);
+    cachedSessionMtime = mt;
+    const cf = cachedSession?.cloudflareCookies || {};
+    const cfNames = Object.keys(cf).join(", ") || "(nenhum)";
+    console.log(`[jwt-service] Sessão CF carregada (capturada em ${cachedSession?.capturedAt || "?"}). Cookies CF: ${cfNames}`);
+    return cachedSession;
+  } catch (e) {
+    console.error(`[jwt-service] Erro ao carregar sessão CF: ${e.message}`);
+    cachedSession = null;
+    cachedSessionMtime = 0;
+    return null;
+  }
+}
+
+function saveSessionToDisk(session) {
+  try {
+    if (!session) return;
+    writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2));
+    cachedSession = session;
+    try { cachedSessionMtime = statSync(SESSION_FILE).mtimeMs; } catch { cachedSessionMtime = Date.now(); }
+  } catch (e) {
+    console.error(`[jwt-service] Erro ao salvar sessão CF: ${e.message}`);
+  }
+}
+
+function pickCookieHeaderForUpstream(session, upstreamHost) {
+  if (!session || !upstreamHost) return null;
+  const h = String(upstreamHost).toLowerCase();
+  if (h === "demo.betby.com" || h.endsWith(".demo.betby.com")) return session.cookieHeader_demoBetby || null;
+  if (h === "demoapi.betby.com" || h.endsWith(".demoapi.betby.com")) return session.cookieHeader_demoapiBetby || null;
+  if (h.includes("sptpub.com")) return session.cookieHeader_sptpub || null;
+  return session.cookieHeader_demoapiBetby || session.cookieHeader_demoBetby || null;
+}
+
+function getSessionInjection(upstreamHost) {
+  const sess = loadSession(false);
+  if (!sess) return { userAgent: null, cookie: null, extraHeaders: {} };
+  const result = {
+    userAgent: sess.userAgent || null,
+    cookie: pickCookieHeaderForUpstream(sess, upstreamHost),
+    extraHeaders: {},
+  };
+  const seen = sess.extra?.requestHeadersSeen || {};
+  for (const [k, v] of Object.entries(seen)) {
+    if (!v) continue;
+    result.extraHeaders[k] = v;
+  }
+  if (!result.extraHeaders["x-requested-with"]) {
+    result.extraHeaders["x-requested-with"] = "XMLHttpRequest";
+  }
+  return result;
+}
 
 function loadCache() {
   try {
@@ -85,7 +150,11 @@ async function renewIfNeeded(force = false) {
   isRenewing = true;
   try {
     console.log(`[jwt-service] ${force ? "Renovação forçada" : "Renovando JWT..."}`);
-    const result = await captureJwt({ headless: true, saveToDisk: false });
+    const result = await captureJwt({ headless: true, saveToDisk: true, waitAfterMs: 2000 });
+    if (result?.session) {
+      saveSessionToDisk(result.session);
+      console.log(`[jwt-service] Sessão CF salva automaticamente (via renew).`);
+    }
     if (result?.jwt) {
       currentCreds = { ...result, brandId: result.brandId || currentCreds?.brandId || DEFAULT_BRAND_ID };
       saveCache(currentCreds);
@@ -183,14 +252,18 @@ function stripBlockingHeaders(headersIn, hostHeader) {
 
 async function proxyPass(req, res, upstreamBase, pathAndQuery, { host = null, authHeader = null, rewriteHtml = false, extraOutHeaders = {} } = {}) {
   const upstream = `${upstreamBase.replace(/\/$/, "")}${pathAndQuery}`;
+  const upstreamHost = host || new URL(upstreamBase).host;
+  const inj = getSessionInjection(upstreamHost);
   const proxyHeaders = {
-    Host: host || new URL(upstreamBase).host,
+    Host: upstreamHost,
     Accept: req.headers["accept"] || "*/*",
     "Accept-Encoding": "",
     "Accept-Language": req.headers["accept-language"] || "pt-BR,pt;q=0.9,en;q=0.8",
-    "User-Agent": req.headers["user-agent"] || "Bet62-NodeProxy/1.0",
+    "User-Agent": inj.userAgent || req.headers["user-agent"] || "Bet62-NodeProxy/1.0",
     Origin: upstreamBase,
     Referer: `${upstreamBase}/`,
+    ...(inj.cookie ? { Cookie: inj.cookie } : {}),
+    ...(inj.extraHeaders || {}),
     ...(authHeader ? { Authorization: authHeader } : {}),
   };
   const chunks = [];
@@ -240,6 +313,8 @@ async function proxyPass(req, res, upstreamBase, pathAndQuery, { host = null, au
 export async function startJwtService(options = {}) {
   const { autoRenew = true, startHttpServer = true, port = 8787 } = options;
 
+  loadSession(true);
+
   if (!currentCreds) await renewIfNeeded(true);
   else await renewIfNeeded(false);
 
@@ -262,15 +337,40 @@ export async function startJwtService(options = {}) {
 
       // ===== Rotas de controle =====
       if (p === "/health") {
+        const sess = loadSession(false);
+        const cfCookies = sess?.cloudflareCookies || {};
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         return res.end(JSON.stringify({
           ok: true,
           authenticated: isAuthenticated(60),
           expiresInSec: secondsUntilExpire(currentCreds),
           brandId: getBrandId(),
+          cfSession: {
+            loaded: !!sess,
+            capturedAt: sess?.capturedAt || null,
+            userAgent: !!sess?.userAgent ? `${String(sess.userAgent).slice(0, 60)}...` : null,
+            cloudflareCookies: Object.keys(cfCookies),
+            cookieHas_cf_clearance: !!cfCookies.cf_clearance?.value?.length > 0,
+            cookieHas___cf_bm: !!cfCookies.__cf_bm?.value?.length > 0,
+            extraHeadersCount: Object.keys(sess?.extra?.requestHeadersSeen || {}).length,
+          },
+          v4Patterns: {
+            note: "demoapi.betby.com v4 usa treeId ao invés de query brandId/lang",
+            rootMeta:  "/api/v4/{live|prematch}/brand/{brandId}/{lang}/0  (meta/versions)",
+            fullTree:  `/api/v4/{live|prematch}/brand/{brandId}/{lang}/{treeId}  (sports+categories+tournaments+events)`,
+            shortcutsHosted: [
+              `/v4/live       → fullTree default treeId=${BETBY_V4_DEFAULT_TREE_ID}`,
+              `/v4/prematch   → fullTree default treeId=${BETBY_V4_DEFAULT_TREE_ID}`,
+              `/v4/live/0     → rootMeta`,
+              `/v4/live/{id}  → fullTree custom`,
+              `/v4/prematch/0 → rootMeta`,
+              `/v4/prematch/{id} → fullTree custom`,
+            ],
+          },
           routes: [
             "/health", "/jwt", "/proxy/*", "/iframe.html", "/",
             "/betby/*", "/betby-api/*", "/betby-api-v4/*",
+            "/v4/live", "/v4/live/:treeId", "/v4/prematch", "/v4/prematch/:treeId",
             "/betby-static/*", "/translate/*",
             "/betby/api/v2/customisator/themes",
             "/betby-api-v4/api/v1/promo/widget/{brandId}/{lang}",
@@ -302,6 +402,12 @@ export async function startJwtService(options = {}) {
           customisatorThemes: `http://${req.headers["host"]}/betby/api/v2/customisator/themes`,
           promoWidget: `http://${req.headers["host"]}/betby-api-v4/api/v1/promo/widget/${getBrandId()}/en`,
           blueDarkTileTheme: `http://${req.headers["host"]}/betby-static/master/betby-demo-blue-dark-tile/theme.json`,
+          v4LiveFullTree: `http://${req.headers["host"]}/v4/live`,
+          v4LiveMeta: `http://${req.headers["host"]}/v4/live/0`,
+          v4PrematchFullTree: `http://${req.headers["host"]}/v4/prematch`,
+          v4PrematchMeta: `http://${req.headers["host"]}/v4/prematch/0`,
+          v4PatternFull: `http://${req.headers["host"]}/betby-api-v4/api/v4/{live|prematch}/brand/${getBrandId()}/{lang}/{treeId}`,
+          v4DefaultTreeId: BETBY_V4_DEFAULT_TREE_ID,
           trackerBuild: BETBY_TRACKER_DEFAULT_BUILD,
           trackerProvider: BETBY_TRACKER_PROVIDER_ID,
           trackerUrl: `http://${req.headers["host"]}/betby-tracker${sampleTrackerUrl}`,
@@ -315,6 +421,27 @@ export async function startJwtService(options = {}) {
           host: new URL(BETBY_API_UPSTREAM).host,
           authHeader: `Bearer ${getJwt()}`,
         });
+      }
+
+      // ===== Rotas atalho amigaveis v4 live/prematch =====
+      //   /v4/live            => /api/v4/live/brand/{brandId}/{lang}/{defaultTreeId}
+      //   /v4/live/0          => /api/v4/live/brand/{brandId}/{lang}/0  (meta)
+      //   /v4/live/{treeId}   => /api/v4/live/brand/{brandId}/{lang}/{treeId}
+      //   /v4/prematch [...]  (mesma logica)
+      {
+        const m = p.match(/^\/v4\/(live|prematch)(?:\/([^\/]+))?$/);
+        if (m) {
+          const [ , kind, rawId ] = m;
+          const qLang = url.searchParams.get("lang") || DEFAULT_LANG;
+          const qBrand = url.searchParams.get("brandId") || getBrandId();
+          const treeId = (rawId && rawId.length) ? rawId : BETBY_V4_DEFAULT_TREE_ID;
+          const targetPath = `/api/v4/${kind}/brand/${qBrand}/${qLang}/${treeId}${url.search && rawId ? url.search : ""}`;
+          return proxyPass(req, res, BETBY_DEMOAPI_UPSTREAM, targetPath, {
+            host: "demoapi.betby.com",
+            authHeader: `Bearer ${getJwt()}`,
+            rewriteHtml: false,
+          });
+        }
       }
 
       // ===== Páginas estáticas locais =====
@@ -449,9 +576,15 @@ export async function startJwtService(options = {}) {
         routes: {
           controle: ["/health", "/jwt?force=1", "/proxy/<path-sptpub>"],
           locais:  ["/", "/iframe.html"],
+          "v4-atalhos": [
+            `/v4/live   (full tree treeId=${BETBY_V4_DEFAULT_TREE_ID})`,
+            `/v4/live/0 (meta/versions)`,
+            `/v4/live/{treeId} (custom treeId)`,
+            "/v4/prematch ... (mesmas regras)",
+          ],
           "proxy-betby-ui":   "/betby/sportsbook/tile?… (CSP/X-Frame removidos, URLs reescritas)",
           "proxy-betby-api":  "/betby-api/<path> (sptpub, Authorization: Bearer injetado)",
-          "proxy-betby-demoapi-v4": "/betby-api-v4/api/v4/<path> (demoapi.betby.com, v4 live/prematch, Bearer injetado)",
+          "proxy-betby-demoapi-v4": "/betby-api-v4/<path> (demoapi.betby.com, Formato REAL: /api/v4/{live|prematch}/brand/{brandId}/{lang}/{treeId})",
           "proxy-betby-promo":  "/betby-api-v4/api/v1/promo/widget/<brandId>/<lang>",
           "proxy-betby-custom": "/betby/api/v2/customisator/themes",
           "proxy-betby-static": "/betby-static/master/betby-demo-blue-dark-tile/theme.json  (CDN sptpub)",
@@ -472,7 +605,11 @@ export async function startJwtService(options = {}) {
         console.log(`[jwt-service]   ${base}/betby${SPORTSBOOK_DEFAULT}`);
         console.log(`[jwt-service]                     ^^^ Sportsbook PROXYADO (sem CSP / X-Frame!)`);
         console.log(`[jwt-service]   ${base}/betby-api/<p>  -> sptpub (Auth Bearer injetado)`);
-        console.log(`[jwt-service]   ${base}/betby-api-v4/<p> -> demoapi.betby.com (v4 live/prematch, Auth Bearer injetado)`);
+        console.log(`[jwt-service]   ${base}/betby-api-v4/<p> -> demoapi.betby.com (Formato REAL: /api/v4/{live|prematch}/brand/{brandId}/{lang}/{treeId})`);
+        console.log(`[jwt-service]   ${base}/v4/live          -> v4 LIVE full tree (treeId=${BETBY_V4_DEFAULT_TREE_ID}) — esportes+ligas+eventos`);
+        console.log(`[jwt-service]   ${base}/v4/prematch      -> v4 PREMATCH full tree (treeId=${BETBY_V4_DEFAULT_TREE_ID})`);
+        console.log(`[jwt-service]   ${base}/v4/live/0        -> v4 LIVE meta (versions/epoch)`);
+        console.log(`[jwt-service]   ${base}/v4/prematch/0    -> v4 PREMATCH meta`);
         console.log(`[jwt-service]   ${base}/betby-static/master/betby-demo-blue-dark-tile/theme.json  <- tema tile`);
         console.log(`[jwt-service]   ${base}/betby/api/v2/customisator/themes`);
         console.log(`[jwt-service]   ${base}/betby-api-v4/api/v1/promo/widget/${DEFAULT_BRAND_ID}/en`);
