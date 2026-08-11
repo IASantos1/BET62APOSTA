@@ -583,7 +583,11 @@
       })); } catch {}
       if (d?.registerFallback) {
         cfgHint.style.display = "";
-        cfgHint.innerHTML = `<b>Fallback:</b> ${d.hint || d.registerAttempt?.status === 403 ? "/auth/register=403 (Watchers exige sessao Cloudflare do widget real) — userId usado o armazenado. Para uma userId 100% válido, rode no terminal: <code class=\"cmd\">.\\capture-watchers-creds.cmd --headed</code>` : (d.hint || "");
+        let fallbackText = d.hint || "";
+        if (!fallbackText && (!d.registerAttempt || d.registerAttempt.status === 403)) {
+          fallbackText = "/auth/register=403 (Watchers exige sessao Cloudflare do widget real) — userId usado o último salvo. Para uma userId 100% válido, rode no terminal: <code class='cmd'>.\\capture-watchers-creds.cmd --headed</code>";
+        }
+        cfgHint.innerHTML = "<b>Fallback:</b> " + fallbackText;
         cfgPanel.open = true;
       } else {
         cfgHint.style.display = "none";
