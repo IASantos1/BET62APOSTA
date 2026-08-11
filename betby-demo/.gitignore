@@ -1,8 +1,11 @@
 .playwright-browsers/
 .betby-jwt.json
 .betby-secrets.json
+.betby-watchers.json
 .dumps/
 .dumps_*.json
 node_modules/
 npm-debug.log*
 .DS_Store
+test-watchers-auth.mjs
+test-watchers-out.txt

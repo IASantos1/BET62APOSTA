@@ -91,6 +91,28 @@
     .frames.split{grid-template-columns:1fr;grid-template-rows:auto auto}
     .hide-sm{display:none}
   }
+  details.cfg{
+    border:1px solid var(--border);background:#070b14;margin:0;
+  }
+  details.cfg > summary{
+    cursor:pointer;padding:10px 14px;font-weight:700;color:var(--accent);
+    border-bottom:1px solid var(--border);user-select:none;list-style:none;
+  }
+  details.cfg > summary::before{content:"⚙️ ";margin-right:6px}
+  details.cfg[open] > summary{background:rgba(232,177,5,.06)}
+  details.cfg .cfg-grid{
+    display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:12px 14px;
+  }
+  details.cfg label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+  details.cfg label input{text-transform:none;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  details.cfg .cfg-actions{display:flex;gap:8px;flex-wrap:wrap;padding:0 14px 12px 14px}
+  .warn{
+    background:linear-gradient(180deg, rgba(232,177,5,.08), rgba(232,177,5,.02));
+    border:1px solid rgba(232,177,5,.35);color:var(--accent);
+    padding:10px 12px;border-radius:10px;font-size:12px
+  }
+  .warn b{color:#fff}
+  code.cmd{background:#0a1324;padding:2px 6px;border-radius:6px;border:1px solid var(--border);font-size:12px;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -125,7 +147,49 @@
       <button id="reload" title="Recarregar ambos os iframes">🔄 Recarregar</button>
       <button id="refresh" class="primary" title="Renovar JWT + reload">♻️ Atualizar</button>
     </div>
-  </header>
+      </header>
+
+  <details class="cfg" id="cfgPanel">
+    <summary>Watchers Config · roomId / userIdB64 / apikey (corrija o erro "We do not recognise you" aqui)</summary>
+    <div class="cfg-grid">
+      <label>Room ID
+        <input type="text" id="cfgRoom" placeholder="brandId:suffix" spellcheck="false" />
+      </label>
+      <label>userIdB64 (33 bytes base64)
+        <input type="text" id="cfgUser" placeholder="FbwzJEeB..." spellcheck="false" />
+      </label>
+      <label>Apikey Watchers
+        <input type="text" id="cfgApikey" placeholder="f7fae93d-..." spellcheck="false" />
+      </label>
+      <label>Nickname (para /chat-embed)
+        <input type="text" id="cfgNick" placeholder="Bet62Guest_abc123" />
+      </label>
+      <label>Project ID
+        <input type="text" id="cfgProject" placeholder="betby_test-prod-..." spellcheck="false" />
+      </label>
+      <label>URL Embed atual
+        <input type="text" id="cfgEmbedOut" readonly title="URL Watchers" spellcheck="false" />
+      </label>
+    </div>
+    <div class="cfg-actions">
+      <button class="primary" id="cfgApply">Aplicar e reconectar 🔌</button>
+      <button id="cfgRefresh">✨ Reobter via /chat-embed (tentara /auth/register)</button>
+      <button id="cfgReveal">👁 Ver embed em nova aba</button>
+      <button id="cfgReset">↺ Reset defaults</button>
+      <span style="flex:1"></span>
+      <span class="warn" id="cfgHint" style="display:none"></span>
+    </div>
+    <div style="padding:0 14px 12px 14px">
+      <div class="warn">
+        ⚠️ <b>Se aparecer "We do not recognise you / Try re-entering the room"</b>
+        a userIdB64 expirou. Para obter credenciais 100% frescas e válidas, feche esta página,
+        abra um terminal na pasta do projeto e rode: <code class="cmd">.\capture-watchers-creds.cmd --headed</code>
+        — ele abre o demo.betby.com de verdade via Playwright, captura o widget do chat
+        e coloca o userIdB64 NOVO no arquivo <code class="cmd">betby-demo\.betby-watchers.json</code>.
+        Copie e cole os campos aqui, depois clique em <b>Aplicar e reconectar</b>.
+      </div>
+    </div>
+  </details>
 
   <main>
     <div id="frames" class="frames split">
@@ -304,6 +368,132 @@
   setView("split");
   loadJwt(false);
   setInterval(() => loadJwt(false), 2 * 60 * 1000);
+
+  /* =========================================================
+   *  Watchers LIVE Config editor (painel ⚙️)
+   *  Corrige "We do not recognise you" sem precisar editar HTML
+   * ========================================================= */
+  const cfgRoom = $("cfgRoom"), cfgUser = $("cfgUser"), cfgApikey = $("cfgApikey");
+  const cfgNick = $("cfgNick"), cfgProject = $("cfgProject"), cfgEmbedOut = $("cfgEmbedOut");
+  const cfgApply = $("cfgApply"), cfgRefresh = $("cfgRefresh"), cfgReveal = $("cfgReveal"), cfgReset = $("cfgReset");
+  const cfgHint = $("cfgHint"), cfgPanel = $("cfgPanel"), watchersBadge = $("watchersBadge");
+
+  const DEFAULTS = JSON.parse(JSON.stringify({
+    roomId: WATCHERS.roomId,
+    userIdB64: WATCHERS.userIdB64,
+    apikey: WATCHERS.apikey,
+    project: "betby_test-prod-f7fae93d-cda1-4669-9ec8-b06a2e66f650",
+    nickname: "Bet62Guest-" + Math.random().toString(36).slice(2, 8),
+  }));
+
+  function buildEmbedFromCfg() {
+    const p = new URLSearchParams({
+      roomId: cfgRoom.value || WATCHERS.roomId,
+      userId: cfgUser.value || WATCHERS.userIdB64,
+      apikey: cfgApikey.value || WATCHERS.apikey,
+    });
+    return `https://chat.watchers.io/?${p.toString()}`;
+  }
+
+  function syncWatchersLive() {
+    cfgRoom.value = WATCHERS.roomId;
+    cfgUser.value = WATCHERS.userIdB64;
+    cfgApikey.value = WATCHERS.apikey;
+    cfgProject.value = WATCHERS.project || DEFAULTS.project;
+    cfgNick.value = DEFAULTS.nickname;
+    WATCHERS.chatEmbed = buildEmbedFromCfg();
+    cfgEmbedOut.value = WATCHERS.chatEmbed;
+    kpiRoom.textContent = WATCHERS.roomId;
+    kpiKey.textContent = (WATCHERS.apikey || "").slice(0, 14) + "...";
+    const m = /^([^:]+):.+$/.exec(WATCHERS.roomId || "");
+    watchersBadge.textContent = m ? `room ${m[1]}…` : ("room " + (WATCHERS.roomId || "").slice(0, 18) + "…");
+    watchersBadge.title = WATCHERS.roomId || "";
+  }
+
+  syncWatchersLive();
+  [cfgRoom, cfgUser, cfgApikey].forEach(el => el.addEventListener("input", () => {
+    WATCHERS.roomId = cfgRoom.value;
+    WATCHERS.userIdB64 = cfgUser.value;
+    WATCHERS.apikey = cfgApikey.value;
+    WATCHERS.chatEmbed = buildEmbedFromCfg();
+    cfgEmbedOut.value = WATCHERS.chatEmbed;
+  }));
+
+  cfgApply.onclick = () => {
+    WATCHERS.roomId = cfgRoom.value;
+    WATCHERS.userIdB64 = cfgUser.value;
+    WATCHERS.apikey = cfgApikey.value;
+    WATCHERS.chatEmbed = buildEmbedFromCfg();
+    cfgEmbedOut.value = WATCHERS.chatEmbed;
+    syncWatchersLive();
+    try { localStorage.setItem("bet62.watchers", JSON.stringify({
+      roomId: WATCHERS.roomId, userIdB64: WATCHERS.userIdB64,
+      apikey: WATCHERS.apikey,
+      project: cfgProject.value,
+    })); } catch {}
+    loadChat();
+    setStatus("ok", "Watchers reconectado com nova credenciais");
+  };
+
+  cfgReset.onclick = () => {
+    WATCHERS.roomId = DEFAULTS.roomId;
+    WATCHERS.userIdB64 = DEFAULTS.userIdB64;
+    WATCHERS.apikey = DEFAULTS.apikey;
+    syncWatchersLive();
+    try { localStorage.removeItem("bet62.watchers"); } catch {}
+    loadChat();
+  };
+
+  cfgReveal.onclick = () => window.open(WATCHERS.chatEmbed, "_blank", "noopener");
+
+  cfgRefresh.onclick = async () => {
+    try {
+      setStatus("", "Reobtendo credenciais watchers...");
+      const params = new URLSearchParams({
+        nickname: cfgNick.value || DEFAULTS.nickname,
+        project: cfgProject.value || DEFAULTS.project,
+        apikey: cfgApikey.value || DEFAULTS.apikey,
+        roomId: cfgRoom.value || DEFAULTS.roomId,
+      });
+      const r = await fetch(`${WATCHERS_SERVICE}/chat-embed?${params.toString()}`, { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const d = await r.json();
+      if (d?.roomId) WATCHERS.roomId = d.roomId;
+      if (d?.userIdB64) WATCHERS.userIdB64 = d.userIdB64;
+      if (d?.apikey) WATCHERS.apikey = d.apikey;
+      if (d?.url) WATCHERS.chatEmbed = d.url;
+      syncWatchersLive();
+      try { localStorage.setItem("bet62.watchers", JSON.stringify({
+        roomId: WATCHERS.roomId, userIdB64: WATCHERS.userIdB64,
+        apikey: WATCHERS.apikey, project: cfgProject.value,
+      })); } catch {}
+      if (d?.registerFallback) {
+        cfgHint.style.display = "";
+        cfgHint.innerHTML = `<b>Fallback:</b> ${d.hint || d.registerAttempt?.status === 403 ? "/auth/register=403 (Watchers exige sessao Cloudflare do widget real) — userId usado o armazenado. Para uma userId 100% válido, rode no terminal: <code class=\"cmd\">.\\capture-watchers-creds.cmd --headed</code>` : (d.hint || "");
+        cfgPanel.open = true;
+      } else {
+        cfgHint.style.display = "none";
+      }
+      loadChat();
+        setStatus(d?.registerFallback ? "ok" : "ok", d.registerFallback ? "Tentativa register=403, usando último salvo — rode .\\capture-watchers-creds.cmd para credenciais frescas" : "Watchers reobtidas OK");
+      console.log("[cfg/chat-embed]", d);
+    } catch (e) {
+      setStatus("err", "Não alcançou watchers service: " + e.message);
+    }
+  };
+
+  /* tenta carregar do localStorage no boot */
+  try {
+    const s = localStorage.getItem("bet62.watchers");
+    if (s) { const d = JSON.parse(s);
+      if (d?.roomId) WATCHERS.roomId = d.roomId;
+      if (d?.userIdB64) WATCHERS.userIdB64 = d.userIdB64;
+      if (d?.apikey) WATCHERS.apikey = d.apikey;
+      if (d?.project) DEFAULTS.project = d.project;
+      syncWatchersLive();
+    }
+  } catch {}
+
   loadSb();
   loadChat();
 </script>

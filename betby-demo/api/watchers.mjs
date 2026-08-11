@@ -207,10 +207,42 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         if (u.pathname === "/health") return res.end(JSON.stringify({ ok: 1, svc: "watchers" }));
         if (u.pathname === "/embed-url") {
           const eventId = u.searchParams.get("eventId");
+          const roomId = u.searchParams.get("roomId") || WATCHERS_DEFAULT_CREDS.roomId;
+          const apikey = u.searchParams.get("apikey") || WATCHERS_DEFAULT_CREDS.apikey;
+          const userId = u.searchParams.get("userId") || WATCHERS_DEFAULT_CREDS.userIdB64;
+          const creds = { roomId, userId, apikey };
           return res.end(JSON.stringify({
-            default: buildChatEmbedUrl(),
-            event: eventId ? getTrackedEventUrl(eventId) : null,
-            roomId: WATCHERS_DEFAULT_CREDS.roomId,
+            default: buildChatEmbedUrl(creds),
+            event: eventId ? getTrackedEventUrl(eventId, creds) : null,
+            roomId,
+            apikey,
+            userIdB64: userId,
+          }));
+        }
+        if (u.pathname === "/chat-embed") {
+          const eventId = u.searchParams.get("eventId");
+          const nickname = u.searchParams.get("nickname");
+          const project = u.searchParams.get("project") || WATCHERS_DEFAULT_CREDS.project;
+          const apikey = u.searchParams.get("apikey") || WATCHERS_DEFAULT_CREDS.apikey;
+          let roomId = u.searchParams.get("roomId") || WATCHERS_DEFAULT_CREDS.roomId;
+          let userIdB64 = u.searchParams.get("userId") || "";
+          let registerAttempt = null;
+          if (!userIdB64) {
+            registerAttempt = await registerGuest({ nickname, project, apiKey: apikey }).catch((e) => ({ ok: false, error: e.message }));
+            userIdB64 = registerAttempt?.data?.userIdB64 || registerAttempt?.data?.encodedUserId || registerAttempt?.data?.userId || WATCHERS_DEFAULT_CREDS.userIdB64;
+            if (!userIdB64) userIdB64 = WATCHERS_DEFAULT_CREDS.userIdB64;
+          }
+          const creds = { roomId, userIdB64, apikey };
+          const registerFallback = !!(registerAttempt && !registerAttempt.ok);
+          return res.end(JSON.stringify({
+            url: buildChatEmbedUrl(creds),
+            eventUrl: eventId ? getTrackedEventUrl(eventId, creds) : null,
+            roomId,
+            userIdB64,
+            apikey,
+            registerAttempt: registerAttempt || { skipped: true },
+            registerFallback,
+            hint: registerFallback ? "auth/register=403 (exige sessao CF widget real); userId=stale mas pode funcionar para teste. Rode .\\capture-watchers-creds.cmd para obter credenciais FRESCAS via Playwright abrindo demo.betby.com chat widget." : null,
           }));
         }
         if (u.pathname === "/secrets") return res.end(JSON.stringify(await fetchSecretsSettings()));
@@ -230,7 +262,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         res.writeHead(404);
         res.end(JSON.stringify({
           error: "not_found",
-          routes: ["/health", "/embed-url", "/secrets", "/global", "/settings", "/themes", "/theme/{1|2}", "/auth/register (POST)", "/all"],
+          routes: ["/health", "/embed-url?roomId=&apikey=&userId=&eventId=", "/chat-embed?nickname=&project=&roomId=&apikey=&userId=&eventId=", "/secrets", "/global", "/settings", "/themes", "/theme/{1|2}", "/auth/register (POST)", "/all"],
         }));
       } catch (e) {
         res.writeHead(500);
@@ -240,7 +272,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     await listenWithFallback(server, port, {
       label: "watchers",
       onListen: () => {
-        console.log(`[watchers]   GET /health, /embed-url?eventId=X`);
+        console.log(`[watchers]   GET /health, /embed-url?eventId=X, /chat-embed?nickname=X&eventId=Y`);
         console.log(`[watchers]   GET /secrets, /global, /settings, /themes, /theme/2`);
         console.log(`[watchers]   POST /auth/register {nickname, project, …}`);
       },
