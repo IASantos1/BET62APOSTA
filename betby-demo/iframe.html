@@ -61,6 +61,8 @@
   .frames.split { grid-template-columns: 1fr 380px }
   .frames.just-sb { grid-template-columns: 1fr }
   .frames.just-chat { grid-template-columns: 1fr }
+  .frames.sb-trk { grid-template-columns: 1fr minmax(360px, 1fr) }
+  .frames.all3 { grid-template-columns: 1fr minmax(360px, 1fr) 380px }
   .frame-wrap{position:relative;background:var(--bg-0);min-height:0;display:flex;flex-direction:column}
   iframe{width:100%;height:100%;border:0;display:block;min-height:520px;background:#0a0f1a}
   .frame-header{
@@ -87,10 +89,15 @@
   .okc{color:var(--good)} .errc{color:var(--bad)} .warnc{color:var(--accent)}
   .seg{display:inline-flex;padding:2px 6px;border-radius:6px;font-size:11px;background:#0c1426;border:1px solid var(--border);color:var(--muted)}
   .seg.ok{background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.35);color:var(--good)}
-  @media (max-width:980px){
-    .frames.split{grid-template-columns:1fr;grid-template-rows:auto auto}
+  @media (max-width: 1400px){
+    .frames.all3 { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
+    .frames.all3 > #wrapChat { grid-column: span 2 }
+  }
+  @media (max-width: 980px){
+    .frames.split, .frames.sb-trk, .frames.all3 { grid-template-columns: 1fr; grid-template-rows: auto auto; }
     .hide-sm{display:none}
   }
+</style>
   details.cfg{
     border:1px solid var(--border);background:#070b14;margin:0;
   }
@@ -140,7 +147,23 @@
       <div style="display:inline-flex;border:1px solid var(--border);border-radius:10px;overflow:hidden">
         <button id="vSb" class="active" title="Apenas Sportsbook">Apostas</button>
         <button id="vSplit" title="Sportsbook + Chat/Tracker">Split</button>
-        <button id="vChat" title="Apenas Chat/Tracker">Tracker</button>
+        <button id="vChat" title="Apenas Chat/Tracker">Chat</button>
+        <button id="vSbTrk" title="Sportsbook + Live Tracker Visual (StatScore)">🎯 Live</button>
+        <button id="vAll" title="Todos: Apostas + Tracker Visual + Chat">🏆 Todos</button>
+      </div>
+
+      <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border);border-radius:10px;background:#0a1020">
+        <span title="Evento ID (ex: 6670958)" style="font-size:11px;color:var(--muted)">🎯 Event</span>
+        <input id="trkEventId" type="text" placeholder="ex: 6670958" style="width:120px" value="6670958" />
+        <input id="trkSportId" type="text" placeholder="sportId" style="width:60px" value="1" />
+        <select id="trkLang" style="padding:6px 8px">
+          <option value="en">en</option><option value="pt">pt</option><option value="es">es</option>
+        </select>
+        <label style="font-size:11px;color:var(--muted);display:inline-flex;gap:4px;align-items:center">
+          <input id="trkLive" type="checkbox" checked /> live
+        </label>
+        <button id="trkLoad" class="primary" title="Carregar tracker StatScore">▶️ Carregar</button>
+        <button id="openTrk" title="Abrir tracker em nova aba" target="_blank" rel="noopener">↗ Trk</button>
       </div>
 
       <button id="openChat" title="Abrir tracker em nova janela" target="_blank" rel="noopener">↗ Chat</button>
@@ -207,6 +230,14 @@
           </div>
         </div>
       </div>
+      <div id="wrapTrk" class="frame-wrap hide-sm" style="display:none">
+        <div class="frame-header"><b>🎯 StatScore Tracker</b>
+          <span id="trkBadge" class="seg">event: 6670958</span>
+        </div>
+        <iframe id="trk" title="BetBY StatScore Tracker Live"
+          allow="fullscreen; clipboard-write; clipboard-read; autoplay; picture-in-picture"
+          loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="about:blank"></iframe>
+      </div>
       <div id="wrapChat" class="frame-wrap hide-sm">
         <div class="frame-header"><b>Watchers · Tracker / Chat</b>
           <span id="watchersBadge" class="seg ok">room 1653815133341880320:...</span>
@@ -223,6 +254,8 @@
     <div class="card"><div class="k">JWT BetBY</div><div class="v" id="kpiJwt">—</div></div>
     <div class="card"><div class="k">Expira em</div><div class="v" id="kpiExp">—</div></div>
     <div class="card"><div class="k">Brand ID</div><div class="v" id="kpiBrand">1653815133341880320</div></div>
+    <div class="card"><div class="k">🎯 Tracker Build</div><div class="v" id="kpiTrkBuild">05d0f564</div></div>
+    <div class="card"><div class="k">🎯 Evento TRK</div><div class="v" id="kpiTrkEvt">—</div></div>
     <div class="card"><div class="k">Room Watchers</div><div class="v" id="kpiRoom">—</div></div>
     <div class="card"><div class="k">Apikey</div><div class="v" id="kpiKey">—</div></div>
     <div class="card"><div class="k">Backend WS</div><div class="v" id="kpiBackend">—</div></div>
@@ -239,6 +272,27 @@
     "/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
   const JWT_SERVICE = (location.protocol + "//" + location.hostname + ":8787");
   const WATCHERS_SERVICE = (location.protocol + "//" + location.hostname + ":8789");
+
+  const TRACKER = {
+    build: "05d0f564",
+    provider: "statscore",
+    eventId: 6670958,
+    sportId: "1",
+    lang: "en",
+    live: true,
+    providers() { return { id: this.provider, sportId: String(this.sportId), lang: this.lang, liveEvent: !!this.live, eventId: Number(this.eventId) }; },
+    directUrl() {
+      const p = encodeURIComponent(JSON.stringify(this.providers()));
+      return `https://demoapi.betby.com/${this.build}/tracker.html?providers=${p}`;
+    },
+    proxyUrl() {
+      const p = encodeURIComponent(JSON.stringify(this.providers()));
+      return `${JWT_SERVICE}/betby-tracker/${this.build}/tracker.html?providers=${p}`;
+    },
+    shortcutUrl() {
+      return `${JWT_SERVICE}/tracker?eventId=${this.eventId}&sportId=${this.sportId}&lang=${this.lang}&live=${this.live ? 1 : 0}&provider=${this.provider}&build=${this.build}`;
+    },
+  };
 
   const WATCHERS = {
     brandId: "1653815133341880320",
@@ -259,28 +313,56 @@
   })();
 
   const $ = (id) => document.getElementById(id);
-  const frames = $("frames"), wrapSb = $("wrapSb"), wrapChat = $("wrapChat");
-  const vSb = $("vSb"), vSplit = $("vSplit"), vChat = $("vChat");
+  const frames = $("frames"), wrapSb = $("wrapSb"), wrapChat = $("wrapChat"), wrapTrk = $("wrapTrk");
+  const vSb = $("vSb"), vSplit = $("vSplit"), vChat = $("vChat"), vSbTrk = $("vSbTrk"), vAll = $("vAll");
   const srcSel = $("srcSelect"), customUrl = $("customUrl");
-  const sb = $("sb"), chat = $("chat"), fallback = $("fallback");
+  const sb = $("sb"), chat = $("chat"), trk = $("trk"), fallback = $("fallback");
+  const trkEventId = $("trkEventId"), trkSportId = $("trkSportId"), trkLang = $("trkLang"), trkLive = $("trkLive");
+  const trkLoad = $("trkLoad"), openTrk = $("openTrk"), trkBadge = $("trkBadge");
   const dot = $("dot"), statusText = $("statusText");
   const kpiSrc = $("kpiSrc"), kpiJwt = $("kpiJwt"), kpiExp = $("kpiExp"), kpiBrand = $("kpiBrand");
+  const kpiTrkBuild = $("kpiTrkBuild"), kpiTrkEvt = $("kpiTrkEvt");
   const kpiRoom = $("kpiRoom"), kpiKey = $("kpiKey"), kpiBackend = $("kpiBackend");
 
   kpiRoom.textContent = WATCHERS.roomId;
   kpiKey.textContent = WATCHERS.apikey.slice(0, 14) + "...";
   kpiBackend.textContent = WATCHERS.backend.replace("https://", "");
+  kpiTrkBuild.textContent = TRACKER.build;
+  kpiTrkEvt.textContent = TRACKER.eventId;
 
   function setView(mode) {
-    [vSb, vSplit, vChat].forEach(b => b.classList.remove("active"));
-    frames.classList.remove("split", "just-sb", "just-chat");
-    if (mode === "sb") { frames.classList.add("just-sb"); vSb.classList.add("active"); }
-    if (mode === "split") { frames.classList.add("split"); vSplit.classList.add("active"); }
-    if (mode === "chat") { frames.classList.add("just-chat"); vChat.classList.add("active"); }
+    [vSb, vSplit, vChat, vSbTrk, vAll].forEach(b => b.classList.remove("active"));
+    frames.classList.remove("split", "just-sb", "just-chat", "sb-trk", "all3");
+    wrapChat.style.display = "";
+    wrapSb.style.display = "";
+    wrapTrk.style.display = "none";
+    wrapChat.classList.toggle("hide-sm", true);
+    wrapTrk.classList.toggle("hide-sm", true);
+    if (mode === "sb") {
+      frames.classList.add("just-sb"); vSb.classList.add("active");
+      wrapChat.style.display = "none"; wrapTrk.style.display = "none";
+    } else if (mode === "split") {
+      frames.classList.add("split"); vSplit.classList.add("active");
+      wrapTrk.style.display = "none"; wrapChat.classList.remove("hide-sm");
+    } else if (mode === "chat") {
+      frames.classList.add("just-chat"); vChat.classList.add("active");
+      wrapSb.style.display = "none"; wrapTrk.style.display = "none";
+      wrapChat.classList.remove("hide-sm");
+    } else if (mode === "sb-trk") {
+      frames.classList.add("sb-trk"); vSbTrk.classList.add("active");
+      wrapChat.style.display = "none"; wrapTrk.classList.remove("hide-sm");
+      wrapTrk.style.display = "";
+    } else if (mode === "all") {
+      frames.classList.add("all3"); vAll.classList.add("active");
+      wrapChat.classList.remove("hide-sm"); wrapTrk.classList.remove("hide-sm");
+      wrapChat.style.display = ""; wrapTrk.style.display = "";
+    }
   }
   vSb.onclick = () => setView("sb");
   vSplit.onclick = () => setView("split");
   vChat.onclick = () => setView("chat");
+  vSbTrk.onclick = () => { loadTracker(); setView("sb-trk"); };
+  vAll.onclick = () => { loadTracker(); setView("all"); };
 
   function setStatus(kind, text) {
     dot.className = "dot " + (kind || "");
@@ -328,6 +410,32 @@
     }
     chat.src = u;
   }
+  function syncTrackerInputs() {
+    trkEventId.value = TRACKER.eventId;
+    trkSportId.value = TRACKER.sportId;
+    trkLang.value = TRACKER.lang;
+    trkLive.checked = !!TRACKER.live;
+    kpiTrkBuild.textContent = TRACKER.build;
+    kpiTrkEvt.textContent = TRACKER.eventId;
+    trkBadge.textContent = `event: ${TRACKER.eventId} | s:${TRACKER.sportId} ${TRACKER.lang}${TRACKER.live ? " ⚡" : ""}`;
+  }
+  function applyTrackerInputs() {
+    TRACKER.eventId = Number(trkEventId.value) || 6670958;
+    TRACKER.sportId = (trkSportId.value || "1").toString();
+    TRACKER.lang = trkLang.value || "en";
+    TRACKER.live = !!trkLive.checked;
+    kpiTrkEvt.textContent = TRACKER.eventId;
+    trkBadge.textContent = `event: ${TRACKER.eventId} | s:${TRACKER.sportId} ${TRACKER.lang}${TRACKER.live ? " ⚡" : ""}`;
+    try { localStorage.setItem("bet62.tracker", JSON.stringify({
+      eventId: TRACKER.eventId, sportId: TRACKER.sportId, lang: TRACKER.lang, live: TRACKER.live, build: TRACKER.build, provider: TRACKER.provider,
+    })); } catch {}
+  }
+  function loadTracker() {
+    applyTrackerInputs();
+    trk.src = TRACKER.proxyUrl();
+    if (wrapTrk) wrapTrk.style.display = "";
+  }
+  syncTrackerInputs();
 
   function toggleFallback(show){ fallback.classList.toggle("show", !!show); }
   function useProxy(){ srcSel.value = "node"; customUrl.style.display = "none"; loadSb(); }
@@ -337,7 +445,13 @@
     loadSb();
   });
   customUrl.addEventListener("change", loadSb);
-  $("reload").onclick = () => { loadSb(); loadChat(); };
+  trkEventId.addEventListener("change", applyTrackerInputs);
+  trkSportId.addEventListener("change", applyTrackerInputs);
+  trkLang.addEventListener("change", applyTrackerInputs);
+  trkLive.addEventListener("change", applyTrackerInputs);
+  trkLoad.onclick = () => { loadTracker(); };
+  openTrk.onclick = () => window.open(TRACKER.proxyUrl(), "_blank", "noopener");
+  $("reload").onclick = () => { loadSb(); loadChat(); loadTracker(); };
   $("refresh").onclick = () => loadJwt(true);
   $("openChat").onclick = () => window.open(WATCHERS.chatEmbed, "_blank", "noopener");
   sb.addEventListener("load", () => setStatus("ok", "Iframe carregado"));
@@ -493,9 +607,24 @@
       syncWatchersLive();
     }
   } catch {}
+  try {
+    const s = localStorage.getItem("bet62.tracker");
+    if (s) { const d = JSON.parse(s);
+      if (d?.eventId) TRACKER.eventId = Number(d.eventId);
+      if (d?.sportId) TRACKER.sportId = d.sportId;
+      if (d?.lang) TRACKER.lang = d.lang;
+      if (typeof d?.live === "boolean") TRACKER.live = d.live;
+      if (d?.build) TRACKER.build = d.build;
+      if (d?.provider) TRACKER.provider = d.provider;
+      syncTrackerInputs();
+    }
+  } catch {}
 
   loadSb();
   loadChat();
+  if (TRACKER.eventId) {
+    loadTracker();
+  }
 </script>
 </body>
 </html>

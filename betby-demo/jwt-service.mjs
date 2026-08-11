@@ -21,6 +21,8 @@ const TRANSLATE_UPSTREAM = "https://translate.googleapis.com";
 const STATIC_ROOT = __dirname;
 const SPORTSBOOK_DEFAULT =
   "/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
+const BETBY_TRACKER_DEFAULT_BUILD = "05d0f564";
+const BETBY_TRACKER_PROVIDER_ID = "statscore";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -101,6 +103,14 @@ async function renewIfNeeded(force = false) {
 
 export async function ensureJwt(force = false){ await renewIfNeeded(force); return currentCreds; }
 
+function buildTrackerProviders({ eventId, sportId = 1, lang = DEFAULT_LANG, live = true, provider = BETBY_TRACKER_PROVIDER_ID }) {
+  return { id: provider, sportId: String(sportId), lang, liveEvent: !!live, eventId: Number(eventId) };
+}
+function buildTrackerUrl({ eventId, sportId, lang, live, provider, build = BETBY_TRACKER_DEFAULT_BUILD, providers }) {
+  const p = providers || buildTrackerProviders({ eventId, sportId, lang, live, provider });
+  return `/${build}/tracker.html?providers=${encodeURIComponent(JSON.stringify(p))}`;
+}
+
 function scheduleRenewal() {
   if (renewTimer) clearInterval(renewTimer);
   renewTimer = setInterval(() => renewIfNeeded(false), 60 * 1000);
@@ -133,8 +143,8 @@ function rewriteBetbyBody(text, hostHeader, reqProto) {
     .replaceAll(/"demo\.betby\.com"/g, `"${hostHeader}"`)
     .replaceAll(/https?:\/\/api-h-c7818b61-608\.sptpub\.com\//g, `${publicBase}/betby-api/`)
     .replaceAll(/\/\/api-h-c7818b61-608\.sptpub\.com\//g, `//${hostHeader}/betby-api/`)
-    .replaceAll(/https?:\/\/demoapi\.betby\.com\//g, `${publicBase}/betby-api-v4/`)
-    .replaceAll(/\/\/demoapi\.betby\.com\//g, `//${hostHeader}/betby-api-v4/`)
+    .replaceAll(/https?:\/\/demoapi\.betby\.com\//g, `${publicBase}/betby-tracker/`)
+    .replaceAll(/\/\/demoapi\.betby\.com\//g, `//${hostHeader}/betby-tracker/`)
     .replaceAll(/https?:\/\/bt-app-static-themes\.sptpub\.com\//g, `${publicBase}/betby-static/`)
     .replaceAll(/\/\/bt-app-static-themes\.sptpub\.com\//g, `//${hostHeader}/betby-static/`)
     .replaceAll(/https?:\/\/translate\.googleapis\.com\//g, `${publicBase}/translate/`)
@@ -200,7 +210,7 @@ async function proxyPass(req, res, upstreamBase, pathAndQuery, { host = null, au
       const proto = (req.headers["x-forwarded-proto"] || "http");
       if (loc.startsWith(BETBY_UPSTREAM)) loc = `${proto}://${hostHeader}/betby${loc.slice(BETBY_UPSTREAM.length)}`;
       else if (loc.startsWith(BETBY_API_UPSTREAM)) loc = `${proto}://${hostHeader}/betby-api${loc.slice(BETBY_API_UPSTREAM.length)}`;
-      else if (loc.startsWith(BETBY_DEMOAPI_UPSTREAM)) loc = `${proto}://${hostHeader}/betby-api-v4${loc.slice(BETBY_DEMOAPI_UPSTREAM.length)}`;
+      else if (loc.startsWith(BETBY_DEMOAPI_UPSTREAM)) loc = `${proto}://${hostHeader}/betby-tracker${loc.slice(BETBY_DEMOAPI_UPSTREAM.length)}`;
       else if (loc.startsWith(BETBY_STATIC_UPSTREAM)) loc = `${proto}://${hostHeader}/betby-static${loc.slice(BETBY_STATIC_UPSTREAM.length)}`;
       else if (loc.startsWith(TRANSLATE_UPSTREAM)) loc = `${proto}://${hostHeader}/translate${loc.slice(TRANSLATE_UPSTREAM.length)}`;
       extraOutHeaders["Location"] = loc;
@@ -264,6 +274,8 @@ export async function startJwtService(options = {}) {
             "/betby-static/*", "/translate/*",
             "/betby/api/v2/customisator/themes",
             "/betby-api-v4/api/v1/promo/widget/{brandId}/{lang}",
+            "/tracker?eventId=&sportId=&lang=&live=",
+            `/betby-tracker/{build}/tracker.html?providers=JSON  (Tracker StatScore BetBY, CSP/X-Frame stripado, URLs reescritas. Ex.: /betby-tracker/${BETBY_TRACKER_DEFAULT_BUILD}/tracker.html?providers=...)`,
           ],
         }));
       }
@@ -272,6 +284,13 @@ export async function startJwtService(options = {}) {
         const force = url.searchParams.get("force") === "1";
         if (force || !isAuthenticated(60)) await renewIfNeeded(force);
         res.writeHead(currentCreds?.jwt ? 200 : 503, { "Content-Type": "application/json; charset=utf-8" });
+        const sampleTrackerUrl = buildTrackerUrl({
+          eventId: url.searchParams.get("eventId") || 6670958,
+          sportId: url.searchParams.get("sportId") || 1,
+          lang: url.searchParams.get("lang") || DEFAULT_LANG,
+          live: url.searchParams.get("live") !== "false",
+          provider: BETBY_TRACKER_PROVIDER_ID,
+        });
         return res.end(JSON.stringify({
           jwt: currentCreds?.jwt || null,
           brandId: getBrandId(),
@@ -283,6 +302,10 @@ export async function startJwtService(options = {}) {
           customisatorThemes: `http://${req.headers["host"]}/betby/api/v2/customisator/themes`,
           promoWidget: `http://${req.headers["host"]}/betby-api-v4/api/v1/promo/widget/${getBrandId()}/en`,
           blueDarkTileTheme: `http://${req.headers["host"]}/betby-static/master/betby-demo-blue-dark-tile/theme.json`,
+          trackerBuild: BETBY_TRACKER_DEFAULT_BUILD,
+          trackerProvider: BETBY_TRACKER_PROVIDER_ID,
+          trackerUrl: `http://${req.headers["host"]}/betby-tracker${sampleTrackerUrl}`,
+          trackerShortcut: `http://${req.headers["host"]}/tracker?eventId=6670958&sportId=1&lang=en&live=1`,
         }));
       }
 
@@ -318,6 +341,48 @@ export async function startJwtService(options = {}) {
         return proxyPass(req, res, BETBY_STATIC_UPSTREAM, targetPath + url.search, {
           host: "bt-app-static-themes.sptpub.com",
           rewriteHtml: false,
+        });
+      }
+
+      // ===== Rota atalho /tracker?eventId=X&sportId=Y&lang=Z&live=1&provider=statscore (302) =====
+      if (p === "/tracker") {
+        const b = url.searchParams.get("build") || BETBY_TRACKER_DEFAULT_BUILD;
+        const rawProviders = url.searchParams.get("providers");
+        const trackerUpstream = rawProviders
+          ? `/${b}/tracker.html?providers=${rawProviders}`
+          : buildTrackerUrl({
+              eventId: url.searchParams.get("eventId"),
+              sportId: url.searchParams.get("sportId") || 1,
+              lang: url.searchParams.get("lang") || DEFAULT_LANG,
+              live: url.searchParams.get("live") === null || url.searchParams.get("live") === "1" || url.searchParams.get("live") === "true",
+              provider: url.searchParams.get("provider") || BETBY_TRACKER_PROVIDER_ID,
+              build: b,
+            });
+        const redirectTo = `http://${req.headers["host"]}/betby-tracker${trackerUpstream}`;
+        res.writeHead(302, { "Location": redirectTo, "Cache-Control": "no-store" });
+        return res.end(JSON.stringify({
+          ok: 1,
+          providers: (() => {
+            try { return rawProviders ? JSON.parse(decodeURIComponent(rawProviders)) : buildTrackerProviders({
+              eventId: url.searchParams.get("eventId"),
+              sportId: url.searchParams.get("sportId") || 1,
+              lang: url.searchParams.get("lang") || DEFAULT_LANG,
+              live: url.searchParams.get("live") === null || url.searchParams.get("live") === "1" || url.searchParams.get("live") === "true",
+              provider: url.searchParams.get("provider") || BETBY_TRACKER_PROVIDER_ID,
+            }); } catch { return null; }
+          })(),
+          redirect: redirectTo,
+        }));
+      }
+
+      // ===== Proxy BetBY Tracker StatScore (demoapi.betby.com/<build>/tracker.html?providers=...) =====
+      // IMPORTANTE: vem ANTES de /betby-api-v4/* pois o tracker é HTML/JS e precisa rewriteHtml=true
+      //   e é servido SEM Bearer (público via demoapi.betby.com URL colada pelo usuário)
+      if (p.startsWith("/betby-tracker/")) {
+        const targetPath = p.replace(/^\/betby-tracker/, "");
+        return proxyPass(req, res, BETBY_DEMOAPI_UPSTREAM, targetPath + url.search, {
+          host: "demoapi.betby.com",
+          rewriteHtml: true,
         });
       }
 
@@ -391,6 +456,7 @@ export async function startJwtService(options = {}) {
           "proxy-betby-custom": "/betby/api/v2/customisator/themes",
           "proxy-betby-static": "/betby-static/master/betby-demo-blue-dark-tile/theme.json  (CDN sptpub)",
           "proxy-translate":    "/translate/_/translate_http/… (Google Translate, anti-CORS)",
+          "betby-tracker-live": `/betby-tracker/${BETBY_TRACKER_DEFAULT_BUILD}/tracker.html?providers=JSON  (Tracker StatScore, rewrite URLs) ou atalho: /tracker?eventId=<ID>&sportId=1&lang=en&live=1`,
         },
       }));
     });
@@ -411,6 +477,8 @@ export async function startJwtService(options = {}) {
         console.log(`[jwt-service]   ${base}/betby/api/v2/customisator/themes`);
         console.log(`[jwt-service]   ${base}/betby-api-v4/api/v1/promo/widget/${DEFAULT_BRAND_ID}/en`);
         console.log(`[jwt-service]   ${base}/translate/* -> Google Translate (anti-CORS)`);
+        console.log(`[jwt-service]   ${base}/tracker?eventId=6670958&sportId=1&lang=en&live=1  (atalho 302)`);
+        console.log(`[jwt-service]   ${base}/betby-tracker/${BETBY_TRACKER_DEFAULT_BUILD}/tracker.html?providers=…  ← Tracker StatScore BetBY (sem CSP / X-Frame!)`);
       },
     });
   }

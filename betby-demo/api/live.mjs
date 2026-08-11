@@ -20,7 +20,7 @@ const UPSTREAMS = {
     needsAuth: true,
   },
   demoapi: {
-    label: "demoapi.betby.com (v4 live/prematch + v1 promo/widget)",
+    label: "demoapi.betby.com (v4 live/prematch + v1 promo/widget + statscore tracker)",
     base: () => "https://demoapi.betby.com",
     liveUrl: (apiBase, bid, lang, sportIdOr0) =>
       `${apiBase}/api/v4/live/brand/${bid}/${lang}/${sportIdOr0}`,
@@ -28,6 +28,10 @@ const UPSTREAMS = {
       `${apiBase}/api/v4/prematch/brand/${bid}/${lang}/${sportIdOr0}`,
     promoWidgetUrl: (apiBase, bid, lang) =>
       `${apiBase}/api/v1/promo/widget/${bid}/${lang}`,
+    trackerBuild: "05d0f564",
+    trackerProvider: "statscore",
+    trackerUrl: (apiBase, build, providers) =>
+      `${apiBase}/${build}/tracker.html?providers=${encodeURIComponent(JSON.stringify(providers))}`,
     needsAuth: true,
   },
   demoUI: {
@@ -160,6 +164,29 @@ export async function fetchTileTheme(options = {}) {
   return rawGet("static-theme-tile", url, { jwt: null, acceptAuth: false, dump: options.dump });
 }
 
+export function buildTrackerProviders({ eventId, sportId = 1, lang = "en", live = true, provider = UPSTREAMS.demoapi.trackerProvider }) {
+  return { id: provider, sportId: String(sportId), lang, liveEvent: !!live, eventId: Number(eventId) };
+}
+export function buildTrackerUrl({ eventId, sportId, lang, live, provider, build = UPSTREAMS.demoapi.trackerBuild, providers, upstream = "demoapi" }) {
+  const up = UPSTREAMS[upstream] || UPSTREAMS.demoapi;
+  const buildId = build || up.trackerBuild;
+  const p = providers || buildTrackerProviders({ eventId, sportId, lang, live, provider });
+  return up.trackerUrl(up.base(), buildId, p);
+}
+export function buildLocalTrackerProxy({ eventId, sportId, lang, live, provider, build, localBase = "http://localhost:8787" }) {
+  const up = UPSTREAMS.demoapi;
+  const buildId = build || up.trackerBuild;
+  const qs = new URLSearchParams({
+    eventId: eventId != null ? String(eventId) : "",
+    sportId: sportId != null ? String(sportId) : "1",
+    lang: lang || "en",
+    live: live === false ? "0" : "1",
+    provider: provider || up.trackerProvider,
+  });
+  if (build) qs.set("build", buildId);
+  return `${localBase}/tracker?${qs.toString()}`;
+}
+
 export function normalizeLiveItems(payload) {
   const items =
     payload?.items ||
@@ -261,6 +288,31 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
           return res.end(JSON.stringify(r));
         } catch (e) { res.writeHead(500); return res.end(JSON.stringify({ error: e.message })); }
       }
+      if (u.pathname === "/tracker") {
+        const build = u.searchParams.get("build") || UPSTREAMS.demoapi.trackerBuild;
+        const provider = u.searchParams.get("provider") || UPSTREAMS.demoapi.trackerProvider;
+        const eventId = u.searchParams.get("eventId");
+        const sportId = u.searchParams.get("sportId") || 1;
+        const lang = u.searchParams.get("lang") || "en";
+        const live = u.searchParams.get("live") === "0" || u.searchParams.get("live") === "false" ? false : true;
+        const providers = buildTrackerProviders({ eventId, sportId, lang, live, provider });
+        const url = buildTrackerUrl({ eventId, sportId, lang, live, provider, build });
+        const upstreamBase = UPSTREAMS.demoapi.base();
+        const localBase = u.origin || `http://localhost:${port}`;
+        const localShortcut = buildLocalTrackerProxy({ eventId, sportId, lang, live, provider, build, localBase });
+        res.writeHead(200);
+        return res.end(JSON.stringify({
+          ok: 1,
+          build,
+          provider,
+          providers,
+          url,                                 // demoapi.betby.com direto
+          proxyShortcut: localShortcut,        // jwt-service /tracker?eventId=... (302)
+          proxyDirect: `${localBase}/betby-tracker${url.slice(upstreamBase.length)}`,  // jwt-service /betby-tracker/... (direto)
+          buildId: build,
+          example: `Ex.: GET ${localBase}/tracker?eventId=${eventId || 6670958}&sportId=1&lang=en&live=1`,
+        }));
+      }
       res.writeHead(404);
       res.end(JSON.stringify({
         error: "not_found",
@@ -272,6 +324,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
           "/themes  (-> demo.betby.com /api/v2/customisator/themes)",
           "/promo/widget?brandId=X&lang=en   (-> demoapi.betby.com)",
           "/static-theme  (-> bt-app-static-themes.sptpub.com /master/betby-demo-blue-dark-tile/theme.json)",
+          "/tracker?eventId=X&sportId=1&lang=en&live=1  (-> demoapi.betby.com/<build>/tracker.html?providers=JSON)",
         ],
       }));
     });
@@ -287,6 +340,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         console.log(`[live]   /themes       -> customisator themes (demo.betby.com v2)`);
         console.log(`[live]   /promo/widget?brandId=X&lang=en`);
         console.log(`[live]   /static-theme -> tema tile (betby-demo-blue-dark-tile/theme.json)`);
+        console.log(`[live]   /tracker?eventId=6670958&sportId=1&lang=en&live=1  (Tracker StatScore BetBY)`);
       },
     });
   } else {
@@ -300,6 +354,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const onlyThemes = args.includes("--themes");
     const onlyPromo = args.includes("--promo");
     const onlyTileTheme = args.includes("--tile-theme");
+    const onlyTracker = args.includes("--tracker");
+    const trackerEventArg = args.find((a) => /^--eventId=\d+$/.test(a));
+    const trackerEventId = trackerEventArg ? Number(trackerEventArg.split("=")[1]) : 6670958;
 
     if (onlyThemes) {
       fetchCustomisatorThemes({ dump }).then((r) => {
@@ -313,6 +370,24 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       fetchTileTheme({ dump }).then((r) => {
         console.log(`[static-theme-tile] status=${r.status} keys=${r.data && typeof r.data === "object" ? Object.keys(r.data).slice(0,10).join(",") : "?"}`);
       }).catch(fatal);
+    } else if (onlyTracker) {
+      const providers = buildTrackerProviders({ eventId: trackerEventId, sportId, lang, live: true });
+      const url = buildTrackerUrl({ eventId: trackerEventId, sportId, lang, live: true });
+      const localShortcut = buildLocalTrackerProxy({ eventId: trackerEventId, sportId, lang, live: true });
+      const upstreamBase = UPSTREAMS.demoapi.base();
+      const jwtDirect = `http://localhost:8787/betby-tracker${url.slice(upstreamBase.length)}`;
+      console.log(`[tracker] provider: ${providers.id} | buildId=${UPSTREAMS.demoapi.trackerBuild}`);
+      console.log(`[tracker] eventId=${providers.eventId} | sportId=${providers.sportId} | lang=${providers.lang} | live=${providers.liveEvent}`);
+      console.log(`[tracker] demoapi direto  : ${url}`);
+      console.log(`[tracker] jwt-service 302  : ${localShortcut}`);
+      console.log(`[tracker] jwt-service direto: ${jwtDirect}`);
+      if (dump) {
+        ensureDumpDir();
+        const ts = new Date().toISOString().replace(/[:.]/g, "-");
+        writeFileSync(join(DUMP_DIR, `tracker-${trackerEventId}-${ts}.json`), JSON.stringify({
+          providers, url, localShortcut, jwtServiceDirect: jwtDirect,
+        }, null, 2));
+      }
     } else {
       fetchBetbyEvents({ mode, upstream, sportId, lang, dump })
         .then(async (r) => {
@@ -337,6 +412,9 @@ export default {
   fetchCustomisatorThemes,
   fetchPromoWidget,
   fetchTileTheme,
+  buildTrackerProviders,
+  buildTrackerUrl,
+  buildLocalTrackerProxy,
   normalizeLiveItems,
   UPSTREAMS,
 };
