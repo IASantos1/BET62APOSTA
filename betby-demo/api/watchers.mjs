@@ -33,7 +33,7 @@ export const WATCHERS_DEFAULT_CREDS = {
   brandId: BRAND_ID,
   projectSuffix: "2694917589435551779",
   roomId: `${BRAND_ID}:2694917589435551779`,
-  userIdB64: "FbwzJEeBMcXzRFNqBF8mdklISfiUFGiwgIuxChQR+2BY=",
+  userIdB64: "/CYW8wDkgA99q1aM5B90CtwTYlX0Md4lhi0/pLo6mNc=",
   apikey: "f7fae93d-cda1-4669-9ec8-b06a2e66f650",
   preloadApiKey: "680f3738-6809-4ded-a371-99fb7900846a",
   preloadProjectId: "casabet-prod",
@@ -42,7 +42,7 @@ export const WATCHERS_DEFAULT_CREDS = {
   environment: ENVIRONMENT,
   defaultThemeId: 2,
   embedUrl:
-    "https://chat.watchers.io/?roomId=1653815133341880320%3A2694917589435551779&userId=FbwzJEeBMcXzRFNqBF8mdklISfiUFGiwgIuxChQR%2B%2BY%3D&apikey=f7fae93d-cda1-4669-9ec8-b06a2e66f650",
+    "https://chat.watchers.io/?roomId=1653815133341880320%3A2694917589435551779&userId=%2FCYW8wDkgA99q1aM5B90CtwTYlX0Md4lhi0%2FpLo6mNc%3D&apikey=f7fae93d-cda1-4669-9ec8-b06a2e66f650",
   brandGA4Id: "G-7Q8ZMQJCT2",
   liveUid: "2699066598068727812",
 };
