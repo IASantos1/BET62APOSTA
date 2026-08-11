@@ -1,15 +1,33 @@
-import { writeFileSync, existsSync, mkdirSync } from "fs";
+import { writeFileSync, existsSync, mkdirSync, readdirSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join, resolve } from "path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const BROWSERS_DIR = resolve(__dirname, ".playwright-browsers");
-if (!existsSync(BROWSERS_DIR)) {
-  try { mkdirSync(BROWSERS_DIR, { recursive: true }); } catch {}
+const LOCAL_DIR = resolve(__dirname, ".playwright-browsers");
+const GLOBAL_DIR = join(process.env.LOCALAPPDATA || join(process.env.USERPROFILE || "~", "AppData", "Local"), "ms-playwright");
+
+function hasPwArtifacts(dir) {
+  if (!existsSync(dir)) return false;
+  try {
+    return readdirSync(dir).some((n) =>
+      /^chromium(-headless-shell)?-\d+$/.test(n) ||
+      /^firefox-\d+$/.test(n) || /^webkit-\d+$/.test(n) ||
+      /^ffmpeg-\d+$/.test(n) || /^winldd-\d+$/.test(n));
+  } catch { return false; }
 }
-process.env.PLAYWRIGHT_BROWSERS_PATH = BROWSERS_DIR;
+
+const PICKED = (() => {
+  const L = hasPwArtifacts(LOCAL_DIR), G = hasPwArtifacts(GLOBAL_DIR);
+  if (L && !G) return LOCAL_DIR;
+  if (G) return GLOBAL_DIR;
+  if (L) return LOCAL_DIR;
+  try { mkdirSync(LOCAL_DIR, { recursive: true }); } catch {}
+  return LOCAL_DIR;
+})();
+try { mkdirSync(PICKED, { recursive: true }); } catch {}
+process.env.PLAYWRIGHT_BROWSERS_PATH = PICKED;
 process.env.PLAYWRIGHT_SKIP_BROWSER_GC = "1";
 
 const { chromium } = await import("playwright");
