@@ -108,8 +108,9 @@
       <div id="segW" class="seg" title="watchers.io project">watchers: betby_test-prod</div>
 
       <select id="srcSelect" title="Origem do widget BetBY">
-        <option value="proxy">/sportsbook (proxy Nginx)</option>
-        <option value="direct" selected>demo.betby.com (direto)</option>
+        <option value="node" selected>📦 Proxy LOCAL (jwt-service /betby — SEM CSP/X-Frame!)</option>
+        <option value="direct">demo.betby.com (direto — pode bloquear)</option>
+        <option value="nginx">/sportsbook (proxy Nginx)</option>
         <option value="custom">URL customizada</option>
       </select>
       <input id="customUrl" type="text" placeholder="URL BetBY custom" style="display:none;width:220px" />
@@ -167,7 +168,11 @@
 <script>
   const BETBY_DIRECT =
     "https://demo.betby.com/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
-  const BETBY_PROXY = "/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
+  const BETBY_NODE_PROXY =
+    (location.protocol + "//" + location.hostname + ":8787") +
+    "/betby/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
+  const BETBY_NGINX =
+    "/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
   const JWT_SERVICE = (location.protocol + "//" + location.hostname + ":8787");
   const WATCHERS_SERVICE = (location.protocol + "//" + location.hostname + ":8789");
 
@@ -236,8 +241,9 @@
   function currentSbUrl() {
     const v = srcSel.value;
     if (v === "direct") return BETBY_DIRECT;
-    if (v === "proxy") return BETBY_PROXY;
-    return customUrl.value || BETBY_DIRECT;
+    if (v === "node")   return BETBY_NODE_PROXY;
+    if (v === "nginx")  return BETBY_NGINX;
+    return customUrl.value || BETBY_NODE_PROXY;
   }
 
   function loadSb() {
@@ -260,7 +266,7 @@
   }
 
   function toggleFallback(show){ fallback.classList.toggle("show", !!show); }
-  function useProxy(){ srcSel.value = "proxy"; customUrl.style.display = "none"; loadSb(); }
+  function useProxy(){ srcSel.value = "node"; customUrl.style.display = "none"; loadSb(); }
 
   srcSel.addEventListener("change", () => {
     customUrl.style.display = srcSel.value === "custom" ? "" : "none";
