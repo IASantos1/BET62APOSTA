@@ -4,12 +4,13 @@
   "type": "module",
   "description": "Integracao BET62 com BetBY sportsbook - captura JWT, proxy reverso e iframe",
   "scripts": {
-    "capture:jwt": "node capture-jwt.mjs",
-    "jwt:service": "node jwt-service.mjs",
+    "postinstall": "node scripts/ensure-playwright-path.mjs && npx playwright install chromium",
+    "capture:jwt": "node scripts/ensure-playwright-path.mjs && node capture-jwt.mjs",
+    "jwt:service": "node scripts/ensure-playwright-path.mjs && node jwt-service.mjs",
     "api:live": "node api/live.mjs",
     "api:desc": "node api/descriptions.mjs",
     "api:ws": "node api/websocket.mjs",
-    "install:browser": "npx playwright install chromium"
+    "install:browser": "node scripts/ensure-playwright-path.mjs && npx playwright install chromium"
   },
   "dependencies": {
     "playwright": "^1.50.0",

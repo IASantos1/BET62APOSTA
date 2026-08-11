@@ -1,10 +1,18 @@
-import { chromium } from "playwright";
 import { writeFileSync, existsSync, mkdirSync } from "fs";
 import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+const BROWSERS_DIR = resolve(__dirname, ".playwright-browsers");
+if (!existsSync(BROWSERS_DIR)) {
+  try { mkdirSync(BROWSERS_DIR, { recursive: true }); } catch {}
+}
+process.env.PLAYWRIGHT_BROWSERS_PATH = BROWSERS_DIR;
+process.env.PLAYWRIGHT_SKIP_BROWSER_GC = "1";
+
+const { chromium } = await import("playwright");
 
 const BETBY_DEMO_URL = "https://demo.betby.com";
 const BETBY_SPORTSBOOK_URL =
@@ -54,11 +62,18 @@ function saveResult(jwt, payload, brandId, capturedAt) {
   return data;
 }
 
+function resolveHeadlessMode(h) {
+  if (h === false) return false;
+  if (h === "new" || h === "chrome") return h;
+  return "new";
+}
+
 async function captureJwt(options = {}) {
   const { headless = true, timeoutMs = 15000, saveToDisk = true } = options;
+  const headlessMode = resolveHeadlessMode(headless);
 
-  console.log(`[betby] Launching Chromium (headless=${headless})...`);
-  const browser = await chromium.launch({ headless });
+  console.log(`[betby] Launching Chromium (headless=${headlessMode})...`);
+  const browser = await chromium.launch({ headless: headlessMode });
   const context = await browser.newContext({
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
