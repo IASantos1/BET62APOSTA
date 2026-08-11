@@ -20,13 +20,27 @@ const UPSTREAMS = {
     needsAuth: true,
   },
   demoapi: {
-    label: "demoapi.betby.com (v4)",
+    label: "demoapi.betby.com (v4 live/prematch + v1 promo/widget)",
     base: () => "https://demoapi.betby.com",
     liveUrl: (apiBase, bid, lang, sportIdOr0) =>
       `${apiBase}/api/v4/live/brand/${bid}/${lang}/${sportIdOr0}`,
     prematchUrl: (apiBase, bid, lang, sportIdOr0) =>
       `${apiBase}/api/v4/prematch/brand/${bid}/${lang}/${sportIdOr0}`,
+    promoWidgetUrl: (apiBase, bid, lang) =>
+      `${apiBase}/api/v1/promo/widget/${bid}/${lang}`,
     needsAuth: true,
+  },
+  demoUI: {
+    label: "demo.betby.com (customisator/themes)",
+    base: () => "https://demo.betby.com",
+    customisatorThemesUrl: (apiBase) => `${apiBase}/api/v2/customisator/themes`,
+    needsAuth: true,
+  },
+  staticThemes: {
+    label: "bt-app-static-themes.sptpub.com (theme.json tile)",
+    base: () => "https://bt-app-static-themes.sptpub.com",
+    blueDarkTile: (apiBase) => `${apiBase}/master/betby-demo-blue-dark-tile/theme.json`,
+    needsAuth: false,
   },
 };
 
@@ -105,6 +119,47 @@ export async function fetchBetbyEvents(options = {}) {
   };
 }
 
+async function rawGet(label, url, { jwt, dump, filename, acceptAuth = true } = {}) {
+  const creds = jwt ? { jwt } : (acceptAuth ? await ensureJwt() : { jwt: null });
+  const token = acceptAuth ? creds.jwt : null;
+  const baseHeaders = headersWithToken(token || "x");
+  if (!token) delete baseHeaders.Authorization;
+  baseHeaders.Accept = baseHeaders.Accept || "*/*";
+  console.log(`[${label}] GET ${url}`);
+  const r = await fetch(url, { headers: baseHeaders });
+  const text = await r.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  if (dump) {
+    ensureDumpDir();
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const f = filename ? filename.replace(/\$\{ts\}/g, ts) : `${label}-${ts}.json`;
+    writeFileSync(join(DUMP_DIR, f), typeof data === "string" ? data : JSON.stringify(data, null, 2));
+  }
+  return { ok: r.ok, status: r.status, url, data };
+}
+
+export async function fetchCustomisatorThemes(options = {}) {
+  const up = UPSTREAMS.demoUI;
+  const url = up.customisatorThemesUrl(up.base());
+  return rawGet("customisator-themes", url, { jwt: options.jwt, dump: options.dump });
+}
+
+export async function fetchPromoWidget(options = {}) {
+  const lang = options.lang || "en";
+  const up = UPSTREAMS.demoapi;
+  const creds = options.jwt && options.brandId ? { jwt: options.jwt, brandId: options.brandId } : await ensureJwt();
+  const bid = options.brandId || creds.brandId || getBrandId();
+  const url = up.promoWidgetUrl(up.base(), bid, lang);
+  return rawGet("promo-widget", url, { jwt: creds.jwt, dump: options.dump });
+}
+
+export async function fetchTileTheme(options = {}) {
+  const up = UPSTREAMS.staticThemes;
+  const url = up.blueDarkTile(up.base());
+  return rawGet("static-theme-tile", url, { jwt: null, acceptAuth: false, dump: options.dump });
+}
+
 export function normalizeLiveItems(payload) {
   const items =
     payload?.items ||
@@ -178,6 +233,34 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
           Object.entries(UPSTREAMS).map(([k, v]) => [k, { label: v.label, base: v.base() }])
         )));
       }
+      if (u.pathname === "/themes" || u.pathname === "/customisator/themes") {
+        try {
+          const r = await fetchCustomisatorThemes({ dump: u.searchParams.get("dump") === "1" });
+          res.writeHead(r.status);
+          return res.end(JSON.stringify(r));
+        } catch (e) { res.writeHead(500); return res.end(JSON.stringify({ error: e.message })); }
+      }
+      if (u.pathname === "/promo/widget" || u.pathname.startsWith("/api/v1/promo/widget/")) {
+        try {
+          const parts = u.pathname.split("/").filter(Boolean);
+          const guessBrand = parts[4] || null;
+          const guessLang = parts[5] || null;
+          const r = await fetchPromoWidget({
+            lang: guessLang || u.searchParams.get("lang") || "en",
+            brandId: guessBrand || u.searchParams.get("brandId") || undefined,
+            dump: u.searchParams.get("dump") === "1",
+          });
+          res.writeHead(r.status);
+          return res.end(JSON.stringify(r));
+        } catch (e) { res.writeHead(500); return res.end(JSON.stringify({ error: e.message })); }
+      }
+      if (u.pathname === "/static-theme" || u.pathname.endsWith("/betby-demo-blue-dark-tile/theme.json")) {
+        try {
+          const r = await fetchTileTheme({ dump: u.searchParams.get("dump") === "1" });
+          res.writeHead(r.status);
+          return res.end(JSON.stringify(r));
+        } catch (e) { res.writeHead(500); return res.end(JSON.stringify({ error: e.message })); }
+      }
       res.writeHead(404);
       res.end(JSON.stringify({
         error: "not_found",
@@ -186,6 +269,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
           "/live?lang=en&sportId=0&src=demoapi|sptpub&normalize=1",
           "/prematch?lang=en&sportId=0&src=demoapi|sptpub&normalize=1",
           "/upstreams",
+          "/themes  (-> demo.betby.com /api/v2/customisator/themes)",
+          "/promo/widget?brandId=X&lang=en   (-> demoapi.betby.com)",
+          "/static-theme  (-> bt-app-static-themes.sptpub.com /master/betby-demo-blue-dark-tile/theme.json)",
         ],
       }));
     });
@@ -197,7 +283,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         console.log(`[live]   /prematch    -> prematch events`);
         console.log(`[live]   ?src=demoapi | ?src=sptpub`);
         console.log(`[live]   ?sportId=0 (0=todos, ex: 3572968592260 = filtrar esporte)`);
-        console.log(`[live]   /upstreams   -> lista hosts disponiveis`);
+        console.log(`[live]   /upstreams    -> lista hosts disponiveis`);
+        console.log(`[live]   /themes       -> customisator themes (demo.betby.com v2)`);
+        console.log(`[live]   /promo/widget?brandId=X&lang=en`);
+        console.log(`[live]   /static-theme -> tema tile (betby-demo-blue-dark-tile/theme.json)`);
       },
     });
   } else {
@@ -205,21 +294,49 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const mode = args.includes("--prematch") ? "prematch" : "live";
     const sportArg = args.find((a) => /^--sportId=\d+$/.test(a));
     const sportId = sportArg ? Number(sportArg.split("=")[1]) : 0;
+    const langArg = args.find((a) => /^--lang=/.test(a));
+    const lang = langArg ? langArg.split("=")[1] : "en";
     const dump = args.includes("--dump");
+    const onlyThemes = args.includes("--themes");
+    const onlyPromo = args.includes("--promo");
+    const onlyTileTheme = args.includes("--tile-theme");
 
-    fetchBetbyEvents({ mode, upstream, sportId, dump })
-      .then(async (r) => {
-        console.log(`[${mode}/${r.upstream}] Status=${r.status} | Items=${r.count}`);
-        const norm = normalizeLiveItems(r.data);
-        norm.slice(0, 6).forEach((e) => {
-          const sc = (e.score.home ?? "?") + "-" + (e.score.away ?? "?");
-          console.log(`  • ${e.sport || "?"} | ${e.league || "?"} | ${e.home || "?"} x ${e.away || "?"} — ${sc}`);
-        });
-        if (norm.length > 6) console.log(`  ... +${norm.length - 6} eventos`);
-        if (r.count === 0 && r.data) console.log("[dica] payload keys:", Object.keys(r.data).slice(0, 12));
-      })
-      .catch((e) => { console.error(e); process.exit(1); });
+    if (onlyThemes) {
+      fetchCustomisatorThemes({ dump }).then((r) => {
+        console.log(`[customisator-themes] status=${r.status} keys=${r.data && typeof r.data === "object" ? Object.keys(r.data).slice(0,10).join(",") : "?"}`);
+      }).catch(fatal);
+    } else if (onlyPromo) {
+      fetchPromoWidget({ lang, dump }).then((r) => {
+        console.log(`[promo-widget] status=${r.status} type=${typeof r.data} keys=${r.data && typeof r.data === "object" ? Object.keys(r.data).slice(0,10).join(",") : "?"}`);
+      }).catch(fatal);
+    } else if (onlyTileTheme) {
+      fetchTileTheme({ dump }).then((r) => {
+        console.log(`[static-theme-tile] status=${r.status} keys=${r.data && typeof r.data === "object" ? Object.keys(r.data).slice(0,10).join(",") : "?"}`);
+      }).catch(fatal);
+    } else {
+      fetchBetbyEvents({ mode, upstream, sportId, lang, dump })
+        .then(async (r) => {
+          console.log(`[${mode}/${r.upstream}] Status=${r.status} | Items=${r.count}`);
+          const norm = normalizeLiveItems(r.data);
+          norm.slice(0, 6).forEach((e) => {
+            const sc = (e.score.home ?? "?") + "-" + (e.score.away ?? "?");
+            console.log(`  • ${e.sport || "?"} | ${e.league || "?"} | ${e.home || "?"} x ${e.away || "?"} — ${sc}`);
+          });
+          if (norm.length > 6) console.log(`  ... +${norm.length - 6} eventos`);
+          if (r.count === 0 && r.data) console.log("[dica] payload keys:", Object.keys(r.data).slice(0, 12));
+        })
+        .catch(fatal);
+    }
   }
 }
 
-export default { fetchBetbyEvents, normalizeLiveItems, UPSTREAMS };
+function fatal(e) { console.error(e); process.exit(1); }
+
+export default {
+  fetchBetbyEvents,
+  fetchCustomisatorThemes,
+  fetchPromoWidget,
+  fetchTileTheme,
+  normalizeLiveItems,
+  UPSTREAMS,
+};

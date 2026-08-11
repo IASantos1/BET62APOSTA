@@ -16,6 +16,8 @@ const DEFAULT_RENEW_BEFORE_SEC = 300;
 const BETBY_UPSTREAM = "https://demo.betby.com";
 const BETBY_API_UPSTREAM = DEFAULT_API_BASE;
 const BETBY_DEMOAPI_UPSTREAM = "https://demoapi.betby.com";
+const BETBY_STATIC_UPSTREAM = "https://bt-app-static-themes.sptpub.com";
+const TRANSLATE_UPSTREAM = "https://translate.googleapis.com";
 const STATIC_ROOT = __dirname;
 const SPORTSBOOK_DEFAULT =
   "/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
@@ -130,7 +132,13 @@ function rewriteBetbyBody(text, hostHeader, reqProto) {
     .replaceAll(/\/\/demo\.betby\.com\//g, `//${hostHeader}/betby/`)
     .replaceAll(/"demo\.betby\.com"/g, `"${hostHeader}"`)
     .replaceAll(/https?:\/\/api-h-c7818b61-608\.sptpub\.com\//g, `${publicBase}/betby-api/`)
-    .replaceAll(/\/\/api-h-c7818b61-608\.sptpub\.com\//g, `//${hostHeader}/betby-api/`);
+    .replaceAll(/\/\/api-h-c7818b61-608\.sptpub\.com\//g, `//${hostHeader}/betby-api/`)
+    .replaceAll(/https?:\/\/demoapi\.betby\.com\//g, `${publicBase}/betby-api-v4/`)
+    .replaceAll(/\/\/demoapi\.betby\.com\//g, `//${hostHeader}/betby-api-v4/`)
+    .replaceAll(/https?:\/\/bt-app-static-themes\.sptpub\.com\//g, `${publicBase}/betby-static/`)
+    .replaceAll(/\/\/bt-app-static-themes\.sptpub\.com\//g, `//${hostHeader}/betby-static/`)
+    .replaceAll(/https?:\/\/translate\.googleapis\.com\//g, `${publicBase}/translate/`)
+    .replaceAll(/\/\/translate\.googleapis\.com\//g, `//${hostHeader}/translate/`);
 }
 
 function stripBlockingHeaders(headersIn, hostHeader) {
@@ -192,6 +200,9 @@ async function proxyPass(req, res, upstreamBase, pathAndQuery, { host = null, au
       const proto = (req.headers["x-forwarded-proto"] || "http");
       if (loc.startsWith(BETBY_UPSTREAM)) loc = `${proto}://${hostHeader}/betby${loc.slice(BETBY_UPSTREAM.length)}`;
       else if (loc.startsWith(BETBY_API_UPSTREAM)) loc = `${proto}://${hostHeader}/betby-api${loc.slice(BETBY_API_UPSTREAM.length)}`;
+      else if (loc.startsWith(BETBY_DEMOAPI_UPSTREAM)) loc = `${proto}://${hostHeader}/betby-api-v4${loc.slice(BETBY_DEMOAPI_UPSTREAM.length)}`;
+      else if (loc.startsWith(BETBY_STATIC_UPSTREAM)) loc = `${proto}://${hostHeader}/betby-static${loc.slice(BETBY_STATIC_UPSTREAM.length)}`;
+      else if (loc.startsWith(TRANSLATE_UPSTREAM)) loc = `${proto}://${hostHeader}/translate${loc.slice(TRANSLATE_UPSTREAM.length)}`;
       extraOutHeaders["Location"] = loc;
     }
     const raw = await r.arrayBuffer();
@@ -250,6 +261,9 @@ export async function startJwtService(options = {}) {
           routes: [
             "/health", "/jwt", "/proxy/*", "/iframe.html", "/",
             "/betby/*", "/betby-api/*", "/betby-api-v4/*",
+            "/betby-static/*", "/translate/*",
+            "/betby/api/v2/customisator/themes",
+            "/betby-api-v4/api/v1/promo/widget/{brandId}/{lang}",
           ],
         }));
       }
@@ -266,6 +280,9 @@ export async function startJwtService(options = {}) {
           capturedAt: currentCreds?.capturedAt || null,
           sportsbookUrl: currentCreds?.sportsbookUrl || null,
           embedProxy: `http://${req.headers["host"]}/betby${SPORTSBOOK_DEFAULT}`,
+          customisatorThemes: `http://${req.headers["host"]}/betby/api/v2/customisator/themes`,
+          promoWidget: `http://${req.headers["host"]}/betby-api-v4/api/v1/promo/widget/${getBrandId()}/en`,
+          blueDarkTileTheme: `http://${req.headers["host"]}/betby-static/master/betby-demo-blue-dark-tile/theme.json`,
         }));
       }
 
@@ -292,6 +309,44 @@ export async function startJwtService(options = {}) {
         return proxyPass(req, res, BETBY_UPSTREAM, realPath + url.search, {
           host: "demo.betby.com",
           rewriteHtml: true,
+        });
+      }
+
+      // ===== CDN estático sptpub (bt-app-static-themes) =====
+      if (p.startsWith("/betby-static/")) {
+        const targetPath = p.replace(/^\/betby-static/, "");
+        return proxyPass(req, res, BETBY_STATIC_UPSTREAM, targetPath + url.search, {
+          host: "bt-app-static-themes.sptpub.com",
+          rewriteHtml: false,
+        });
+      }
+
+      // ===== Google Translate (anti-CORS) =====
+      if (p === "/translate" || p.startsWith("/translate/")) {
+        const targetPath = p === "/translate" ? "/" : p.slice("/translate".length);
+        return proxyPass(req, res, TRANSLATE_UPSTREAM, targetPath + url.search, {
+          host: "translate.googleapis.com",
+          rewriteHtml: false,
+        });
+      }
+
+      // ===== Promo Widget (demoapi) =====
+      if (p.startsWith("/betby-api-v4/api/v1/promo/widget/")) {
+        const targetPath = p.replace(/^\/betby-api-v4/, "");
+        return proxyPass(req, res, BETBY_DEMOAPI_UPSTREAM, targetPath + url.search, {
+          host: "demoapi.betby.com",
+          authHeader: `Bearer ${getJwt()}`,
+          rewriteHtml: false,
+        });
+      }
+
+      // ===== Customisator Themes (demo.betby.com) =====
+      if (p.startsWith("/betby/api/v2/customisator/")) {
+        const targetPath = p.replace(/^\/betby/, "");
+        return proxyPass(req, res, BETBY_UPSTREAM, targetPath + url.search, {
+          host: "demo.betby.com",
+          authHeader: `Bearer ${getJwt()}`,
+          rewriteHtml: false,
         });
       }
 
@@ -332,6 +387,10 @@ export async function startJwtService(options = {}) {
           "proxy-betby-ui":   "/betby/sportsbook/tile?… (CSP/X-Frame removidos, URLs reescritas)",
           "proxy-betby-api":  "/betby-api/<path> (sptpub, Authorization: Bearer injetado)",
           "proxy-betby-demoapi-v4": "/betby-api-v4/api/v4/<path> (demoapi.betby.com, v4 live/prematch, Bearer injetado)",
+          "proxy-betby-promo":  "/betby-api-v4/api/v1/promo/widget/<brandId>/<lang>",
+          "proxy-betby-custom": "/betby/api/v2/customisator/themes",
+          "proxy-betby-static": "/betby-static/master/betby-demo-blue-dark-tile/theme.json  (CDN sptpub)",
+          "proxy-translate":    "/translate/_/translate_http/… (Google Translate, anti-CORS)",
         },
       }));
     });
@@ -348,6 +407,10 @@ export async function startJwtService(options = {}) {
         console.log(`[jwt-service]                     ^^^ Sportsbook PROXYADO (sem CSP / X-Frame!)`);
         console.log(`[jwt-service]   ${base}/betby-api/<p>  -> sptpub (Auth Bearer injetado)`);
         console.log(`[jwt-service]   ${base}/betby-api-v4/<p> -> demoapi.betby.com (v4 live/prematch, Auth Bearer injetado)`);
+        console.log(`[jwt-service]   ${base}/betby-static/master/betby-demo-blue-dark-tile/theme.json  <- tema tile`);
+        console.log(`[jwt-service]   ${base}/betby/api/v2/customisator/themes`);
+        console.log(`[jwt-service]   ${base}/betby-api-v4/api/v1/promo/widget/${DEFAULT_BRAND_ID}/en`);
+        console.log(`[jwt-service]   ${base}/translate/* -> Google Translate (anti-CORS)`);
       },
     });
   }
