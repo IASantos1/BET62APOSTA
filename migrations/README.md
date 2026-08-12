@@ -14,11 +14,13 @@ Use one of these safe paths instead:
 1. Preferred: run `npm run db:railway:push`
 2. Manual repair for an existing Railway database with drift: apply `migrations/0018_repair_railway_postgres_schema.sql`
 3. If PostgreSQL reports `profiles_user_id_fkey cannot be implemented`: apply `migrations/0037_fix_profiles_users_fk_postgres.sql`
+4. To add provider reconciliation tables for PulseScore/API-Football style matching: apply `migrations/0040_add_provider_reconciliation_postgres.sql`
 
 The current PostgreSQL schema uses:
 
 - `users(id)` as the canonical auth table
 - `profiles.user_id REFERENCES users(id) ON DELETE CASCADE`
+- `provider_team_mappings`, `provider_fixture_mappings` and `provider_live_stats` for provider reconciliation without reusing legacy D1 table names
 
 ## Legacy Files
 
