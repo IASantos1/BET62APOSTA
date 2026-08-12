@@ -23,7 +23,12 @@ const SPORTSBOOK_DEFAULT =
   "/sportsbook/tile/?_gl=1*5b9qwe*_gcl_au*MTQ5NDg1NjMyOC4xNzg1NjkxODYy";
 const BETBY_TRACKER_DEFAULT_BUILD = "05d0f564";
 const BETBY_TRACKER_PROVIDER_ID = "statscore";
-const BETBY_V4_DEFAULT_TREE_ID = "3572980260248";
+const BETBY_V4_DEFAULT_TREE_ID = "3572986388209";
+const BETBY_V4_USER_TREE_IDS = ["3572986388209", "1786493713716", "3572984491760", "3572984467755", "3572980716346", "3572980260248"];
+const BETBY_V4_TREE_CACHE_TTL_MS = 4 * 60 * 1000;
+const BETBY_V4_TREE_FETCH_TIMEOUT_MS = 18000;
+const BETBY_V4_RESOLVE_MAX_FALLBACKS = 8;
+const v4TreeResolutionCache = new Map();
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -179,6 +184,126 @@ function buildTrackerUrl({ eventId, sportId, lang, live, provider, build = BETBY
   const p = providers || buildTrackerProviders({ eventId, sportId, lang, live, provider });
   return `/${build}/tracker.html?providers=${encodeURIComponent(JSON.stringify(p))}`;
 }
+
+async function fetchV4JsonDirect({ kind, brandId, lang, treeId, withAuth = true }) {
+  const upstream = `${BETBY_DEMOAPI_UPSTREAM.replace(/\/$/, "")}/api/v4/${kind}/brand/${brandId}/${lang}/${treeId}`;
+  const upstreamHost = "demoapi.betby.com";
+  const inj = getSessionInjection(upstreamHost);
+  const headers = {
+    Host: upstreamHost,
+    Accept: "application/json",
+    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+    "User-Agent": inj.userAgent || "Bet62-NodeProxy/1.0",
+    Origin: BETBY_DEMOAPI_UPSTREAM,
+    Referer: `${BETBY_DEMOAPI_UPSTREAM}/`,
+    ...(inj.cookie ? { Cookie: inj.cookie } : {}),
+    ...(inj.extraHeaders || {}),
+    ...(withAuth ? { Authorization: `Bearer ${getJwt() || ""}` } : {}),
+  };
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), BETBY_V4_TREE_FETCH_TIMEOUT_MS);
+  try {
+    const r = await fetch(upstream, { headers, redirect: "manual", signal: ctrl.signal });
+    const text = await r.text();
+    if (!r.ok) return { ok: false, status: r.status, error: `HTTP ${r.status}`, textLen: text.length };
+    try {
+      const j = JSON.parse(text);
+      return {
+        ok: true,
+        status: r.status,
+        textLen: text.length,
+        json: j,
+        eventsLen: Array.isArray(j.events) ? j.events.length : 0,
+        sportsLen: Array.isArray(j.sports) ? j.sports.length : 0,
+        catsLen: Array.isArray(j.categories) ? j.categories.length : 0,
+        trnsLen: Array.isArray(j.tournaments) ? j.tournaments.length : 0,
+      };
+    } catch (e) {
+      return { ok: true, status: r.status, textLen: text.length, error: `JSON parse: ${e.message}` };
+    }
+  } catch (e) {
+    return { ok: false, status: 0, error: e.name === "AbortError" ? "timeout" : e.message, textLen: 0 };
+  } finally {
+    clearTimeout(to);
+  }
+}
+
+function measureFullness(r) {
+  if (!r || !r.ok || !r.json) return -1;
+  let evCount = Array.isArray(r.json.events) ? r.json.events.length : 0;
+  if (evCount === 0 && r.json.events && typeof r.json.events === "object") {
+    evCount = Object.keys(r.json.events).length;
+  }
+  const spCount = Array.isArray(r.json.sports)
+    ? r.json.sports.length
+    : r.json.sports && typeof r.json.sports === "object"
+    ? Object.keys(r.json.sports).length
+    : 0;
+  const trCount = Array.isArray(r.json.tournaments)
+    ? r.json.tournaments.length
+    : r.json.tournaments && typeof r.json.tournaments === "object"
+    ? Object.keys(r.json.tournaments).length
+    : 0;
+  const catCount = Array.isArray(r.json.categories)
+    ? r.json.categories.length
+    : r.json.categories && typeof r.json.categories === "object"
+    ? Object.keys(r.json.categories).length
+    : 0;
+  return evCount * 1000 + trCount * 10 + spCount + catCount;
+}
+
+async function resolveBestTreeId(kind, brandId, lang, { force = false } = {}) {
+  const cacheKey = `${kind}:${brandId}:${lang}`;
+  const now = Date.now();
+  if (!force) {
+    const hit = v4TreeResolutionCache.get(cacheKey);
+    if (hit && now - hit.at < BETBY_V4_TREE_CACHE_TTL_MS) {
+      return hit;
+    }
+  }
+  const fallbackIds = new Set();
+  function addId(x) { if (x !== null && x !== undefined && x !== "") fallbackIds.add(String(x)); }
+  BETBY_V4_USER_TREE_IDS.forEach(addId);
+  addId(BETBY_V4_DEFAULT_TREE_ID);
+  const meta = await fetchV4JsonDirect({ kind, brandId, lang, treeId: "0", withAuth: true });
+  if (meta?.ok && meta?.json) {
+    const top = Array.isArray(meta.json.top_events_versions) ? meta.json.top_events_versions : [];
+    const rest = Array.isArray(meta.json.rest_events_versions) ? meta.json.rest_events_versions : [];
+    [...top, ...rest].forEach(addId);
+  }
+  const candidates = Array.from(fallbackIds).slice(0, BETBY_V4_RESOLVE_MAX_FALLBACKS + 4);
+  let bestId = candidates[0] || BETBY_V4_DEFAULT_TREE_ID;
+  let bestScore = -1;
+  let bestResult = null;
+  const tried = [];
+  for (const id of candidates) {
+    const r = await fetchV4JsonDirect({ kind, brandId, lang, treeId: id, withAuth: true });
+    const score = measureFullness(r);
+    tried.push({ id, ok: !!r.ok, status: r.status, events: r.eventsLen || 0, sports: r.sportsLen || 0, err: r.error || null, score });
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = id;
+      bestResult = r;
+    }
+    if (score > 0) break;
+  }
+  const resolution = {
+    at: now,
+    kind, brandId, lang,
+    treeId: bestId,
+    score: bestScore,
+    events: bestResult?.eventsLen || 0,
+    sports: bestResult?.sportsLen || 0,
+    cats: bestResult?.catsLen || 0,
+    trns: bestResult?.trnsLen || 0,
+    triedCount: tried.length,
+    tried,
+    meta: { ok: !!meta?.ok, status: meta?.status || 0, topEvents: (meta?.json?.top_events_versions || []).slice(0, 10), restEvents: (meta?.json?.rest_events_versions || []).slice(0, 10) },
+  };
+  v4TreeResolutionCache.set(cacheKey, resolution);
+  return resolution;
+}
+
 
 function scheduleRenewal() {
   if (renewTimer) clearInterval(renewTimer);
@@ -339,12 +464,17 @@ export async function startJwtService(options = {}) {
       if (p === "/health") {
         const sess = loadSession(false);
         const cfCookies = sess?.cloudflareCookies || {};
+        const brandId = getBrandId();
+        const [liveRes, preRes] = await Promise.all([
+          resolveBestTreeId("live", brandId, DEFAULT_LANG).catch(() => null),
+          resolveBestTreeId("prematch", brandId, DEFAULT_LANG).catch(() => null),
+        ]);
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         return res.end(JSON.stringify({
           ok: true,
           authenticated: isAuthenticated(60),
           expiresInSec: secondsUntilExpire(currentCreds),
-          brandId: getBrandId(),
+          brandId,
           cfSession: {
             loaded: !!sess,
             capturedAt: sess?.capturedAt || null,
@@ -355,22 +485,35 @@ export async function startJwtService(options = {}) {
             extraHeadersCount: Object.keys(sess?.extra?.requestHeadersSeen || {}).length,
           },
           v4Patterns: {
-            note: "demoapi.betby.com v4 usa treeId ao invés de query brandId/lang",
+            note: "demoapi.betby.com v4 usa treeId ao invés de query brandId/lang. /v4/live e /v4/prematch (sem treeId) agora usam resolveBestTreeId() com fallback dinâmico: user URLs coladas → meta top_events_versions → rest_events_versions, escolhendo primeiro treeId com events>0.",
             rootMeta:  "/api/v4/{live|prematch}/brand/{brandId}/{lang}/0  (meta/versions)",
             fullTree:  `/api/v4/{live|prematch}/brand/{brandId}/{lang}/{treeId}  (sports+categories+tournaments+events)`,
+            autoResolve: {
+              ttlMs: BETBY_V4_TREE_CACHE_TTL_MS,
+              userIds: BETBY_V4_USER_TREE_IDS,
+              maxFallbacks: BETBY_V4_RESOLVE_MAX_FALLBACKS,
+              live: liveRes ? { treeId: liveRes.treeId, events: liveRes.events, sports: liveRes.sports, score: liveRes.score, tried: liveRes.triedCount } : null,
+              prematch: preRes ? { treeId: preRes.treeId, events: preRes.events, sports: preRes.sports, score: preRes.score, tried: preRes.triedCount } : null,
+            },
             shortcutsHosted: [
-              `/v4/live       → fullTree default treeId=${BETBY_V4_DEFAULT_TREE_ID}`,
-              `/v4/prematch   → fullTree default treeId=${BETBY_V4_DEFAULT_TREE_ID}`,
+              `/v4/live       → fullTree auto-resolve (best treeId, fallback dinamico)`,
+              `/v4/live?resolve=1 → força re-resolver limpando cache 4min`,
+              `/v4/prematch   → fullTree auto-resolve (best treeId)`,
               `/v4/live/0     → rootMeta`,
-              `/v4/live/{id}  → fullTree custom`,
+              `/v4/live/{id}  → fullTree custom (explicito, sem fallback)`,
               `/v4/prematch/0 → rootMeta`,
               `/v4/prematch/{id} → fullTree custom`,
+              `/v4/event/{id} → evento INDIVIDUAL (default kind=live, path real: /event/en/{id})`,
+              `/v4/live/event/{id} → evento INDIVIDUAL kind=live explicito`,
+              `/v4/debug/{live|prematch}?resolve=1 → verbose resolucao (candidatos, scores, tentativas)`,
             ],
           },
           routes: [
             "/health", "/jwt", "/proxy/*", "/iframe.html", "/",
             "/betby/*", "/betby-api/*", "/betby-api-v4/*",
             "/v4/live", "/v4/live/:treeId", "/v4/prematch", "/v4/prematch/:treeId",
+            "/v4/event/:eventId", "/v4/live/event/:eventId", "/v4/prematch/event/:eventId",
+            "/v4/debug/live", "/v4/debug/prematch",
             "/betby-static/*", "/translate/*",
             "/betby/api/v2/customisator/themes",
             "/betby-api-v4/api/v1/promo/widget/{brandId}/{lang}",
@@ -424,7 +567,8 @@ export async function startJwtService(options = {}) {
       }
 
       // ===== Rotas atalho amigaveis v4 live/prematch =====
-      //   /v4/live            => /api/v4/live/brand/{brandId}/{lang}/{defaultTreeId}
+      //   /v4/live            => /api/v4/live/brand/{brandId}/{lang}/{BEST treeId via fallback dinamico}
+      //   /v4/live?resolve=1  => força re-resolver (ignora cache)
       //   /v4/live/0          => /api/v4/live/brand/{brandId}/{lang}/0  (meta)
       //   /v4/live/{treeId}   => /api/v4/live/brand/{brandId}/{lang}/{treeId}
       //   /v4/prematch [...]  (mesma logica)
@@ -434,13 +578,80 @@ export async function startJwtService(options = {}) {
           const [ , kind, rawId ] = m;
           const qLang = url.searchParams.get("lang") || DEFAULT_LANG;
           const qBrand = url.searchParams.get("brandId") || getBrandId();
-          const treeId = (rawId && rawId.length) ? rawId : BETBY_V4_DEFAULT_TREE_ID;
-          const targetPath = `/api/v4/${kind}/brand/${qBrand}/${qLang}/${treeId}${url.search && rawId ? url.search : ""}`;
+          const forceResolve = url.searchParams.get("resolve") === "1";
+          const userExplicitTreeId = (rawId && rawId.length && rawId !== "0");
+          let treeId = userExplicitTreeId ? rawId : BETBY_V4_DEFAULT_TREE_ID;
+          let resolution = null;
+          if (!userExplicitTreeId && rawId !== "0") {
+            resolution = await resolveBestTreeId(kind, qBrand, qLang, { force: forceResolve });
+            treeId = resolution?.treeId || BETBY_V4_DEFAULT_TREE_ID;
+          }
+          const targetPath = `/api/v4/${kind}/brand/${qBrand}/${qLang}/${treeId}${url.search && (rawId || url.searchParams.get("lang") || url.searchParams.get("brandId") || url.searchParams.get("resolve")) ? url.search : ""}`;
+          const extraOutHeaders = {
+            "X-Betby-Tree-Id": String(treeId),
+            "X-Betby-Tree-Kind": kind,
+          };
+          if (resolution) {
+            extraOutHeaders["X-Betby-Tree-Resolved"] = "1";
+            extraOutHeaders["X-Betby-Tree-Score"] = String(resolution.score || 0);
+            extraOutHeaders["X-Betby-Tree-Events"] = String(resolution.events || 0);
+            extraOutHeaders["X-Betby-Tree-Sports"] = String(resolution.sports || 0);
+            extraOutHeaders["X-Betby-Tree-Tried"] = String(resolution.triedCount || 0);
+          } else if (rawId === "0") {
+            extraOutHeaders["X-Betby-Tree-Resolved"] = "meta";
+          } else {
+            extraOutHeaders["X-Betby-Tree-Resolved"] = "explicit";
+          }
           return proxyPass(req, res, BETBY_DEMOAPI_UPSTREAM, targetPath, {
             host: "demoapi.betby.com",
             authHeader: `Bearer ${getJwt()}`,
             rewriteHtml: false,
+            extraOutHeaders,
           });
+        }
+      }
+
+      // ===== Rota atalho evento INDIVIDUAL v4 =====
+      //   /v4/event/{eventId}              => /api/v4/live/brand/{brandId}/event/{lang}/{eventId}  (default kind=live)
+      //   /v4/{kind}/event/{eventId}       => /api/v4/{kind}/brand/{brandId}/event/{lang}/{eventId}
+      //   query params opcionais: ?lang=pt&brandId=xxx
+      {
+        const mEvt = p.match(/^\/v4\/(?:(live|prematch)\/)?event\/([^\/]+)$/);
+        if (mEvt) {
+          const kind = mEvt[1] || "live";
+          const eventId = mEvt[2];
+          const qLang = url.searchParams.get("lang") || DEFAULT_LANG;
+          const qBrand = url.searchParams.get("brandId") || getBrandId();
+          const targetPath = `/api/v4/${kind}/brand/${qBrand}/event/${qLang}/${eventId}${url.search ? url.search : ""}`;
+          const extraOutHeaders = {
+            "X-Betby-Event-Id": String(eventId),
+            "X-Betby-Event-Kind": kind,
+            "X-Betby-Tree-Resolved": "event",
+          };
+          return proxyPass(req, res, BETBY_DEMOAPI_UPSTREAM, targetPath, {
+            host: "demoapi.betby.com",
+            authHeader: `Bearer ${getJwt()}`,
+            rewriteHtml: false,
+            extraOutHeaders,
+          });
+        }
+      }
+
+      // ===== Rota de debug /v4/debug/{live|prematch} -> resolveBestTreeId verbose =====
+      {
+        const m2 = p.match(/^\/v4\/debug\/(live|prematch)$/);
+        if (m2) {
+          const kind = m2[1];
+          const qLang = url.searchParams.get("lang") || DEFAULT_LANG;
+          const qBrand = url.searchParams.get("brandId") || getBrandId();
+          const force = url.searchParams.get("resolve") === "1";
+          const r = await resolveBestTreeId(kind, qBrand, qLang, { force });
+          res.writeHead(200, {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+            "X-Betby-Tree-Id": r.treeId,
+          });
+          return res.end(JSON.stringify(r, null, 2));
         }
       }
 
@@ -610,6 +821,7 @@ export async function startJwtService(options = {}) {
         console.log(`[jwt-service]   ${base}/v4/prematch      -> v4 PREMATCH full tree (treeId=${BETBY_V4_DEFAULT_TREE_ID})`);
         console.log(`[jwt-service]   ${base}/v4/live/0        -> v4 LIVE meta (versions/epoch)`);
         console.log(`[jwt-service]   ${base}/v4/prematch/0    -> v4 PREMATCH meta`);
+        console.log(`[jwt-service]   ${base}/v4/event/{id}    -> evento INDIVIDUAL (kind=live, /event/en/{id})`);
         console.log(`[jwt-service]   ${base}/betby-static/master/betby-demo-blue-dark-tile/theme.json  <- tema tile`);
         console.log(`[jwt-service]   ${base}/betby/api/v2/customisator/themes`);
         console.log(`[jwt-service]   ${base}/betby-api-v4/api/v1/promo/widget/${DEFAULT_BRAND_ID}/en`);

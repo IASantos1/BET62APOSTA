@@ -2,7 +2,7 @@ import { useApp } from '@/react-app/contexts/AppContext';
 import { apiFetch } from '@/react-app/utils/api';
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from 'react';
-import { NotepadText } from 'lucide-react';
+import { NotepadText, Zap, Timer } from 'lucide-react';
 
 const SPORT_AVATARS = ['🐯','🦁','🐻','🐼','🦊','🐸','🦋','🐬','🦅','🐺','🐊','🐙','🦑','🦓','🦒','🐘','🦏','🦛','🐆','🐅'];
 function getEmojiAvatar(name: string): string {
@@ -182,8 +182,18 @@ export function Header() {
               <NavBtn to="/" active={isActive('/')} onClick={() => setSelectedCategory(null)}>
                 Desporto
               </NavBtn>
-              <NavBtn to="/live" active={isActive('/live')}>
+              <NavBtn to="/live" active={isActive('/live') && !isActive('/live-betby')}>
                 Ao Vivo
+              </NavBtn>
+              <NavBtn to="/live-betby" active={isActive('/live-betby')}>
+                <span className="inline-flex items-center gap-1.5">
+                  <Zap className="w-4 h-4" /> LIVE BetBY
+                </span>
+              </NavBtn>
+              <NavBtn to="/prematch-betby" active={isActive('/prematch-betby')}>
+                <span className="inline-flex items-center gap-1.5">
+                  <Timer className="w-4 h-4" /> Pré BetBY
+                </span>
               </NavBtn>
               <NavBtn to="/casino" active={isActive('/casino')}>
                 Casino

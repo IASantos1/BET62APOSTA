@@ -53,6 +53,9 @@ import { CookieBanner } from './components/CookieBanner';
 import { MobileBetSlip } from './components/MobileBetSlip';
 import { DashboardSidebar } from './components/DashboardSidebar';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import BetbyLivePage from "./pages/BetbyLivePage";
+import BetbyPrematchPage from "./pages/BetbyPrematchPage";
+import BetbyEventTrackerPage from "./pages/BetbyEventTrackerPage";
 
 // Fade-only — near-instant, no blocking wait
 const pageVariants = {
@@ -179,6 +182,9 @@ function AppContent() {
           <Routes location={location}>
             <Route path="/" element={<HomePage mode="home" />} />
             <Route path="/live" element={<HomePage mode="live" />} />
+            <Route path="/live-betby" element={<BetbyLivePage />} />
+            <Route path="/prematch-betby" element={<BetbyPrematchPage />} />
+            <Route path="/betby/event/:id" element={<BetbyEventTrackerPage />} />
             <Route path="/event/:id/stats" element={<EventStatsPage />} />
             <Route path="/event/:id" element={<EventDetails />} />
             <Route path="/deposit" element={<DepositPage />} />
